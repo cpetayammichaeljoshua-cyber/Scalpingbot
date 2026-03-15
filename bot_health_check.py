@@ -75,7 +75,7 @@ async def check_bot_health():
     # Check 5: AI processor
     checks_total += 1
     try:
-        from openai import get_openai_status
+        from openai_handler import get_openai_status
         status = get_openai_status()
         if status.get('enabled'):
             print("✅ AI processor enabled (fallback mode active)")

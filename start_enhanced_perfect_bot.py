@@ -90,7 +90,7 @@ class BotLauncher:
 
         self.logger.info("✅ Bot launcher shutdown complete")
 
-def main():
+async def main():
     """Main function to run the enhanced bot with ML learning"""
     bot = EnhancedPerfectScalpingBot()
 

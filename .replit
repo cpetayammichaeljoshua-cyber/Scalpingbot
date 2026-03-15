@@ -5,154 +5,10 @@ integrations = ["python_openai:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "pkg-config", "qhull", "ta-lib", "tcl", "tk", "u-root-cmds", "docker_28"]
+packages = ["cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "pkg-config", "qhull", "ta-lib", "tcl", "tk"]
 
 [workflows]
 runButton = "Project"
-
-[[workflows.workflow]]
-name = "Enhanced Signal Bot"
-author = 46518829
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/enhanced_signal_bot.py"
-
-[[workflows.workflow]]
-name = "Perfect Signal Bot"
-author = 46537226
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/perfect_signal_bot.py"
-
-[[workflows.workflow]]
-name = "Perfect Scalping Bot"
-author = 46555627
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/perfect_scalping_bot.py"
-
-[[workflows.workflow]]
-name = "Perfect Scalping Bot Auto-Restart"
-author = 46555627
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/process_manager.py start"
-
-[[workflows.workflow]]
-name = "Bot Process Manager"
-author = 46600198
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/process_manager.py status"
-
-[[workflows.workflow]]
-name = "Perfect Scalping Bot Fixed"
-author = 34160275
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/perfect_scalping_bot.py"
-
-[[workflows.workflow]]
-name = "Perfect Scalping Daemon"
-author = 34160275
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_daemon.py"
-
-[[workflows.workflow]]
-name = "Perfect Scalping Daemon"
-author = 34160275
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_daemon.py"
-
-[[workflows.workflow]]
-name = "Ultimate Trading Bot"
-author = 34160275
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_ultimate_bot.py"
-
-[[workflows.workflow]]
-name = "ML-Enhanced Trading Bot"
-author = 34160275
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_ml_enhanced_bot.py"
-
-[[workflows.workflow]]
-name = "Adaptive ML Trading Bot"
-author = 34160275
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_adaptive_ml_bot.py"
-
-[[workflows.workflow]]
-name = "Enhanced Perfect Scalping Bot"
-author = 46688834
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_enhanced_perfect_bot.py"
-
-[[workflows.workflow]]
-name = "Keep-Alive Service"
-author = 46688834
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python keep_alive.py"
-
-[[workflows.workflow]]
-name = "Setup Uptime Monitoring"
-author = 46688834
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python setup_uptime_monitoring.py"
-
-[[workflows.workflow]]
-name = "Enhanced Perfect Scalping Bot V2"
-author = 46695900
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_enhanced_bot_v2.py"
-
-[[workflows.workflow]]
-name = "Ultimate Scalping Bot V3"
-author = 46695900
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_ultimate_bot.py"
 
 [[workflows.workflow]]
 name = "Project"
@@ -161,123 +17,16 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Trading Bot Console"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Comprehensive FXSUSDT Bot"
+args = "AI Trading Signal Bot"
 
 [[workflows.workflow]]
-name = "Trading Bot Console"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python dynamic_comprehensive_error_fixer.py && python start_fxsusdt_bot_comprehensive_fixed.py"
-
-[[workflows.workflow]]
-name = "FXSUSDT Ichimoku Bot"
-author = 47967880
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_fxsusdt_bot.py"
-
-[[workflows.workflow]]
-name = "FXSUSDT Ichimoku Bot Enhanced"
-author = 48069824
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_fxsusdt_bot.py"
-
-[[workflows.workflow]]
-name = "Hourly Auto-Optimization"
-author = 48103457
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_hourly_automation.py"
-
-[[workflows.workflow]]
-name = "Fix All Dependencies"
-author = 48103457
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python fix_all_dependencies.py"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_hourly_automation.py"
-
-[[workflows.workflow]]
-name = "Comprehensive Error Fixer"
-author = 48103457
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python fix_all_dependencies.py"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python SignalMaestro/comprehensive_error_fixer.py"
-
-[[workflows.workflow]]
-name = "FXSUSDT Fixed Bot"
-author = 48165985
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_fxsusdt_bot_fixed.py"
-
-[[workflows.workflow]]
-name = "FXSUSDT Enhanced Fixed"
-author = 48165985
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python apply_comprehensive_console_fixes.py && python start_fxsusdt_bot_fixed.py"
-
-[[workflows.workflow]]
-name = "FXSUSDT Comprehensive Fixed"
-author = 48165985
+name = "Main Trading Bot"
 mode = "parallel"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python dynamic_comprehensive_error_fixer.py && python bot_health_check.py"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_fxsusdt_bot_comprehensive_fixed.py"
-
-[[workflows.workflow]]
-name = "Auto-Train ML Bot"
-author = 46516437
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python start_auto_train_ml_bot.py && python start_ultimate_bot.py"
-
-[[workflows.workflow]]
-name = "Comprehensive FXSUSDT Bot"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python start_comprehensive_fxsusdt_bot.py"
+args = "python3 start_ultimate_bot.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
@@ -295,4 +44,16 @@ localPort = 8080
 externalPort = 8080
 
 [deployment]
-run = ["sh", "-c", "python dynamic_comprehensive_error_fixer.py && python bot_health_check.py && python start_fxsusdt_bot_comprehensive_fixed.py"]
+run = ["sh", "-c", "python dynamic_comprehensive_error_fixer.py && python bot_health_check.py && python main.py"]
+deploymentTarget = "gce"
+ignorePorts = true
+
+[userenv]
+
+[userenv.shared]
+TELEGRAM_BOT_TOKEN = "8635116165:AAHV5y2M6qSc4Jpeoz-mI-YreZroqzlcKzU"
+BINANCE_API_KEY = "5m49E4Pjkh8B9h3lccL2hexKpcnFsb0kdHTzTk0EU7VIbhPIvvuJClhYjIsA3hYf"
+BINANCE_API_SECRET = "asMO3dYSbT6WxUcxNgIxn6kFDwDte1Td1hrENso1XPLCGskqd7zw8HpwnSsTacN5"
+OPENAI_API_KEY = "‎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"
+TELEGRAM_CHANNEL_ID = "-1003031984142"
+TELEGRAM_CHAT_ID = "1548826223"

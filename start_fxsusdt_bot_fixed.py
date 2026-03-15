@@ -69,30 +69,42 @@ logging.getLogger('requests').setLevel(logging.WARNING)
 logging.getLogger('aiohttp').setLevel(logging.WARNING)
 
 async def main():
-    """Main function with enhanced error handling"""
+    """Main function with enhanced error handling and startup message"""
     logger = logging.getLogger(__name__)
+    restart_count = 0
+    max_restarts = 5  # Prevent infinite loops
     
-    try:
-        logger.info("🚀 Starting FXSUSDT.P Ichimoku Sniper Bot (Fixed Version)")
-        logger.info("📊 Strategy: Ichimoku Cloud Analysis")
-        logger.info("⏰ Timeframe: 30 Minutes")
-        logger.info("🎯 Target: @SignalTactics")
-        logger.info("🤖 Bot: TradeTactics")
-        
-        # Initialize components
-        bot = FXSUSDTTelegramBot()
-        
-        # Start continuous monitoring
-        await bot.run_continuous_scanner()
-        
-    except KeyboardInterrupt:
-        logger.info("👋 Bot stopped by user")
-    except Exception as e:
-        logger.error(f"❌ Bot error: {e}")
-        # Auto-restart on error
-        logger.info("🔄 Attempting auto-restart...")
-        await asyncio.sleep(5)
-        await main()
+    while restart_count < max_restarts:
+        try:
+            logger.info("🚀 Starting FXSUSDT.P Ichimoku Sniper Bot (Fixed Version)")
+            logger.info("📊 Strategy: Ichimoku Cloud Analysis")
+            logger.info("⏰ Timeframe: 30 Minutes")
+            logger.info("🎯 Target: @InsiderTactics")
+            logger.info("🤖 Bot: @TradeTacticsML_bot")
+            
+            # Initialize components
+            bot = FXSUSDTTelegramBot()
+            
+            # Reset restart counter on successful initialization
+            restart_count = 0
+            
+            # Start continuous monitoring
+            await bot.run_continuous_scanner()
+            
+        except KeyboardInterrupt:
+            logger.info("👋 Bot stopped by user")
+            break
+        except Exception as e:
+            restart_count += 1
+            logger.error(f"❌ Bot error: {e}")
+            
+            if restart_count < max_restarts:
+                wait_time = min(30, 5 * restart_count)  # Exponential backoff
+                logger.info(f"🔄 Attempting auto-restart ({restart_count}/{max_restarts})... Waiting {wait_time}s")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.critical(f"❌ Max restart attempts ({max_restarts}) reached. Exiting.")
+                break
 
 if __name__ == "__main__":
     asyncio.run(main())

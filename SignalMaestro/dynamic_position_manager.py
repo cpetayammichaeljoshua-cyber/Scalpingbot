@@ -1,9 +1,9 @@
 
 #!/usr/bin/env python3
 """
-Dynamic Position Manager for FXSUSDT.P
+Dynamic Position Manager for BTCUSDT Perpetual Futures (Binance USDM)
 Handles auto leverage and dynamic stop loss/take profit using ATR
-Implements 1:2 risk/reward ratio with position sizing
+Implements 1:2+ risk/reward ratio with position sizing for BTC volatility
 """
 
 import asyncio
@@ -15,7 +15,13 @@ from datetime import datetime
 import hmac
 import hashlib
 
-from fxsusdt_trader import FXSUSDTTrader
+try:
+    from SignalMaestro.btcusdt_trader import BTCUSDTTrader as _Trader
+except ImportError:
+    try:
+        from btcusdt_trader import BTCUSDTTrader as _Trader
+    except ImportError:
+        _Trader = object
 
 @dataclass
 class PositionConfig:
@@ -32,9 +38,9 @@ class PositionConfig:
     expected_return: float
 
 class DynamicPositionManager:
-    """Manages dynamic position sizing, leverage, and SL/TP for FXSUSDT.P with advanced market adaptation"""
-    
-    def __init__(self, trader: FXSUSDTTrader):
+    """Manages dynamic position sizing, leverage, and SL/TP for BTCUSDT Perpetual with advanced market adaptation"""
+
+    def __init__(self, trader):
         self.logger = logging.getLogger(__name__)
         self.trader = trader
         
@@ -433,48 +439,18 @@ class DynamicPositionManager:
             return 0.0, 0.0
     
     async def set_leverage(self, leverage: int) -> bool:
-        """Set leverage for FXSUSDT trading"""
+        """Set leverage for BTCUSDT Perpetual Futures trading"""
         try:
-            endpoint = "/fapi/v1/leverage"
-            timestamp = int(time.time() * 1000)
-            
-            params = {
-                'symbol': self.trader.symbol,
-                'leverage': leverage,
-                'timestamp': timestamp
-            }
-            
-            # Create query string
-            query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            signature = self.trader._generate_signature(query_string)
-            
-            url = f"{self.trader.base_url}{endpoint}"
-            
-            headers = {
-                'X-MBX-APIKEY': self.trader.api_key,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-            
-            data = f"{query_string}&signature={signature}"
-            
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data, headers=headers) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        self.logger.info(f"⚡ Leverage set to {leverage}x for {self.trader.symbol}")
-                        return True
-                    else:
-                        error_text = await response.text()
-                        self.logger.error(f"Failed to set leverage: {response.status} - {error_text}")
-                        return False
-                        
+            if hasattr(self.trader, 'change_leverage'):
+                return await self.trader.change_leverage(self.trader.symbol, leverage)
+            self.logger.warning("Trader does not support change_leverage — skipping")
+            return False
         except Exception as e:
             self.logger.error(f"Error setting leverage: {e}")
             return False
     
     async def place_market_order(self, direction: str, quantity: float) -> Optional[Dict[str, Any]]:
-        """Place market order for FXSUSDT"""
+        """Place market order for BTCUSDT Perpetual Futures"""
         try:
             endpoint = "/fapi/v1/order"
             timestamp = int(time.time() * 1000)
@@ -489,19 +465,19 @@ class DynamicPositionManager:
                 'timestamp': timestamp
             }
             
-            # Create query string
+            # Create signed query string using trader's _sign method
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            signature = self.trader._generate_signature(query_string)
-            
+            signature = self.trader._sign(query_string)
+
             url = f"{self.trader.base_url}{endpoint}"
-            
+
             headers = {
                 'X-MBX-APIKEY': self.trader.api_key,
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
-            
+
             data = f"{query_string}&signature={signature}"
-            
+
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=data, headers=headers) as response:
@@ -513,7 +489,7 @@ class DynamicPositionManager:
                         error_text = await response.text()
                         self.logger.error(f"Failed to place order: {response.status} - {error_text}")
                         return None
-                        
+
         except Exception as e:
             self.logger.error(f"Error placing market order: {e}")
             return None
@@ -537,19 +513,19 @@ class DynamicPositionManager:
                 'timestamp': timestamp
             }
             
-            # Create query string
+            # Create signed query string using trader's _sign method
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            signature = self.trader._generate_signature(query_string)
-            
+            signature = self.trader._sign(query_string)
+
             url = f"{self.trader.base_url}{endpoint}"
-            
+
             headers = {
                 'X-MBX-APIKEY': self.trader.api_key,
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
-            
+
             data = f"{query_string}&signature={signature}"
-            
+
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=data, headers=headers) as response:
@@ -585,19 +561,19 @@ class DynamicPositionManager:
                 'timestamp': timestamp
             }
             
-            # Create query string
+            # Create signed query string using trader's _sign method
             query_string = '&'.join([f"{k}={v}" for k, v in params.items()])
-            signature = self.trader._generate_signature(query_string)
-            
+            signature = self.trader._sign(query_string)
+
             url = f"{self.trader.base_url}{endpoint}"
-            
+
             headers = {
                 'X-MBX-APIKEY': self.trader.api_key,
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
-            
+
             data = f"{query_string}&signature={signature}"
-            
+
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=data, headers=headers) as response:

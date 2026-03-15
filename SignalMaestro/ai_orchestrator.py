@@ -261,15 +261,6 @@ class AIOrchestrator:
             'HOLD': {'weight': 1.0, 'success_rate': 0.0, 'avg_return': 0.0}
         }
         
-        # Initialize auto-training ML system
-        try:
-            from .advanced_auto_train_ml_system import get_auto_train_system
-            self.auto_train_system = get_auto_train_system()
-            self.logger.info("🧠 Auto-training ML system integrated")
-        except Exception as e:
-            self.logger.warning(f"⚠️ Auto-training ML system not available: {e}")
-            self.auto_train_system = None
-        
         # Load historical performance
         self._load_performance_metrics()
         
@@ -399,35 +390,6 @@ class AIOrchestrator:
             )
             
             if ai_signal:
-                # Enhance with auto-training ML predictions
-                if self.auto_train_system:
-                    try:
-                        signal_data = {
-                            'symbol': symbol,
-                            'direction': ai_signal.signal_type,
-                            'entry_price': ai_signal.entry_price,
-                            'rsi': current_ml_analysis.get('rsi', 50),
-                            'macd': current_ml_analysis.get('macd', 0),
-                            'volume_ratio': context.market_conditions.get('volume_trend', 1.0),
-                            'volatility': context.market_conditions.get('volatility', 0.02),
-                            'trend_strength': context.market_conditions.get('trend_strength', 0),
-                            'market_regime': context.market_conditions.get('market_regime', 'neutral')
-                        }
-                        
-                        ml_prediction = await self.auto_train_system.predict_signal_quality(signal_data)
-                        
-                        # Update signal with ML predictions
-                        ai_signal.confidence = (ai_signal.confidence * 0.6 + ml_prediction.confidence * 0.4)
-                        ai_signal.stop_loss = ml_prediction.optimal_sl
-                        ai_signal.take_profit_1 = ml_prediction.optimal_tp[0]
-                        ai_signal.take_profit_2 = ml_prediction.optimal_tp[1]
-                        ai_signal.take_profit_3 = ml_prediction.optimal_tp[2]
-                        
-                        self.logger.info(f"🧠 ML-enhanced confidence: {ml_prediction.confidence:.1%}")
-                        
-                    except Exception as e:
-                        self.logger.warning(f"⚠️ ML enhancement failed: {e}")
-                
                 # Store signal
                 await self._store_ai_signal(ai_signal)
                 
@@ -1178,6 +1140,7 @@ class AIOrchestrator:
 
     async def _store_ai_signal(self, signal: AISignal):
         """Store AI signal in database"""
+        conn = None
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -1203,10 +1166,12 @@ class AIOrchestrator:
             ))
             
             conn.commit()
-            conn.close()
             
         except Exception as e:
             self.logger.error(f"❌ AI signal storage failed: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def get_orchestrator_insights(self) -> Dict[str, Any]:
         """Get comprehensive orchestrator insights"""
@@ -1490,6 +1455,7 @@ class AIOrchestrator:
 
     def _load_performance_metrics(self):
         """Load historical performance metrics"""
+        conn = None
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -1508,10 +1474,11 @@ class AIOrchestrator:
                     if key in data:
                         self.performance_metrics[key] = data[key]
             
-            conn.close()
-            
         except Exception as e:
             self.logger.debug(f"Performance metrics loading failed: {e}")
+        finally:
+            if conn:
+                conn.close()
     
     def _is_component_available(self, component_name: str) -> bool:
         """Check if a component is available based on capability assessment"""

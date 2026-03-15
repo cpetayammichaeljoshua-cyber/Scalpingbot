@@ -1,0 +1,83 @@
+{
+  "ml_agent_system": {
+    "enabled": true,
+    "description": "Multi-agent ML-based trading signal analysis"
+  },
+  "agent_configuration": {
+    "technical_agent": {
+      "weight": 0.25,
+      "enabled": true,
+      "indicators": ["ema", "rsi", "bollinger_bands"]
+    },
+    "momentum_agent": {
+      "weight": 0.20,
+      "enabled": true,
+      "indicators": ["macd", "price_change"]
+    },
+    "volatility_agent": {
+      "weight": 0.20,
+      "enabled": true,
+      "indicators": ["atr", "bollinger_bands_width"]
+    },
+    "volume_agent": {
+      "weight": 0.15,
+      "enabled": true,
+      "indicators": ["volume_ratio", "volume_trend"]
+    },
+    "sentiment_agent": {
+      "weight": 0.20,
+      "enabled": true,
+      "indicators": ["price_position", "trend_direction"]
+    }
+  },
+  "parallel_processing": {
+    "enabled": true,
+    "max_concurrent_tasks": 10,
+    "max_worker_threads": 4,
+    "batch_size": 5,
+    "batch_timeout_seconds": 2.0,
+    "rate_limit_ops_per_second": 20.0
+  },
+  "ml_model_settings": {
+    "min_training_samples": 20,
+    "max_history_per_symbol": 100,
+    "prediction_confidence_threshold": 0.55,
+    "learning_enabled": true
+  },
+  "dynamic_sl_tp": {
+    "enabled": true,
+    "account_balance": 1000.0,
+    "risk_per_trade_percent": 2.0,
+    "adaptive_risk_enabled": true,
+    "lookback_trades": 20,
+    "max_position_percent": 10.0
+  },
+  "signal_filtering": {
+    "min_confidence_score": 55,
+    "min_agent_consensus": 2,
+    "max_signals_per_hour": 6,
+    "require_ml_prediction": true,
+    "ml_prediction_min": 0.50
+  },
+  "risk_management": {
+    "max_concurrent_trades": 15,
+    "risk_reward_ratio": 3.0,
+    "adaptive_leverage": true,
+    "leverage_min": 25,
+    "leverage_max": 50
+  },
+  "console_output": {
+    "verbose": true,
+    "log_agent_decisions": true,
+    "log_parallel_stats": true,
+    "log_ml_confidence": true,
+    "display_trading_config": true
+  },
+  "feature_flags": {
+    "use_ml_predictions": true,
+    "use_agent_consensus": true,
+    "use_dynamic_sl_tp": true,
+    "use_parallel_processing": true,
+    "use_adaptive_risk": true
+  }
+}

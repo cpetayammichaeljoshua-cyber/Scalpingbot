@@ -59,7 +59,7 @@ class EnhancedPerfectScalpingBot:
         self.binance_trader = BinanceTrader()
         self.cornix = EnhancedCornixIntegration()
         self.db = Database()
-        self.strategy = AdvancedTradingStrategy()
+        self.strategy = AdvancedTradingStrategy(binance_trader=self.binance_trader)
         self.uptime_service = EnhancedUptimeService(port=8080)
 
         # Telegram bot

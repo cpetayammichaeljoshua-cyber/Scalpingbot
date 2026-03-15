@@ -94,7 +94,7 @@ class EnhancedTradingMethods:
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=data, timeout=30) as response:
+            async with session.post(url, json=data, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 429:
                     retry_after = int(response.headers.get('Retry-After', 60))
                     raise RateLimitException(f"Telegram rate limit", retry_after=retry_after)
@@ -115,7 +115,7 @@ class EnhancedTradingMethods:
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=data, timeout=10) as response:
+                async with session.post(url, json=data, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         result = await response.json()
                         return result.get('ok', False)
@@ -188,7 +188,7 @@ class EnhancedTradingMethods:
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, timeout=30) as response:
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status == 429:
                     raise RateLimitException(f"Binance rate limit exceeded")
                 
@@ -209,7 +209,7 @@ class EnhancedTradingMethods:
             }
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as response:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status != 200:
                         return None
                     

@@ -189,27 +189,16 @@ class DatabaseLogHandler(logging.Handler):
             # Save to database (async call needs to be handled properly)
             import asyncio
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If we're in an async context, schedule the coroutine
-                    asyncio.create_task(
-                        self.database.save_system_log(
-                            record.levelname, 
-                            message, 
-                            module, 
-                            user_id
-                        )
+                asyncio.get_running_loop()
+                # We're in an async context — schedule as a task
+                asyncio.create_task(
+                    self.database.save_system_log(
+                        record.levelname,
+                        message,
+                        module,
+                        user_id
                     )
-                else:
-                    # If not in async context, run it
-                    loop.run_until_complete(
-                        self.database.save_system_log(
-                            record.levelname, 
-                            message, 
-                            module, 
-                            user_id
-                        )
-                    )
+                )
             except RuntimeError:
                 # No event loop, skip database logging
                 pass

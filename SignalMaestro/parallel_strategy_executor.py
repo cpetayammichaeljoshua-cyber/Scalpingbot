@@ -422,7 +422,7 @@ class ParallelStrategyExecutor:
             args = await self._prepare_strategy_arguments(request, strategy_info)
             
             # Execute strategy
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             
             if asyncio.iscoroutinefunction(analyze_method):
                 signal = await analyze_method(**args)

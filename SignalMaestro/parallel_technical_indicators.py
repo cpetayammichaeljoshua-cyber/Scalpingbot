@@ -297,7 +297,7 @@ class ParallelTechnicalIndicators:
             results = []
             
             # Create tasks for parallel execution
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             
             calculation_tasks = []
             for request in requests:

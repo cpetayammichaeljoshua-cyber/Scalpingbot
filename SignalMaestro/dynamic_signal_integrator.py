@@ -262,7 +262,7 @@ async def cmd_ai_status() -> str:
     """Essential /ai_status command"""
     try:
         if AI_PROCESSOR_AVAILABLE:
-            from openai import get_openai_status
+            from openai_handler import get_openai_status
             openai_status = get_openai_status()
             
             return f"""

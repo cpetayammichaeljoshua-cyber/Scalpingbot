@@ -438,7 +438,7 @@ last_ping_timestamp_seconds {self.last_ping.timestamp() if self.last_ping else 0
         """Check Binance API connectivity"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get('https://api.binance.com/api/v3/ping', timeout=5) as response:
+                async with session.get('https://api.binance.com/api/v3/ping', timeout=aiohttp.ClientTimeout(total=5)) as response:
                     return response.status == 200
         except:
             return False

@@ -75,7 +75,9 @@ class RiskManager:
         return {'valid': True, 'risk_score': 0.5, 'position_size': 100}
 
 class Config:
-    def __init__(self):
+    def __init__(self, binance_trader=None):
+        self.binance_trader = binance_trader
+        self.binance_trader = binance_trader
         self.TELEGRAM_BOT_TOKEN = "dummy_token"
         self.TELEGRAM_CHAT_ID = "dummy_chat_id"
         self.BINANCE_API_KEY = "dummy_api_key"
@@ -86,7 +88,11 @@ class AdvancedTradingStrategy:
     Advanced trading strategy combining multiple indicators for high-probability signals
     """
 
-    def __init__(self, binance_trader: BinanceTrader):
+    def __init__(self, binance_trader=None):
+        if binance_trader is None:
+            from binance_trader import BinanceTrader
+            binance_trader = BinanceTrader()
+        self.binance_trader = binance_trader
         self.config = Config()
         self.logger = logging.getLogger(__name__)
         self.binance_trader = binance_trader
@@ -792,5 +798,6 @@ class AdvancedTradingStrategy:
 
 # Placeholder for TechnicalAnalysis class if not defined elsewhere
 class TechnicalAnalysis:
-    def __init__(self):
+    def __init__(self, binance_trader=None):
+        self.binance_trader = binance_trader
         pass # Placeholder, actual implementation might be complex or external

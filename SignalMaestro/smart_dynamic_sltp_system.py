@@ -91,7 +91,7 @@ class SmartDynamicSLTPSystem:
     Intelligent dynamic SL/TP system with order flow analysis
     """
     
-    def __init__(self, symbol: str = "FXSUSDT"):
+    def __init__(self, symbol: str = "BTCUSDT"):
         self.logger = logging.getLogger(__name__)
         self.symbol = symbol
         
@@ -142,11 +142,11 @@ class SmartDynamicSLTPSystem:
             if len(market_data) < self.order_flow_config['volume_lookback']:
                 return self._fallback_order_flow(current_price)
             
-            # Extract OHLCV data
-            high = market_data['high'].values
-            low = market_data['low'].values
-            close = market_data['close'].values
-            volume = market_data['volume'].values
+            # Extract OHLCV data as proper numpy arrays
+            high = np.asarray(market_data['high'].values, dtype=np.float64)
+            low = np.asarray(market_data['low'].values, dtype=np.float64)
+            close = np.asarray(market_data['close'].values, dtype=np.float64)
+            volume = np.asarray(market_data['volume'].values, dtype=np.float64)
             
             # Calculate volume delta (buy vs sell pressure)
             buy_volume = []
@@ -179,7 +179,7 @@ class SmartDynamicSLTPSystem:
             sell_volume = np.array(sell_volume)
             
             # Calculate aggressive orders (high volume candles)
-            avg_volume = np.mean(volume[-50:])
+            avg_volume = float(np.mean(volume[-50:]))
             aggressive_threshold = avg_volume * self.order_flow_config['absorption_threshold']
             
             aggressive_buy = np.sum(buy_volume[-20:] > aggressive_threshold)
@@ -252,13 +252,14 @@ class SmartDynamicSLTPSystem:
         absorption_zones = []
         
         try:
-            close = market_data['close'].values
-            high = market_data['high'].values
-            low = market_data['low'].values
+            close = np.asarray(market_data['close'].values, dtype=np.float64)
+            high = np.asarray(market_data['high'].values, dtype=np.float64)
+            low = np.asarray(market_data['low'].values, dtype=np.float64)
             
             for i in range(10, len(market_data)):
                 # High volume but small price range = absorption
-                volume_surge = (buy_volume[i] + sell_volume[i]) > np.mean(buy_volume + sell_volume) * 1.5
+                avg_combined = float(np.mean(buy_volume + sell_volume))
+                volume_surge = (buy_volume[i] + sell_volume[i]) > avg_combined * 1.5
                 price_range = (high[i] - low[i]) / close[i]
                 
                 if volume_surge and price_range < 0.003:  # Less than 0.3% range
@@ -280,10 +281,10 @@ class SmartDynamicSLTPSystem:
         rejection_zones = []
         
         try:
-            close = market_data['close'].values
-            high = market_data['high'].values
-            low = market_data['low'].values
-            open_price = market_data['open'].values
+            close = np.asarray(market_data['close'].values, dtype=np.float64)
+            high = np.asarray(market_data['high'].values, dtype=np.float64)
+            low = np.asarray(market_data['low'].values, dtype=np.float64)
+            open_price = np.asarray(market_data['open'].values, dtype=np.float64)
             
             for i in range(10, len(market_data)):
                 # Long wicks indicate rejection
@@ -316,10 +317,10 @@ class SmartDynamicSLTPSystem:
         try:
             liquidity_zones = []
             
-            high = market_data['high'].values
-            low = market_data['low'].values
-            close = market_data['close'].values
-            volume = market_data['volume'].values
+            high = np.asarray(market_data['high'].values, dtype=np.float64)
+            low = np.asarray(market_data['low'].values, dtype=np.float64)
+            close = np.asarray(market_data['close'].values, dtype=np.float64)
+            volume = np.asarray(market_data['volume'].values, dtype=np.float64)
             
             # Find swing highs and lows (potential liquidity zones)
             swing_highs = []
@@ -332,8 +333,8 @@ class SmartDynamicSLTPSystem:
                     touches = sum(1 for j in range(max(0, i-20), min(len(high), i+20))
                                 if abs(high[j] - high[i]) / high[i] < 0.001)
                     
-                    zone_volume = np.sum(volume[max(0, i-5):min(len(volume), i+5)])
-                    avg_volume = np.mean(volume)
+                    zone_volume = float(np.sum(volume[max(0, i-5):min(len(volume), i+5)]))
+                    avg_volume = float(np.mean(volume))
                     
                     if zone_volume > avg_volume * self.liquidity_config['volume_threshold']:
                         swing_highs.append({
@@ -349,8 +350,8 @@ class SmartDynamicSLTPSystem:
                     touches = sum(1 for j in range(max(0, i-20), min(len(low), i+20))
                                 if abs(low[j] - low[i]) / low[i] < 0.001)
                     
-                    zone_volume = np.sum(volume[max(0, i-5):min(len(volume), i+5)])
-                    avg_volume = np.mean(volume)
+                    zone_volume = float(np.sum(volume[max(0, i-5):min(len(volume), i+5)]))
+                    avg_volume = float(np.mean(volume))
                     
                     if zone_volume > avg_volume * self.liquidity_config['volume_threshold']:
                         swing_lows.append({
@@ -361,10 +362,11 @@ class SmartDynamicSLTPSystem:
                         })
             
             # Create liquidity zones from swing points
+            avg_vol = float(np.mean(volume))
             for swing in swing_highs:
                 if swing['touches'] >= self.liquidity_config['min_touches']:
                     strength = min(100, (swing['touches'] * 20 + 
-                                       (swing['volume'] / np.mean(volume)) * 30))
+                                       (swing['volume'] / avg_vol) * 30))
                     
                     liquidity_zones.append(LiquidityZone(
                         price=swing['price'],
@@ -379,7 +381,7 @@ class SmartDynamicSLTPSystem:
             for swing in swing_lows:
                 if swing['touches'] >= self.liquidity_config['min_touches']:
                     strength = min(100, (swing['touches'] * 20 + 
-                                       (swing['volume'] / np.mean(volume)) * 30))
+                                       (swing['volume'] / avg_vol) * 30))
                     
                     liquidity_zones.append(LiquidityZone(
                         price=swing['price'],
@@ -414,9 +416,9 @@ class SmartDynamicSLTPSystem:
             market_regime = await self._detect_market_regime(market_data)
             
             # Calculate volatility adjustment
-            atr = self._calculate_atr(market_data['high'].values, 
-                                     market_data['low'].values,
-                                     market_data['close'].values)
+            atr = self._calculate_atr(np.asarray(market_data['high'].values, dtype=np.float64), 
+                                     np.asarray(market_data['low'].values, dtype=np.float64),
+                                     np.asarray(market_data['close'].values, dtype=np.float64))
             atr_pct = (atr / entry_price) * 100
             volatility_adjustment = max(0.8, min(1.5, atr_pct / 0.02))
             
@@ -456,7 +458,7 @@ class SmartDynamicSLTPSystem:
             # Overall confidence score
             confidence_score = (
                 flow_confidence * 0.4 +
-                (min(liquidity_zones, key=lambda x: x.distance_from_current).strength / 100) * 0.3 +
+                ((min(liquidity_zones, key=lambda x: x.distance_from_current).strength / 100) if liquidity_zones else 0.5) * 0.3 +
                 (risk_reward_ratio / self.sltp_config['max_risk_reward']) * 0.3
             ) * 100
             
@@ -494,20 +496,24 @@ class SmartDynamicSLTPSystem:
         # Find nearest support below entry
         valid_supports = [z for z in support_zones if z.price < entry_price]
         
+        # Support-based SL
+        support_sl = 0
         if valid_supports:
-            # Use strongest nearby support
-            nearest_support = max(valid_supports, key=lambda x: x.strength)
-            
-            # Place SL below support with buffer
+            nearest_support = max(valid_supports, key=lambda x: x.price)
             buffer = entry_price * self.sltp_config['sl_buffer_pct']
-            stop_loss = nearest_support.price - buffer
+            support_sl = nearest_support.price - buffer
             
-            reasoning = f"Below key support at {nearest_support.price:.6f} (strength: {nearest_support.strength:.0f})"
-        else:
-            # Fallback to ATR-based SL
-            sl_distance = atr * 1.5
-            stop_loss = entry_price - sl_distance
-            reasoning = f"ATR-based SL (1.5x ATR = {sl_distance:.6f})"
+        # ATR-based SL
+        sl_distance = atr * 1.5
+        atr_sl = entry_price - sl_distance
+        
+        # EXACT DYNAMIC LOGIC: Midpoint between entry and most conservative SL
+        # "Strictly add a stop loss 50% from the entry and 50% from the original stop loss"
+        base_sl = support_sl if (support_sl > 0 and support_sl < entry_price) else atr_sl
+        dynamic_sl = entry_price - ((entry_price - base_sl) * 0.5)
+        
+        stop_loss = dynamic_sl
+        reasoning = f"Dynamic Midpoint SL (50% from entry/base). Base: {base_sl:.6f}"
         
         # Check order flow absorption zones
         if order_flow.absorption_zones:
@@ -529,20 +535,23 @@ class SmartDynamicSLTPSystem:
         # Find nearest resistance above entry
         valid_resistances = [z for z in resistance_zones if z.price > entry_price]
         
+        # Resistance-based SL
+        resistance_sl = 0
         if valid_resistances:
-            # Use strongest nearby resistance
             nearest_resistance = max(valid_resistances, key=lambda x: x.strength)
-            
-            # Place SL above resistance with buffer
             buffer = entry_price * self.sltp_config['sl_buffer_pct']
-            stop_loss = nearest_resistance.price + buffer
+            resistance_sl = nearest_resistance.price + buffer
             
-            reasoning = f"Above key resistance at {nearest_resistance.price:.6f} (strength: {nearest_resistance.strength:.0f})"
-        else:
-            # Fallback to ATR-based SL
-            sl_distance = atr * 1.5
-            stop_loss = entry_price + sl_distance
-            reasoning = f"ATR-based SL (1.5x ATR = {sl_distance:.6f})"
+        # ATR-based SL
+        sl_distance = atr * 1.5
+        atr_sl = entry_price + sl_distance
+        
+        # EXACT DYNAMIC LOGIC: Midpoint between entry and most conservative SL
+        base_sl = resistance_sl if (resistance_sl > 0 and resistance_sl > entry_price) else atr_sl
+        dynamic_sl = entry_price + ((base_sl - entry_price) * 0.5)
+        
+        stop_loss = dynamic_sl
+        reasoning = f"Dynamic Midpoint SL (50% from entry/base). Base: {base_sl:.6f}"
         
         # Check order flow absorption zones
         if order_flow.absorption_zones:
@@ -560,45 +569,75 @@ class SmartDynamicSLTPSystem:
                                      order_flow: OrderFlowAnalysis,
                                      atr: float,
                                      market_regime: str) -> Tuple[float, float, float, str]:
-        """Calculate intelligent take profits for LONG position"""
+        """Calculate intelligent take profits for LONG position - ENHANCED FOR MAXIMUM PROFITABILITY"""
         
         # Find resistances above entry
         valid_resistances = [z for z in resistance_zones if z.price > entry_price]
         valid_resistances.sort(key=lambda x: x.price)
         
+        # ENHANCED: Order flow-based TP scaling
+        flow_strength = order_flow.strength / 100.0  # 0-1
+        flow_multiplier = 0.8 + (flow_strength * 0.6)  # 0.8 - 1.4x scaling
+        
         if len(valid_resistances) >= 3:
-            # Use actual resistance levels
+            # Use actual resistance levels with flow-based extension
             tp1 = valid_resistances[0].price
             tp2 = valid_resistances[1].price
             tp3 = valid_resistances[2].price
-            reasoning = f"Resistance-based TPs: {tp1:.6f}, {tp2:.6f}, {tp3:.6f}"
+            
+            # ENHANCED: Extend TP3 based on order flow strength
+            if order_flow.direction in [OrderFlowDirection.STRONG_BUY, OrderFlowDirection.BUY]:
+                extension = (tp3 - entry_price) * (flow_multiplier - 1.0) * 0.5
+                tp3 = tp3 + extension
+                reasoning = f"Resistance-based TPs (Flow-extended): {tp1:.6f}, {tp2:.6f}, {tp3:.6f}"
+            else:
+                reasoning = f"Resistance-based TPs: {tp1:.6f}, {tp2:.6f}, {tp3:.6f}"
             
         elif len(valid_resistances) == 2:
             tp1 = valid_resistances[0].price
             tp2 = valid_resistances[1].price
-            tp3 = entry_price + (atr * 4)
-            reasoning = f"Mixed TPs: R1={tp1:.6f}, R2={tp2:.6f}, ATR-based={tp3:.6f}"
+            # ENHANCED: Better TP3 scaling with momentum
+            tp3 = entry_price + (atr * 5 * flow_multiplier)
+            reasoning = f"Mixed TPs (Momentum-optimized): R1={tp1:.6f}, R2={tp2:.6f}, ATR-extended={tp3:.6f}"
             
         elif len(valid_resistances) == 1:
             tp1 = valid_resistances[0].price
-            tp2 = entry_price + (atr * 2.5)
-            tp3 = entry_price + (atr * 4)
-            reasoning = f"R1={tp1:.6f}, ATR-scaled TPs"
+            # ENHANCED: Improved scaling for aggressive market
+            tp2 = entry_price + (atr * 3.5 * flow_multiplier)
+            tp3 = entry_price + (atr * 5.5 * flow_multiplier)
+            reasoning = f"R1={tp1:.6f}, ATR-optimized TPs (Momentum)"
             
         else:
-            # Full ATR-based
-            tp1 = entry_price + (atr * 1.5)
-            tp2 = entry_price + (atr * 2.5)
-            tp3 = entry_price + (atr * 4)
-            reasoning = "ATR-based TPs (1.5x, 2.5x, 4x)"
+            # Full ATR-based with enhanced scaling
+            base_tp1 = entry_price + (atr * 1.8)
+            base_tp2 = entry_price + (atr * 3.2)
+            base_tp3 = entry_price + (atr * 5.0)
+            
+            tp1 = base_tp1 * flow_multiplier if flow_multiplier > 1.0 else base_tp1
+            tp2 = base_tp2 * flow_multiplier if flow_multiplier > 1.0 else base_tp2
+            tp3 = base_tp3 * flow_multiplier if flow_multiplier > 1.0 else base_tp3
+            reasoning = f"ATR-optimized TPs (Flow: {flow_multiplier:.2f}x, {order_flow.direction.value})"
         
-        # Adjust for market regime
+        # ENHANCED: Aggressive regime adjustment for maximum profitability
         if market_regime == "trending_bullish":
-            tp3 = tp3 * 1.2
-            reasoning += " | Extended TP3 for trend"
-        elif market_regime == "volatile":
+            trend_extension = (tp3 - entry_price) * 0.35  # 35% extension in strong trends
+            tp3 = tp3 + trend_extension
+            tp2 = tp2 + (trend_extension * 0.25)  # Also boost TP2
+            reasoning += " | STRONG TREND: TPs extended +35%"
+        elif market_regime == "volatile" and order_flow.strength > 70:
+            # In volatile markets with strong order flow, keep aggressive TPs
+            tp1 = entry_price + (atr * 1.5)
+            reasoning += " | Volatile + Strong Flow: Aggressive TP1"
+        elif market_regime == "ranging":
+            # In ranging markets, take quicker profits
             tp1 = entry_price + (atr * 1.2)
-            reasoning += " | Tighter TP1 for volatility"
+            tp2 = entry_price + (atr * 2.3)
+            reasoning += " | Ranging: Quick-profit mode"
+        
+        # Ensure TP3 > TP2 > TP1 > Entry (sanity check)
+        tp1 = max(tp1, entry_price + (atr * 0.5))
+        tp2 = max(tp2, tp1 + (atr * 0.3))
+        tp3 = max(tp3, tp2 + (atr * 0.5))
         
         return tp1, tp2, tp3, reasoning
     
@@ -607,52 +646,83 @@ class SmartDynamicSLTPSystem:
                                       order_flow: OrderFlowAnalysis,
                                       atr: float,
                                       market_regime: str) -> Tuple[float, float, float, str]:
-        """Calculate intelligent take profits for SHORT position"""
+        """Calculate intelligent take profits for SHORT position - ENHANCED FOR MAXIMUM PROFITABILITY"""
         
         # Find supports below entry
         valid_supports = [z for z in support_zones if z.price < entry_price]
         valid_supports.sort(key=lambda x: x.price, reverse=True)
         
+        # ENHANCED: Order flow-based TP scaling for SHORT
+        flow_strength = order_flow.strength / 100.0  # 0-1
+        flow_multiplier = 0.8 + (flow_strength * 0.6)  # 0.8 - 1.4x scaling
+        
         if len(valid_supports) >= 3:
             tp1 = valid_supports[0].price
             tp2 = valid_supports[1].price
             tp3 = valid_supports[2].price
-            reasoning = f"Support-based TPs: {tp1:.6f}, {tp2:.6f}, {tp3:.6f}"
+            
+            # ENHANCED: Extend TP3 based on order flow strength (downward for SHORT)
+            if order_flow.direction in [OrderFlowDirection.STRONG_SELL, OrderFlowDirection.SELL]:
+                extension = (entry_price - tp3) * (flow_multiplier - 1.0) * 0.5
+                tp3 = tp3 - extension
+                reasoning = f"Support-based TPs (Flow-extended): {tp1:.6f}, {tp2:.6f}, {tp3:.6f}"
+            else:
+                reasoning = f"Support-based TPs: {tp1:.6f}, {tp2:.6f}, {tp3:.6f}"
             
         elif len(valid_supports) == 2:
             tp1 = valid_supports[0].price
             tp2 = valid_supports[1].price
-            tp3 = entry_price - (atr * 4)
-            reasoning = f"Mixed TPs: S1={tp1:.6f}, S2={tp2:.6f}, ATR-based={tp3:.6f}"
+            # ENHANCED: Better TP3 scaling with momentum (downward)
+            tp3 = entry_price - (atr * 5 * flow_multiplier)
+            reasoning = f"Mixed TPs (Momentum-optimized): S1={tp1:.6f}, S2={tp2:.6f}, ATR-extended={tp3:.6f}"
             
         elif len(valid_supports) == 1:
             tp1 = valid_supports[0].price
-            tp2 = entry_price - (atr * 2.5)
-            tp3 = entry_price - (atr * 4)
-            reasoning = f"S1={tp1:.6f}, ATR-scaled TPs"
+            # ENHANCED: Improved scaling for aggressive market (downward)
+            tp2 = entry_price - (atr * 3.5 * flow_multiplier)
+            tp3 = entry_price - (atr * 5.5 * flow_multiplier)
+            reasoning = f"S1={tp1:.6f}, ATR-optimized TPs (Momentum)"
             
         else:
-            tp1 = entry_price - (atr * 1.5)
-            tp2 = entry_price - (atr * 2.5)
-            tp3 = entry_price - (atr * 4)
-            reasoning = "ATR-based TPs (1.5x, 2.5x, 4x)"
+            # Full ATR-based with enhanced scaling (SHORT: downward)
+            base_tp1 = entry_price - (atr * 1.8)
+            base_tp2 = entry_price - (atr * 3.2)
+            base_tp3 = entry_price - (atr * 5.0)
+            
+            tp1 = base_tp1 * flow_multiplier if flow_multiplier > 1.0 else base_tp1
+            tp2 = base_tp2 * flow_multiplier if flow_multiplier > 1.0 else base_tp2
+            tp3 = base_tp3 * flow_multiplier if flow_multiplier > 1.0 else base_tp3
+            reasoning = f"ATR-optimized TPs (Flow: {flow_multiplier:.2f}x, {order_flow.direction.value})"
         
-        # Adjust for market regime
+        # ENHANCED: Aggressive regime adjustment for maximum profitability
         if market_regime == "trending_bearish":
-            tp3 = tp3 * 0.8  # Further down
-            reasoning += " | Extended TP3 for trend"
-        elif market_regime == "volatile":
+            trend_extension = (entry_price - tp3) * 0.35  # 35% extension downward
+            tp3 = tp3 - trend_extension
+            tp2 = tp2 - (trend_extension * 0.25)  # Also boost TP2 downward
+            reasoning += " | STRONG TREND: TPs extended -35%"
+        elif market_regime == "volatile" and order_flow.strength > 70:
+            # In volatile markets with strong order flow, keep aggressive TPs
+            tp1 = entry_price - (atr * 1.5)
+            reasoning += " | Volatile + Strong Flow: Aggressive TP1"
+        elif market_regime == "ranging":
+            # In ranging markets, take quicker profits
             tp1 = entry_price - (atr * 1.2)
-            reasoning += " | Tighter TP1 for volatility"
+            tp2 = entry_price - (atr * 2.3)
+            reasoning += " | Ranging: Quick-profit mode"
+        
+        # Ensure TP3 < TP2 < TP1 < Entry (sanity check for SHORT)
+        tp1 = min(tp1, entry_price - (atr * 0.5))
+        tp2 = min(tp2, tp1 - (atr * 0.3))
+        tp3 = min(tp3, tp2 - (atr * 0.5))
         
         return tp1, tp2, tp3, reasoning
     
     async def _detect_market_regime(self, market_data: pd.DataFrame) -> str:
         """Detect current market regime"""
         try:
-            close = market_data['close'].values
-            high = market_data['high'].values
-            low = market_data['low'].values
+            close = np.asarray(market_data['close'].values, dtype=np.float64)
+            high = np.asarray(market_data['high'].values, dtype=np.float64)
+            low = np.asarray(market_data['low'].values, dtype=np.float64)
             
             # ADX for trend strength
             adx = self._calculate_adx(high, low, close)
@@ -662,7 +732,7 @@ class SmartDynamicSLTPSystem:
             atr_pct = (atr / close[-1]) * 100
             
             # Price trend
-            sma_20 = np.mean(close[-20:])
+            sma_20 = float(np.mean(close[-20:]))
             trend = (close[-1] - sma_20) / sma_20
             
             if adx > self.regime_thresholds['trending_adx']:
@@ -683,9 +753,9 @@ class SmartDynamicSLTPSystem:
                       close: np.ndarray, period: int = 14) -> float:
         """Calculate Average True Range"""
         try:
-            tr = np.maximum(high - low, 
-                          np.maximum(np.abs(high - np.roll(close, 1)),
-                                    np.abs(low - np.roll(close, 1))))
+            tr = np.maximum(high[1:] - low[1:],
+                          np.maximum(np.abs(high[1:] - close[:-1]),
+                                    np.abs(low[1:] - close[:-1])))
             return float(np.mean(tr[-period:]))
         except:
             return 0.001
@@ -694,12 +764,12 @@ class SmartDynamicSLTPSystem:
                       close: np.ndarray, period: int = 14) -> float:
         """Calculate Average Directional Index"""
         try:
-            plus_dm = np.maximum(high - np.roll(high, 1), 0)
-            minus_dm = np.maximum(np.roll(low, 1) - low, 0)
-            
-            tr = np.maximum(high - low, 
-                          np.maximum(np.abs(high - np.roll(close, 1)),
-                                    np.abs(low - np.roll(close, 1))))
+            plus_dm = np.maximum(high[1:] - high[:-1], 0)
+            minus_dm = np.maximum(low[:-1] - low[1:], 0)
+
+            tr = np.maximum(high[1:] - low[1:],
+                          np.maximum(np.abs(high[1:] - close[:-1]),
+                                    np.abs(low[1:] - close[:-1])))
             
             plus_di = 100 * (np.mean(plus_dm[-period:]) / np.mean(tr[-period:]))
             minus_di = 100 * (np.mean(minus_dm[-period:]) / np.mean(tr[-period:]))
@@ -796,7 +866,7 @@ class SmartDynamicSLTPSystem:
 # Global instance
 _smart_sltp_system = None
 
-def get_smart_sltp_system(symbol: str = "FXSUSDT") -> SmartDynamicSLTPSystem:
+def get_smart_sltp_system(symbol: str = "BTCUSDT") -> SmartDynamicSLTPSystem:
     """Get or create smart SL/TP system instance"""
     global _smart_sltp_system
     if _smart_sltp_system is None:
@@ -808,8 +878,8 @@ if __name__ == "__main__":
     # Test the system
     async def test_smart_sltp():
         logging.basicConfig(level=logging.INFO)
-        
-        system = SmartDynamicSLTPSystem("FXSUSDT")
+
+        system = SmartDynamicSLTPSystem("BTCUSDT")
         
         # Generate test market data
         np.random.seed(42)

@@ -200,7 +200,7 @@ class ParallelProcessingCore:
                             return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
                         else:
                             # Run sync function in thread
-                            loop = asyncio.get_event_loop()
+                            loop = asyncio.get_running_loop()
                             return await loop.run_in_executor(
                                 self.io_executor, 
                                 lambda: func(*args, **kwargs)
@@ -243,7 +243,7 @@ class ParallelProcessingCore:
             args_list = args_list or [() for _ in functions]
             executor = self.process_executor if use_processes else self.cpu_executor
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             
             # Submit all tasks
             futures = [
@@ -361,7 +361,7 @@ class ParallelProcessingCore:
                                 timeout=task.timeout
                             )
                         else:
-                            loop = asyncio.get_event_loop()
+                            loop = asyncio.get_running_loop()
                             result = await loop.run_in_executor(
                                 self.io_executor,
                                 lambda: task.function(*task.args, **task.kwargs)

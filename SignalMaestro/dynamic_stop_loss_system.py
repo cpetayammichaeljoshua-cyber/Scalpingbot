@@ -211,6 +211,13 @@ class ThreeSLOneTpManager:
         triggered_events = []
         
         try:
+            # Check stop loss first (risk-first)
+            if self._is_stop_loss_hit(current_price):
+                event = await self._handle_stop_loss_hit(current_price)
+                triggered_events.append(event)
+                self.active = False
+                return triggered_events
+            
             # Check for take profit hits in order (TP1, then TP2, then TP3)
             for tp_level in [TakeProfitLevel.TP1, TakeProfitLevel.TP2, TakeProfitLevel.TP3]:
                 tp_data = self.take_profits[tp_level]
@@ -223,12 +230,6 @@ class ThreeSLOneTpManager:
                     if tp_level == TakeProfitLevel.TP3:
                         self.active = False
                         break
-            
-            # Check stop loss only if trade is still active
-            if self.active and self._is_stop_loss_hit(current_price):
-                event = await self._handle_stop_loss_hit(current_price)
-                triggered_events.append(event)
-                self.active = False
             
             self.last_update_time = datetime.now()
             
@@ -277,34 +278,39 @@ class ThreeSLOneTpManager:
         
         # Move stop loss according to the exact logic requested
         if tp_level == TakeProfitLevel.TP1:
-            # TP1 reached → SL moves to entry price
+            # EXACT LOGIC: 50% from entry and 50% from original stop loss
             old_sl = self.stop_loss.current_price
-            self.stop_loss.current_price = self.entry_price
-            self.stop_loss.state = StopLossState.AT_ENTRY
+            
+            # Calculate 50% point between entry and original SL
+            # new_sl = entry - (entry - original_sl) * 0.5
+            sl_distance = self.entry_price - self.stop_loss.original_price
+            self.stop_loss.current_price = self.entry_price - (sl_distance * 0.5)
+            
+            self.stop_loss.state = StopLossState.AT_ENTRY # Reusing state for "Partial Move"
             self.stop_loss.last_update_time = datetime.now()
             
             event['sl_action'] = {
-                'description': 'SL moved to entry price',
+                'description': 'Dynamic SL: 50% from entry and 50% from original SL',
                 'old_sl': old_sl,
                 'new_sl': self.stop_loss.current_price
             }
             
-            self.logger.info(f"✅ TP1 HIT at {current_price:.6f}! Closing {close_amount:.6f} ({tp_data.close_percent}%). SL moved to entry: {self.entry_price:.6f}")
+            self.logger.info(f"✅ TP1 HIT at {current_price:.6f}! SL adjusted to 50% midpoint: {self.stop_loss.current_price:.6f}")
         
         elif tp_level == TakeProfitLevel.TP2:
-            # TP2 reached → SL moves to TP1 price
+            # TP2 reached → SL moves to entry price (Perfectly comprehensive flexible transition)
             old_sl = self.stop_loss.current_price
-            self.stop_loss.current_price = self.take_profits[TakeProfitLevel.TP1].price
+            self.stop_loss.current_price = self.entry_price
             self.stop_loss.state = StopLossState.AT_TP1
             self.stop_loss.last_update_time = datetime.now()
             
             event['sl_action'] = {
-                'description': 'SL moved to TP1 price',
+                'description': 'SL moved to entry price after TP2',
                 'old_sl': old_sl,
                 'new_sl': self.stop_loss.current_price
             }
             
-            self.logger.info(f"✅ TP2 HIT at {current_price:.6f}! Closing {close_amount:.6f} ({tp_data.close_percent}%). SL moved to TP1: {self.stop_loss.current_price:.6f}")
+            self.logger.info(f"✅ TP2 HIT at {current_price:.6f}! SL moved to entry: {self.stop_loss.current_price:.6f}")
         
         elif tp_level == TakeProfitLevel.TP3:
             # TP3 reached → close entire trade automatically

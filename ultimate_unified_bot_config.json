@@ -2,5 +2,11 @@
   "confidence_threshold": 75.0,
   "strict_filtering": true,
   "error_handling": "comprehensive",
-  "ai_processor_enabled": true
+  "ai_processor_enabled": true,
+  "dynamic_sl_tp_enabled": true,
+  "risk_management": {
+    "tp1_sl_move": "entry",
+    "tp2_sl_move": "tp1",
+    "tp3_action": "full_close"
+  }
 }

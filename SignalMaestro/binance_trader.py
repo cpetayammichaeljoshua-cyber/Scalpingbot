@@ -108,8 +108,7 @@ class BinanceTrader:
             # Initialize circuit breaker for Binance API
             self.circuit_breaker = CircuitBreaker(
                 failure_threshold=5,
-                timeout_duration=300,  # 5 minutes
-                recovery_threshold=3
+                recovery_timeout=300  # 5 minutes
             )
             
             # Get global resilience manager

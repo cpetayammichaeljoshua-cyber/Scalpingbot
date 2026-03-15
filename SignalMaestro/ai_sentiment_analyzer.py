@@ -310,7 +310,26 @@ class AISentimentAnalyzer:
                                 # Parse publish date
                                 published = datetime.now()
                                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
-                                    published = datetime(*entry.published_parsed[:6])
+                                    try:
+                                        # Fix: entry.published_parsed is a time.struct_time
+                                        pp = entry.published_parsed
+                                        # Ensure all required fields are present and valid
+                                        year = int(pp.tm_year) if hasattr(pp, 'tm_year') else datetime.now().year
+                                        month = int(pp.tm_mon) if hasattr(pp, 'tm_mon') else datetime.now().month
+                                        day = int(pp.tm_mday) if hasattr(pp, 'tm_mday') else datetime.now().day
+                                        hour = int(pp.tm_hour) if hasattr(pp, 'tm_hour') else 0
+                                        minute = int(pp.tm_min) if hasattr(pp, 'tm_min') else 0
+                                        second = int(pp.tm_sec) if hasattr(pp, 'tm_sec') else 0
+                                        
+                                        # Basic validation to prevent "year out of range" or similar
+                                        if year < 1970: year = datetime.now().year
+                                        if not (1 <= month <= 12): month = 1
+                                        if not (1 <= day <= 31): day = 1
+                                        
+                                        published = datetime(year, month, day, hour, minute, second)
+                                    except Exception as dt_err:
+                                        self.logger.debug(f"⚠️ Datetime conversion error: {dt_err}")
+                                        published = datetime.now()
                                 
                                 feed_data.append({
                                     'title': getattr(entry, 'title', ''),

@@ -1,0 +1,11 @@
+# Railway Nixpacks Configuration
+# For AI Trading Signal Bot
+
+[phases.setup]
+nixPkgs = ["python311", "gcc", "openssl"]
+
+[phases.install]
+cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
+
+[start]
+cmd = "python main.py"

@@ -170,7 +170,7 @@ class TelegramStrategyComparison:
             return f"❌ Error starting comparison: {str(e)}", ""
     
     def _update_progress_callback(self, comparison_id: str):
-        \"\"\"Create progress callback function for the specific comparison\"\"\"
+        """Create progress callback function for the specific comparison"""
         def callback(progress: int, message: str = ""):
             try:
                 if comparison_id in self.active_comparisons:
@@ -189,7 +189,7 @@ class TelegramStrategyComparison:
                                              message: str, 
                                              parse_mode: str = 'Markdown',
                                              max_retries: int = 3) -> bool:
-        \"\"\"Send Telegram message with retry logic and connection resilience\"\"\"
+        """Send Telegram message with retry logic and connection resilience"""
         for attempt in range(max_retries + 1):
             try:
                 # Use the resilient API wrapper
@@ -228,7 +228,7 @@ class TelegramStrategyComparison:
         return False
     
     async def check_telegram_connection(self) -> bool:
-        \"\"\"Check if Telegram connection is healthy\"\"\"
+        """Check if Telegram connection is healthy"""
         try:
             api_call = APICall(
                 service_name="telegram",

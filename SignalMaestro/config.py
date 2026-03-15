@@ -60,13 +60,12 @@ class Config:
             "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOTUSDT",
             "LINKUSDT", "LTCUSDT", "BCHUSDT", "XLMUSDT", "EOSUSDT",
             "TRXUSDT", "XRPUSDT", "SOLUSDT", "AVAXUSDT", "MATICUSDT",
-            "FXSUSDT"  # Forex futures pair
         ]
-        
-        # FXSUSDT.P Specific Configuration
-        self.FXSUSDT_SYMBOL = "FXSUSDT"
-        self.FXSUSDT_TIMEFRAME = "30m"
-        self.FXSUSDT_STRATEGY = "ichimoku_sniper"
+
+        # BTCUSDT Perpetual Futures — Primary Symbol Configuration
+        self.BTCUSDT_SYMBOL = "BTCUSDT"
+        self.BTCUSDT_TIMEFRAME = "15m"
+        self.BTCUSDT_STRATEGY = "mirofish_swarm"
 
         # API Rate Limits
         self.BINANCE_REQUEST_TIMEOUT = int(os.getenv("BINANCE_REQUEST_TIMEOUT", "30"))
@@ -112,7 +111,7 @@ class Config:
 
         # OpenAI Configuration
         self.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-        self.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5")  # Latest model as of Aug 2025
+        self.OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "2048"))
         self.OPENAI_ENABLED = os.getenv("OPENAI_ENABLED", "true").lower() == "true"
 
