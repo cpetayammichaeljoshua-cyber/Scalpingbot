@@ -391,20 +391,48 @@ class TradeMemory:
         return result
 
     def get_recent_loss_rate(self, n: int = 20) -> float:
-        """Loss rate for the last N resolved trades (rolling window)."""
+        """
+        Loss rate for the last N definitively resolved trades.
+
+        FIXED: Previously used pnl_pct <= 0 which counted any trade with tiny
+        negative P&L (including neutral EXPIRED at -0.1%) as a confirmed loss.
+        This inflated the apparent loss rate, triggering unnecessary high-loss-
+        rate retrains and falsely blacklisting symbols like BTCUSDT.
+
+        Fix: Only count unambiguous outcomes:
+          • SL hits          → always a loss
+          • EXPIRED pnl < −0.5% → confirmed loss (significant drawdown)
+          • TP1/TP2/TP3      → win (not a loss)
+          • EXPIRED pnl > −0.5% → neutral (excluded from rate calculation)
+        """
         with self._db() as c:
-            # FIX 9: Use COALESCE so NULL outcome_timestamp falls back to
-            # signal timestamp — ORDER BY broke when outcome_timestamp was NULL.
             rows = c.execute("""
-                SELECT pnl_pct FROM trades
+                SELECT outcome, pnl_pct FROM trades
                 WHERE outcome IS NOT NULL
                 ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
                 LIMIT ?
-            """, (n,)).fetchall()
+            """, (n * 3,)).fetchall()  # fetch 3× to account for neutral exclusions
         if not rows:
             return 0.0
-        losses = sum(1 for r in rows if (r[0] or 0) <= 0)
-        return losses / len(rows)
+        definitive = []
+        for outcome, pnl in rows:
+            outcome = (outcome or "").upper()
+            pnl = float(pnl or 0.0)
+            if outcome in ("TP1", "TP2", "TP3"):
+                definitive.append(0)  # win = not a loss
+            elif outcome == "SL":
+                definitive.append(1)  # loss
+            elif outcome == "EXPIRED":
+                if pnl >= 0.5:
+                    definitive.append(0)  # profitable expiry = win
+                elif pnl <= -0.5:
+                    definitive.append(1)  # significant loss expiry
+                # else: neutral, skip
+            if len(definitive) >= n:
+                break
+        if not definitive:
+            return 0.0
+        return sum(definitive) / len(definitive)
 
     def get_symbol_stats(self, min_trades: int = 5) -> Dict[str, Dict]:
         """
@@ -439,18 +467,40 @@ class TradeMemory:
                 "win_rate": round(wins / total, 4) if total > 0 else 0.0,
             }
 
-        # Also compute recent_loss_rate (last 10) per symbol
+        # Also compute recent_loss_rate (last 10 definitive) per symbol.
+        # FIXED: previously used pnl_pct <= 0 which flagged neutral EXPIRED
+        # trades (-0.1% pnl) as losses, falsely inflating per-symbol loss rates
+        # and causing symbols like BTCUSDT to be blacklisted.
         with self._db() as c:
             for sym in list(result.keys()):
                 recent = c.execute("""
-                    SELECT pnl_pct FROM trades
+                    SELECT outcome, pnl_pct FROM trades
                     WHERE outcome IS NOT NULL AND symbol = ?
                     ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
-                    LIMIT 10
+                    LIMIT 30
                 """, (sym,)).fetchall()
                 if recent:
-                    sym_loss_count = sum(1 for r in recent if (r[0] or 0) <= 0)
-                    result[sym]["recent_loss_rate"] = round(sym_loss_count / len(recent), 4)
+                    definitive = []
+                    for outcome, pnl in recent:
+                        outcome = (outcome or "").upper()
+                        pnl = float(pnl or 0.0)
+                        if outcome in ("TP1", "TP2", "TP3"):
+                            definitive.append(0)
+                        elif outcome == "SL":
+                            definitive.append(1)
+                        elif outcome == "EXPIRED":
+                            if pnl >= 0.5:
+                                definitive.append(0)
+                            elif pnl <= -0.5:
+                                definitive.append(1)
+                        if len(definitive) >= 10:
+                            break
+                    if definitive:
+                        result[sym]["recent_loss_rate"] = round(
+                            sum(definitive) / len(definitive), 4
+                        )
+                    else:
+                        result[sym]["recent_loss_rate"] = 0.0
                 else:
                     result[sym]["recent_loss_rate"] = 0.0
         return result

@@ -506,8 +506,15 @@ class FXSUSDTTelegramBot:
             self._symbol_stats = stats
             self._symbol_stats_last_refresh = now
 
+            # Symbols that must NEVER be blacklisted regardless of loss rate.
+            # These are high-liquidity markets where temporary loss streaks are
+            # noise, and removing them would significantly reduce signal volume.
+            PROTECTED_SYMBOLS = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
+
             new_blacklist = set()
             for sym, s in stats.items():
+                if sym in PROTECTED_SYMBOLS:
+                    continue  # never blacklist protected high-liquidity symbols
                 recent_lr = s.get("recent_loss_rate", 0.0)
                 if recent_lr >= self.SYMBOL_BLOCK_LOSS_RATE:
                     new_blacklist.add(sym)
@@ -1087,7 +1094,7 @@ class FXSUSDTTelegramBot:
                 # Loss-pattern danger zones apply an additional penalty inside
                 # predict_signal_with_uncertainty().
                 _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
-                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
+                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.50:
                     try:
                         # FIX 6: MC-Dropout prediction with uncertainty
                         nn_win_prob, nn_uncertainty = (
@@ -1107,22 +1114,37 @@ class FXSUSDTTelegramBot:
                         _high_uncertainty = nn_uncertainty > 0.15
                         _borderline       = abs(nn_win_prob - _reject_thresh) < 0.08
 
-                        if nn_win_prob < _reject_thresh or (_high_uncertainty and _borderline):
-                            n_danger = len(getattr(
-                                getattr(self.nn_trainer, "loss_analyzer", None),
-                                "danger_zones", []
-                            ))
+                        n_danger = len(getattr(
+                            getattr(self.nn_trainer, "loss_analyzer", None),
+                            "danger_zones", []
+                        ))
+
+                        # Hard reject: win_prob far below reject threshold (> 8pp gap)
+                        # Soft penalty: borderline signals lose confidence instead of
+                        # being dropped, so high-consensus swarm signals still pass.
+                        _far_below = nn_win_prob < (_reject_thresh - 0.08)
+                        if _far_below or (_high_uncertainty and _borderline):
                             reject_reason = (
                                 f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
                                 if (_high_uncertainty and _borderline)
-                                else f"win_prob={nn_win_prob:.0%} < reject_thresh={_reject_thresh:.0%}"
+                                else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
                             )
                             self.logger.info(
-                                f"🧠 NN gate rejected [{symbol}] {signal.action}: "
-                                f"{reject_reason} | "
-                                f"danger_zones: {n_danger}"
+                                f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
+                                f"{reject_reason} | danger_zones={n_danger}"
                             )
                             return False
+                        elif nn_win_prob < _reject_thresh:
+                            # Borderline — apply a confidence penalty instead of hard-rejecting.
+                            # Penalty is proportional to how far below threshold the signal is.
+                            penalty = (_reject_thresh - nn_win_prob) * 50.0  # up to 4pt
+                            penalty = min(penalty, 4.0)
+                            signal.confidence = max(0.0, signal.confidence - penalty)
+                            self.logger.info(
+                                f"🧠 NN soft penalty [{symbol}] {signal.action}: "
+                                f"-{penalty:.1f}pt → conf={signal.confidence:.1f}% "
+                                f"(win_prob={nn_win_prob:.0%} borderline, danger_zones={n_danger})"
+                            )
                         elif nn_win_prob >= _boost_thresh and not _high_uncertainty:
                             # Only boost when model is BOTH confident AND certain
                             nn_boost = min((nn_win_prob - _boost_thresh) * 16.7, 5.0)

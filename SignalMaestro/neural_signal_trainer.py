@@ -235,13 +235,32 @@ def build_features(trade: Dict) -> "np.ndarray":
 
 
 def build_label(trade: Dict) -> float:
-    """1.0 = any TP hit (profitable), 0.0 = SL or expired without profit."""
+    """
+    Binary label: 1.0 = win, 0.0 = loss, -1.0 = skip (neutral / ambiguous).
+
+    TP1/TP2/TP3  → always WIN  (price reached take-profit — unambiguous)
+    SL           → always LOSS (stop-loss hit — unambiguous)
+    EXPIRED      → ONLY labeled when pnl is meaningful:
+                   pnl ≥ +0.5%  → WIN  (expired but clearly profitable)
+                   pnl ≤ −0.5%  → LOSS (expired with significant drawdown)
+                   −0.5% < pnl < +0.5% → SKIP (-1.0): too noisy to learn from.
+                     Previously these were labeled 0.0 (loss), injecting 48
+                     near-zero P&L trades as confirmed losses and inflating the
+                     loss rate from ~52% to 80% — corrupting class weights and
+                     causing the NN to predict low win probability for everything.
+    """
     outcome = (trade.get("outcome") or "EXPIRED").upper()
     if outcome in ("TP1", "TP2", "TP3"):
         return 1.0
     if outcome == "SL":
         return 0.0
-    return 1.0 if (trade.get("pnl_pct") or 0.0) > 0 else 0.0
+    # EXPIRED: require a meaningful P&L to generate a reliable label
+    pnl = float(trade.get("pnl_pct") or 0.0)
+    if pnl >= 0.5:
+        return 1.0
+    if pnl <= -0.5:
+        return 0.0
+    return -1.0  # neutral EXPIRED — caller must skip (do NOT train on this)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -266,12 +285,32 @@ class LossPatternAnalyzer:
         self.loss_means: Optional["np.ndarray"] = None
         self.is_fitted = False
 
+    # Maximum number of danger zones kept in memory.
+    # With 40 features × 10 bins = 400 candidate zones; cap prevents the
+    # danger-zone penalty from covering ALL of feature space when the
+    # base loss rate is already high (e.g. 55% → every bin exceeds 65%).
+    MAX_DANGER_ZONES = 20
+
     def fit(self, X: "np.ndarray", y: "np.ndarray"):
         """
         Compute per-feature loss patterns from training data.
 
         X: (N, INPUT_DIM) feature matrix
         y: (N,) binary labels (1=win, 0=loss)
+
+        FIXED: danger zones are now computed RELATIVE to the base loss rate.
+        A zone is only marked dangerous if its loss_rate exceeds the dataset-
+        wide loss_rate by at least DANGER_MARGIN (15pp).  Previously the
+        threshold was an absolute 65%, so when the base rate was 80% (due to
+        mislabeled neutral EXPIRED trades) EVERY bin exceeded the threshold
+        and all 56 zones were marked dangerous — blocking every signal.
+
+        After filtering neutral EXPIRED trades the base rate is ~48%, so the
+        effective threshold becomes ~63% — much more selective.
+
+        Only the top MAX_DANGER_ZONES zones (sorted by delta above base rate)
+        are kept to ensure the penalty covers the most dangerous feature regions
+        without blanketing the entire feature space.
         """
         if not _HAS_NUMPY or len(X) < 10:
             return
@@ -295,9 +334,17 @@ class LossPatternAnalyzer:
                 abs(win_mean - loss_mean) / ((win_std + loss_std) / 2)
             )
 
-            # Danger zones: for each feature, find percentile bands with loss_rate > 60%
-            self.danger_zones = []
-            n_bins = 10
+            # Base loss rate for this training batch
+            base_loss_rate = float(1.0 - y.mean())
+
+            # Danger zones: zones where loss_rate meaningfully exceeds base rate.
+            # Threshold = base_rate + 15pp (e.g. 48% base → 63% threshold).
+            # This is relative, so it stays meaningful regardless of class imbalance.
+            DANGER_MARGIN = 0.15
+            zone_threshold = min(base_loss_rate + DANGER_MARGIN, 0.85)
+
+            candidate_zones = []
+            n_bins = 8  # fewer bins → larger zones → fewer false positives
             for fi in range(INPUT_DIM):
                 col   = X[:, fi]
                 col_y = y
@@ -305,11 +352,22 @@ class LossPatternAnalyzer:
                 for bi in range(n_bins):
                     lo, hi = edges[bi], edges[bi + 1]
                     mask = (col >= lo) & (col <= hi)
-                    if mask.sum() < 3:
+                    n_in = int(mask.sum())
+                    if n_in < 5:  # need at least 5 samples for reliable rate
                         continue
-                    loss_rate = 1.0 - col_y[mask].mean()
-                    if loss_rate > 0.65:  # 65%+ loss rate in this bin = danger zone
-                        self.danger_zones.append((fi, float(lo), float(hi), float(loss_rate)))
+                    loss_rate = float(1.0 - col_y[mask].mean())
+                    delta = loss_rate - base_loss_rate
+                    if loss_rate > zone_threshold:
+                        candidate_zones.append(
+                            (fi, float(lo), float(hi), float(loss_rate), delta)
+                        )
+
+            # Keep only the top MAX_DANGER_ZONES by delta above base rate
+            candidate_zones.sort(key=lambda z: z[4], reverse=True)
+            self.danger_zones = [
+                (fi, lo, hi, lr)
+                for fi, lo, hi, lr, _ in candidate_zones[:self.MAX_DANGER_ZONES]
+            ]
 
             self.is_fitted = True
         except Exception:
@@ -751,8 +809,26 @@ class NeuralSignalTrainer:
 
         t0 = time.time()
         try:
-            X_all = np.array([build_features(t) for t in trades], dtype=np.float32)
-            y_all = np.array([build_label(t)    for t in trades], dtype=np.float32).reshape(-1, 1)
+            # ── Filter out neutral EXPIRED trades (label == -1.0) ───────────
+            # These have pnl in the range -0.5%..+0.5% and are too noisy to
+            # train on.  Including them inflated the apparent loss rate from
+            # ~52% to 80%, causing the model to predict "LOSS" for everything.
+            filtered_pairs = [
+                (build_features(t), build_label(t))
+                for t in trades
+            ]
+            filtered_pairs = [(x, y) for x, y in filtered_pairs if y >= 0.0]
+            if len(filtered_pairs) < MIN_TRAIN_SAMPLES:
+                return {
+                    "status": "skipped",
+                    "reason": (
+                        f"only {len(filtered_pairs)} trainable samples after "
+                        f"filtering neutral EXPIRED (need {MIN_TRAIN_SAMPLES})"
+                    )
+                }
+
+            X_all = np.array([x for x, _ in filtered_pairs], dtype=np.float32)
+            y_all = np.array([y for _, y in filtered_pairs], dtype=np.float32).reshape(-1, 1)
 
             wins   = int(np.sum(y_all == 1))
             losses = int(np.sum(y_all == 0))
@@ -916,13 +992,32 @@ class NeuralSignalTrainer:
             win_acc  = float(np.mean(preds[y_flat == 1] == 1)) if wins  > 0 else 0.0
             loss_acc = float(np.mean(preds[y_flat == 0] == 0)) if losses > 0 else 0.0
 
-            self.trained           = True
-            self.n_samples_trained = len(trades)
+            # ── Quality gate: only activate NN if it has learned BOTH classes ──
+            # win_acc < 35% means the model predicts "LOSS" for nearly all wins
+            # — it hasn't learned the winning pattern and would block every signal.
+            # loss_acc < 35% means it predicts "WIN" for nearly all losses — no filter.
+            # Both must be reasonable for the model to add value over the raw
+            # confidence gate.  A minimum of 8 wins + 8 losses is also required
+            # to ensure both classes are represented in training.
+            quality_ok = (
+                win_acc  >= 0.35
+                and loss_acc >= 0.35
+                and wins  >= 8
+                and losses >= 8
+            )
+            self.trained           = quality_ok
+            self.n_samples_trained = len(filtered_pairs)  # after neutral filter
             self.last_train_time   = time.time()
             self.last_accuracy     = acc
             self.last_val_loss     = best_val
             self.last_win_rate     = wins  / n if n > 0 else 0.0
             self.last_loss_rate    = losses / n if n > 0 else 0.0
+            if not quality_ok:
+                self.logger.warning(
+                    f"⚠️  NN quality gate FAILED — model disabled until quality improves: "
+                    f"win_acc={win_acc:.1%} loss_acc={loss_acc:.1%} "
+                    f"(need both ≥35%, wins={wins} losses={losses} need both ≥8)"
+                )
 
             # ── Train loss-pattern analyzer on normalised dataset ──────────
             try:
@@ -972,6 +1067,18 @@ class NeuralSignalTrainer:
     # ── Persistence ────────────────────────────────────────────────────────
 
     def _save_weights(self):
+        """
+        Atomically persist NN weights + training state to JSON.
+
+        FIXED: Previously wrote directly to WEIGHTS_PATH, which left a truncated
+        file if the process was interrupted mid-write (Python's json.dump does
+        NOT guarantee atomic writes).  Truncated JSON caused JSONDecodeError on
+        the next restart, leaving the bot permanently untrained until manually
+        fixed.
+
+        Fix: write to a temp file in the same directory then os.replace() which
+        is atomic on all POSIX systems (rename is atomic).
+        """
         if not _HAS_NUMPY:
             return
         try:
@@ -988,26 +1095,26 @@ class NeuralSignalTrainer:
                 "last_loss_rate":      self.last_loss_rate,
                 "_t":                  self._t,
                 "_base_lr":            self._base_lr,
+                "trained":             self.trained,
                 "class_weight_loss":   self.class_weight_loss,
-                # Dual class weights (minority-class fix)
                 "_w_win":              self._w_win,
                 "_w_loss":             self._w_loss,
-                # FIX 5: persist threshold
                 "_opt_threshold":      self._opt_threshold,
                 "_reject_threshold":   self._reject_threshold,
                 "_boost_threshold":    self._boost_threshold,
-                # FIX 4: persist normalisation stats
                 "_feat_mean":  self._feat_mean.tolist()  if self._feat_mean  is not None else None,
                 "_feat_std":   self._feat_std.tolist()   if self._feat_std   is not None else None,
                 "_feat_fitted": self._feat_fitted,
-                # Persist loss analyzer state
                 "danger_zones":        self.loss_analyzer.danger_zones,
                 "feature_importance":  self.loss_analyzer.feature_importance,
                 "win_means":  self.loss_analyzer.win_means.tolist()  if self.loss_analyzer.win_means  is not None else None,
                 "loss_means": self.loss_analyzer.loss_means.tolist() if self.loss_analyzer.loss_means is not None else None,
             }
-            with open(WEIGHTS_PATH, "w") as f:
+            # Atomic write: dump to temp file, then rename (POSIX atomic)
+            tmp_path = WEIGHTS_PATH + ".tmp"
+            with open(tmp_path, "w") as f:
                 json.dump(data, f)
+            os.replace(tmp_path, WEIGHTS_PATH)
             self.logger.debug(f"💾 NN weights saved → {WEIGHTS_PATH}")
         except Exception as e:
             self.logger.warning(f"Weight save failed: {e}")
@@ -1098,14 +1205,28 @@ class NeuralSignalTrainer:
                     self.loss_analyzer.loss_means = np.array(d["loss_means"], np.float32)
                 self.loss_analyzer.is_fitted = True
 
-            if self.n_samples_trained >= MIN_TRAIN_SAMPLES:
-                self.trained = True
+            # Restore the quality-gated trained flag.
+            # The saved 'trained' key reflects whether the quality gate passed
+            # at save time (win_acc ≥ 35% AND loss_acc ≥ 35%).
+            # Fall back to n_samples check for older weight files that lack the key.
+            saved_trained = d.get("trained")
+            if saved_trained is not None:
+                self.trained = bool(saved_trained)
+            else:
+                self.trained = self.n_samples_trained >= MIN_TRAIN_SAMPLES
+            if self.trained:
                 self.logger.info(
                     f"🧠 NN weights loaded | {self.n_samples_trained} samples | "
-                    f"acc={self.last_accuracy:.1%} | "
+                    f"acc={self.last_accuracy:.1%} | win_rate={self.last_win_rate:.1%} | "
                     f"thresh={self._opt_threshold:.3f} | "
-                    f"class_w={self.class_weight_loss:.2f} | "
+                    f"w_win={self._w_win:.2f}x w_loss={self._w_loss:.2f}x | "
                     f"danger_zones={len(self.loss_analyzer.danger_zones)}"
+                )
+            else:
+                self.logger.info(
+                    f"🧠 NN weights loaded but quality gate not met — "
+                    f"acc={self.last_accuracy:.1%} win_rate={self.last_win_rate:.1%} | "
+                    f"retraining needed"
                 )
         except Exception as e:
             self.logger.warning(f"Weight load failed: {e} — starting fresh")
@@ -1147,6 +1268,9 @@ class NeuralSignalTrainer:
             return False
         try:
             label = build_label(trade)
+            if label < 0.0:
+                # Neutral EXPIRED trade — no reliable label, skip online update
+                return False
             X_raw = build_features(trade).reshape(1, -1)
             X_norm = self._normalise(X_raw)
             y = np.array([[label]], dtype=np.float32)
