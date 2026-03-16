@@ -5,19 +5,27 @@ NeuralSignalTrainer — Self-learning signal quality filter for MiroFish Swarm.
 Architecture  : 24-feature input → Dense(64, ReLU) → Dense(32, ReLU)
                 → Dense(16, ReLU) → Dense(1, Sigmoid)
 Optimizer     : Adam with L2 regularisation + dropout (training only)
-Loss          : Focal BCE with class-weighting (penalise losing trades heavily)
+Loss          : Focal BCE with dynamic class-weighting (adapts to actual W/L ratio)
 Persistence   : Weights saved as JSON — survives bot restarts with full warm-start
 Training data : Labeled trades from TradeMemory (TP1/TP2/TP3 = win, SL = loss)
 Output        : win_probability ∈ [0, 1] for any SwarmSignal
 
 Self-Learning Philosophy:
-  • Losses are penalised 2× more than wins in the loss function (class weighting).
-  • Focal loss down-weights easy samples and forces the network to study hard cases
-    (i.e. trades that looked good but failed — the most dangerous patterns).
+  • Class weight adapts dynamically to actual win/loss ratio so the network
+    always penalises the minority class proportionally (was hardcoded 2×).
+  • Focal loss down-weights easy samples and forces the network to study hard
+    cases — trades that looked good but failed (the most dangerous patterns).
   • After each training cycle, a LossPatternAnalyzer scans feature space for
     "danger zones" — feature ranges consistently associated with losses.
   • Predictions for signals that fall inside danger zones receive an additional
     confidence penalty, further reducing false positives.
+  • MC-Dropout (20 stochastic passes) provides calibrated uncertainty so the
+    gate can be adjusted by prediction confidence, not just probability alone.
+  • Optimal decision threshold is computed from validation data (Youden's J)
+    rather than being hardcoded at 0.5 / 0.40 / 0.70.
+  • Feature z-score normalisation is fit on training data and applied to all
+    predictions, preventing large-magnitude features (e.g. RSI) from dominating
+    the gradient signal.
 
 When fewer than MIN_TRAIN_SAMPLES labeled trades exist, predict() returns 0.5
 (pass-through — normal confidence gate handles quality control).
@@ -238,27 +246,44 @@ class NeuralSignalTrainer:
                       → Z3=A2·W3+b3 → A3=ReLU(Z3)
                       → Z4=A3·W4+b4 → out=σ(Z4)  (N,1)
 
-    Loss: Class-weighted Focal BCE
+    Loss: Class-weighted Focal BCE (dynamic class weight based on W/L ratio)
       L = -α * (1-p_t)^γ * log(p_t)
-    where α=0.75 for losses (class_weight_loss), γ=2.0 (focusing parameter)
+    where α = n_wins/n_losses (adaptive), γ = 2.0 (focusing parameter)
 
-    This forces the model to:
-      1. Care twice as much about losses (α weighting)
-      2. Focus on hard-to-classify samples (focal loss γ)
-      3. Learn the subtle features that separate good signals from losers
+    Key fixes applied vs previous version:
+      1. Cosine LR schedule uses _base_lr (not self.lr) — no longer corrupts
+         the base after epoch 1.
+      2. Feature z-score normalisation (fit on training data, applied to
+         predictions) prevents high-magnitude features from dominating.
+      3. Optimal decision threshold computed from validation set via
+         Youden's J statistic (max TPR+TNR−1) instead of hardcoded 0.5/0.40/0.70.
+      4. MC-Dropout uncertainty (N=20 stochastic passes) adds calibrated
+         confidence interval to every prediction.
+      5. Dynamic class weight adapts to actual W/L ratio each training run
+         (clamped 1.0–5.0) instead of fixed 2×.
 
     Saves weights to JSON on every successful training run so a bot restart
     continues from the last learned state.
     """
 
+    # MC-Dropout inference passes for uncertainty estimation
+    _MC_PASSES = 20
+    # Dropout rate used for MC-Dropout at inference time (matches training)
+    _MC_DROPOUT = 0.20
+
     def __init__(self, lr: float = 0.001, l2: float = 1e-4,
                  focal_gamma: float = 2.0,
                  class_weight_loss: float = 2.0):
         self.logger  = logging.getLogger(__name__)
-        self.lr      = lr
+        # FIX 1: store _base_lr separately so _cosine_lr never reads the
+        # already-decayed self.lr — the bug that broke the schedule after epoch 1.
+        self._base_lr = lr
+        self.lr       = lr
         self.l2      = l2
         self.focal_gamma = focal_gamma
-        self.class_weight_loss = class_weight_loss  # weight for losing trades
+        # class_weight_loss is a default / floor; train() overrides it dynamically
+        self._default_class_weight_loss = class_weight_loss
+        self.class_weight_loss = class_weight_loss
 
         # Adam hyper-parameters
         self._b1     = 0.9
@@ -274,6 +299,18 @@ class NeuralSignalTrainer:
         self.last_val_loss     = float("inf")
         self.last_win_rate     = 0.0    # fraction of training data that was wins
         self.last_loss_rate    = 0.0    # fraction of training data that was losses
+
+        # FIX 5: Optimal threshold (Youden's J from validation data).
+        # reject_threshold: signals below this are rejected.
+        # boost_threshold:  signals above this get a confidence boost.
+        self._opt_threshold    = 0.50   # default; overwritten after each training run
+        self._reject_threshold = 0.40   # lower bound (never below this)
+        self._boost_threshold  = 0.70   # upper bound (only boost above this)
+
+        # FIX 4: Feature normalisation statistics (fit on training data).
+        self._feat_mean: Optional["np.ndarray"] = None
+        self._feat_std:  Optional["np.ndarray"] = None
+        self._feat_fitted = False
 
         # Loss pattern analyzer
         self.loss_analyzer = LossPatternAnalyzer()
@@ -304,6 +341,9 @@ class NeuralSignalTrainer:
         self._m = [np.zeros_like(p) for p in self._params()]
         self._v = [np.zeros_like(p) for p in self._params()]
 
+        # Reset Adam step counter when reinitialising weights
+        self._t = 0
+
     def _params(self):
         return [self.W1, self.b1, self.W2, self.b2, self.W3, self.b3, self.W4, self.b4]
 
@@ -315,6 +355,20 @@ class NeuralSignalTrainer:
     def _relu_d(x):  return (x > 0).astype(np.float32)
     @staticmethod
     def _sigmoid(x): return 1.0 / (1.0 + np.exp(-np.clip(x, -20.0, 20.0)))
+
+    # ── Feature normalisation ─────────────────────────────────────────────
+
+    def _fit_normaliser(self, X: "np.ndarray"):
+        """Fit z-score normaliser on training data X (N, INPUT_DIM)."""
+        self._feat_mean  = X.mean(axis=0)
+        self._feat_std   = X.std(axis=0) + 1e-8   # avoid divide-by-zero
+        self._feat_fitted = True
+
+    def _normalise(self, X: "np.ndarray") -> "np.ndarray":
+        """Apply z-score normalisation.  Returns X unchanged if not yet fitted."""
+        if not self._feat_fitted or self._feat_mean is None:
+            return X
+        return (X - self._feat_mean) / self._feat_std
 
     # ── Forward pass ─────────────────────────────────────────────────────
 
@@ -345,7 +399,7 @@ class NeuralSignalTrainer:
 
     def _focal_bce_loss(self, y_true: "np.ndarray", y_pred: "np.ndarray") -> "np.ndarray":
         """
-        Focal Binary Cross-Entropy loss with class weighting.
+        Focal Binary Cross-Entropy loss with dynamic class weighting.
 
         For each sample:
           • If y_true == 1 (win):  weight = 1.0,  p_t = y_pred,       focal = (1-p_t)^γ
@@ -353,12 +407,11 @@ class NeuralSignalTrainer:
 
         Loss = -weight * focal * log(p_t + ε)
 
-        Setting class_weight_loss = 2.0 means the model is penalized twice as
-        much for misclassifying a losing trade as a win.
+        α = n_wins / n_losses (computed dynamically at training time, clamped 1–5).
         """
         _eps = 1e-7
         γ = self.focal_gamma
-        α = self.class_weight_loss
+        α = self.class_weight_loss  # set dynamically in train()
 
         p = np.clip(y_pred, _eps, 1.0 - _eps)
 
@@ -370,13 +423,75 @@ class NeuralSignalTrainer:
         loss = -weight * focal_w * np.log(p_t)
         return loss  # shape (N, 1)
 
+    # ── Optimal threshold computation ─────────────────────────────────────
+
+    def _compute_optimal_threshold(self, X_val: "np.ndarray",
+                                   y_val: "np.ndarray") -> float:
+        """
+        Compute optimal binary classification threshold on validation data
+        using Youden's J statistic: J = TPR + TNR - 1 (maximise balanced accuracy).
+
+        Returns threshold in [0.25, 0.75] clamped for safety.
+        Falls back to 0.50 on any error.
+        """
+        try:
+            _, _, _, _, _, _, _, _, _, A4v = self._forward(X_val, training=False)
+            probs = A4v.flatten()
+            y_flat = y_val.flatten()
+
+            best_thresh = 0.50
+            best_j      = -1.0
+            for t in np.arange(0.25, 0.76, 0.025):
+                preds = (probs >= t).astype(int)
+                tp = int(np.sum((preds == 1) & (y_flat == 1)))
+                tn = int(np.sum((preds == 0) & (y_flat == 0)))
+                fp = int(np.sum((preds == 1) & (y_flat == 0)))
+                fn = int(np.sum((preds == 0) & (y_flat == 1)))
+                tpr = tp / max(tp + fn, 1)
+                tnr = tn / max(tn + fp, 1)
+                j = tpr + tnr - 1.0
+                if j > best_j:
+                    best_j = j
+                    best_thresh = float(t)
+
+            # Derived reject / boost thresholds around optimal
+            self._reject_threshold = max(0.25, best_thresh - 0.10)
+            self._boost_threshold  = min(0.75, best_thresh + 0.10)
+            return best_thresh
+        except Exception:
+            return 0.50
+
+    # ── MC-Dropout prediction ─────────────────────────────────────────────
+
+    def predict_mc(self, X: "np.ndarray",
+                   n_passes: int = _MC_PASSES,
+                   dropout: float = _MC_DROPOUT) -> Tuple["np.ndarray", "np.ndarray"]:
+        """
+        Monte-Carlo Dropout inference: run N stochastic forward passes and
+        return (mean_probs, std_probs) across passes.
+
+        The standard deviation measures epistemic uncertainty — high std means
+        the network is unsure regardless of the mean probability.
+        """
+        if not _HAS_NUMPY or not self.trained:
+            n = len(X)
+            return (np.full(n, 0.5, dtype=np.float32),
+                    np.full(n, 0.0, dtype=np.float32))
+        samples = []
+        for _ in range(n_passes):
+            _, _, _, _, _, _, _, _, _, A4 = self._forward(X, training=True, dropout=dropout)
+            samples.append(A4.flatten())
+        stacked = np.stack(samples, axis=0)   # (n_passes, N)
+        return stacked.mean(axis=0), stacked.std(axis=0)
+
     # ── Prediction ───────────────────────────────────────────────────────
 
     def predict_batch(self, X: "np.ndarray") -> "np.ndarray":
         """Win probability for each row in X. Returns 0.5 array if untrained."""
         if not _HAS_NUMPY or not self.trained:
             return np.full(len(X), 0.5, dtype=np.float32)
-        _, _, _, _, _, _, _, _, _, A4 = self._forward(X, training=False)
+        X_norm = self._normalise(X)
+        _, _, _, _, _, _, _, _, _, A4 = self._forward(X_norm, training=False)
         return A4.flatten()
 
     def predict_signal(self, signal, bb_position: float = 0.5) -> float:
@@ -408,18 +523,69 @@ class NeuralSignalTrainer:
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
             }
-            X = build_features(rec).reshape(1, -1)
-            base_prob = float(self.predict_batch(X)[0])
+            X_raw = build_features(rec).reshape(1, -1)
+            X_norm = self._normalise(X_raw)
+            base_prob = float(self.predict_batch(X_raw)[0])  # predict_batch normalises inside
 
             # Apply loss-pattern penalty
             if self.loss_analyzer.is_fitted:
-                penalty = self.loss_analyzer.danger_penalty(X[0])
+                penalty = self.loss_analyzer.danger_penalty(X_norm[0])
                 base_prob = max(0.0, base_prob - penalty)
 
             return base_prob
         except Exception as e:
             self.logger.debug(f"predict_signal error: {e}")
             return 0.5
+
+    def predict_signal_with_uncertainty(self, signal, bb_position: float = 0.5,
+                                        n_passes: int = _MC_PASSES
+                                        ) -> Tuple[float, float]:
+        """
+        MC-Dropout prediction for a single signal.
+        Returns (mean_win_prob, uncertainty_std).
+
+        High uncertainty (std > 0.15) means the model is unsure — useful for
+        the caller to decide whether to apply a stricter threshold.
+        """
+        if not _HAS_NUMPY or not self.trained:
+            return 0.5, 0.0
+        try:
+            atr_ratio = (
+                signal.atr_value / signal.entry_price
+                if (getattr(signal, "atr_value", None) and signal.entry_price)
+                else 0.003
+            )
+            rec = {
+                "action":             signal.action,
+                "confidence":         signal.confidence,
+                "swarm_consensus":    signal.swarm_consensus,
+                "signal_strength":    signal.signal_strength,
+                "participation_rate": getattr(signal, "participation_rate", 0.875),
+                "rsi":                signal.rsi,
+                "volume_ratio":       signal.volume_ratio,
+                "risk_reward_ratio":  signal.risk_reward_ratio,
+                "atr_ratio":          atr_ratio,
+                "bb_position":        bb_position,
+                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
+                "session":            getattr(signal, "market_session", "US"),
+                "agent_votes_json":   json.dumps(signal.agent_votes or {}),
+                "leverage":           getattr(signal, "leverage", 10),
+            }
+            X_raw  = build_features(rec).reshape(1, -1)
+            X_norm = self._normalise(X_raw)
+            mean_arr, std_arr = self.predict_mc(X_norm, n_passes=n_passes)
+            mean_p = float(mean_arr[0])
+            std_p  = float(std_arr[0])
+
+            # Apply loss-pattern penalty to mean prediction
+            if self.loss_analyzer.is_fitted:
+                penalty = self.loss_analyzer.danger_penalty(X_norm[0])
+                mean_p = max(0.0, mean_p - penalty)
+
+            return mean_p, std_p
+        except Exception as e:
+            self.logger.debug(f"predict_signal_with_uncertainty error: {e}")
+            return 0.5, 0.0
 
     # ── Adam update ───────────────────────────────────────────────────────
 
@@ -435,8 +601,17 @@ class NeuralSignalTrainer:
             p -= self.lr * m_hat / (np.sqrt(v_hat) + self._eps)
 
     def _cosine_lr(self, epoch: int, max_epochs: int, lr_min: float = 1e-5) -> float:
-        """Cosine learning rate schedule."""
-        return lr_min + 0.5 * (self.lr - lr_min) * (1.0 + math.cos(math.pi * epoch / max_epochs))
+        """
+        Cosine learning rate schedule.
+
+        FIX 1: uses self._base_lr (set once in __init__) as the starting rate.
+        Previous version used self.lr, which was already overwritten by the
+        schedule result from the PREVIOUS epoch — breaking the schedule after
+        epoch 1 (self.lr was always lr_min after the first cosine step).
+        """
+        return lr_min + 0.5 * (self._base_lr - lr_min) * (
+            1.0 + math.cos(math.pi * epoch / max_epochs)
+        )
 
     # ── Training ─────────────────────────────────────────────────────────
 
@@ -450,10 +625,11 @@ class NeuralSignalTrainer:
         warm_restart: bool = False,
     ) -> Dict:
         """
-        Full training run on labeled trades with focal loss + class weighting.
+        Full training run on labeled trades with focal loss + dynamic class weighting.
 
         Splits 85/15 train/val, uses early stopping on validation focal-BCE loss.
         After training, runs LossPatternAnalyzer to identify danger zones.
+        Computes optimal decision threshold from validation data (Youden's J).
         """
         if not _HAS_NUMPY:
             return {"status": "disabled", "reason": "numpy not available"}
@@ -469,14 +645,37 @@ class NeuralSignalTrainer:
             wins   = int(np.sum(y_all == 1))
             losses = int(np.sum(y_all == 0))
 
+            # FIX 7: Dynamic class weight — adapt to actual W/L ratio.
+            # Penalise the minority class proportionally (clamped 1.0–5.0).
+            # Previously fixed at 2.0 regardless of actual data distribution.
+            if losses > 0 and wins > 0:
+                dynamic_weight = float(wins) / float(losses)
+                self.class_weight_loss = float(np.clip(dynamic_weight, 1.0, 5.0))
+            else:
+                self.class_weight_loss = self._default_class_weight_loss
+            self.logger.info(
+                f"🔢 Dynamic class weight: {self.class_weight_loss:.2f}x "
+                f"(W={wins} L={losses})"
+            )
+
             n   = len(X_all)
             idx = np.random.permutation(n)
             split = max(10, int(n * 0.85))
-            X_tr, y_tr = X_all[idx[:split]],  y_all[idx[:split]]
-            X_va, y_va = X_all[idx[split:]],   y_all[idx[split:]]
+            X_tr_raw, y_tr = X_all[idx[:split]],  y_all[idx[:split]]
+            X_va_raw, y_va = X_all[idx[split:]],   y_all[idx[split:]]
+
+            # FIX 4: Fit z-score normaliser on TRAINING data only to prevent
+            # validation/test data leakage into the normalisation statistics.
+            self._fit_normaliser(X_tr_raw)
+            X_tr = self._normalise(X_tr_raw)
+            X_va = self._normalise(X_va_raw)
+            # Normalise full dataset for final accuracy + loss-pattern fitting
+            X_all_norm = self._normalise(X_all)
 
             if not (warm_restart and self.trained):
                 self._xavier_init()
+                # Reset base LR on cold restart so cosine schedule starts fresh
+                self._base_lr = self.lr if self.lr > 1e-5 else 0.001
 
             best_val   = float("inf")
             best_wts   = [p.copy() for p in self._params()]
@@ -484,7 +683,7 @@ class NeuralSignalTrainer:
             history    = []
 
             for epoch in range(epochs):
-                # Cosine LR decay
+                # FIX 1: Cosine LR uses _base_lr, not the already-decayed self.lr
                 self.lr = self._cosine_lr(epoch, epochs, lr_min=1e-5)
 
                 perm = np.random.permutation(len(X_tr))
@@ -510,10 +709,6 @@ class NeuralSignalTrainer:
                     focal_w = (1.0 - p_t) ** γ
 
                     # d(focal_BCE)/d(A4): chain rule through focal weight
-                    # L = -w * (1-p_t)^γ * log(p_t)
-                    # dL/dp = w * [γ*(1-p_t)^(γ-1) * log(p_t) - (1-p_t)^γ / p_t]  * d(p_t)/d(p)
-                    # For y=1: p_t = p, d(p_t)/d(p) = +1
-                    # For y=0: p_t = 1-p, d(p_t)/d(p) = -1
                     d_pt_dp = np.where(yb == 1, 1.0, -1.0)
                     grad_p = wt * (
                         γ * (1.0 - p_t) ** (γ - 1) * np.log(p_t + _eps)
@@ -564,9 +759,16 @@ class NeuralSignalTrainer:
             # Restore best weights
             self.W1, self.b1, self.W2, self.b2, self.W3, self.b3, self.W4, self.b4 = best_wts
 
-            # Full-dataset accuracy
-            _, _, _, _, _, _, _, _, _, A4_all = self._forward(X_all, training=False)
-            preds  = (A4_all.flatten() >= 0.5).astype(int)
+            # FIX 5: Compute optimal decision threshold from validation data
+            self._opt_threshold = self._compute_optimal_threshold(X_va, y_va)
+            self.logger.info(
+                f"🎯 Optimal NN threshold: {self._opt_threshold:.3f} "
+                f"(reject<{self._reject_threshold:.3f} boost>{self._boost_threshold:.3f})"
+            )
+
+            # Full-dataset accuracy at optimal threshold
+            _, _, _, _, _, _, _, _, _, A4_all = self._forward(X_all_norm, training=False)
+            preds  = (A4_all.flatten() >= self._opt_threshold).astype(int)
             y_flat = y_all.flatten().astype(int)
             acc    = float(np.mean(preds == y_flat))
 
@@ -582,9 +784,9 @@ class NeuralSignalTrainer:
             self.last_win_rate     = wins  / n if n > 0 else 0.0
             self.last_loss_rate    = losses / n if n > 0 else 0.0
 
-            # ── Train loss-pattern analyzer on this dataset ────────────────
+            # ── Train loss-pattern analyzer on normalised dataset ──────────
             try:
-                self.loss_analyzer.fit(X_all, y_flat)
+                self.loss_analyzer.fit(X_all_norm, y_flat)
                 n_danger = len(self.loss_analyzer.danger_zones)
                 # Top-3 most important features for losses
                 fi_sorted = sorted(enumerate(self.loss_analyzer.feature_importance),
@@ -603,20 +805,24 @@ class NeuralSignalTrainer:
             self.logger.info(
                 f"🧠 NN trained: {len(trades)} samples | {elapsed:.1f}s | "
                 f"acc={acc:.1%} | win_acc={win_acc:.1%} | loss_acc={loss_acc:.1%} | "
-                f"W/L={wins}/{losses} | best_val={best_val:.4f} | epochs={len(history)}"
+                f"W/L={wins}/{losses} | class_w={self.class_weight_loss:.2f} | "
+                f"best_val={best_val:.4f} | epochs={len(history)} | "
+                f"thresh={self._opt_threshold:.3f}"
             )
             return {
-                "status":      "trained",
-                "samples":     len(trades),
-                "accuracy":    acc,
-                "win_acc":     win_acc,
-                "loss_acc":    loss_acc,
-                "val_loss":    best_val,
-                "wins":        wins,
-                "losses":      losses,
-                "epochs_run":  len(history),
-                "elapsed_s":   round(elapsed, 2),
-                "danger_zones": len(self.loss_analyzer.danger_zones),
+                "status":           "trained",
+                "samples":          len(trades),
+                "accuracy":         acc,
+                "win_acc":          win_acc,
+                "loss_acc":         loss_acc,
+                "val_loss":         best_val,
+                "wins":             wins,
+                "losses":           losses,
+                "epochs_run":       len(history),
+                "elapsed_s":        round(elapsed, 2),
+                "danger_zones":     len(self.loss_analyzer.danger_zones),
+                "class_weight":     self.class_weight_loss,
+                "opt_threshold":    self._opt_threshold,
             }
 
         except Exception as e:
@@ -634,16 +840,26 @@ class NeuralSignalTrainer:
                 "W2": self.W2.tolist(), "b2": self.b2.tolist(),
                 "W3": self.W3.tolist(), "b3": self.b3.tolist(),
                 "W4": self.W4.tolist(), "b4": self.b4.tolist(),
-                "n_samples_trained":  self.n_samples_trained,
-                "last_train_time":    self.last_train_time,
-                "last_accuracy":      self.last_accuracy,
-                "last_val_loss":      self.last_val_loss,
-                "last_win_rate":      self.last_win_rate,
-                "last_loss_rate":     self.last_loss_rate,
-                "_t": self._t,
+                "n_samples_trained":   self.n_samples_trained,
+                "last_train_time":     self.last_train_time,
+                "last_accuracy":       self.last_accuracy,
+                "last_val_loss":       self.last_val_loss,
+                "last_win_rate":       self.last_win_rate,
+                "last_loss_rate":      self.last_loss_rate,
+                "_t":                  self._t,
+                "_base_lr":            self._base_lr,
+                "class_weight_loss":   self.class_weight_loss,
+                # FIX 5: persist threshold
+                "_opt_threshold":      self._opt_threshold,
+                "_reject_threshold":   self._reject_threshold,
+                "_boost_threshold":    self._boost_threshold,
+                # FIX 4: persist normalisation stats
+                "_feat_mean":  self._feat_mean.tolist()  if self._feat_mean  is not None else None,
+                "_feat_std":   self._feat_std.tolist()   if self._feat_std   is not None else None,
+                "_feat_fitted": self._feat_fitted,
                 # Persist loss analyzer state
-                "danger_zones": self.loss_analyzer.danger_zones,
-                "feature_importance": self.loss_analyzer.feature_importance,
+                "danger_zones":        self.loss_analyzer.danger_zones,
+                "feature_importance":  self.loss_analyzer.feature_importance,
                 "win_means":  self.loss_analyzer.win_means.tolist()  if self.loss_analyzer.win_means  is not None else None,
                 "loss_means": self.loss_analyzer.loss_means.tolist() if self.loss_analyzer.loss_means is not None else None,
             }
@@ -701,6 +917,24 @@ class NeuralSignalTrainer:
             self.last_loss_rate    = float(d.get("last_loss_rate",   0))
             self._t                = int(d.get("_t", 0))
 
+            # FIX 1: Restore base LR so cosine schedule works correctly on reload
+            self._base_lr = float(d.get("_base_lr", self._base_lr))
+
+            # FIX 7: Restore dynamic class weight
+            self.class_weight_loss = float(d.get("class_weight_loss", self._default_class_weight_loss))
+
+            # FIX 5: Restore optimal thresholds
+            self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
+            self._reject_threshold = float(d.get("_reject_threshold", 0.40))
+            self._boost_threshold  = float(d.get("_boost_threshold",  0.70))
+
+            # FIX 4: Restore normalisation statistics
+            if d.get("_feat_mean") is not None:
+                self._feat_mean = np.array(d["_feat_mean"], dtype=np.float32)
+            if d.get("_feat_std") is not None:
+                self._feat_std  = np.array(d["_feat_std"],  dtype=np.float32)
+            self._feat_fitted = bool(d.get("_feat_fitted", False))
+
             # Re-init Adam moments
             self._m = [np.zeros_like(p) for p in self._params()]
             self._v = [np.zeros_like(p) for p in self._params()]
@@ -724,6 +958,8 @@ class NeuralSignalTrainer:
                 self.logger.info(
                     f"🧠 NN weights loaded | {self.n_samples_trained} samples | "
                     f"acc={self.last_accuracy:.1%} | "
+                    f"thresh={self._opt_threshold:.3f} | "
+                    f"class_w={self.class_weight_loss:.2f} | "
                     f"danger_zones={len(self.loss_analyzer.danger_zones)}"
                 )
         except Exception as e:
@@ -741,6 +977,8 @@ class NeuralSignalTrainer:
             f"NN: trained | {self.n_samples_trained} samples | "
             f"acc={self.last_accuracy:.1%} | "
             f"W/L split={win_acc:.1%}/{1.0-win_acc:.1%} | "
+            f"class_w={self.class_weight_loss:.2f}x | "
+            f"thresh={self._opt_threshold:.3f} | "
             f"danger_zones={dz} | "
             f"last trained {age_h:.1f}h ago"
         )

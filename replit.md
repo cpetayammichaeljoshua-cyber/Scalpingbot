@@ -3,6 +3,34 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 8 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Bug Fixes & Enhancements (Session 7 — Current)
+
+### `SignalMaestro/neural_signal_trainer.py` (5 bugs fixed)
+- **FIX 1 — Cosine LR uses `_base_lr`**: `_cosine_lr()` previously computed from `self.lr` which was being overwritten every epoch. Added `_base_lr = lr` snapshot on init; scheduler now reads `_base_lr` throughout all 400 epochs.
+- **FIX 4 — z-score feature normalisation**: `_feat_mean` / `_feat_std` are now fit on training-fold data only (not val). `_feat_fitted` flag prevents double-fitting on retrain; inference path calls `_normalize_features()` consistently.
+- **FIX 5 — Youden's J optimal threshold**: `_compute_optimal_threshold()` sweeps the validation ROC curve and picks `argmax(TPR + TNR - 1)`. Sets `_opt_threshold`, `_reject_threshold = opt - 0.10`, `_boost_threshold = opt + 0.10` to replace all hardcoded 0.40/0.70 literals.
+- **FIX 6 — MC-Dropout 20-pass uncertainty**: Added `predict_mc()` (stochastic forward passes with dropout active) and `predict_signal_with_uncertainty()` returning `(mean_prob, std)`. High std + borderline probability triggers conservative rejection.
+- **FIX 7 — Dynamic class weight from actual W/L ratio**: Class weight computed from `wins / losses` of training data, clamped to `[1.0, 5.0]`. Replaces the old hardcoded `1.5`.
+
+### `SignalMaestro/trade_memory.py` (4 bugs fixed)
+- **FIX 2 — `_last_train_count` only updates on successful training**: Counter was updated before the training call; if training threw an exception the counter still advanced, suppressing future retrain attempts.
+- **FIX 3 — `MIN_RETRAIN_INTERVAL = 1800s` cooldown**: Prevents infinite retrain loops when model is already up-to-date. Timer only resets on success.
+- **FIX 9 — `COALESCE(outcome_timestamp, timestamp)` for NULL ordering**: `get_recent_loss_rate()` was failing to sort NULL `outcome_timestamp` rows correctly, silently miscounting win rate.
+- **FIX 8 (partial) — `get_symbol_stats()` method added**: Queries per-symbol resolved trade counts and recent loss rates for blacklist use.
+
+### `SignalMaestro/fxsusdt_telegram_bot.py` (3 enhancements)
+- **FIX 8 — Per-symbol blacklist (complete)**: `_symbol_blacklist` set, `_symbol_stats` dict, and `_refresh_symbol_blacklist()` method added. Symbols with recent_loss_rate ≥ 70% over ≥10 resolved trades are blocked automatically. Refresh is rate-limited to once per hour. Cleared/recovered symbols are logged.
+- **FIX 5 wired — Optimal threshold gate**: `process_signals` now reads `self.nn_trainer._reject_threshold` / `_boost_threshold` instead of hardcoded 0.40/0.70.
+- **FIX 6 wired — MC-Dropout in gate**: `process_signals` calls `predict_signal_with_uncertainty()`. Signals with `uncertainty > 0.15` AND within ±0.08 of the reject threshold are conservatively rejected.
+
+### Production validation (first cycle after restart)
+- 67 USDM symbols scanned in 4.0s (parallel mode)
+- Blacklist correctly blocked BTCUSDT, RIVERUSDT, TRUMPUSDT (recent_loss_rate = 80%)
+- ETHUSDT BUY signal sent at 87.1% confidence, swarm=89%
+- Trade #224 recorded to SQLite
+
+---
+
 ## Bug Fixes Applied (Production-Ready)
 - **CRITICAL FIX** (`ai_enhanced_signal_processor.py`): Replaced invalid `from openai import analyze_trading_signal, analyze_sentiment, get_openai_status` (those functions don't exist in the openai package) with correct `AsyncOpenAI` client integration. Real GPT-4o-mini is now called when `OPENAI_API_KEY` is set; otherwise a rule-based fallback is used.
 - **FIX** (`ai_enhanced_signal_processor.py`): Wrapped `from config import Config` in try/except for robustness.

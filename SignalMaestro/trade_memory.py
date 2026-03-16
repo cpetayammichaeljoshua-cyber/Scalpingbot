@@ -393,16 +393,67 @@ class TradeMemory:
     def get_recent_loss_rate(self, n: int = 20) -> float:
         """Loss rate for the last N resolved trades (rolling window)."""
         with self._db() as c:
+            # FIX 9: Use COALESCE so NULL outcome_timestamp falls back to
+            # signal timestamp — ORDER BY broke when outcome_timestamp was NULL.
             rows = c.execute("""
                 SELECT pnl_pct FROM trades
                 WHERE outcome IS NOT NULL
-                ORDER BY outcome_timestamp DESC
+                ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
                 LIMIT ?
             """, (n,)).fetchall()
         if not rows:
             return 0.0
         losses = sum(1 for r in rows if (r[0] or 0) <= 0)
         return losses / len(rows)
+
+    def get_symbol_stats(self, min_trades: int = 5) -> Dict[str, Dict]:
+        """
+        Per-symbol win/loss statistics for the most recent trades.
+
+        FIX 8: Per-symbol performance tracking — enables the bot to identify
+        and optionally block symbols that are persistently unprofitable.
+
+        Returns a dict keyed by symbol with:
+          win_rate    — fraction of resolved trades that were profitable
+          total       — number of resolved trades
+          recent_loss_rate — loss rate for last 10 resolved trades
+        """
+        with self._db() as c:
+            rows = c.execute("""
+                SELECT symbol,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) AS wins,
+                       SUM(CASE WHEN pnl_pct <= 0 THEN 1 ELSE 0 END) AS losses
+                FROM trades
+                WHERE outcome IS NOT NULL
+                GROUP BY symbol
+                HAVING COUNT(*) >= ?
+            """, (min_trades,)).fetchall()
+        result: Dict[str, Dict] = {}
+        for row in rows:
+            sym, total, wins, sym_losses = row[0], row[1], row[2] or 0, row[3] or 0
+            result[sym] = {
+                "total":    total,
+                "wins":     wins,
+                "losses":   sym_losses,
+                "win_rate": round(wins / total, 4) if total > 0 else 0.0,
+            }
+
+        # Also compute recent_loss_rate (last 10) per symbol
+        with self._db() as c:
+            for sym in list(result.keys()):
+                recent = c.execute("""
+                    SELECT pnl_pct FROM trades
+                    WHERE outcome IS NOT NULL AND symbol = ?
+                    ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
+                    LIMIT 10
+                """, (sym,)).fetchall()
+                if recent:
+                    sym_loss_count = sum(1 for r in recent if (r[0] or 0) <= 0)
+                    result[sym]["recent_loss_rate"] = round(sym_loss_count / len(recent), 4)
+                else:
+                    result[sym]["recent_loss_rate"] = 0.0
+        return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -426,9 +477,12 @@ class OutcomeTracker:
     no TP was ever touched.
     """
 
-    CHECK_INTERVAL    = 90     # seconds between price checks (was 120)
-    RETRAIN_THRESHOLD = 8      # new labels needed to trigger re-train (was 10)
-    MIN_TRAIN_SAMPLES = 20     # minimum labeled trades to train at all
+    CHECK_INTERVAL       = 90     # seconds between price checks (was 120)
+    RETRAIN_THRESHOLD    = 8      # new labels needed to trigger re-train (was 10)
+    MIN_TRAIN_SAMPLES    = 20     # minimum labeled trades to train at all
+    # FIX 3: Minimum seconds between any two retrains.
+    # Prevents infinite retrain loop when high_loss_rate gate fires every 90s.
+    MIN_RETRAIN_INTERVAL = 1800   # 30 minutes minimum between retrains
 
     def __init__(self, memory: TradeMemory, trainer, trader):
         self.logger  = logging.getLogger(__name__)
@@ -439,7 +493,10 @@ class OutcomeTracker:
         # Pre-populate from the DB so a restart never downgrades a trade that
         # had already reached TP1/TP2 but hasn't been fully resolved yet.
         self._best: Dict[int, Optional[str]] = {}
+        # FIX 2: _last_train_count updated only after successful training.
         self._last_train_count = 0
+        # FIX 3: Track last retrain wall-clock time to enforce cooldown.
+        self._last_retrain_time: float = 0.0
         self._init_best_from_db()
 
     def _init_best_from_db(self):
@@ -636,10 +693,30 @@ class OutcomeTracker:
 
         Enhanced triggers:
           1. Enough new labels (RETRAIN_THRESHOLD = 8)
-          2. Recent loss rate > 55% → force cold retrain immediately to correct bias
+          2. Recent loss rate > 55% → force cold retrain to correct bias
+
+        FIX 2: _last_train_count is only updated when training SUCCEEDS.
+          Previously it was updated before calling train(), so any training
+          error permanently prevented future retraining.
+
+        FIX 3: Minimum retrain cooldown (MIN_RETRAIN_INTERVAL = 1800s).
+          The high_loss_rate gate previously fired every CHECK_INTERVAL (90s)
+          creating an infinite tight retrain loop.  Now a minimum of 30 minutes
+          must elapse between any two retraining runs.
         """
         labeled = self.memory.get_labeled_trades()
         if len(labeled) < self.MIN_TRAIN_SAMPLES:
+            return
+
+        # FIX 3: Enforce minimum retrain cooldown
+        now_ts = time.time()
+        elapsed_since_retrain = now_ts - self._last_retrain_time
+        if elapsed_since_retrain < self.MIN_RETRAIN_INTERVAL:
+            remaining = self.MIN_RETRAIN_INTERVAL - elapsed_since_retrain
+            self.logger.debug(
+                f"🧠 Retrain cooldown active — {remaining:.0f}s remaining "
+                f"(min interval: {self.MIN_RETRAIN_INTERVAL}s)"
+            )
             return
 
         new_since_last = len(labeled) - self._last_train_count
@@ -657,7 +734,9 @@ class OutcomeTracker:
             f"{len(labeled)} total labeled trades (+{new_since_last} new) | "
             f"recent_loss_rate={recent_loss_rate:.1%}"
         )
-        self._last_train_count = len(labeled)
+
+        # FIX 3: Mark retrain start time immediately to prevent concurrent triggers
+        self._last_retrain_time = now_ts
 
         # Cold retrain when loss rate is high (don't fine-tune a biased model)
         # Warm restart (fine-tune) for small incremental updates
@@ -679,21 +758,38 @@ class OutcomeTracker:
             result = await loop.run_in_executor(None, _train_fn)
             status = result.get("status", "?")
             if status == "trained":
-                mode = "warm" if _use_warm else "cold"
+                # FIX 2: Only update _last_train_count on successful training.
+                # Previously set BEFORE training — any error permanently blocked
+                # future retrains because the counter advanced even on failure.
+                self._last_train_count = len(labeled)
+
+                mode     = "warm" if _use_warm else "cold"
                 win_acc  = result.get("win_acc",  0.0)
                 loss_acc = result.get("loss_acc", 0.0)
                 dz       = result.get("danger_zones", 0)
+                opt_thresh = result.get("opt_threshold", 0.5)
+                class_w    = result.get("class_weight", 2.0)
                 self.logger.info(
                     f"🧠 NN retrained ({mode}): acc={result['accuracy']:.1%} | "
                     f"win_acc={win_acc:.1%} | loss_acc={loss_acc:.1%} | "
                     f"W/L={result['wins']}/{result['losses']} | "
+                    f"class_w={class_w:.2f}x | "
                     f"val_loss={result['val_loss']:.4f} | "
+                    f"opt_thresh={opt_thresh:.3f} | "
                     f"danger_zones={dz} | epochs={result.get('epochs_run', '?')}"
                 )
                 if loss_acc < 0.50:
                     self.logger.warning(
-                        f"⚠️ Loss accuracy {loss_acc:.1%} < 50% — model not learning losses well. "
-                        f"Will force cold retrain next cycle."
+                        f"⚠️ Loss accuracy {loss_acc:.1%} < 50% — model not learning "
+                        f"losses well.  Will force cold retrain next cycle."
                     )
+            else:
+                # Training skipped / errored — reset cooldown so next cycle can retry
+                self.logger.warning(
+                    f"⚠️ Retrain not completed (status={status}) — "
+                    f"cooldown reset for next cycle"
+                )
+                self._last_retrain_time = 0.0  # allow retry next cycle
         except Exception as e:
             self.logger.error(f"Retraining error: {e}")
+            self._last_retrain_time = 0.0  # allow retry next cycle

@@ -261,6 +261,17 @@ class FXSUSDTTelegramBot:
         self._symbol_last_signal: Dict[str, float] = {}   # symbol → unix timestamp
         self._symbol_signal_count: Dict[str, int]  = {}   # symbol → total sent
 
+        # FIX 8: Per-symbol performance tracking and automatic blacklist.
+        # Symbols with recent_loss_rate > 70% over ≥10 resolved trades are
+        # temporarily blocked (refreshed every SYMBOL_STATS_REFRESH_INTERVAL).
+        self._symbol_blacklist: set   = set()
+        self._symbol_stats: Dict[str, Dict] = {}
+        self._symbol_stats_last_refresh: float = 0.0
+        self.SYMBOL_STATS_REFRESH_INTERVAL: int = 3600  # refresh hourly
+        # Threshold: block a symbol if recent loss rate exceeds this
+        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.70  # 70% recent losses → block
+        self.SYMBOL_BLOCK_MIN_TRADES: int  = 10    # need ≥10 resolved trades to block
+
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
             "symbol":           "BTCUSDT",
@@ -461,6 +472,55 @@ class FXSUSDTTelegramBot:
     _GLOBAL_MIN_GAP_SECONDS = 90   # minimum seconds between ANY two signals (all symbols)
     _MAX_SIGNALS_PER_HOUR   = 5    # global cap: strict 5/5 signals per hour
 
+    def _refresh_symbol_blacklist(self):
+        """
+        FIX 8: Refresh per-symbol performance stats and rebuild the blacklist.
+
+        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (70%)
+        over at least SYMBOL_BLOCK_MIN_TRADES (10) resolved trades are added
+        to the blacklist and skipped by can_send_signal().
+
+        Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (1 hour).
+        """
+        now = time.time()
+        if (now - self._symbol_stats_last_refresh) < self.SYMBOL_STATS_REFRESH_INTERVAL:
+            return
+        if not (self.trade_memory and hasattr(self.trade_memory, "get_symbol_stats")):
+            return
+        try:
+            stats = self.trade_memory.get_symbol_stats(
+                min_trades=self.SYMBOL_BLOCK_MIN_TRADES
+            )
+            self._symbol_stats = stats
+            self._symbol_stats_last_refresh = now
+
+            new_blacklist = set()
+            for sym, s in stats.items():
+                recent_lr = s.get("recent_loss_rate", 0.0)
+                if recent_lr >= self.SYMBOL_BLOCK_LOSS_RATE:
+                    new_blacklist.add(sym)
+
+            added   = new_blacklist - self._symbol_blacklist
+            removed = self._symbol_blacklist - new_blacklist
+            self._symbol_blacklist = new_blacklist
+
+            if added:
+                self.logger.warning(
+                    f"🚫 Symbol blacklist ADDED: {sorted(added)} "
+                    f"(recent_loss_rate ≥ {self.SYMBOL_BLOCK_LOSS_RATE:.0%})"
+                )
+            if removed:
+                self.logger.info(
+                    f"✅ Symbol blacklist REMOVED (recovering): {sorted(removed)}"
+                )
+            if new_blacklist:
+                self.logger.info(
+                    f"🚫 Active symbol blacklist ({len(new_blacklist)}): "
+                    f"{sorted(new_blacklist)}"
+                )
+        except Exception as e:
+            self.logger.debug(f"_refresh_symbol_blacklist error: {e}")
+
     def can_send_signal(self, symbol: str = "BTCUSDT") -> bool:
         """
         Two-tier rate limiter:
@@ -479,6 +539,19 @@ class FXSUSDTTelegramBot:
         # so the list stays bounded even when every signal is blocked by Tier-1 cooldown.
         cutoff_24h = now_dt - timedelta(hours=24)
         self.signal_timestamps = [ts for ts in self.signal_timestamps if ts > cutoff_24h]
+
+        # FIX 8: Refresh per-symbol blacklist (rate-limited to hourly)
+        self._refresh_symbol_blacklist()
+
+        # FIX 8: Reject signals for persistently losing symbols
+        if symbol in self._symbol_blacklist:
+            stats = self._symbol_stats.get(symbol, {})
+            self.logger.info(
+                f"🚫 [{symbol}] Blocked — persistently losing symbol "
+                f"(recent_loss_rate={stats.get('recent_loss_rate', 0.0):.0%} "
+                f"≥ {self.SYMBOL_BLOCK_LOSS_RATE:.0%})"
+            )
+            return False
 
         # ── Tier 1: per-symbol cooldown ──────────────────────────────────────
         last_sym_ts = self._symbol_last_signal.get(symbol, 0.0)
@@ -940,40 +1013,70 @@ class FXSUSDTTelegramBot:
                 # ── Neural network signal gate ────────────────────────────────
                 # MLP trained on past resolved outcomes (NeuralSignalTrainer).
                 # Once ≥20 labeled trades exist and accuracy ≥ 55%:
-                #   • win_prob < 40% → reject (learned loser pattern — was 35%)
-                #   • win_prob > 70% → small confidence boost (max +5 pt — was 65%)
-                # Loss-pattern danger zones apply an additional penalty inside predict_signal.
+                #
+                # FIX 5: Thresholds are now computed from validation data
+                #   (Youden's J = max TPR+TNR-1) instead of hardcoded 0.40/0.70.
+                #   _reject_threshold = opt_thresh - 0.10 (reject below this)
+                #   _boost_threshold  = opt_thresh + 0.10 (boost above this)
+                #
+                # FIX 6: MC-Dropout (20 stochastic passes) provides calibrated
+                #   uncertainty.  High uncertainty (std > 0.15) + borderline
+                #   probability → reject conservatively to avoid overconfident
+                #   predictions from a single deterministic forward pass.
+                #
+                # Loss-pattern danger zones apply an additional penalty inside
+                # predict_signal_with_uncertainty().
                 _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
-                _nn_loss_acc = getattr(self.nn_trainer, "last_loss_rate", 0.0) if self.nn_trainer else 0.0
                 if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
                     try:
-                        nn_win_prob = self.nn_trainer.predict_signal(
-                            signal, _local_bb_position
+                        # FIX 6: MC-Dropout prediction with uncertainty
+                        nn_win_prob, nn_uncertainty = (
+                            self.nn_trainer.predict_signal_with_uncertainty(
+                                signal, _local_bb_position
+                            )
                         )
-                        # Stricter gate: 40% threshold (was 35%) to catch more losers early
-                        if nn_win_prob < 0.40:
+
+                        # Read data-driven thresholds (FIX 5)
+                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.40)
+                        _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
+                        _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
+
+                        # FIX 6: High-uncertainty borderline signals → reject conservatively.
+                        # If std > 0.15 and probability is within ±0.08 of reject threshold,
+                        # the model is too uncertain to be trusted — skip the signal.
+                        _high_uncertainty = nn_uncertainty > 0.15
+                        _borderline       = abs(nn_win_prob - _reject_thresh) < 0.08
+
+                        if nn_win_prob < _reject_thresh or (_high_uncertainty and _borderline):
                             n_danger = len(getattr(
                                 getattr(self.nn_trainer, "loss_analyzer", None),
                                 "danger_zones", []
                             ))
+                            reject_reason = (
+                                f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
+                                if (_high_uncertainty and _borderline)
+                                else f"win_prob={nn_win_prob:.0%} < reject_thresh={_reject_thresh:.0%}"
+                            )
                             self.logger.info(
                                 f"🧠 NN gate rejected [{symbol}] {signal.action}: "
-                                f"win_prob={nn_win_prob:.0%} (< 40%) | "
-                                f"danger_zones active: {n_danger}"
+                                f"{reject_reason} | "
+                                f"danger_zones: {n_danger}"
                             )
                             return False
-                        elif nn_win_prob > 0.70:
-                            # Higher bar for boost (70% vs 65%) = only boost confident predictions
-                            nn_boost = min((nn_win_prob - 0.70) * 16.7, 5.0)
+                        elif nn_win_prob >= _boost_thresh and not _high_uncertainty:
+                            # Only boost when model is BOTH confident AND certain
+                            nn_boost = min((nn_win_prob - _boost_thresh) * 16.7, 5.0)
                             signal.confidence = min(100.0, signal.confidence + nn_boost)
                             self.logger.debug(
                                 f"🧠 NN boost +{nn_boost:.1f}pt → "
-                                f"conf={signal.confidence:.1f}% (win_prob={nn_win_prob:.0%})"
+                                f"conf={signal.confidence:.1f}% "
+                                f"(win_prob={nn_win_prob:.0%} σ={nn_uncertainty:.2f})"
                             )
                         else:
                             self.logger.debug(
-                                f"🧠 NN neutral [{symbol}]: win_prob={nn_win_prob:.0%} "
-                                f"(acc={_nn_accuracy:.1%})"
+                                f"🧠 NN pass [{symbol}]: win_prob={nn_win_prob:.0%} "
+                                f"σ={nn_uncertainty:.2f} "
+                                f"thresh={_opt_thresh:.3f} acc={_nn_accuracy:.1%}"
                             )
                     except Exception as _nn_err:
                         self.logger.debug(f"NN gate skipped: {_nn_err}")
