@@ -250,6 +250,18 @@ class FXSUSDTTelegramBot:
         # ── BB position for current scan cycle (passed to trade recorder) ──
         self._current_bb_position: float = 0.5
 
+        # ── Adaptive confidence threshold — raised during losing streaks ────
+        # Base threshold is AI_THRESHOLD_PERCENT (80%).  After N consecutive
+        # resolved losses the threshold is raised by STREAK_BOOST_PER_LOSS
+        # (up to STREAK_MAX_BOOST_PCT) to reduce signal frequency until the
+        # model learns to avoid bad patterns again.
+        self._consecutive_losses: int   = 0
+        self._adaptive_conf_boost: float = 0.0   # extra % added to the gate
+        self.STREAK_TRIGGER_N:    int   = 3       # losses in a row before boost
+        self.STREAK_BOOST_PER_LOSS: float = 2.0  # +2% per consecutive loss
+        self.STREAK_MAX_BOOST_PCT:  float = 15.0 # max +15% above base threshold
+        self.STREAK_RESET_ON_WIN:   bool  = True  # reset streak on any win
+
         # ── Multi-market state ─────────────────────────────────────────────────
         # Active symbol list — refreshed from Binance every SYMBOL_REFRESH_INTERVAL
         self._active_symbols: List[str]   = ["BTCUSDT"]
@@ -592,6 +604,47 @@ class FXSUSDTTelegramBot:
         elapsed = time.time() - last_ts
         return max(0, int(self.min_signal_interval_minutes * 60 - elapsed))
 
+    def update_loss_streak(self, is_loss: bool):
+        """
+        Called by OutcomeTracker (or any resolver) whenever a trade resolves.
+
+        Maintains a consecutive-loss counter and adjusts _adaptive_conf_boost:
+          - Win  → reset streak to 0 and remove any extra boost.
+          - Loss → increment streak; when streak ≥ STREAK_TRIGGER_N,
+                   boost the confidence gate by STREAK_BOOST_PER_LOSS% per
+                   additional loss (capped at STREAK_MAX_BOOST_PCT).
+
+        The effect: after 3 consecutive losses the bot becomes harder to satisfy
+        (e.g. 80% → 86%) so it waits for only the strongest setups until the
+        NN adapts via online/batch learning.
+        """
+        if not is_loss:
+            if self.STREAK_RESET_ON_WIN and self._consecutive_losses > 0:
+                old_boost = self._adaptive_conf_boost
+                self._consecutive_losses   = 0
+                self._adaptive_conf_boost  = 0.0
+                self.logger.info(
+                    f"✅ Loss streak RESET on WIN — "
+                    f"conf boost removed (was +{old_boost:.1f}%)"
+                )
+            return
+
+        self._consecutive_losses += 1
+        if self._consecutive_losses >= self.STREAK_TRIGGER_N:
+            extra = (self._consecutive_losses - self.STREAK_TRIGGER_N + 1)
+            new_boost = min(
+                extra * self.STREAK_BOOST_PER_LOSS,
+                self.STREAK_MAX_BOOST_PCT
+            )
+            if new_boost != self._adaptive_conf_boost:
+                base = float(os.getenv("AI_THRESHOLD_PERCENT", "80"))
+                self._adaptive_conf_boost = new_boost
+                self.logger.warning(
+                    f"🛡️ Loss streak={self._consecutive_losses} — "
+                    f"conf gate raised to {base + new_boost:.0f}% "
+                    f"(base={base:.0f}% + boost={new_boost:.1f}%)"
+                )
+
     # ─────────────────────────────────────────
     # Signal Formatting (MiroFish Swarm style)
     # ─────────────────────────────────────────
@@ -885,7 +938,14 @@ class FXSUSDTTelegramBot:
         if self._signal_gate_lock is None:
             self._signal_gate_lock = asyncio.Lock()
 
-        confidence_threshold = float(os.getenv("AI_THRESHOLD_PERCENT", "80"))
+        # Base confidence threshold + adaptive loss-streak boost.
+        # After STREAK_TRIGGER_N consecutive losses the gate rises by
+        # STREAK_BOOST_PER_LOSS% per additional loss (capped at STREAK_MAX_BOOST_PCT)
+        # so the bot becomes more selective until the NN re-learns from the mistakes.
+        confidence_threshold = (
+            float(os.getenv("AI_THRESHOLD_PERCENT", "80"))
+            + self._adaptive_conf_boost
+        )
         signal = signals[0]  # Best-ranked signal
         symbol = getattr(signal, "symbol", "BTCUSDT") or "BTCUSDT"
 
@@ -1151,7 +1211,7 @@ class FXSUSDTTelegramBot:
         if _HAS_NEURAL and self.trade_memory and self.outcome_tracker is None:
             try:
                 self.outcome_tracker = OutcomeTracker(
-                    self.trade_memory, self.nn_trainer, self.trader
+                    self.trade_memory, self.nn_trainer, self.trader, bot=self
                 )
                 asyncio.create_task(self.outcome_tracker.run())
                 self.logger.info("🧠 OutcomeTracker background task started")

@@ -484,11 +484,13 @@ class OutcomeTracker:
     # Prevents infinite retrain loop when high_loss_rate gate fires every 90s.
     MIN_RETRAIN_INTERVAL = 1800   # 30 minutes minimum between retrains
 
-    def __init__(self, memory: TradeMemory, trainer, trader):
+    def __init__(self, memory: TradeMemory, trainer, trader, bot=None):
         self.logger  = logging.getLogger(__name__)
         self.memory  = memory
         self.trainer = trainer
         self.trader  = trader
+        # Optional bot reference for adaptive confidence threshold updates
+        self.bot = bot
         # Per-trade best outcome seen so far (in-memory ratchet).
         # Pre-populate from the DB so a restart never downgrades a trade that
         # had already reached TP1/TP2 but hasn't been fully resolved yet.
@@ -627,6 +629,31 @@ class OutcomeTracker:
                 self.memory.resolve_trade(tid, resolved_outcome, current_price, pnl_pct)
                 self._best.pop(tid, None)
                 newly_resolved += 1
+
+                # ── Adaptive confidence threshold: update streak counter ──
+                # Wins reset the streak; losses tighten the confidence gate.
+                if self.bot is not None and hasattr(self.bot, "update_loss_streak"):
+                    is_loss = resolved_outcome in ("SL", "EXPIRED")
+                    try:
+                        self.bot.update_loss_streak(is_loss)
+                    except Exception as _se:
+                        self.logger.debug(f"streak update skipped: {_se}")
+
+                # ── Online (incremental) learning: immediately update the NN
+                # from this one resolved trade so the model adapts in real-time
+                # between full batch retrains.  Only runs when the model is
+                # already trained (has a fitted normaliser); safe no-op otherwise.
+                if self.trainer is not None and hasattr(self.trainer, "update_online"):
+                    resolved_record = {
+                        **trade,
+                        "outcome": resolved_outcome,
+                        "outcome_price": current_price,
+                        "pnl_pct": pnl_pct,
+                    }
+                    try:
+                        self.trainer.update_online(resolved_record, n_steps=5, lr_scale=0.1)
+                    except Exception as _oe:
+                        self.logger.debug(f"online update skipped: {_oe}")
 
         if newly_resolved > 0:
             self.logger.info(

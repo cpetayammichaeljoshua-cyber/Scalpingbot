@@ -386,6 +386,10 @@ class NeuralSignalTrainer:
         # class_weight_loss is a default / floor; train() overrides it dynamically
         self._default_class_weight_loss = class_weight_loss
         self.class_weight_loss = class_weight_loss
+        # Dual per-class weights: _w_win applied to y=1, _w_loss to y=0.
+        # Both default to 1.0; train() recalculates them from actual data.
+        self._w_win:  float = 1.0
+        self._w_loss: float = class_weight_loss
 
         # Adam hyper-parameters
         self._b1     = 0.9
@@ -503,25 +507,29 @@ class NeuralSignalTrainer:
 
     def _focal_bce_loss(self, y_true: "np.ndarray", y_pred: "np.ndarray") -> "np.ndarray":
         """
-        Focal Binary Cross-Entropy loss with dynamic class weighting.
+        Focal Binary Cross-Entropy loss with dual per-class dynamic weighting.
 
         For each sample:
-          • If y_true == 1 (win):  weight = 1.0,  p_t = y_pred,       focal = (1-p_t)^γ
-          • If y_true == 0 (loss): weight = α,    p_t = 1 - y_pred,   focal = (1-p_t)^γ
+          • If y_true == 1 (win):  weight = _w_win,  p_t = y_pred,       focal = (1-p_t)^γ
+          • If y_true == 0 (loss): weight = _w_loss, p_t = 1 - y_pred,   focal = (1-p_t)^γ
 
         Loss = -weight * focal * log(p_t + ε)
 
-        α = n_wins / n_losses (computed dynamically at training time, clamped 1–5).
+        Dual weights ensure the MINORITY class always gets proportionally higher weight:
+          • wins dominant  (wins  > losses): _w_loss = n_wins/n_losses  > 1, _w_win  = 1
+          • losses dominant(losses > wins ): _w_win  = n_losses/n_wins  > 1, _w_loss = 1
+        Previously only the loss class (y=0) was weighted, meaning when losses dominated
+        the minority class (wins) had NO extra penalty — now both cases are handled.
         """
         _eps = 1e-7
         γ = self.focal_gamma
-        α = self.class_weight_loss  # set dynamically in train()
 
         p = np.clip(y_pred, _eps, 1.0 - _eps)
 
         # p_t: probability of correct class
         p_t     = np.where(y_true == 1, p, 1.0 - p)
-        weight  = np.where(y_true == 1, 1.0, α)
+        # Apply dual per-class weights (set by train() each run)
+        weight  = np.where(y_true == 1, self._w_win, self._w_loss)
         focal_w = (1.0 - p_t) ** γ
 
         loss = -weight * focal_w * np.log(p_t)
@@ -749,16 +757,35 @@ class NeuralSignalTrainer:
             wins   = int(np.sum(y_all == 1))
             losses = int(np.sum(y_all == 0))
 
-            # FIX 7: Dynamic class weight — adapt to actual W/L ratio.
-            # Penalise the minority class proportionally (clamped 1.0–5.0).
-            # Previously fixed at 2.0 regardless of actual data distribution.
-            if losses > 0 and wins > 0:
-                dynamic_weight = float(wins) / float(losses)
-                self.class_weight_loss = float(np.clip(dynamic_weight, 1.0, 5.0))
+            # FIXED: Dual per-class dynamic weighting — always weights the MINORITY
+            # class proportionally, regardless of which class is dominant.
+            #
+            # Previous bug: only the loss class (y=0) ever received a weight > 1.0.
+            # When losses dominated (losses > wins), wins/losses < 1 was clipped to 1.0
+            # → minority class (wins) received NO extra penalty, causing the model to
+            # predict "loss" for everything.
+            #
+            # Fix: compute inverse-frequency weights for BOTH classes:
+            #   wins dominant  (wins > losses):  _w_loss = wins/losses  > 1, _w_win  = 1
+            #   losses dominant(losses > wins):  _w_win  = losses/wins  > 1, _w_loss = 1
+            # Both clamped to [1.0, 5.0] to prevent extreme over-correction.
+            if wins > 0 and losses > 0:
+                ratio = float(wins) / float(losses)
+                if ratio >= 1.0:
+                    # Wins dominant — penalise the loss minority
+                    self._w_win  = 1.0
+                    self._w_loss = float(np.clip(ratio, 1.0, 5.0))
+                else:
+                    # Losses dominant — penalise the win minority
+                    self._w_win  = float(np.clip(1.0 / ratio, 1.0, 5.0))
+                    self._w_loss = 1.0
+                self.class_weight_loss = max(self._w_win, self._w_loss)
             else:
+                self._w_win  = 1.0
+                self._w_loss = self._default_class_weight_loss
                 self.class_weight_loss = self._default_class_weight_loss
             self.logger.info(
-                f"🔢 Dynamic class weight: {self.class_weight_loss:.2f}x "
+                f"🔢 Dual class weights: w_win={self._w_win:.2f}x w_loss={self._w_loss:.2f}x "
                 f"(W={wins} L={losses})"
             )
 
@@ -803,13 +830,14 @@ class NeuralSignalTrainer:
                     )
 
                     # ── Focal BCE gradient w.r.t. logits Z4 ──────────────────
+                    # Uses dual per-class weights (_w_win / _w_loss) to ensure
+                    # the minority class always gets proportionally higher gradient.
                     _eps = 1e-7
                     γ    = self.focal_gamma
-                    α    = self.class_weight_loss
 
                     p    = np.clip(A4, _eps, 1.0 - _eps)
                     p_t  = np.where(yb == 1, p, 1.0 - p)
-                    wt   = np.where(yb == 1, 1.0, α)
+                    wt   = np.where(yb == 1, self._w_win, self._w_loss)
                     focal_w = (1.0 - p_t) ** γ
 
                     # d(focal_BCE)/d(A4): chain rule through focal weight
@@ -821,27 +849,35 @@ class NeuralSignalTrainer:
                     # Through sigmoid: dA4/dZ4 = A4*(1-A4)
                     dZ4 = grad_p * A4 * (1.0 - A4) / m
 
+                    # NOTE: dZ4 is already divided by m (batch average).
+                    # All subsequent gradient tensors (dA3/dZ3/dA2/dZ2/dA1/dZ1)
+                    # inherit that /m factor through backpropagation.
+                    # Therefore:
+                    #   dW = (prev_activation.T @ dZ)   ← no extra /m (already /m)
+                    #   db = dZ.sum(axis=0)              ← sum (not mean) since dZ is already /m
+                    # Previous code had dW/m (extra division → effective lr was lr/m²)
+                    # and db=mean(dZ) (another /m → lr/m²). Both are now corrected.
                     dW4 = (A3.T @ dZ4) + self.l2 * self.W4
-                    db4 = np.mean(dZ4, axis=0, keepdims=True)
+                    db4 = dZ4.sum(axis=0, keepdims=True)
 
                     dA3 = dZ4 @ self.W4.T
                     dZ3 = dA3 * self._relu_d(Z3)
-                    dW3 = (A2.T @ dZ3) / m + self.l2 * self.W3
-                    db3 = np.mean(dZ3, axis=0, keepdims=True)
+                    dW3 = (A2.T @ dZ3) + self.l2 * self.W3
+                    db3 = dZ3.sum(axis=0, keepdims=True)
 
                     dA2 = dZ3 @ self.W3.T
                     if mask2 is not None:
                         dA2 = dA2 * mask2
                     dZ2 = dA2 * self._relu_d(Z2)
-                    dW2 = (A1.T @ dZ2) / m + self.l2 * self.W2
-                    db2 = np.mean(dZ2, axis=0, keepdims=True)
+                    dW2 = (A1.T @ dZ2) + self.l2 * self.W2
+                    db2 = dZ2.sum(axis=0, keepdims=True)
 
                     dA1 = dZ2 @ self.W2.T
                     if mask1 is not None:
                         dA1 = dA1 * mask1
                     dZ1 = dA1 * self._relu_d(Z1)
-                    dW1 = (Xb.T @ dZ1) / m + self.l2 * self.W1
-                    db1 = np.mean(dZ1, axis=0, keepdims=True)
+                    dW1 = (Xb.T @ dZ1) + self.l2 * self.W1
+                    db1 = dZ1.sum(axis=0, keepdims=True)
 
                     self._adam_step([dW1, db1, dW2, db2, dW3, db3, dW4, db4])
 
@@ -953,6 +989,9 @@ class NeuralSignalTrainer:
                 "_t":                  self._t,
                 "_base_lr":            self._base_lr,
                 "class_weight_loss":   self.class_weight_loss,
+                # Dual class weights (minority-class fix)
+                "_w_win":              self._w_win,
+                "_w_loss":             self._w_loss,
                 # FIX 5: persist threshold
                 "_opt_threshold":      self._opt_threshold,
                 "_reject_threshold":   self._reject_threshold,
@@ -1024,8 +1063,10 @@ class NeuralSignalTrainer:
             # FIX 1: Restore base LR so cosine schedule works correctly on reload
             self._base_lr = float(d.get("_base_lr", self._base_lr))
 
-            # FIX 7: Restore dynamic class weight
+            # Restore dynamic class weight + dual per-class weights
             self.class_weight_loss = float(d.get("class_weight_loss", self._default_class_weight_loss))
+            self._w_win  = float(d.get("_w_win",  1.0))
+            self._w_loss = float(d.get("_w_loss", self.class_weight_loss))
 
             # FIX 5: Restore optimal thresholds
             self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
@@ -1081,8 +1122,90 @@ class NeuralSignalTrainer:
             f"NN: trained | {self.n_samples_trained} samples | "
             f"acc={self.last_accuracy:.1%} | "
             f"W/L split={win_acc:.1%}/{1.0-win_acc:.1%} | "
-            f"class_w={self.class_weight_loss:.2f}x | "
+            f"w_win={self._w_win:.2f}x w_loss={self._w_loss:.2f}x | "
             f"thresh={self._opt_threshold:.3f} | "
             f"danger_zones={dz} | "
             f"last trained {age_h:.1f}h ago"
         )
+
+    def update_online(self, trade: Dict, n_steps: int = 5,
+                      lr_scale: float = 0.1) -> bool:
+        """
+        Online (incremental) learning from a single resolved trade.
+
+        Runs n_steps of gradient descent on this one sample using a fraction
+        (lr_scale) of the base learning rate so it refines the model without
+        catastrophically forgetting the previous batch training.
+
+        Only active when the model is already trained (has a valid normaliser).
+        Returns True on success, False if skipped or on error.
+
+        This is called immediately after OutcomeTracker resolves each trade,
+        providing continuous real-time learning between full batch retrains.
+        """
+        if not _HAS_NUMPY or not self.trained or not self._feat_fitted:
+            return False
+        try:
+            label = build_label(trade)
+            X_raw = build_features(trade).reshape(1, -1)
+            X_norm = self._normalise(X_raw)
+            y = np.array([[label]], dtype=np.float32)
+
+            # Use a small fraction of base_lr for online updates to prevent
+            # catastrophic forgetting of prior batch-trained knowledge.
+            orig_lr = self.lr
+            self.lr = self._base_lr * lr_scale
+
+            for _ in range(n_steps):
+                Z1, A1, mask1, Z2, A2, mask2, Z3, A3, Z4, A4 = self._forward(
+                    X_norm, training=True, dropout=0.10  # light dropout for online
+                )
+
+                _eps = 1e-7
+                γ = self.focal_gamma
+                p = np.clip(A4, _eps, 1.0 - _eps)
+                p_t = np.where(y == 1, p, 1.0 - p)
+                wt = np.where(y == 1, self._w_win, self._w_loss)
+                focal_w = (1.0 - p_t) ** γ
+                d_pt_dp = np.where(y == 1, 1.0, -1.0)
+                grad_p = wt * (
+                    γ * (1.0 - p_t) ** (γ - 1) * np.log(p_t + _eps)
+                    - (1.0 - p_t) ** γ / (p_t + _eps)
+                ) * d_pt_dp
+                # m=1 for single sample — no /m needed since dZ4 carries 1/1
+                dZ4 = grad_p * A4 * (1.0 - A4)
+
+                dW4 = (A3.T @ dZ4) + self.l2 * self.W4
+                db4 = dZ4.sum(axis=0, keepdims=True)
+
+                dA3 = dZ4 @ self.W4.T
+                dZ3 = dA3 * self._relu_d(Z3)
+                dW3 = (A2.T @ dZ3) + self.l2 * self.W3
+                db3 = dZ3.sum(axis=0, keepdims=True)
+
+                dA2 = dZ3 @ self.W3.T
+                if mask2 is not None:
+                    dA2 = dA2 * mask2
+                dZ2 = dA2 * self._relu_d(Z2)
+                dW2 = (A1.T @ dZ2) + self.l2 * self.W2
+                db2 = dZ2.sum(axis=0, keepdims=True)
+
+                dA1 = dZ2 @ self.W2.T
+                if mask1 is not None:
+                    dA1 = dA1 * mask1
+                dZ1 = dA1 * self._relu_d(Z1)
+                dW1 = (X_norm.T @ dZ1) + self.l2 * self.W1
+                db1 = dZ1.sum(axis=0, keepdims=True)
+
+                self._adam_step([dW1, db1, dW2, db2, dW3, db3, dW4, db4])
+
+            self.lr = orig_lr
+            outcome_label = "WIN" if label == 1.0 else "LOSS"
+            self.logger.debug(
+                f"🧠 Online update: {trade.get('symbol','?')} {trade.get('action','?')} "
+                f"→ {outcome_label} | {n_steps} steps lr×{lr_scale}"
+            )
+            return True
+        except Exception as e:
+            self.logger.debug(f"online_update error: {e}")
+            return False
