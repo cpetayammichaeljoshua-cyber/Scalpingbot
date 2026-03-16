@@ -463,7 +463,9 @@ class TrendAgent:
     )
 
     def analyze(self, closes: List[float], params: dict,
-                graph: MarketGraphMemory) -> Tuple[str, float]:
+                graph: MarketGraphMemory,
+                highs: Optional[List[float]] = None,
+                lows: Optional[List[float]] = None) -> Tuple[str, float]:
         try:
             if len(closes) < params["ema_slow"] + 5:
                 return "NEUTRAL", 50.0
@@ -534,9 +536,11 @@ class TrendAgent:
             # Requires at least 26 candles (kijun period) plus some history
             if len(closes) >= 30:
                 try:
-                    # Build highs/lows proxy from closes for Ichimoku (best effort)
-                    # Actual OHLC passed to _analyze_timeframe; here we approximate from closes
-                    _ten_val, _kij_val = _tenkan_kijun(closes, closes, closes, 9, 26)
+                    # Use real OHLC highs/lows when available (passed from _analyze_timeframe).
+                    # Falls back to closes-as-proxy only when raw OHLC was not provided.
+                    _ich_h = highs if (highs and len(highs) >= 30) else closes
+                    _ich_l = lows  if (lows  and len(lows)  >= 30) else closes
+                    _ten_val, _kij_val = _tenkan_kijun(closes, _ich_h, _ich_l, 9, 26)
                     if _ten_val is not None and _kij_val is not None:
                         if vote == "BUY"  and _ten_val > _kij_val: conf = min(conf + 6, 100)
                         if vote == "SELL" and _ten_val < _kij_val: conf = min(conf + 6, 100)
@@ -1840,7 +1844,9 @@ class MiroFishSwarmStrategy:
             session = self._current_session
 
             # ── Step 1: Run all deterministic agents ──
-            trend_vote, trend_conf = self.trend_agent.analyze(closes, params, graph)
+            trend_vote, trend_conf = self.trend_agent.analyze(
+                closes, params, graph, highs=highs, lows=lows
+            )
 
             momentum_vote, momentum_conf = self.momentum_agent.analyze(closes, graph)
 

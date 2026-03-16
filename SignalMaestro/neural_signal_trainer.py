@@ -2,13 +2,20 @@
 """
 NeuralSignalTrainer — Self-learning signal quality filter for MiroFish Swarm.
 
-Architecture  : 30-feature input → Dense(64, ReLU) → Dense(32, ReLU)
-                → Dense(16, ReLU) → Dense(1, Sigmoid)
+Architecture  : 40-feature input → Dense(128, ReLU) → Dense(64, ReLU)
+                → Dense(32, ReLU) → Dense(1, Sigmoid)
 Optimizer     : Adam with L2 regularisation + dropout (training only)
 Loss          : Focal BCE with dynamic class-weighting (adapts to actual W/L ratio)
 Persistence   : Weights saved as JSON — survives bot restarts with full warm-start
 Training data : Labeled trades from TradeMemory (TP1/TP2/TP3 = win, SL = loss)
 Output        : win_probability ∈ [0, 1] for any SwarmSignal
+
+Architecture v2 (40-feature, 4-layer):
+  • Expanded from 30 → 40 features: 10 new non-linear interaction & regime terms
+  • Wider hidden layers (64/32/16 → 128/64/32) for greater model capacity
+  • New features capture: RSI-direction alignment, BB-direction alignment,
+    confidence×consensus interaction, quadratic R:R, log volume, cubic consensus,
+    sub-day cycle harmonics, and RSI trap risk alignment
 
 Self-Learning Philosophy:
   • Class weight adapts dynamically to actual win/loss ratio so the network
@@ -47,7 +54,7 @@ except ImportError:
 WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
 MIN_TRAIN_SAMPLES = 20   # minimum labeled trades before NN activates
-INPUT_DIM        = 30    # expanded feature set (was 24; +6 for FF/AI votes, RSI/BB extremes)
+INPUT_DIM        = 40    # v2 expanded: +10 interaction/regime features over v1 30-feature set
 
 # Agent order — all 8 votes used as features
 AGENT_ORDER = [
@@ -60,12 +67,12 @@ _VOTE    = {"BUY": 1.0, "SELL": -1.0, "NEUTRAL": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature engineering  (30 features)
+# Feature engineering  (40 features — v2)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    30-feature normalised vector from a trade record dict.
+    40-feature normalised vector from a trade record dict (v2 — expanded from 30).
 
     Features 1-12:  scalar signal quality indicators
     Features 13-16: time / leverage encoding
@@ -73,6 +80,17 @@ def build_features(trade: Dict) -> "np.ndarray":
     Features 25-26: derived consensus metrics (agreement fraction, purity)
     Features 27-28: RSI regime flags (overbought / oversold binary)
     Features 29-30: Bollinger Band extreme zone flags (upper / lower extreme)
+    Features 31-40: v2 non-linear interaction & regime terms
+      31 — RSI strength aligned to direction  (punishes counter-RSI signals)
+      32 — BB position aligned to direction   (punishes counter-BB signals)
+      33 — confidence × consensus product     (joint quality gate interaction)
+      34 — R:R quadratic scaling              (super-linear reward for high R:R)
+      35 — participation rate squared         (super-linear reward for quorum)
+      36 — consensus cubed                    (strongly amplifies near-unanimous)
+      37 — log-normalised volume ratio        (handles vol spikes non-linearly)
+      38 — ATR ratio quadratic                (super-linear for high volatility)
+      39 — sub-day cosine cycle               (captures intra-session 6h rhythm)
+      40 — RSI trap risk aligned to direction (warns of exhaustion in direction)
     """
     if not _HAS_NUMPY:
         raise ImportError("numpy required for neural signal trainer")
@@ -84,10 +102,16 @@ def build_features(trade: Dict) -> "np.ndarray":
     direction = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
     session   = _SESSION.get((trade.get("session") or "US").upper(), 1.0)
 
-    rsi      = float(trade.get("rsi", 50.0))
-    hour     = float(trade.get("hour_of_day", 12))
-    leverage = float(trade.get("leverage", 10))
-    bb_pos   = float(trade.get("bb_position", 0.5))
+    rsi        = float(trade.get("rsi", 50.0))
+    hour       = float(trade.get("hour_of_day", 12))
+    leverage   = float(trade.get("leverage", 10))
+    bb_pos     = float(trade.get("bb_position", 0.5))
+    confidence = float(trade.get("confidence", 70.0)) / 100.0
+    consensus  = float(trade.get("swarm_consensus", 0.75))
+    vol_ratio  = float(trade.get("volume_ratio", 1.0))
+    rr         = float(trade.get("risk_reward_ratio", 1.5))
+    atr_ratio  = float(trade.get("atr_ratio", 0.003))
+    part_rate  = float(trade.get("participation_rate", 0.625))
 
     # Derived consensus metrics
     all_votes = [votes.get(a, "NEUTRAL") for a in AGENT_ORDER]
@@ -111,20 +135,66 @@ def build_features(trade: Dict) -> "np.ndarray":
     bb_upper_extreme = 1.0 if bb_pos > 0.85 else 0.0  # price near or above upper BB
     bb_lower_extreme = 1.0 if bb_pos < 0.15 else 0.0  # price near or below lower BB
 
+    # ── v2 Non-linear interaction & regime features (31-40) ──────────────────
+
+    # F31: RSI momentum aligned with signal direction [-1, +1]
+    # Positive when RSI bias matches trade direction (good), negative when counter-trend
+    rsi_aligned = (rsi - 50.0) / 50.0 * direction
+
+    # F32: BB position bias aligned with signal direction [-0.5, +0.5]
+    # BUY: prefer bb_pos < 0.5 (room to run up); SELL: prefer bb_pos > 0.5
+    bb_aligned = (0.5 - bb_pos) * direction
+
+    # F33: confidence × consensus joint interaction [0, 1]
+    # Captures the compound quality gate: both must be high for a great trade
+    conf_x_consensus = confidence * consensus
+
+    # F34: R:R quadratic scaling [0, 1]
+    # Disproportionately rewards high R:R trades (e.g. 3:1 >> 2:1)
+    rr_quadratic = min(rr / 5.0, 1.0) ** 2
+
+    # F35: Participation rate squared [0, 1]
+    # Disproportionately rewards near-unanimous quorum
+    part_sq = part_rate ** 2
+
+    # F36: Consensus cubed [0, 1]
+    # Strongly amplifies near-unanimous consensus (0.9^3=0.73, 0.72^3=0.37)
+    consensus_cubed = consensus ** 3
+
+    # F37: Log-normalised volume ratio [0, 1]
+    # Handles volume spikes gracefully (log compression prevents dominance)
+    vol_log = min(math.log1p(max(vol_ratio, 0)) / 2.5, 1.0)
+
+    # F38: ATR ratio quadratic [0, 1]
+    # Higher volatility gets disproportionately higher weight (risk amplifier)
+    atr_quad = min(atr_ratio / 0.015, 1.0) ** 2
+
+    # F39: Sub-day cosine cycle (6h rhythm) — captures intra-session phase
+    # Different from the 24h cos (F16) — picks up Asian/EU/US session sub-periods
+    hour_cos2 = math.cos(4.0 * math.pi * hour / 24.0)
+
+    # F40: RSI exhaustion trap risk aligned to trade direction [0, 1]
+    # BUY into overbought (RSI>65) or SELL into oversold (RSI<35) = trap risk = 1
+    # BUY into oversold (RSI<35) or SELL into overbought (RSI>65) = momentum aligned = 0
+    if direction > 0:
+        rsi_trap = 1.0 if rsi > 65.0 else (0.0 if rsi < 45.0 else (rsi - 45.0) / 20.0)
+    else:
+        rsi_trap = 1.0 if rsi < 35.0 else (0.0 if rsi > 55.0 else (55.0 - rsi) / 20.0)
+
     f = [
         # ── Signal quality (1-12) ─────────────────────────────────────────────
-        float(trade.get("confidence",          70.0)) / 100.0,          # 1
-        float(trade.get("swarm_consensus",     0.75)),                   # 2
+        confidence,                                                       # 1
+        consensus,                                                        # 2
         float(trade.get("signal_strength",     65.0)) / 100.0,          # 3
-        float(trade.get("participation_rate",  0.625)),                  # 4
+        part_rate,                                                        # 4
         (rsi - 50.0) / 50.0,                                             # 5  rsi bias [-1,+1]
-        min(float(trade.get("volume_ratio",     1.0)) / 3.0, 1.0),      # 6
-        min(float(trade.get("risk_reward_ratio",1.5)) / 5.0, 1.0),      # 7
-        min(float(trade.get("atr_ratio",       0.003)) / 0.01, 1.0),    # 8
+        min(vol_ratio / 3.0, 1.0),                                       # 6
+        min(rr / 5.0, 1.0),                                              # 7
+        min(atr_ratio / 0.01, 1.0),                                      # 8
         bb_pos,                                                           # 9
         direction,                                                        # 10 BUY=+1 SELL=-1
         session,                                                          # 11 session [0,1]
-        float(trade.get("swarm_consensus",     0.75)) ** 2,              # 12 consensus² (amplify high values)
+        consensus ** 2,                                                   # 12 consensus² (amplify high values)
 
         # ── Time / leverage encoding (13-16) ─────────────────────────────────
         leverage / 30.0,                                                  # 13 leverage normalised
@@ -141,9 +211,21 @@ def build_features(trade: Dict) -> "np.ndarray":
         rsi_overbought,                                                   # 27 1 if RSI>70 (OB trap risk)
         rsi_oversold,                                                     # 28 1 if RSI<30 (OS trap risk)
 
-        # ── Bollinger Band extreme zone flags (29-30) ─────────────────────
+        # ── Bollinger Band extreme zone flags (29-30) ────────────────────────
         bb_upper_extreme,                                                 # 29 1 if price near upper BB
         bb_lower_extreme,                                                 # 30 1 if price near lower BB
+
+        # ── v2 Non-linear interaction & regime features (31-40) ──────────────
+        rsi_aligned,                                                      # 31 RSI aligned to direction
+        bb_aligned,                                                       # 32 BB pos aligned to direction
+        conf_x_consensus,                                                 # 33 confidence × consensus
+        rr_quadratic,                                                     # 34 R:R quadratic
+        part_sq,                                                          # 35 participation squared
+        consensus_cubed,                                                  # 36 consensus cubed
+        vol_log,                                                          # 37 log vol ratio
+        atr_quad,                                                         # 38 ATR quadratic
+        hour_cos2,                                                        # 39 sub-day cosine (6h)
+        rsi_trap,                                                         # 40 RSI trap risk aligned
     ]
 
     arr = np.array(f, dtype=np.float32)
@@ -258,28 +340,29 @@ class LossPatternAnalyzer:
 
 class NeuralSignalTrainer:
     """
-    Four-hidden-layer MLP trained with mini-batch Adam + focal BCE loss.
+    Three-hidden-layer MLP (v2 wider) trained with mini-batch Adam + focal BCE loss.
 
-    Forward:  X(N,30) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
-                      → Z2=A1·W2+b2 → A2=ReLU(Z2)
+    Forward:  X(N,40) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
+                      → Z2=A1·W2+b2 → A2=ReLU(Z2) → [dropout]
                       → Z3=A2·W3+b3 → A3=ReLU(Z3)
                       → Z4=A3·W4+b4 → out=σ(Z4)  (N,1)
+
+    Architecture v2: 40→128→64→32→1
+      • 40 input features (v1 had 30; +10 non-linear interaction & regime terms)
+      • Wider hidden layers: 128/64/32 (v1: 64/32/16) for greater capacity
+      • Same 4 parameters groups (W1/b1 through W4/b4)
 
     Loss: Class-weighted Focal BCE (dynamic class weight based on W/L ratio)
       L = -α * (1-p_t)^γ * log(p_t)
     where α = n_wins/n_losses (adaptive), γ = 2.0 (focusing parameter)
 
-    Key fixes applied vs previous version:
-      1. Cosine LR schedule uses _base_lr (not self.lr) — no longer corrupts
-         the base after epoch 1.
-      2. Feature z-score normalisation (fit on training data, applied to
-         predictions) prevents high-magnitude features from dominating.
-      3. Optimal decision threshold computed from validation set via
-         Youden's J statistic (max TPR+TNR−1) instead of hardcoded 0.5/0.40/0.70.
-      4. MC-Dropout uncertainty (N=20 stochastic passes) adds calibrated
-         confidence interval to every prediction.
-      5. Dynamic class weight adapts to actual W/L ratio each training run
-         (clamped 1.0–5.0) instead of fixed 2×.
+    Key capabilities:
+      1. Cosine LR schedule uses _base_lr (not self.lr) — no corruption after epoch 1.
+      2. Feature z-score normalisation (fit on training data, applied to predictions).
+      3. Optimal decision threshold computed from validation set via Youden's J.
+      4. MC-Dropout uncertainty (N=20 stochastic passes) for calibrated confidence.
+      5. Dynamic class weight adapts to actual W/L ratio each training run (1.0–5.0).
+      6. LossPatternAnalyzer identifies feature danger zones after each training cycle.
 
     Saves weights to JSON on every successful training run so a bot restart
     continues from the last learned state.
@@ -347,14 +430,16 @@ class NeuralSignalTrainer:
         rng = np.random.default_rng(42)
 
         def _w(fan_in, fan_out):
-            s = np.sqrt(2.0 / (fan_in + fan_out))
+            # He initialisation for ReLU activations (fan_in only) — better than
+            # Xavier for deep ReLU networks as it accounts for the dead-neuron effect
+            s = np.sqrt(2.0 / fan_in)
             return rng.normal(0, s, (fan_in, fan_out)).astype(np.float32)
 
-        # Expanded architecture: 30 → 64 → 32 → 16 → 1
-        self.W1 = _w(INPUT_DIM, 64); self.b1 = np.zeros((1, 64), np.float32)
-        self.W2 = _w(64, 32);        self.b2 = np.zeros((1, 32), np.float32)
-        self.W3 = _w(32, 16);        self.b3 = np.zeros((1, 16), np.float32)
-        self.W4 = _w(16, 1);         self.b4 = np.zeros((1, 1),  np.float32)
+        # v2 architecture: 40 → 128 → 64 → 32 → 1  (wider + deeper capacity)
+        self.W1 = _w(INPUT_DIM, 128); self.b1 = np.zeros((1, 128), np.float32)
+        self.W2 = _w(128, 64);        self.b2 = np.zeros((1, 64),  np.float32)
+        self.W3 = _w(64, 32);         self.b3 = np.zeros((1, 32),  np.float32)
+        self.W4 = _w(32, 1);          self.b4 = np.zeros((1, 1),   np.float32)
 
         # Adam first and second moment vectors
         self._m = [np.zeros_like(p) for p in self._params()]
@@ -905,10 +990,10 @@ class NeuralSignalTrainer:
             b4 = np.array(d.get("b4", []), dtype=np.float32)
 
             expected = {
-                "W1": (INPUT_DIM, 64), "b1": (1, 64),
-                "W2": (64, 32),        "b2": (1, 32),
-                "W3": (32, 16),        "b3": (1, 16),
-                "W4": (16, 1),         "b4": (1, 1),
+                "W1": (INPUT_DIM, 128), "b1": (1, 128),
+                "W2": (128, 64),        "b2": (1, 64),
+                "W3": (64, 32),         "b3": (1, 32),
+                "W4": (32, 1),          "b4": (1, 1),
             }
             actual = {
                 "W1": w1.shape, "b1": b1.shape,
