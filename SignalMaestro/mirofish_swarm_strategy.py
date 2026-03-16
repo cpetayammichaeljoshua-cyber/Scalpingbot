@@ -1334,17 +1334,62 @@ class AIOrchestrationAgent:
     def _build_prompt(symbol: str, timeframe: str, session: str,
                       cur_price: float, chg_1h: float, votes_summary: str,
                       buy_votes: int, sell_votes: int,
-                      graph_context: str) -> str:
+                      graph_context: str,
+                      rsi: float = 50.0, macd_line: float = 0.0,
+                      macd_signal: float = 0.0, bb_pct: float = 50.0,
+                      stoch_k: float = 50.0, atr_pct: float = 0.3) -> str:
+        """
+        Build the ReACT trading prompt enriched with full technical indicator data.
+        The additional indicators (RSI, MACD, BB%, Stoch, ATR%) give Claude/GPT
+        the same data a professional trader would have on their chart.
+        """
+        # MACD cross description
+        _macd_cross = ""
+        if macd_line > macd_signal:
+            _macd_cross = "bullish (MACD above signal)"
+        elif macd_line < macd_signal:
+            _macd_cross = "bearish (MACD below signal)"
+        else:
+            _macd_cross = "neutral (at crossover)"
+
+        # RSI zone
+        _rsi_zone = "neutral"
+        if rsi >= 70:
+            _rsi_zone = "overbought (bearish risk)"
+        elif rsi >= 60:
+            _rsi_zone = "mildly overbought"
+        elif rsi <= 30:
+            _rsi_zone = "oversold (bullish opportunity)"
+        elif rsi <= 40:
+            _rsi_zone = "mildly oversold"
+
+        # BB position description
+        _bb_zone = "mid-band"
+        if bb_pct >= 85:
+            _bb_zone = "near upper band (extended, reversion risk)"
+        elif bb_pct >= 65:
+            _bb_zone = "upper half (bullish bias)"
+        elif bb_pct <= 15:
+            _bb_zone = "near lower band (extended, reversion risk)"
+        elif bb_pct <= 35:
+            _bb_zone = "lower half (bearish bias)"
+
         return (
             f"You are a professional quantitative crypto futures trader using ReACT reasoning.\n"
             f"Symbol: {symbol} | Timeframe: {timeframe} | Session: {session}\n"
-            f"Current price: ${cur_price:,.4g} | 1h change: {chg_1h:+.2f}%\n"
+            f"Current price: ${cur_price:,.4g} | 1h change: {chg_1h:+.2f}%\n\n"
+            f"Technical indicators:\n"
+            f"  RSI(14)={rsi:.1f} [{_rsi_zone}]\n"
+            f"  MACD={macd_line:+.5g} | Signal={macd_signal:+.5g} [{_macd_cross}]\n"
+            f"  BB%={bb_pct:.1f}% [{_bb_zone}]\n"
+            f"  Stochastic(14)={stoch_k:.1f}\n"
+            f"  ATR%={atr_pct:.3f}% (volatility)\n\n"
             f"Swarm agent votes: {votes_summary}\n"
             f"Buy votes: {buy_votes} | Sell votes: {sell_votes}\n"
             f"Graph memory: {graph_context}\n\n"
-            f"REASON: What does the market context indicate?\n"
+            f"REASON: What do the technical indicators and agent consensus indicate?\n"
             f"ACT: What is the most probable next {timeframe} move?\n"
-            f"REFLECT: Any conflicting signals reducing confidence?\n"
+            f"REFLECT: Any conflicting signals (OB/OS vs trend, MACD divergence) reducing confidence?\n"
             f"CONCLUDE: Final trading signal.\n\n"
             f"Reply ONLY as valid JSON (no markdown, no extra text):\n"
             f"{{\"reason\": \"<1 sentence>\", \"act\": \"<1 sentence>\", "
@@ -1355,16 +1400,38 @@ class AIOrchestrationAgent:
 
     @staticmethod
     def _parse_ai_response(content: str) -> Optional[dict]:
-        """Extract and parse JSON from AI response — handles markdown code fences."""
+        """
+        Extract and parse JSON from AI response — handles markdown code fences
+        and nested JSON structures.  Uses a brace-counting extractor so nested
+        objects (e.g. {"data": {"x": 1}}) are captured correctly instead of
+        being truncated by the old r'\{[^{}]*\}' regex.
+        """
         # Strip markdown code fences if present
         content = re.sub(r"```(?:json)?\s*", "", content).strip()
-        match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
-        if not match:
-            return None
+
+        # Try direct parse first (the cleanest path)
         try:
-            return json.loads(match.group())
+            return json.loads(content)
         except (json.JSONDecodeError, ValueError):
-            return None
+            pass
+
+        # Brace-counting extractor — finds the outermost {} object
+        depth = 0
+        start = -1
+        for i, ch in enumerate(content):
+            if ch == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    try:
+                        return json.loads(content[start:i + 1])
+                    except (json.JSONDecodeError, ValueError):
+                        # This brace pair wasn't valid JSON — keep scanning
+                        start = -1
+        return None
 
     # ── Claude query ─────────────────────────────────────────────────────────
 
@@ -1489,10 +1556,28 @@ class AIOrchestrationAgent:
             "sell_votes": sell_votes,
         })
 
+        # ── Compute technical indicators for the enriched prompt ──
+        # These are the same indicators the swarm agents use, giving Claude/GPT
+        # the same full-chart context a professional trader would have.
+        _rsi_val   = _rsi(closes, 14) or 50.0
+        _macd_l, _macd_s = _macd(closes)
+        _macd_l    = _macd_l or 0.0
+        _macd_s    = _macd_s or 0.0
+        _bb_up, _bb_mid, _bb_lo = _bollinger(closes, 20, 2.0)
+        if _bb_up is not None and _bb_lo is not None and _bb_up != _bb_lo:
+            _bb_pct = (closes[-1] - _bb_lo) / (_bb_up - _bb_lo) * 100.0
+        else:
+            _bb_pct = 50.0
+        _stoch_k   = _stochastic(closes, 14) or 50.0
+        _atr_val   = _atr_close(closes, 14) or (closes[-1] * 0.003)
+        _atr_pct   = (_atr_val / closes[-1] * 100.0) if closes[-1] > 0 else 0.3
+
         # Build the shared prompt once — used by both AI providers
         prompt = self._build_prompt(
             symbol, timeframe, session, cur_price, chg_1h,
-            votes_summary, buy_votes, sell_votes, graph_context
+            votes_summary, buy_votes, sell_votes, graph_context,
+            rsi=_rsi_val, macd_line=_macd_l, macd_signal=_macd_s,
+            bb_pct=_bb_pct, stoch_k=_stoch_k, atr_pct=_atr_pct
         )
 
         # ── ACT: Claude (primary) ──
@@ -1889,6 +1974,18 @@ class MiroFishSwarmStrategy:
                 if divergence > 0.4:
                     weighted_conf *= (1.0 - divergence * 0.15)
 
+            # ── Unanimous consensus bonus ──────────────────────────────────────
+            # When every non-neutral agent votes the same direction (0 contrarians)
+            # AND at least 6/8 agents participated, this is an extremely rare and
+            # highly reliable setup.  Apply a direct +4% confidence bonus.
+            # This partially offsets the strict min_confidence gate for elite setups.
+            if n_contrary == 0 and n_active >= 6:
+                weighted_conf = min(weighted_conf + 4.0, 100.0)
+                self.logger.debug(
+                    f"⚡ [{symbol}] Unanimous consensus bonus +4% "
+                    f"(all {n_active} active agents aligned)"
+                )
+
             # Session activity boost
             session_boost = (self._session_activity - 1.0) * 6.0
             weighted_conf = min(max(weighted_conf + session_boost, 0.0), 100.0)
@@ -1980,12 +2077,19 @@ class MiroFishSwarmStrategy:
                 if stop_loss <= cur_price:
                     stop_loss = _tick(cur_price * (1 + sl_pct))
 
-            rr = abs(take_profit - cur_price) / abs(stop_loss - cur_price) if abs(stop_loss - cur_price) > 0 else 0
+            # R:R uses TP2 as the effective reward target (realistic for a partial-exit
+            # strategy where Cornix closes 50% at TP1 and 35% at TP2).  TP1-only R:R
+            # underestimates the true risk/reward of the trade plan.
+            _sl_dist_rr = abs(stop_loss - cur_price)
+            if _sl_dist_rr > 0:
+                rr = abs(tp2 - cur_price) / _sl_dist_rr
+            else:
+                rr = 0.0
 
             # High-quality gate: reject weak R:R signals
             if rr < self.min_rr_ratio:
                 self.logger.debug(
-                    f"⚠️ [{tf}] R:R={rr:.2f} below minimum {self.min_rr_ratio:.2f} — signal rejected"
+                    f"⚠️ [{tf}] R:R(TP2)={rr:.2f} below minimum {self.min_rr_ratio:.2f} — signal rejected"
                 )
                 return None
 

@@ -2,7 +2,7 @@
 """
 NeuralSignalTrainer — Self-learning signal quality filter for MiroFish Swarm.
 
-Architecture  : 24-feature input → Dense(64, ReLU) → Dense(32, ReLU)
+Architecture  : 30-feature input → Dense(64, ReLU) → Dense(32, ReLU)
                 → Dense(16, ReLU) → Dense(1, Sigmoid)
 Optimizer     : Adam with L2 regularisation + dropout (training only)
 Loss          : Focal BCE with dynamic class-weighting (adapts to actual W/L ratio)
@@ -47,9 +47,9 @@ except ImportError:
 WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
 MIN_TRAIN_SAMPLES = 20   # minimum labeled trades before NN activates
-INPUT_DIM        = 24    # expanded feature set (was 18)
+INPUT_DIM        = 30    # expanded feature set (was 24; +6 for FF/AI votes, RSI/BB extremes)
 
-# Agent order — first 6 votes used as features (FundingFlow + AI kept separate)
+# Agent order — all 8 votes used as features
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
@@ -60,24 +60,26 @@ _VOTE    = {"BUY": 1.0, "SELL": -1.0, "NEUTRAL": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature engineering  (24 features)
+# Feature engineering  (30 features)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    24-feature normalised vector from a trade record dict.
+    30-feature normalised vector from a trade record dict.
 
-    Features 1-12: scalar signal quality indicators
+    Features 1-12:  scalar signal quality indicators
     Features 13-16: time / leverage encoding
-    Features 17-22: 6 agent votes [-1, 0, +1]
-    Features 23-24: derived consensus metrics
+    Features 17-24: all 8 agent votes [-1, 0, +1]
+    Features 25-26: derived consensus metrics (agreement fraction, purity)
+    Features 27-28: RSI regime flags (overbought / oversold binary)
+    Features 29-30: Bollinger Band extreme zone flags (upper / lower extreme)
     """
     if not _HAS_NUMPY:
         raise ImportError("numpy required for neural signal trainer")
 
     votes = json.loads(trade.get("agent_votes_json", "{}"))
-    # 6 agent votes
-    agent_feats = [_VOTE.get(votes.get(a, "NEUTRAL"), 0.0) for a in AGENT_ORDER[:6]]
+    # All 8 agent votes (FundingFlow + AI now included, not just first 6)
+    agent_feats = [_VOTE.get(votes.get(a, "NEUTRAL"), 0.0) for a in AGENT_ORDER]
 
     direction = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
     session   = _SESSION.get((trade.get("session") or "US").upper(), 1.0)
@@ -85,6 +87,7 @@ def build_features(trade: Dict) -> "np.ndarray":
     rsi      = float(trade.get("rsi", 50.0))
     hour     = float(trade.get("hour_of_day", 12))
     leverage = float(trade.get("leverage", 10))
+    bb_pos   = float(trade.get("bb_position", 0.5))
 
     # Derived consensus metrics
     all_votes = [votes.get(a, "NEUTRAL") for a in AGENT_ORDER]
@@ -100,6 +103,14 @@ def build_features(trade: Dict) -> "np.ndarray":
     dominant = max(n_buy, n_sell)
     consensus_purity = dominant / n_total
 
+    # RSI regime binary flags — critical for identifying OB/OS exhaustion traps
+    rsi_overbought = 1.0 if rsi > 70.0 else 0.0   # signal fired into OB territory
+    rsi_oversold   = 1.0 if rsi < 30.0 else 0.0   # signal fired into OS territory
+
+    # Bollinger Band extreme zone flags — price near the bands = mean-reversion risk
+    bb_upper_extreme = 1.0 if bb_pos > 0.85 else 0.0  # price near or above upper BB
+    bb_lower_extreme = 1.0 if bb_pos < 0.15 else 0.0  # price near or below lower BB
+
     f = [
         # ── Signal quality (1-12) ─────────────────────────────────────────────
         float(trade.get("confidence",          70.0)) / 100.0,          # 1
@@ -110,7 +121,7 @@ def build_features(trade: Dict) -> "np.ndarray":
         min(float(trade.get("volume_ratio",     1.0)) / 3.0, 1.0),      # 6
         min(float(trade.get("risk_reward_ratio",1.5)) / 5.0, 1.0),      # 7
         min(float(trade.get("atr_ratio",       0.003)) / 0.01, 1.0),    # 8
-        float(trade.get("bb_position",          0.5)),                   # 9
+        bb_pos,                                                           # 9
         direction,                                                        # 10 BUY=+1 SELL=-1
         session,                                                          # 11 session [0,1]
         float(trade.get("swarm_consensus",     0.75)) ** 2,              # 12 consensus² (amplify high values)
@@ -120,11 +131,19 @@ def build_features(trade: Dict) -> "np.ndarray":
         (rsi - 50.0) ** 2 / 2500.0,                                      # 14 rsi extremity [0,1]
         math.sin(2.0 * math.pi * hour / 24.0),                           # 15 hour_sin
         math.cos(2.0 * math.pi * hour / 24.0),                           # 16 hour_cos
-    ] + agent_feats + [                                                   # 17-22 agent votes [-1,+1]
+    ] + agent_feats + [                                                   # 17-24 all 8 agent votes
 
-        # ── Derived consensus metrics (23-24) ────────────────────────────────
-        agreement_frac,                                                   # 23 direction agreement [0,1]
-        consensus_purity,                                                 # 24 dominant-side purity [0,1]
+        # ── Derived consensus metrics (25-26) ────────────────────────────────
+        agreement_frac,                                                   # 25 direction agreement [0,1]
+        consensus_purity,                                                 # 26 dominant-side purity [0,1]
+
+        # ── RSI regime flags (27-28) ─────────────────────────────────────────
+        rsi_overbought,                                                   # 27 1 if RSI>70 (OB trap risk)
+        rsi_oversold,                                                     # 28 1 if RSI<30 (OS trap risk)
+
+        # ── Bollinger Band extreme zone flags (29-30) ─────────────────────
+        bb_upper_extreme,                                                 # 29 1 if price near upper BB
+        bb_lower_extreme,                                                 # 30 1 if price near lower BB
     ]
 
     arr = np.array(f, dtype=np.float32)
@@ -241,7 +260,7 @@ class NeuralSignalTrainer:
     """
     Four-hidden-layer MLP trained with mini-batch Adam + focal BCE loss.
 
-    Forward:  X(N,24) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
+    Forward:  X(N,30) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
                       → Z2=A1·W2+b2 → A2=ReLU(Z2)
                       → Z3=A2·W3+b3 → A3=ReLU(Z3)
                       → Z4=A3·W4+b4 → out=σ(Z4)  (N,1)
@@ -331,7 +350,7 @@ class NeuralSignalTrainer:
             s = np.sqrt(2.0 / (fan_in + fan_out))
             return rng.normal(0, s, (fan_in, fan_out)).astype(np.float32)
 
-        # Expanded architecture: 24 → 64 → 32 → 16 → 1
+        # Expanded architecture: 30 → 64 → 32 → 16 → 1
         self.W1 = _w(INPUT_DIM, 64); self.b1 = np.zeros((1, 64), np.float32)
         self.W2 = _w(64, 32);        self.b2 = np.zeros((1, 32), np.float32)
         self.W3 = _w(32, 16);        self.b3 = np.zeros((1, 16), np.float32)
