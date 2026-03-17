@@ -8,4 +8,4 @@ nixPkgs = ["python311", "gcc", "openssl"]
 cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
 
 [start]
-cmd = "python main.py"
+cmd = "python start_ultimate_bot.py"

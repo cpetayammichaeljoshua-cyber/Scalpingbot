@@ -1061,6 +1061,32 @@ class FXSUSDTTelegramBot:
                     except Exception as e:
                         self.logger.debug(f"Microstructure skipped: {e}")
 
+                if self.ai_processor:
+                    try:
+                        from ai_enhanced_signal_processor import analyze_trading_signal
+                        _ai_signal_text = (
+                            f"{signal.action} {symbol} @ {signal.entry_price:.6g} "
+                            f"RSI={signal.rsi:.1f} Vol={signal.volume_ratio:.2f}x "
+                            f"Conf={signal.confidence:.1f}% Swarm={signal.swarm_consensus:.0%}"
+                        )
+                        _ai_result = await analyze_trading_signal(_ai_signal_text)
+                        _ai_conf = float(_ai_result.get("confidence", 0.0))
+                        _ai_sentiment = _ai_result.get("market_sentiment", "neutral").lower()
+                        _direction_aligned = (
+                            (sig_dir == "BUY"  and _ai_sentiment in ("bullish", "positive")) or
+                            (sig_dir == "SELL" and _ai_sentiment in ("bearish", "negative"))
+                        )
+                        if _direction_aligned and _ai_conf >= 0.75:
+                            _ai_boost = 4 if _ai_conf >= 0.85 else 2
+                            signal.confidence = min(100, signal.confidence + _ai_boost)
+                            signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
+                            self.logger.info(
+                                f"🤖 AI boost +{_ai_boost}% "
+                                f"(sentiment={_ai_sentiment} conf={_ai_conf:.2f})"
+                            )
+                    except Exception as e:
+                        self.logger.debug(f"AI processor skipped: {e}")
+
         except Exception as e:
             self.logger.debug(f"Boost analysis skipped: {e}")
 

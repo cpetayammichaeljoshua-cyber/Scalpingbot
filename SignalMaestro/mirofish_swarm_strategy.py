@@ -2382,25 +2382,6 @@ def _cmf(closes: List[float], volumes: List[float],
     return mf_vol_sum / vol_sum if vol_sum > 0 else 0.0
 
 
-def _is_macd_cross_up(closes: List[float]) -> bool:
-    if len(closes) < 35:
-        return False
-    prev_m, prev_s = _macd(closes[:-1])
-    cur_m,  cur_s  = _macd(closes)
-    if None in (prev_m, prev_s, cur_m, cur_s):
-        return False
-    return prev_m <= prev_s and cur_m > cur_s
-
-
-def _is_macd_cross_down(closes: List[float]) -> bool:
-    if len(closes) < 35:
-        return False
-    prev_m, prev_s = _macd(closes[:-1])
-    cur_m,  cur_s  = _macd(closes)
-    if None in (prev_m, prev_s, cur_m, cur_s):
-        return False
-    return prev_m >= prev_s and cur_m < cur_s
-
 
 def _williams_r(closes: List[float], period: int = 14) -> Optional[float]:
     """
