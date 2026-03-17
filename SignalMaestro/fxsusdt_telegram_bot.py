@@ -7,6 +7,8 @@ Enhanced with comprehensive error handling, AI agents, and market analysis
 """
 
 import asyncio
+import copy
+import dataclasses
 import logging
 import aiohttp
 import os
@@ -210,8 +212,9 @@ class FXSUSDTTelegramBot:
         # ── Concurrency safety for parallel scanning ──────────────────────────
         # Prevents race conditions when 20 coroutines simultaneously pass the
         # can_send_signal() check before any signal is recorded.
-        # asyncio.Lock() is created lazily (must be in async context).
-        self._signal_gate_lock: Optional[asyncio.Lock] = None
+        # asyncio.Lock() is safe to create in __init__ (Python 3.10+; also
+        # works on 3.8/3.9 when not bound to a specific event loop at creation).
+        self._signal_gate_lock: asyncio.Lock = asyncio.Lock()
 
         # Telegram send throttle: limits to 1 message every _TG_SEND_MIN_GAP_SEC
         # to avoid HTTP 429 (Telegram rate limit: ~20 msgs/min to channels).
@@ -219,7 +222,7 @@ class FXSUSDTTelegramBot:
         # cannot simultaneously pass the gap check and flood the channel.
         self._tg_last_send_time: float = 0.0
         self._TG_SEND_MIN_GAP_SEC: float = float(os.getenv("TG_SEND_MIN_GAP_SEC", "2.0"))
-        self._tg_send_lock: Optional[asyncio.Lock] = None
+        self._tg_send_lock: asyncio.Lock = asyncio.Lock()
         # Persistent Telegram HTTP session — avoids creating a new TCP connection
         # for every message/poll (mirrors BTCUSDTTrader's shared-session pattern).
         self._tg_session:   Optional[aiohttp.ClientSession] = None
@@ -319,10 +322,8 @@ class FXSUSDTTelegramBot:
         chat_id = str(chat_id)
 
         # ── Telegram send throttle: enforce minimum gap between messages ──────
-        # Use a lock so parallel coroutines cannot both pass the gap check at the
-        # same instant and send back-to-back messages that trigger HTTP 429.
-        if self._tg_send_lock is None:
-            self._tg_send_lock = asyncio.Lock()
+        # _tg_send_lock is initialized in __init__ (not lazily) so multiple
+        # concurrent coroutines never race to create the lock object.
         async with self._tg_send_lock:
             now = time.time()
             gap = now - self._tg_last_send_time
@@ -942,10 +943,6 @@ class FXSUSDTTelegramBot:
         if not signals:
             return False
 
-        # ── Lazy-initialize locks (must be created in async context) ──
-        if self._signal_gate_lock is None:
-            self._signal_gate_lock = asyncio.Lock()
-
         # Base confidence threshold + adaptive loss-streak boost.
         # After STREAK_TRIGGER_N consecutive losses the gate rises by
         # STREAK_BOOST_PER_LOSS% per additional loss (capped at STREAK_MAX_BOOST_PCT)
@@ -954,7 +951,13 @@ class FXSUSDTTelegramBot:
             float(os.getenv("AI_THRESHOLD_PERCENT", "80"))
             + self._adaptive_conf_boost
         )
-        signal = signals[0]  # Best-ranked signal
+
+        # Work on a COPY of the signal so confidence mutations in Phase 1 (boost
+        # analysis) never modify the original object that the strategy may still
+        # reference.  dataclasses.replace() performs a shallow copy which is safe
+        # here because all SwarmSignal fields are scalars / immutables (dict is
+        # only read, not mutated during boost).
+        signal = dataclasses.replace(signals[0])
         symbol = getattr(signal, "symbol", "BTCUSDT") or "BTCUSDT"
 
         # ── Fast pre-check before any network I/O ──

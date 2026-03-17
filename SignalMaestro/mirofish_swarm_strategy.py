@@ -1900,8 +1900,12 @@ class MiroFishSwarmStrategy:
                     ),
                     timeout=10.0
                 )
+            except asyncio.CancelledError:
+                raise  # never swallow CancelledError — propagate to the task runner
             except (asyncio.TimeoutError, Exception):
-                ai_vote, ai_conf, ai_narrative, react_trace = "NEUTRAL", 50.0, "", ""
+                # react_trace must be a valid JSON string (not bare "") so that any
+                # downstream json.loads() or slicing on the string value is safe.
+                ai_vote, ai_conf, ai_narrative, react_trace = "NEUTRAL", 50.0, "", "[]"
 
             all_votes = dict(base_votes)
             all_votes["AIOrchestrationAgent"] = {"vote": ai_vote, "conf": ai_conf}
