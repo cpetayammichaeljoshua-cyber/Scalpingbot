@@ -19,6 +19,10 @@ author = "agent"
 task = "workflow.run"
 args = "AI Trading Signal Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "mirofish_strategy_bot.py"
+
 [[workflows.workflow]]
 name = "Main Trading Bot"
 mode = "parallel"
@@ -27,6 +31,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python3 start_ultimate_bot.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "mirofish_strategy_bot.py"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 mirofish_strategy_bot.py"
 
 [workflows.workflow.metadata]
 outputType = "console"

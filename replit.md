@@ -1,5 +1,15 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
+## Primary Workflow: mirofish_strategy_bot.py
+`mirofish_strategy_bot.py` is the **production entrypoint** for the MiroFish Swarm Bot.
+It is a fully self-contained launcher based on `start_ultimate_bot.py` with comprehensive
+enhancements: structured logging, graceful SIGTERM/SIGINT shutdown, stateful CircuitBreaker
+class, BotMetrics tracker, fresh event loop per run (avoids "loop is closed" residue),
+interruptible sleep between restarts, 3-level bot import fallback chain, and full async
+cleanup of all aiohttp/Telegram/Claude/OpenAI connection pools.
+
+Configured workflow: **"mirofish_strategy_bot.py"** → `python3 mirofish_strategy_bot.py`
+
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 8 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
