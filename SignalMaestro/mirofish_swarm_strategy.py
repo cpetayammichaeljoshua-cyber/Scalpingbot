@@ -1575,17 +1575,26 @@ class AIOrchestrationAgent:
         # ── Compute technical indicators for the enriched prompt ──
         # These are the same indicators the swarm agents use, giving Claude/GPT
         # the same full-chart context a professional trader would have.
-        _rsi_val   = _rsi(closes, 14) or 50.0
+        #
+        # BUG FIX: avoid `_fn() or fallback` pattern — when the indicator
+        # returns exactly 0.0 (e.g. RSI=0 on a perfectly falling market, or
+        # Stochastic=0 when price is at the k-period low), Python evaluates
+        # `0.0 or fallback` as `fallback`, silently replacing valid extremes.
+        # Use an explicit None-check instead, consistent with _analyze_timeframe.
+        _rsi_raw   = _rsi(closes, 14)
+        _rsi_val   = _rsi_raw if _rsi_raw is not None else 50.0
         _macd_l, _macd_s = _macd(closes)
-        _macd_l    = _macd_l or 0.0
-        _macd_s    = _macd_s or 0.0
+        _macd_l    = _macd_l if _macd_l is not None else 0.0
+        _macd_s    = _macd_s if _macd_s is not None else 0.0
         _bb_up, _bb_mid, _bb_lo = _bollinger(closes, 20, 2.0)
         if _bb_up is not None and _bb_lo is not None and _bb_up != _bb_lo:
             _bb_pct = (closes[-1] - _bb_lo) / (_bb_up - _bb_lo) * 100.0
         else:
             _bb_pct = 50.0
-        _stoch_k   = _stochastic(closes, 14) or 50.0
-        _atr_val   = _atr_close(closes, 14) or (closes[-1] * 0.003)
+        _stoch_raw = _stochastic(closes, 14)
+        _stoch_k   = _stoch_raw if _stoch_raw is not None else 50.0
+        _atr_raw   = _atr_close(closes, 14)
+        _atr_val   = _atr_raw if _atr_raw is not None else (closes[-1] * 0.003)
         _atr_pct   = (_atr_val / closes[-1] * 100.0) if closes[-1] > 0 else 0.3
 
         # Build the shared prompt once — used by both AI providers

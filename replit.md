@@ -3,7 +3,21 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 8 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
-## Bug Fixes & Enhancements (Session 7 — Current)
+## Bug Fixes & Enhancements (Session 8 — Current)
+
+### `SignalMaestro/neural_signal_trainer.py` — `_save_weights` float32 serialization (critical)
+- **ROOT CAUSE**: `danger_zones` tuples contain NumPy float32 bin-edge values from ndarray slicing (`lo`, `hi`); `feature_importance` is a plain Python `list()` of NumPy float32 scalars from `abs(win_mean - loss_mean) / ...`; several scalar fields (`class_weight_loss`, `_w_win`, `_w_loss`, etc.) may be float32 from NumPy arithmetic. `json.dump` raises `TypeError: Object of type float32 is not JSON serializable` on all of these.
+- **FIX**: All fields in the `data` dict now use explicit Python-native casts:
+  - `danger_zones`: list comprehension `[int(fi), float(lo), float(hi), float(lr)]`
+  - `feature_importance`: `[float(x) for x in ...]`
+  - All scalar fields (`n_samples_trained`, `last_train_time`, `last_accuracy`, `last_val_loss`, `last_win_rate`, `last_loss_rate`, `_t`, `_base_lr`, `class_weight_loss`, `_w_win`, `_w_loss`, `_opt_threshold`, `_reject_threshold`, `_boost_threshold`, `_buy_prob_offset`, `_sell_prob_offset`): wrapped with `int()`, `float()`, or `bool()` as appropriate.
+- **EFFECT**: NN weights now persist to `SignalMaestro/nn_weights.json` after every training cycle. The bot no longer loses all training (acc=75.1%, 240 samples, 20 danger zones) on restart.
+- **LOAD COMPATIBILITY**: `_load_weights` already converts each `danger_zones` entry via `tuple(z)`, so list-of-lists format from the fixed save is fully compatible.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — `AIOrchestrationAgent.analyze` or-pattern
+- **FIX**: Replaced falsy `or` pattern (`_rsi() or 50.0`, `_stochastic() or 50.0`, `_atr_close() or fallback`) with explicit `None` checks in `AIOrchestrationAgent.analyze`. A valid RSI=0 (perfectly falling market) or Stochastic=0 (at period low) would previously be replaced with the default.
+
+## Bug Fixes & Enhancements (Session 7)
 
 ### `SignalMaestro/neural_signal_trainer.py` (5 bugs fixed)
 - **FIX 1 — Cosine LR uses `_base_lr`**: `_cosine_lr()` previously computed from `self.lr` which was being overwritten every epoch. Added `_base_lr = lr` snapshot on init; scheduler now reads `_base_lr` throughout all 400 epochs.

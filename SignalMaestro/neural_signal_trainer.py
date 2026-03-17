@@ -1144,33 +1144,42 @@ class NeuralSignalTrainer:
         if not _HAS_NUMPY:
             return
         try:
+            # BUG FIX: danger_zones tuples and feature_importance contain NumPy
+            # float32 values (from ndarray bin-edge slicing and abs-diff operations).
+            # json.dump raises TypeError on numpy scalar types.  Explicitly convert
+            # every value to Python-native float/int before serialising.
             data = {
                 "W1": self.W1.tolist(), "b1": self.b1.tolist(),
                 "W2": self.W2.tolist(), "b2": self.b2.tolist(),
                 "W3": self.W3.tolist(), "b3": self.b3.tolist(),
                 "W4": self.W4.tolist(), "b4": self.b4.tolist(),
-                "n_samples_trained":   self.n_samples_trained,
-                "last_train_time":     self.last_train_time,
-                "last_accuracy":       self.last_accuracy,
-                "last_val_loss":       self.last_val_loss,
-                "last_win_rate":       self.last_win_rate,
-                "last_loss_rate":      self.last_loss_rate,
-                "_t":                  self._t,
-                "_base_lr":            self._base_lr,
-                "trained":             self.trained,
-                "class_weight_loss":   self.class_weight_loss,
-                "_w_win":              self._w_win,
-                "_w_loss":             self._w_loss,
-                "_opt_threshold":      self._opt_threshold,
-                "_reject_threshold":   self._reject_threshold,
-                "_boost_threshold":    self._boost_threshold,
-                "_buy_prob_offset":    self._buy_prob_offset,
-                "_sell_prob_offset":   self._sell_prob_offset,
+                "n_samples_trained":   int(self.n_samples_trained),
+                "last_train_time":     float(self.last_train_time),
+                "last_accuracy":       float(self.last_accuracy),
+                "last_val_loss":       float(self.last_val_loss),
+                "last_win_rate":       float(self.last_win_rate),
+                "last_loss_rate":      float(self.last_loss_rate),
+                "_t":                  int(self._t),
+                "_base_lr":            float(self._base_lr),
+                "trained":             bool(self.trained),
+                "class_weight_loss":   float(self.class_weight_loss),
+                "_w_win":              float(self._w_win),
+                "_w_loss":             float(self._w_loss),
+                "_opt_threshold":      float(self._opt_threshold),
+                "_reject_threshold":   float(self._reject_threshold),
+                "_boost_threshold":    float(self._boost_threshold),
+                "_buy_prob_offset":    float(self._buy_prob_offset),
+                "_sell_prob_offset":   float(self._sell_prob_offset),
                 "_feat_mean":  self._feat_mean.tolist()  if self._feat_mean  is not None else None,
                 "_feat_std":   self._feat_std.tolist()   if self._feat_std   is not None else None,
-                "_feat_fitted": self._feat_fitted,
-                "danger_zones":        self.loss_analyzer.danger_zones,
-                "feature_importance":  self.loss_analyzer.feature_importance,
+                "_feat_fitted": bool(self._feat_fitted),
+                # danger_zones: (feature_idx, lo, hi, loss_rate) — lo/hi are np.float32
+                "danger_zones": [
+                    [int(fi), float(lo), float(hi), float(lr)]
+                    for fi, lo, hi, lr in self.loss_analyzer.danger_zones
+                ],
+                # feature_importance is a list of np.float32 from ndarray operations
+                "feature_importance": [float(x) for x in self.loss_analyzer.feature_importance],
                 "win_means":  self.loss_analyzer.win_means.tolist()  if self.loss_analyzer.win_means  is not None else None,
                 "loss_means": self.loss_analyzer.loss_means.tolist() if self.loss_analyzer.loss_means is not None else None,
             }
