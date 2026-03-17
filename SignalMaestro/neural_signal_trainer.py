@@ -471,6 +471,15 @@ class NeuralSignalTrainer:
         self._reject_threshold = 0.40   # lower bound (never below this)
         self._boost_threshold  = 0.70   # upper bound (only boost above this)
 
+        # Direction-aware calibration offsets.
+        # Corrects for BUY-biased training data: the model tends to underestimate
+        # SELL signal win probability when trained on more BUY than SELL samples.
+        # offset = mean(actual_label) - mean(predicted_prob) per direction.
+        # Applied additively in predict_signal*() so SELL predictions are shifted
+        # to match the observed win rate for that direction.
+        self._buy_prob_offset:  float = 0.0
+        self._sell_prob_offset: float = 0.0
+
         # FIX 4: Feature normalisation statistics (fit on training data).
         self._feat_mean: Optional["np.ndarray"] = None
         self._feat_std:  Optional["np.ndarray"] = None
@@ -603,8 +612,14 @@ class NeuralSignalTrainer:
 
         Returns threshold in [0.25, 0.75] clamped for safety.
         Falls back to 0.50 on any error.
+
+        Guard: if the validation set has fewer than 10 samples, Youden's J is
+        statistically unreliable (can pick extreme thresholds from noise).
+        Return 0.50 in that case so the default is used instead.
         """
         try:
+            if len(y_val) < 10:
+                return 0.50
             _, _, _, _, _, _, _, _, _, A4v = self._forward(X_val, training=False)
             probs = A4v.flatten()
             y_flat = y_val.flatten()
@@ -697,6 +712,14 @@ class NeuralSignalTrainer:
             X_norm = self._normalise(X_raw)
             base_prob = float(self.predict_batch(X_raw)[0])  # predict_batch normalises inside
 
+            # Direction-aware calibration: shift prediction by per-direction offset
+            # to correct for BUY-biased training data underestimating SELL win rates.
+            _dir_offset = (
+                self._sell_prob_offset if rec.get("action") == "SELL"
+                else self._buy_prob_offset
+            )
+            base_prob = float(np.clip(base_prob + _dir_offset, 0.0, 1.0))
+
             # Apply loss-pattern penalty
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
@@ -746,6 +769,14 @@ class NeuralSignalTrainer:
             mean_arr, std_arr = self.predict_mc(X_norm, n_passes=n_passes)
             mean_p = float(mean_arr[0])
             std_p  = float(std_arr[0])
+
+            # Direction-aware calibration: shift prediction by per-direction offset
+            # to correct for BUY-biased training data underestimating SELL win rates.
+            _dir_offset = (
+                self._sell_prob_offset if rec.get("action") == "SELL"
+                else self._buy_prob_offset
+            )
+            mean_p = float(np.clip(mean_p + _dir_offset, 0.0, 1.0))
 
             # Apply loss-pattern penalty to mean prediction
             if self.loss_analyzer.is_fitted:
@@ -813,22 +844,24 @@ class NeuralSignalTrainer:
             # These have pnl in the range -0.5%..+0.5% and are too noisy to
             # train on.  Including them inflated the apparent loss rate from
             # ~52% to 80%, causing the model to predict "LOSS" for everything.
-            filtered_pairs = [
-                (build_features(t), build_label(t))
+            # Also track trade action (BUY/SELL) for direction calibration.
+            filtered_triples = [
+                (build_features(t), build_label(t), t.get("action", "BUY"))
                 for t in trades
             ]
-            filtered_pairs = [(x, y) for x, y in filtered_pairs if y >= 0.0]
-            if len(filtered_pairs) < MIN_TRAIN_SAMPLES:
+            filtered_triples = [(x, y, a) for x, y, a in filtered_triples if y >= 0.0]
+            if len(filtered_triples) < MIN_TRAIN_SAMPLES:
                 return {
                     "status": "skipped",
                     "reason": (
-                        f"only {len(filtered_pairs)} trainable samples after "
+                        f"only {len(filtered_triples)} trainable samples after "
                         f"filtering neutral EXPIRED (need {MIN_TRAIN_SAMPLES})"
                     )
                 }
 
-            X_all = np.array([x for x, _ in filtered_pairs], dtype=np.float32)
-            y_all = np.array([y for _, y in filtered_pairs], dtype=np.float32).reshape(-1, 1)
+            X_all = np.array([x for x, _, _ in filtered_triples], dtype=np.float32)
+            y_all = np.array([y for _, y, _ in filtered_triples], dtype=np.float32).reshape(-1, 1)
+            _train_actions = [a for _, _, a in filtered_triples]  # for direction calibration
 
             wins   = int(np.sum(y_all == 1))
             losses = int(np.sum(y_all == 0))
@@ -988,6 +1021,35 @@ class NeuralSignalTrainer:
             y_flat = y_all.flatten().astype(int)
             acc    = float(np.mean(preds == y_flat))
 
+            # ── Direction-aware calibration: correct for BUY/SELL data imbalance ──
+            # When training data is BUY-biased, the NN underestimates SELL win
+            # probability because fewer SELL examples guided the gradient.
+            # Calibration offset = mean(actual_label) - mean(predicted_prob) per
+            # direction — applied additively at inference to de-bias SELL signals.
+            try:
+                _buy_mask  = np.array([a == "BUY"  for a in _train_actions], dtype=bool)
+                _sel_mask  = ~_buy_mask
+                _probs_cal = A4_all.flatten()
+                _actuals   = y_all.flatten()
+                self._buy_prob_offset = (
+                    float(np.mean(_actuals[_buy_mask]) - np.mean(_probs_cal[_buy_mask]))
+                    if _buy_mask.any() else 0.0
+                )
+                self._sell_prob_offset = (
+                    float(np.mean(_actuals[_sel_mask]) - np.mean(_probs_cal[_sel_mask]))
+                    if _sel_mask.any() else 0.0
+                )
+                if abs(self._sell_prob_offset) > 0.005 or abs(self._buy_prob_offset) > 0.005:
+                    self.logger.info(
+                        f"🎯 Direction calibration: "
+                        f"BUY offset={self._buy_prob_offset:+.3f} "
+                        f"SELL offset={self._sell_prob_offset:+.3f} "
+                        f"(BUY={int(_buy_mask.sum())} SELL={int(_sel_mask.sum())} samples)"
+                    )
+            except Exception:
+                self._buy_prob_offset  = 0.0
+                self._sell_prob_offset = 0.0
+
             # Per-class accuracy (crucial for loss-prevention)
             win_acc  = float(np.mean(preds[y_flat == 1] == 1)) if wins  > 0 else 0.0
             loss_acc = float(np.mean(preds[y_flat == 0] == 0)) if losses > 0 else 0.0
@@ -1006,7 +1068,7 @@ class NeuralSignalTrainer:
                 and losses >= 8
             )
             self.trained           = quality_ok
-            self.n_samples_trained = len(filtered_pairs)  # after neutral filter
+            self.n_samples_trained = len(filtered_triples)  # after neutral filter
             self.last_train_time   = time.time()
             self.last_accuracy     = acc
             self.last_val_loss     = best_val
@@ -1102,6 +1164,8 @@ class NeuralSignalTrainer:
                 "_opt_threshold":      self._opt_threshold,
                 "_reject_threshold":   self._reject_threshold,
                 "_boost_threshold":    self._boost_threshold,
+                "_buy_prob_offset":    self._buy_prob_offset,
+                "_sell_prob_offset":   self._sell_prob_offset,
                 "_feat_mean":  self._feat_mean.tolist()  if self._feat_mean  is not None else None,
                 "_feat_std":   self._feat_std.tolist()   if self._feat_std   is not None else None,
                 "_feat_fitted": self._feat_fitted,
@@ -1179,6 +1243,10 @@ class NeuralSignalTrainer:
             self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
             self._reject_threshold = float(d.get("_reject_threshold", 0.40))
             self._boost_threshold  = float(d.get("_boost_threshold",  0.70))
+
+            # Restore direction-aware calibration offsets
+            self._buy_prob_offset  = float(d.get("_buy_prob_offset",  0.0))
+            self._sell_prob_offset = float(d.get("_sell_prob_offset", 0.0))
 
             # FIX 4: Restore normalisation statistics
             if d.get("_feat_mean") is not None:

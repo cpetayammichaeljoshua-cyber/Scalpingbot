@@ -682,8 +682,12 @@ class OutcomeTracker:
 
                 # ── Adaptive confidence threshold: update streak counter ──
                 # Wins reset the streak; losses tighten the confidence gate.
+                # FIX: use same ±0.5% threshold as build_label() so neutral
+                # EXPIRED trades (|pnl| < 0.5%) do not count as losses.
                 if self.bot is not None and hasattr(self.bot, "update_loss_streak"):
-                    is_loss = resolved_outcome in ("SL", "EXPIRED")
+                    is_loss = (resolved_outcome == "SL") or (
+                        resolved_outcome == "EXPIRED" and pnl_pct <= -0.5
+                    )
                     try:
                         self.bot.update_loss_streak(is_loss)
                     except Exception as _se:
