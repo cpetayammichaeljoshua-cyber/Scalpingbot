@@ -169,7 +169,6 @@ class TradeMemory:
                 CREATE INDEX IF NOT EXISTS idx_symbol_outcome
                 ON trades (symbol, outcome, timestamp)
             """)
-            c.commit()
 
     # ── Writes ────────────────────────────────────────────────────────────────
 
@@ -223,7 +222,6 @@ class TradeMemory:
                 bb_position,
                 datetime.fromtimestamp(ts, tz=timezone.utc).hour,
             ))
-            c.commit()
             trade_id = cur.lastrowid
 
         def _pfmt(p: float) -> str:
@@ -257,7 +255,6 @@ class TradeMemory:
                     "UPDATE trades SET partial_outcome=? WHERE id=? AND outcome IS NULL",
                     (partial, trade_id),
                 )
-                c.commit()
         except Exception as e:
             self.logger.debug(f"write_partial_outcome #{trade_id}: {e}")
 
@@ -276,7 +273,6 @@ class TradeMemory:
                     partial_outcome=NULL
                 WHERE id=? AND outcome IS NULL
             """, (outcome, outcome_price, time.time(), pnl_pct, trade_id))
-            c.commit()
         self.logger.info(
             f"✅ Trade #{trade_id} resolved: {outcome} @ "
             f"${outcome_price:.6g} | PnL: {pnl_pct:+.2f}%"

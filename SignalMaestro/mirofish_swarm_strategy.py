@@ -609,8 +609,20 @@ class MomentumAgent:
             macd_line, signal_line = _macd(closes)
             macd_hist = (macd_line - signal_line) if (macd_line is not None and signal_line is not None) else 0.0
             macd_bull  = macd_line > signal_line if macd_line is not None and signal_line is not None else False
-            cross_up   = _is_macd_cross_up(closes)
-            cross_down = _is_macd_cross_down(closes)
+            # Compute the previous-bar MACD once and derive both cross signals inline.
+            # This replaces two separate _is_macd_cross_up/down() calls which each
+            # internally re-ran _macd(closes[:-1]) AND _macd(closes) — 4 redundant
+            # full MACD chain computations that double the cost for every bar of every
+            # symbol.  We already have (macd_line, signal_line) from above, so only
+            # the previous-bar values need to be fetched here.
+            _cross_up = _cross_down = False
+            if len(closes) >= 35 and macd_line is not None and signal_line is not None:
+                _pm, _ps = _macd(closes[:-1])
+                if _pm is not None and _ps is not None:
+                    _cross_up   = _pm <= _ps and macd_line > signal_line
+                    _cross_down = _pm >= _ps and macd_line < signal_line
+            cross_up   = _cross_up
+            cross_down = _cross_down
 
             # Stochastic proxy (RSI of RSI)
             stoch = _stochastic(closes, 14, 3)

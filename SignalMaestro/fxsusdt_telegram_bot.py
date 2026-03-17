@@ -232,6 +232,7 @@ class FXSUSDTTelegramBot:
         self.trade_memory: Optional[Any] = None
         self.nn_trainer:   Optional[Any] = None
         self.outcome_tracker: Optional[Any] = None
+        self._outcome_tracker_task: Optional[asyncio.Task] = None
         if _HAS_NEURAL:
             try:
                 self.trade_memory = TradeMemory()
@@ -1227,6 +1228,7 @@ class FXSUSDTTelegramBot:
         self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore(20))")
 
         await self.test_telegram_connection()
+        await self._drain_pending_updates()
         await self.send_startup_test_message()
 
         # ── Start OutcomeTracker as a live background task ────────────────────
@@ -1235,7 +1237,23 @@ class FXSUSDTTelegramBot:
                 self.outcome_tracker = OutcomeTracker(
                     self.trade_memory, self.nn_trainer, self.trader, bot=self
                 )
-                asyncio.create_task(self.outcome_tracker.run())
+                self._outcome_tracker_task = asyncio.create_task(
+                    self.outcome_tracker.run(),
+                    name="OutcomeTracker",
+                )
+
+                def _ot_done_cb(t: asyncio.Task):
+                    if t.cancelled():
+                        return
+                    exc = t.exception()
+                    if exc is not None:
+                        self.logger.error(
+                            "❌ OutcomeTracker task exited with exception — "
+                            "outcome tracking halted until next restart",
+                            exc_info=exc,
+                        )
+
+                self._outcome_tracker_task.add_done_callback(_ot_done_cb)
                 self.logger.info("🧠 OutcomeTracker background task started")
             except Exception as ot_err:
                 self.logger.warning(f"⚠️ OutcomeTracker init failed: {ot_err}")
@@ -1346,6 +1364,43 @@ class FXSUSDTTelegramBot:
     # ─────────────────────────────────────────
     # Telegram Polling (minimal get_updates)
     # ─────────────────────────────────────────
+
+    async def _drain_pending_updates(self):
+        """
+        Acknowledge all Telegram updates that arrived before this bot session started.
+
+        Without this, every restart replays the entire unprocessed update queue
+        from update_id=1 — commands typed by users while the bot was offline would
+        be re-executed immediately on startup (e.g. /force_signal, /status firing
+        multiple times).
+
+        Strategy: request offset=-1 (Telegram returns the single most-recent pending
+        update), then advance _poll_offset to its update_id.  The next normal poll
+        sends offset=_poll_offset+1, which acknowledges everything up to that point
+        and only delivers genuinely new updates.
+        """
+        try:
+            url     = f"{self.base_url}/getUpdates"
+            params  = {"offset": -1, "timeout": 0, "limit": 1}
+            session = await self._get_tg_session()
+            async with session.get(
+                url, params=params,
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as response:
+                if response.status != 200:
+                    return
+                data = await response.json()
+                updates = data.get("result", [])
+                if updates:
+                    last_id = max(u.get("update_id", 0) for u in updates)
+                    self._poll_offset = last_id
+                    self.logger.info(
+                        f"📬 Drained pending Telegram updates — "
+                        f"offset advanced to {last_id} "
+                        f"({len(updates)} update(s) skipped)"
+                    )
+        except Exception as e:
+            self.logger.debug(f"_drain_pending_updates: {e}")
 
     async def _poll_telegram_updates(self):
         """
@@ -2996,6 +3051,8 @@ async def main():
     except Exception as e:
         bot.logger.error(f"Critical error: {e}")
         raise
+    finally:
+        await bot.close_tg_session()
 
 
 if __name__ == "__main__":
