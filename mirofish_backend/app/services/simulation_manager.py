@@ -160,14 +160,17 @@ class SimulationManager:
         return sim_dir
     
     def _save_simulation_state(self, state: SimulationState):
-        """保存模拟状态到文件"""
+        """保存模拟状态到文件（原子写入，防止并发写入或进程崩溃时产生半写文件）"""
         sim_dir = self._get_simulation_dir(state.simulation_id)
         state_file = os.path.join(sim_dir, "state.json")
+        tmp_file = state_file + ".tmp"
         
         state.updated_at = datetime.now().isoformat()
         
-        with open(state_file, 'w', encoding='utf-8') as f:
+        # 先写入临时文件，写完后原子重命名，避免读到半写的 JSON
+        with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(state.to_dict(), f, ensure_ascii=False, indent=2)
+        os.replace(tmp_file, state_file)
         
         self._simulations[state.simulation_id] = state
     

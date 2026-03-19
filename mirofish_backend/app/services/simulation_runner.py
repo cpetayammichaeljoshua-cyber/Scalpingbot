@@ -303,16 +303,19 @@ class SimulationRunner:
     
     @classmethod
     def _save_run_state(cls, state: SimulationRunState):
-        """保存运行状态到文件（线程安全）"""
+        """保存运行状态到文件（线程安全，原子写入）"""
         sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         state_file = os.path.join(sim_dir, "run_state.json")
+        tmp_file = state_file + ".tmp"
         
         data = state.to_detail_dict()
         
-        # 写文件在锁外执行；只在更新内存缓存时持锁
-        with open(state_file, 'w', encoding='utf-8') as f:
+        # 先写临时文件再原子重命名，防止并发读者读到半写的 JSON；
+        # 写文件 I/O 在锁外执行，只在更新内存缓存时持锁
+        with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_file, state_file)
         
         with cls._class_lock:
             cls._run_states[state.simulation_id] = state
@@ -450,17 +453,22 @@ class SimulationRunner:
             # start_new_session creates a new process group on Unix so that
             # os.killpg() can terminate the entire tree.  It is NOT supported
             # on Windows (raises ValueError), so we set it only on non-Windows.
-            process = subprocess.Popen(
-                cmd,
-                cwd=sim_dir,
-                stdout=main_log_file,
-                stderr=subprocess.STDOUT,  # stderr 也写入同一个文件
-                text=True,
-                encoding='utf-8',  # 显式指定编码
-                bufsize=1,
-                env=env,  # 传递带有 UTF-8 设置的环境变量
-                start_new_session=not IS_WINDOWS,  # 仅在 Unix 上创建新进程组
-            )
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=sim_dir,
+                    stdout=main_log_file,
+                    stderr=subprocess.STDOUT,  # stderr 也写入同一个文件
+                    text=True,
+                    encoding='utf-8',  # 显式指定编码
+                    bufsize=1,
+                    env=env,  # 传递带有 UTF-8 设置的环境变量
+                    start_new_session=not IS_WINDOWS,  # 仅在 Unix 上创建新进程组
+                )
+            except Exception:
+                # Popen 失败时确保日志文件句柄被关闭，避免资源泄漏
+                main_log_file.close()
+                raise
             
             state.process_pid = process.pid
             state.runner_status = RunnerStatus.RUNNING

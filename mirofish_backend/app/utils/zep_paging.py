@@ -102,14 +102,18 @@ def fetch_all_nodes(
     return all_nodes
 
 
+_MAX_EDGES = 5000
+
+
 def fetch_all_edges(
     client: Zep,
     graph_id: str,
     page_size: int = _DEFAULT_PAGE_SIZE,
+    max_items: int = _MAX_EDGES,
     max_retries: int = _DEFAULT_MAX_RETRIES,
     retry_delay: float = _DEFAULT_RETRY_DELAY,
 ) -> list[Any]:
-    """分页获取图谱所有边，返回完整列表。每页请求自带重试。"""
+    """分页获取图谱所有边，最多返回 max_items 条（默认 5000）。每页请求自带重试。"""
     all_edges: list[Any] = []
     cursor: str | None = None
     page_num = 0
@@ -132,6 +136,10 @@ def fetch_all_edges(
             break
 
         all_edges.extend(batch)
+        if len(all_edges) >= max_items:
+            all_edges = all_edges[:max_items]
+            logger.warning(f"Edge count reached limit ({max_items}), stopping pagination for graph {graph_id}")
+            break
         if len(batch) < page_size:
             break
 

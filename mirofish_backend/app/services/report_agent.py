@@ -1730,11 +1730,6 @@ class ReportAgent:
             
             logger.info(f"报告生成完成: {report_id}")
             
-            # 关闭控制台日志记录器
-            if self.console_logger:
-                self.console_logger.close()
-                self.console_logger = None
-            
             return report
             
         except Exception as e:
@@ -1756,12 +1751,13 @@ class ReportAgent:
             except Exception:
                 pass  # 忽略保存失败的错误
             
-            # 关闭控制台日志记录器
+            return report
+        
+        finally:
+            # 无论成功或失败都确保关闭控制台日志记录器，防止文件句柄泄漏
             if self.console_logger:
                 self.console_logger.close()
                 self.console_logger = None
-            
-            return report
     
     def chat(
         self, 
