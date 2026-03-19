@@ -620,7 +620,8 @@ class SimulationRunner:
             新的读取位置
         """
         # 检查是否启用了图谱记忆更新
-        graph_memory_enabled = cls._graph_memory_enabled.get(state.simulation_id, False)
+        with cls._class_lock:
+            graph_memory_enabled = cls._graph_memory_enabled.get(state.simulation_id, False)
         graph_updater = None
         if graph_memory_enabled:
             graph_updater = ZepGraphMemoryManager.get_updater(state.simulation_id)
@@ -1047,7 +1048,7 @@ class SimulationRunner:
         Returns:
             每轮的汇总信息
         """
-        actions = cls.get_actions(simulation_id, limit=10000)
+        actions = cls.get_all_actions(simulation_id)
         
         # 按轮次分组
         rounds: Dict[int, Dict[str, Any]] = {}
@@ -1108,7 +1109,7 @@ class SimulationRunner:
         Returns:
             Agent统计列表
         """
-        actions = cls.get_actions(simulation_id, limit=10000)
+        actions = cls.get_all_actions(simulation_id)
         
         agent_stats: Dict[int, Dict[str, Any]] = {}
         
@@ -1213,8 +1214,9 @@ class SimulationRunner:
                         errors.append(f"删除 {dir_name}/actions.jsonl 失败: {str(e)}")
         
         # 清理内存中的运行状态
-        if simulation_id in cls._run_states:
-            del cls._run_states[simulation_id]
+        with cls._class_lock:
+            if simulation_id in cls._run_states:
+                del cls._run_states[simulation_id]
         
         logger.info(f"清理模拟日志完成: {simulation_id}, 删除文件: {cleaned_files}")
         
@@ -1407,7 +1409,9 @@ class SimulationRunner:
         获取所有正在运行的模拟ID列表
         """
         running = []
-        for sim_id, process in cls._processes.items():
+        with cls._class_lock:
+            processes = list(cls._processes.items())
+        for sim_id, process in processes:
             if process.poll() is None:
                 running.append(sim_id)
         return running

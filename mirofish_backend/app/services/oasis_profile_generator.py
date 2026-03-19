@@ -15,6 +15,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import httpx
 from openai import OpenAI
 from zep_cloud.client import Zep
 
@@ -194,7 +195,9 @@ class OasisProfileGenerator:
         
         self.client = OpenAI(
             api_key=self.api_key,
-            base_url=self.base_url
+            base_url=self.base_url,
+            timeout=httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=10.0),
+            max_retries=0,
         )
         
         # Zep客户端用于检索丰富上下文
@@ -318,7 +321,6 @@ class OasisProfileGenerator:
         def search_edges():
             """搜索边（事实/关系）- 带重试机制"""
             max_retries = 3
-            last_exception = None
             delay = 2.0
             
             for attempt in range(max_retries):
@@ -331,7 +333,6 @@ class OasisProfileGenerator:
                         reranker="rrf"
                     )
                 except Exception as e:
-                    last_exception = e
                     if attempt < max_retries - 1:
                         logger.debug(f"Zep边搜索第 {attempt + 1} 次失败: {str(e)[:80]}, 重试中...")
                         time.sleep(delay)
@@ -343,7 +344,6 @@ class OasisProfileGenerator:
         def search_nodes():
             """搜索节点（实体摘要）- 带重试机制"""
             max_retries = 3
-            last_exception = None
             delay = 2.0
             
             for attempt in range(max_retries):
@@ -356,7 +356,6 @@ class OasisProfileGenerator:
                         reranker="rrf"
                     )
                 except Exception as e:
-                    last_exception = e
                     if attempt < max_retries - 1:
                         logger.debug(f"Zep节点搜索第 {attempt + 1} 次失败: {str(e)[:80]}, 重试中...")
                         time.sleep(delay)
