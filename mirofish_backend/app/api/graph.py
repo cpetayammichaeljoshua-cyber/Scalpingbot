@@ -6,7 +6,7 @@
 import os
 import traceback
 import threading
-from flask import request, jsonify
+from flask import request, jsonify, current_app
 
 from . import graph_bp
 from ..config import Config
@@ -20,6 +20,15 @@ from ..models.project import ProjectManager, ProjectStatus
 
 # 获取日志器
 logger = get_logger('mirofish.api')
+
+
+def _err_response(exc: Exception, status: int = 500):
+    """Build a safe error response — tracebacks only shown when DEBUG=True."""
+    logger.error(f"API error: {type(exc).__name__}: {exc}", exc_info=True)
+    body = {"success": False, "error": str(exc)}
+    if Config.DEBUG:
+        body["traceback"] = traceback.format_exc()
+    return jsonify(body), status
 
 
 def allowed_file(filename: str) -> bool:
@@ -246,12 +255,8 @@ def generate_ontology():
             }
         })
         
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+    except Exception as exc:
+        return _err_response(exc)
 
 
 # ============== 接口2：构建图谱 ==============
@@ -516,12 +521,8 @@ def build_graph():
             }
         })
         
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+    except Exception as exc:
+        return _err_response(exc)
 
 
 # ============== 任务查询接口 ==============
@@ -584,12 +585,8 @@ def get_graph_data(graph_id: str):
             "data": graph_data
         })
         
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+    except Exception as exc:
+        return _err_response(exc)
 
 
 @graph_bp.route('/delete/<graph_id>', methods=['DELETE'])
@@ -612,9 +609,5 @@ def delete_graph(graph_id: str):
             "message": f"图谱已删除: {graph_id}"
         })
         
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }), 500
+    except Exception as exc:
+        return _err_response(exc)

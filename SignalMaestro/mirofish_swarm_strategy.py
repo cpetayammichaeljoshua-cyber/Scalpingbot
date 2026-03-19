@@ -1312,11 +1312,21 @@ class AIOrchestrationAgent:
 
     # ── Client initialisation ────────────────────────────────────────────────
 
+    @staticmethod
+    def _clean_api_key(raw: str) -> str:
+        """Strip invisible Unicode formatting chars (U+200E, etc.) that break auth headers."""
+        import unicodedata
+        return "".join(
+            ch for ch in raw
+            if unicodedata.category(ch) not in ("Cf", "Cc", "Cs", "Co", "Cn")
+            and ch.isprintable()
+        ).strip()
+
     def _init_claude(self):
         """Initialise the Anthropic AsyncAnthropic client (non-blocking)."""
         try:
             import anthropic
-            api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            api_key = self._clean_api_key(os.getenv("ANTHROPIC_API_KEY", ""))
             if api_key:
                 self.claude_client = anthropic.AsyncAnthropic(api_key=api_key)
                 self.logger.info(
@@ -1333,7 +1343,7 @@ class AIOrchestrationAgent:
         """Initialise the AsyncOpenAI client as fallback."""
         try:
             from openai import AsyncOpenAI
-            api_key = os.getenv("OPENAI_API_KEY", "").strip()
+            api_key = self._clean_api_key(os.getenv("OPENAI_API_KEY", ""))
             if api_key:
                 self.openai_client = AsyncOpenAI(api_key=api_key)
                 self.logger.info(

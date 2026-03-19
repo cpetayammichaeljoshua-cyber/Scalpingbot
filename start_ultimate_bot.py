@@ -12,7 +12,31 @@ import asyncio
 import warnings
 import logging
 import time
+import unicodedata
 from pathlib import Path
+
+
+def _sanitize_env_key(name: str) -> None:
+    """Strip invisible Unicode formatting characters (e.g. U+200E) from env var."""
+    raw = os.environ.get(name, "")
+    if not raw:
+        return
+    clean = "".join(
+        ch for ch in raw
+        if unicodedata.category(ch) not in ("Cf", "Cc", "Cs", "Co", "Cn")
+        and ch.isprintable()
+    ).strip()
+    if clean != raw:
+        os.environ[name] = clean
+
+
+# Sanitize all API keys before any imports or use — critical for LLM/Binance calls
+for _key_name in (
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LLM_API_KEY",
+    "BINANCE_API_KEY", "BINANCE_API_SECRET",
+    "TELEGRAM_BOT_TOKEN",
+):
+    _sanitize_env_key(_key_name)
 
 # ─────────────────────────────────────────────
 # Configuration Constants

@@ -39,13 +39,13 @@ outputType = "console"
 name = "mirofish_bot.py"
 author = "agent"
 
-[workflows.workflow.metadata]
-outputType = "console"
-
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "FLASK_PORT=8000 python mirofish_bot.py"
 waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[ports]]
 localPort = 3000
