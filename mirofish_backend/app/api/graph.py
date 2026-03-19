@@ -550,11 +550,14 @@ def list_tasks():
     """
     列出所有任务
     """
+    # TaskManager.list_tasks() already returns List[Dict] (each Task is
+    # serialised via to_dict() internally).  Do NOT call .to_dict() again —
+    # dicts have no such method and it would raise AttributeError.
     tasks = TaskManager().list_tasks()
     
     return jsonify({
         "success": True,
-        "data": [t.to_dict() for t in tasks],
+        "data": tasks,
         "count": len(tasks)
     })
 

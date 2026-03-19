@@ -208,8 +208,16 @@ class ProjectManager:
         cls._ensure_projects_dir()
         
         projects = []
-        for project_id in os.listdir(cls.PROJECTS_DIR):
-            project = cls.get_project(project_id)
+        for entry in os.listdir(cls.PROJECTS_DIR):
+            # Skip hidden files (e.g. .DS_Store) and non-directory items
+            # (the projects directory should only contain per-project subdirs,
+            # but guard defensively in case stray files appear).
+            if entry.startswith('.'):
+                continue
+            entry_path = os.path.join(cls.PROJECTS_DIR, entry)
+            if not os.path.isdir(entry_path):
+                continue
+            project = cls.get_project(entry)
             if project:
                 projects.append(project)
         

@@ -215,7 +215,12 @@ class SimulationRunner:
         '../../scripts'
     )
     
-    # 内存中的运行状态
+    # Class-level RLock — protects all shared class-level dicts below.
+    # RLock (reentrant) is used so that methods that already hold the lock can
+    # call other locked class-methods without deadlocking.
+    _class_lock: threading.RLock = threading.RLock()
+    
+    # 内存中的运行状态 (protected by _class_lock)
     _run_states: Dict[str, SimulationRunState] = {}
     _processes: Dict[str, subprocess.Popen] = {}
     _action_queues: Dict[str, Queue] = {}
@@ -228,14 +233,16 @@ class SimulationRunner:
     
     @classmethod
     def get_run_state(cls, simulation_id: str) -> Optional[SimulationRunState]:
-        """获取运行状态"""
-        if simulation_id in cls._run_states:
-            return cls._run_states[simulation_id]
+        """获取运行状态（线程安全）"""
+        with cls._class_lock:
+            if simulation_id in cls._run_states:
+                return cls._run_states[simulation_id]
         
-        # 尝试从文件加载
+        # 文件I/O不在锁内执行，避免长时间持锁
         state = cls._load_run_state(simulation_id)
         if state:
-            cls._run_states[simulation_id] = state
+            with cls._class_lock:
+                cls._run_states[simulation_id] = state
         return state
     
     @classmethod
@@ -296,17 +303,19 @@ class SimulationRunner:
     
     @classmethod
     def _save_run_state(cls, state: SimulationRunState):
-        """保存运行状态到文件"""
+        """保存运行状态到文件（线程安全）"""
         sim_dir = os.path.join(cls.RUN_STATE_DIR, state.simulation_id)
         os.makedirs(sim_dir, exist_ok=True)
         state_file = os.path.join(sim_dir, "run_state.json")
         
         data = state.to_detail_dict()
         
+        # 写文件在锁外执行；只在更新内存缓存时持锁
         with open(state_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
-        cls._run_states[state.simulation_id] = state
+        with cls._class_lock:
+            cls._run_states[state.simulation_id] = state
     
     @classmethod
     def start_simulation(
@@ -375,13 +384,16 @@ class SimulationRunner:
             
             try:
                 ZepGraphMemoryManager.create_updater(simulation_id, graph_id)
-                cls._graph_memory_enabled[simulation_id] = True
+                with cls._class_lock:
+                    cls._graph_memory_enabled[simulation_id] = True
                 logger.info(f"已启用图谱记忆更新: simulation_id={simulation_id}, graph_id={graph_id}")
             except Exception as e:
                 logger.error(f"创建图谱记忆更新器失败: {e}")
-                cls._graph_memory_enabled[simulation_id] = False
+                with cls._class_lock:
+                    cls._graph_memory_enabled[simulation_id] = False
         else:
-            cls._graph_memory_enabled[simulation_id] = False
+            with cls._class_lock:
+                cls._graph_memory_enabled[simulation_id] = False
         
         # 确定运行哪个脚本（脚本位于 backend/scripts/ 目录）
         if platform == "twitter":
@@ -400,9 +412,10 @@ class SimulationRunner:
         if not os.path.exists(script_path):
             raise ValueError(f"脚本不存在: {script_path}")
         
-        # 创建动作队列
+        # 创建动作队列（线程安全写入）
         action_queue = Queue()
-        cls._action_queues[simulation_id] = action_queue
+        with cls._class_lock:
+            cls._action_queues[simulation_id] = action_queue
         
         # 启动模拟进程
         try:
@@ -434,6 +447,9 @@ class SimulationRunner:
             
             # 设置工作目录为模拟目录（数据库等文件会生成在此）
             # 使用 start_new_session=True 创建新的进程组，确保可以通过 os.killpg 终止所有子进程
+            # start_new_session creates a new process group on Unix so that
+            # os.killpg() can terminate the entire tree.  It is NOT supported
+            # on Windows (raises ValueError), so we set it only on non-Windows.
             process = subprocess.Popen(
                 cmd,
                 cwd=sim_dir,
@@ -443,16 +459,18 @@ class SimulationRunner:
                 encoding='utf-8',  # 显式指定编码
                 bufsize=1,
                 env=env,  # 传递带有 UTF-8 设置的环境变量
-                start_new_session=True,  # 创建新进程组，确保服务器关闭时能终止所有相关进程
+                start_new_session=not IS_WINDOWS,  # 仅在 Unix 上创建新进程组
             )
-            
-            # 保存文件句柄以便后续关闭
-            cls._stdout_files[simulation_id] = main_log_file
-            cls._stderr_files[simulation_id] = None  # 不再需要单独的 stderr
             
             state.process_pid = process.pid
             state.runner_status = RunnerStatus.RUNNING
-            cls._processes[simulation_id] = process
+            
+            # 所有对共享类级别字典的写入都在锁内完成
+            with cls._class_lock:
+                cls._processes[simulation_id] = process
+                cls._stdout_files[simulation_id] = main_log_file
+                cls._stderr_files[simulation_id] = None  # 不再需要单独的 stderr
+            
             cls._save_run_state(state)
             
             # 启动监控线程
@@ -462,7 +480,8 @@ class SimulationRunner:
                 daemon=True
             )
             monitor_thread.start()
-            cls._monitor_threads[simulation_id] = monitor_thread
+            with cls._class_lock:
+                cls._monitor_threads[simulation_id] = monitor_thread
             
             logger.info(f"模拟启动成功: {simulation_id}, pid={process.pid}, platform={platform}")
             
@@ -483,7 +502,8 @@ class SimulationRunner:
         twitter_actions_log = os.path.join(sim_dir, "twitter", "actions.jsonl")
         reddit_actions_log = os.path.join(sim_dir, "reddit", "actions.jsonl")
         
-        process = cls._processes.get(simulation_id)
+        with cls._class_lock:
+            process = cls._processes.get(simulation_id)
         state = cls.get_run_state(simulation_id)
         
         if not process or not state:
@@ -549,31 +569,35 @@ class SimulationRunner:
         
         finally:
             # 停止图谱记忆更新器
-            if cls._graph_memory_enabled.get(simulation_id, False):
+            with cls._class_lock:
+                graph_mem_enabled = cls._graph_memory_enabled.get(simulation_id, False)
+            if graph_mem_enabled:
                 try:
                     ZepGraphMemoryManager.stop_updater(simulation_id)
                     logger.info(f"已停止图谱记忆更新: simulation_id={simulation_id}")
                 except Exception as e:
                     logger.error(f"停止图谱记忆更新器失败: {e}")
-                cls._graph_memory_enabled.pop(simulation_id, None)
+                with cls._class_lock:
+                    cls._graph_memory_enabled.pop(simulation_id, None)
             
-            # 清理进程资源
-            cls._processes.pop(simulation_id, None)
-            cls._action_queues.pop(simulation_id, None)
+            # 清理进程资源（线程安全）
+            with cls._class_lock:
+                cls._processes.pop(simulation_id, None)
+                cls._action_queues.pop(simulation_id, None)
+                stdout_fh = cls._stdout_files.pop(simulation_id, None)
+                stderr_fh = cls._stderr_files.pop(simulation_id, None)
             
-            # 关闭日志文件句柄
-            if simulation_id in cls._stdout_files:
+            # 关闭日志文件句柄（在锁外执行I/O）
+            if stdout_fh:
                 try:
-                    cls._stdout_files[simulation_id].close()
+                    stdout_fh.close()
                 except Exception:
                     pass
-                cls._stdout_files.pop(simulation_id, None)
-            if simulation_id in cls._stderr_files and cls._stderr_files[simulation_id]:
+            if stderr_fh:
                 try:
-                    cls._stderr_files[simulation_id].close()
+                    stderr_fh.close()
                 except Exception:
                     pass
-                cls._stderr_files.pop(simulation_id, None)
     
     @classmethod
     def _read_action_log(
@@ -753,20 +777,37 @@ class SimulationRunner:
                     process.kill()
         else:
             # Unix: 使用进程组终止
-            # 由于使用了 start_new_session=True，进程组 ID 等于主进程 PID
-            pgid = os.getpgid(process.pid)
+            # start_new_session=True 使子进程成为新进程组的组长，pgid == pid
+            # os.getpgid() 在进程已结束时会抛出 ProcessLookupError，需要捕获
+            try:
+                pgid = os.getpgid(process.pid)
+            except (ProcessLookupError, OSError):
+                # 进程已经结束，无需终止
+                logger.info(f"进程已退出，无需终止进程组: simulation={simulation_id}")
+                return
+            
             logger.info(f"终止进程组 (Unix): simulation={simulation_id}, pgid={pgid}")
             
             # 先发送 SIGTERM 给整个进程组
-            os.killpg(pgid, signal.SIGTERM)
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                # 进程组在发送信号前已结束
+                return
             
             try:
                 process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 # 如果超时后还没结束，强制发送 SIGKILL
                 logger.warning(f"进程组未响应 SIGTERM，强制终止: {simulation_id}")
-                os.killpg(pgid, signal.SIGKILL)
-                process.wait(timeout=5)
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
     
     @classmethod
     def stop_simulation(cls, simulation_id: str) -> SimulationRunState:
@@ -781,8 +822,10 @@ class SimulationRunner:
         state.runner_status = RunnerStatus.STOPPING
         cls._save_run_state(state)
         
-        # 终止进程
-        process = cls._processes.get(simulation_id)
+        # 终止进程（线程安全读取）
+        with cls._class_lock:
+            process = cls._processes.get(simulation_id)
+        
         if process and process.poll() is None:
             try:
                 cls._terminate_process(process, simulation_id)
@@ -796,7 +839,10 @@ class SimulationRunner:
                     process.terminate()
                     process.wait(timeout=5)
                 except Exception:
-                    process.kill()
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
         
         state.runner_status = RunnerStatus.STOPPED
         state.twitter_running = False
@@ -804,14 +850,17 @@ class SimulationRunner:
         state.completed_at = datetime.now().isoformat()
         cls._save_run_state(state)
         
-        # 停止图谱记忆更新器
-        if cls._graph_memory_enabled.get(simulation_id, False):
+        # 停止图谱记忆更新器（线程安全读取）
+        with cls._class_lock:
+            graph_mem_enabled = cls._graph_memory_enabled.get(simulation_id, False)
+        if graph_mem_enabled:
             try:
                 ZepGraphMemoryManager.stop_updater(simulation_id)
                 logger.info(f"已停止图谱记忆更新: simulation_id={simulation_id}")
             except Exception as e:
                 logger.error(f"停止图谱记忆更新器失败: {e}")
-            cls._graph_memory_enabled.pop(simulation_id, None)
+            with cls._class_lock:
+                cls._graph_memory_enabled.pop(simulation_id, None)
         
         logger.info(f"模拟已停止: {simulation_id}")
         return state

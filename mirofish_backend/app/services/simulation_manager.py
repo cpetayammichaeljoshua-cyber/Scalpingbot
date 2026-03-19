@@ -113,13 +113,16 @@ class SimulationState:
 
 class SimulationManager:
     """
-    模拟管理器
+    模拟管理器（单例）
     
     核心功能：
     1. 从Zep图谱读取实体并过滤
     2. 生成OASIS Agent Profile
     3. 使用LLM智能生成模拟配置参数
     4. 准备预设脚本所需的所有文件
+    
+    使用单例模式确保内存缓存 (_simulations) 在所有请求间共享，
+    避免每个请求都重复从磁盘读取状态文件。
     """
     
     # 模拟数据存储目录
@@ -128,12 +131,27 @@ class SimulationManager:
         '../../uploads/simulations'
     )
     
+    # Singleton state
+    _instance: Optional['SimulationManager'] = None
+    _instance_lock = __import__('threading').Lock()
+    
+    def __new__(cls) -> 'SimulationManager':
+        """单例模式：确保全局只有一个 SimulationManager 实例"""
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    instance = super().__new__(cls)
+                    os.makedirs(cls.SIMULATION_DATA_DIR, exist_ok=True)
+                    # 内存中的模拟状态缓存（跨请求共享）
+                    instance._simulations: Dict[str, SimulationState] = {}
+                    cls._instance = instance
+        return cls._instance
+    
     def __init__(self):
-        # 确保目录存在
-        os.makedirs(self.SIMULATION_DATA_DIR, exist_ok=True)
-        
-        # 内存中的模拟状态缓存
-        self._simulations: Dict[str, SimulationState] = {}
+        # __init__ is called every time SimulationManager() is used, but since
+        # __new__ returns the existing instance, we must not re-initialise
+        # instance variables here — they were set up in __new__.
+        pass
     
     def _get_simulation_dir(self, simulation_id: str) -> str:
         """获取模拟数据目录"""

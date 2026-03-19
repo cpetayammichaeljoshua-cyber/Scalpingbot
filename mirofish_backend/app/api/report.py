@@ -409,17 +409,26 @@ def download_report(report_id: str):
         md_path = ReportManager._get_report_markdown_path(report_id)
         
         if not os.path.exists(md_path):
-            # 如果MD文件不存在，生成一个临时文件
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                f.write(report.markdown_content)
-                temp_path = f.name
-            
-            return send_file(
-                temp_path,
-                as_attachment=True,
-                download_name=f"{report_id}.md"
-            )
+            # MD文件不存在时，将内容持久化到期望路径再提供下载，
+            # 避免使用 delete=False 临时文件（该文件在发送后永不会被清理）。
+            try:
+                os.makedirs(os.path.dirname(md_path), exist_ok=True)
+                with open(md_path, 'w', encoding='utf-8') as mdf:
+                    mdf.write(report.markdown_content or "")
+            except Exception as write_err:
+                logger.warning(f"无法写入MD文件 {md_path}: {write_err}")
+                # 如果写入失败，使用 io.BytesIO 在内存中提供内容，完全不需要临时文件
+                import io
+                from flask import Response
+                content_bytes = (report.markdown_content or "").encode('utf-8')
+                return Response(
+                    content_bytes,
+                    mimetype='text/markdown',
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{report_id}.md"',
+                        'Content-Length': str(len(content_bytes)),
+                    }
+                )
         
         return send_file(
             md_path,
