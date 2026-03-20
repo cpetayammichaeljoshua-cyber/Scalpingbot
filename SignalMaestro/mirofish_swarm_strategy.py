@@ -2884,17 +2884,10 @@ def _supertrend(closes: List[float], highs: List[float], lows: List[float],
         tr = max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1]))
         atr_vals.append(tr)
 
-    # Wilder ATR smoothing
-    if len(atr_vals) < period:
-        return None
-    atr = sum(atr_vals[:period]) / period
-    atr_series = [atr]
-    for tr in atr_vals[period:]:
-        atr = (atr * (period - 1) + tr) / period
-        atr_series.append(tr)  # note: using raw TR for band calc (more reactive)
-
-    # Align: atr_series[i] corresponds to candle index i+period
-    if len(atr_series) < 2:
+    # Wilder ATR smoothing — only need to verify we have enough bars;
+    # the actual per-bar atr_smooth is recomputed from scratch below in the
+    # flipping state machine so we don't need to persist the series here.
+    if len(atr_vals) < period + 1:
         return None
 
     # Build upper/lower basic bands, then apply Supertrend flipping logic

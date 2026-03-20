@@ -430,7 +430,7 @@ class FXSUSDTTelegramBot:
                 f"Source: github.com/666ghj/MiroFish\n"
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
-                f"Agents: 8 swarm agents | Consensus: ≥72% | Quorum: 5/8\n"
+                f"Agents: 9 swarm agents | Consensus: ≥72% | Quorum: 5/9\n"
                 f"AI: Claude 3.5 Haiku (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
                 f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 5/hr\n"
@@ -697,7 +697,7 @@ class FXSUSDTTelegramBot:
             "TrendAgent": "Tr", "MomentumAgent": "Mo", "VolumeAgent": "Vo",
             "VolatilityAgent": "Vl", "OrderFlowAgent": "OF",
             "SentimentAgent": "Se", "FundingFlowAgent": "Fn",
-            "AIOrchestrationAgent": "AI",
+            "PivotSRAgent": "Pi", "AIOrchestrationAgent": "AI",
         }
         _sym = {"BUY": "B", "SELL": "S", "NEUTRAL": "N"}
         votes_str = " ".join(
@@ -1687,6 +1687,7 @@ Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals pow
                 "OrderFlowAgent":       "🕯️ Candle patterns + Pattern graph nodes         (15%)",
                 "SentimentAgent":       "😱 Price deviation + vol contraction regime      ( 5%)",
                 "FundingFlowAgent":     "💹 VWAP dev + OI proxy + squeeze detect          ( 5%)",
+                "PivotSRAgent":         "🎯 Pivot points + Volume POC + S/R proximity     ( 8%)",
                 "AIOrchestrationAgent": "🤖 GPT-4o-mini ReACT Reason→Act→Reflect          ( 5%)",
             }
 
