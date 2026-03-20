@@ -549,6 +549,55 @@ class TrendAgent:
                 except Exception:
                     pass
 
+            # ── Supertrend confirmation (v4 enhancement) ──────────────────────
+            # Supertrend is the strongest single trend filter: when ST is bullish
+            # and we vote BUY → strong bonus; if ST contradicts → penalty.
+            if highs and lows and len(highs) >= 15:
+                try:
+                    _st_result = _supertrend(closes, highs, lows, period=10, multiplier=3.0)
+                    if _st_result is not None:
+                        _st_val, _st_dir = _st_result
+                        if vote == "BUY"  and _st_dir == 1:  conf = min(conf + 8, 100)
+                        if vote == "SELL" and _st_dir == -1: conf = min(conf + 8, 100)
+                        if vote == "BUY"  and _st_dir == -1: conf = max(conf - 10, 50)  # Hard penalty: counter ST
+                        if vote == "SELL" and _st_dir == 1:  conf = max(conf - 10, 50)
+                except Exception:
+                    pass
+
+            # ── Parabolic SAR confirmation ─────────────────────────────────────
+            if highs and lows and len(highs) >= 5:
+                try:
+                    _sar_result = _parabolic_sar(highs, lows)
+                    if _sar_result is not None:
+                        _sar_val, _sar_dir = _sar_result
+                        if vote == "BUY"  and _sar_dir == 1:  conf = min(conf + 4, 100)
+                        if vote == "SELL" and _sar_dir == -1: conf = min(conf + 4, 100)
+                        if vote == "BUY"  and _sar_dir == -1: conf = max(conf - 5, 50)
+                        if vote == "SELL" and _sar_dir == 1:  conf = max(conf - 5, 50)
+                except Exception:
+                    pass
+
+            # ── Full Ichimoku Cloud S/R filter ─────────────────────────────────
+            # Price inside the cloud → low-confidence zone (avoid it)
+            # Price above cloud for BUY or below for SELL → strong confirmation
+            if highs and lows and len(closes) >= 52:
+                try:
+                    _ich = _ich_cloud(highs, lows, closes)
+                    if _ich and _ich.get("cloud_top") and _ich.get("cloud_bot"):
+                        _cloud_top = _ich["cloud_top"]
+                        _cloud_bot = _ich["cloud_bot"]
+                        _cur = closes[-1]
+                        if vote == "BUY":
+                            if _cur > _cloud_top:   conf = min(conf + 7, 100)   # above cloud: bullish
+                            elif _cur < _cloud_bot: conf = max(conf - 8, 50)    # below cloud: bearish
+                            else:                   conf = max(conf - 5, 50)    # inside cloud: uncertain
+                        elif vote == "SELL":
+                            if _cur < _cloud_bot:   conf = min(conf + 7, 100)   # below cloud: bearish
+                            elif _cur > _cloud_top: conf = max(conf - 8, 50)    # above cloud: bullish
+                            else:                   conf = max(conf - 5, 50)    # inside cloud: uncertain
+                except Exception:
+                    pass
+
             # Graph memory: confirm with stored TrendState
             trend_state = graph.get_trend_state()
             if trend_state:
@@ -565,7 +614,7 @@ class TrendAgent:
                  "above_200": (cur > ema_200) if ema_200 is not None else None,
                  "alignment": bullish_count}
             )
-            return vote, conf
+            return vote, min(conf, 95.0)
 
         except Exception:
             return "NEUTRAL", 50.0
@@ -688,16 +737,35 @@ class MomentumAgent:
                 if vote == "BUY"  and roc > 0: conf = min(conf + min(abs(roc) * 2, 5), 95.0)
                 if vote == "SELL" and roc < 0: conf = min(conf + min(abs(roc) * 2, 5), 95.0)
 
-            # RSI bearish divergence: price making new high but RSI lower (hidden weakness)
-            if len(closes) >= 20:
-                rsi_3bars_ago = _rsi(closes[:-3], 14)
-                if rsi_3bars_ago is not None:
-                    price_new_high = closes[-1] > max(closes[-20:-1])
-                    price_new_low  = closes[-1] < min(closes[-20:-1])
-                    if vote == "BUY"  and price_new_low  and rsi > rsi_3bars_ago:
-                        conf = min(conf + 5, 95.0)   # bullish divergence
-                    if vote == "SELL" and price_new_high and rsi < rsi_3bars_ago:
-                        conf = min(conf + 5, 95.0)   # bearish divergence
+            # ── Proper RSI Divergence (v4 — swing-based, not bar-comparison) ─────
+            # Uses the _rsi_divergence() helper which identifies swing pivots.
+            # Divergence confirmation gives high-quality reversal/continuation signal.
+            if len(closes) >= 50:
+                try:
+                    div_result = _rsi_divergence(closes, period=14, lookback=30)
+                    if div_result is not None:
+                        div_type, div_strength = div_result
+                        if div_type == "bullish":
+                            # Bullish divergence: price lower low + RSI higher low = reversal signal
+                            if vote == "BUY":  conf = min(conf + int(div_strength * 10), 95.0)  # confirm
+                            if vote == "SELL": conf = max(conf - int(div_strength * 8), 50.0)   # contradict
+                        elif div_type == "bearish":
+                            # Bearish divergence: price higher high + RSI lower high = exhaustion
+                            if vote == "SELL": conf = min(conf + int(div_strength * 10), 95.0)  # confirm
+                            if vote == "BUY":  conf = max(conf - int(div_strength * 8), 50.0)   # contradict
+                except Exception:
+                    pass
+            else:
+                # Fallback for shorter series: simple 3-bar RSI slope comparison
+                if len(closes) >= 20:
+                    rsi_3bars_ago = _rsi(closes[:-3], 14)
+                    if rsi_3bars_ago is not None:
+                        price_new_high = closes[-1] > max(closes[-20:-1])
+                        price_new_low  = closes[-1] < min(closes[-20:-1])
+                        if vote == "BUY"  and price_new_low  and rsi > rsi_3bars_ago:
+                            conf = min(conf + 5, 95.0)   # bullish divergence
+                        if vote == "SELL" and price_new_high and rsi < rsi_3bars_ago:
+                            conf = min(conf + 5, 95.0)   # bearish divergence
 
             regime = "overbought" if rsi >= 70 else "oversold" if rsi <= 30 else f"rsi={rsi:.1f}"
             graph.add_node(
@@ -937,6 +1005,35 @@ class VolatilityAgent:
                         conf = max(conf - 3.0, 50.0)              # -3 pts in ranging
             except Exception:
                 pass
+
+            # ── Keltner Channel Squeeze (v4 enhancement) ─────────────────────
+            # When BB bands are inside KC bands → squeeze is ON → explosive move soon.
+            # Direction of breakout determined by current vote.
+            # When squeeze fires, it strongly confirms a breakout signal.
+            if highs and lows and len(highs) >= 25:
+                try:
+                    squeeze_result = _squeeze_momentum(closes, highs, lows,
+                                                       bb_period=20, kc_period=20,
+                                                       kc_atr=14, kc_mult=1.5)
+                    if squeeze_result is not None:
+                        squeeze_on, sq_momentum = squeeze_result
+                        if squeeze_on:
+                            # Squeeze detected: breakout imminent — boost if direction aligns
+                            if vote == "BUY"  and sq_momentum > 0:
+                                conf = min(conf + 9, 95.0)   # squeeze bullish breakout
+                            elif vote == "SELL" and sq_momentum < 0:
+                                conf = min(conf + 9, 95.0)   # squeeze bearish breakdown
+                            elif vote == "BUY"  and sq_momentum < 0:
+                                conf = max(conf - 6, 50.0)   # squeeze momentum contra
+                            elif vote == "SELL" and sq_momentum > 0:
+                                conf = max(conf - 6, 50.0)   # squeeze momentum contra
+                        else:
+                            # No squeeze — trend mode: small boost for expansion alignment
+                            if vote != "NEUTRAL" and sq_momentum != 0:
+                                if (vote == "BUY" and sq_momentum > 0) or (vote == "SELL" and sq_momentum < 0):
+                                    conf = min(conf + 3, 95.0)
+                except Exception:
+                    pass
 
             # Price levels in graph
             graph.add_node(MarketEntityType.PRICE_LEVEL, "BB_Upper",
@@ -1260,6 +1357,136 @@ class FundingFlowAgent:
         elif vwap_dev < -0.3:
             return "SELL", 53.0
         else:
+            return "NEUTRAL", 50.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pivot Support/Resistance Agent — v4 New Agent
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PivotSRAgent:
+    """
+    Pivot Support/Resistance Agent — v4 Production Addition.
+
+    Identifies key support/resistance zones using:
+    1. Classic Pivot Points (P, R1/R2/R3, S1/S2/S3) — institutional reference levels
+    2. Volume Profile POC — highest-volume price level (magnetic S/R)
+    3. Price proximity scoring — is current price approaching S/R?
+    4. Entry quality score — avoid buying at resistance, selling at support
+
+    Votes BUY when: price is above pivot/POC with clear upward path to next R
+    Votes SELL when: price is below pivot/POC with clear downward path to next S
+    Penalizes entries directly AT resistance (BUY) or support (SELL)
+    """
+    NAME = "PivotSRAgent"
+    PROFILE = AgentProfile(
+        agent_id=9,
+        name="PivotSRAgent",
+        persona="Institutional S/R specialist. Pivot points + volume profile POC. Avoids S/R traps.",
+        stance="neutral",
+        activity_level=0.88,
+        influence_weight=0.08,
+        sentiment_bias=0.0,
+        response_delay_min=50,
+        response_delay_max=200,
+        active_sessions=["ASIAN", "EU", "US", "TRANSITION"],
+        session_multipliers={"ASIAN": 0.90, "EU": 1.05, "US": 1.10, "TRANSITION": 0.70}
+    )
+
+    # Proximity threshold: price within this % of a pivot level = "at that level"
+    _PROX_PCT = 0.35   # 0.35% of price = "at level"
+    _NEAR_PCT = 0.75   # 0.75% = "near level" (soft zone)
+
+    def analyze(self, closes: List[float], highs: List[float],
+                lows: List[float], volumes: List[float],
+                graph: MarketGraphMemory) -> Tuple[str, float]:
+        try:
+            if len(closes) < 22 or len(highs) < 22 or len(lows) < 22:
+                return "NEUTRAL", 50.0
+
+            cur = closes[-1]
+            score = 0.0   # positive = bullish, negative = bearish
+
+            # ── Classic Pivot Points ─────────────────────────────────────────
+            pivots = _pivot_points(highs, lows, closes)
+            if pivots:
+                p   = pivots["P"]
+                r1  = pivots["R1"]; r2 = pivots["R2"]
+                s1  = pivots["S1"]; s2 = pivots["S2"]
+
+                def _prox(level: float) -> float:
+                    return abs(cur - level) / max(cur, 1e-9) * 100
+
+                # Price position relative to pivot P
+                if cur > p:
+                    # Above pivot → bullish bias
+                    score += 15.0
+                    # Check if approaching R1 (resistance — bad for BUY)
+                    if _prox(r1) < self._PROX_PCT:
+                        score -= 20.0   # at R1: selling pressure imminent
+                    elif _prox(r1) < self._NEAR_PCT:
+                        score -= 10.0   # near R1: caution
+                    elif cur < r1 * 0.997:
+                        score += 10.0   # below R1 with room to run = good BUY zone
+                else:
+                    # Below pivot → bearish bias
+                    score -= 15.0
+                    # Check if approaching S1 (support — bad for SELL)
+                    if _prox(s1) < self._PROX_PCT:
+                        score += 20.0   # at S1: buying pressure imminent
+                    elif _prox(s1) < self._NEAR_PCT:
+                        score += 10.0   # near S1: caution on shorts
+                    elif cur > s1 * 1.003:
+                        score -= 10.0   # above S1 with room to fall = good SELL zone
+
+                # Breakout above R1/R2 — momentum signal
+                if cur > r1 and cur < r2:
+                    score += 18.0   # broken R1, targeting R2 = strong BUY
+                elif cur > r2:
+                    score += 12.0   # broken R2 = very bullish
+
+                # Breakdown below S1/S2
+                if cur < s1 and cur > s2:
+                    score -= 18.0   # broken S1, targeting S2 = strong SELL
+                elif cur < s2:
+                    score -= 12.0   # broken S2 = very bearish
+
+                # Register pivot levels in graph memory
+                graph.add_node(
+                    MarketEntityType.PRICE_LEVEL, "PivotP",
+                    f"Daily Pivot P={p:.4f} R1={r1:.4f} S1={s1:.4f}",
+                    {"pivot": p, "r1": r1, "s1": s1, "cur_above_p": cur > p}
+                )
+
+            # ── Volume Profile POC ──────────────────────────────────────────
+            if len(volumes) >= 20:
+                poc = _volume_profile_poc(closes, volumes, n_bins=20)
+                if poc is not None:
+                    poc_prox = abs(cur - poc) / max(cur, 1e-9) * 100
+                    if cur > poc:
+                        score += 8.0   # price above POC = buyers in control
+                        if poc_prox < self._PROX_PCT:
+                            score -= 5.0  # right at POC = neutral/contested
+                    else:
+                        score -= 8.0   # price below POC = sellers in control
+                        if poc_prox < self._PROX_PCT:
+                            score += 5.0  # right at POC support = contested
+
+            # ── Convert score to vote ────────────────────────────────────────
+            if score >= 30:
+                vote, conf = "BUY",  min(65.0 + score * 0.6, 88.0)
+            elif score >= 12:
+                vote, conf = "BUY",  min(55.0 + score * 0.8, 78.0)
+            elif score <= -30:
+                vote, conf = "SELL", min(65.0 + abs(score) * 0.6, 88.0)
+            elif score <= -12:
+                vote, conf = "SELL", min(55.0 + abs(score) * 0.8, 78.0)
+            else:
+                vote, conf = "NEUTRAL", 50.0
+
+            return vote, min(conf, 90.0)
+
+        except Exception:
             return "NEUTRAL", 50.0
 
 
@@ -1734,7 +1961,7 @@ class MiroFishSwarmStrategy:
         self.min_active_agents   = 5        # raised: quorum needs 5/8 agents non-NEUTRAL (was 3)
         self.min_rr_ratio        = 1.50     # raised: minimum 1.5:1 risk-reward (was 1.30)
 
-        # ── Initialize all 8 agents ──
+        # ── Initialize all 9 agents (v4: +PivotSRAgent) ──
         self.trend_agent      = TrendAgent()
         self.momentum_agent   = MomentumAgent()
         self.volume_agent     = VolumeAgent()
@@ -1742,12 +1969,13 @@ class MiroFishSwarmStrategy:
         self.orderflow_agent  = OrderFlowAgent()
         self.sentiment_agent  = SentimentAgent()
         self.funding_agent    = FundingFlowAgent()
+        self.pivot_agent      = PivotSRAgent()          # v4: new S/R agent
         self.ai_agent         = AIOrchestrationAgent()
 
         self._agents = [
             self.trend_agent, self.momentum_agent, self.volume_agent,
             self.volatility_agent, self.orderflow_agent, self.sentiment_agent,
-            self.funding_agent, self.ai_agent,
+            self.funding_agent, self.pivot_agent, self.ai_agent,
         ]
 
         # ── Per-symbol Market Knowledge Graphs ──
@@ -1755,14 +1983,21 @@ class MiroFishSwarmStrategy:
         # each other's TrendState / RSI_State / VWAP_State nodes.
         self._symbol_graphs: Dict[str, MarketGraphMemory] = {}
 
+        # ── HTF klines cache: symbol → (klines, timestamp) ──
+        # Caches 1H klines for HTF trend confirmation — refreshed every 5 min
+        self._htf_cache: Dict[str, Tuple[list, float]] = {}
+        self._htf_cache_ttl = 300.0  # 5 minutes
+
         # ── Session state ──
         self._current_session  = "UNKNOWN"
         self._session_activity = 1.0
 
-        self.logger.info("🐟 MiroFish Swarm Strategy v3.1 initialized — BTCUSDT USDM Futures")
-        self.logger.info("   Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions")
+        self.logger.info("🐟 MiroFish Swarm Strategy v4.0 initialized — USDM Futures")
+        self.logger.info("   Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions+PivotSR")
         self.logger.info(f"   Agents: {len(self._agents)} | Quorum: {self.min_active_agents} | "
                          f"Consensus gate: {self.min_swarm_consensus:.0%}")
+        self.logger.info("   v4 Enhancements: Supertrend+ParabolicSAR+IchimokuCloud+KeltnerSqueeze+"
+                         "RSIDivergence+PivotPoints+VolumePOC+HTF1HFilter")
 
     # ─────────────────────────────────────────
     # Public API
@@ -2519,3 +2754,353 @@ def _hma(closes: List[float], period: int = 14) -> Optional[float]:
     if len(diff_series) < sqrt_p:
         return None
     return _ema(diff_series, sqrt_p)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Advanced Indicator Helpers — v4 Production Enhancement
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _supertrend(closes: List[float], highs: List[float], lows: List[float],
+                period: int = 10, multiplier: float = 3.0) -> Optional[Tuple[float, int]]:
+    """
+    Supertrend indicator.
+    Returns (supertrend_value, direction) where direction=+1 means bullish (price above ST),
+    direction=-1 means bearish (price below ST).
+    Returns None if insufficient data.
+    """
+    n = min(len(closes), len(highs), len(lows))
+    if n < period + 2:
+        return None
+    c, h, l = closes[-n:], highs[-n:], lows[-n:]
+
+    # Compute ATR using true range
+    atr_vals = []
+    for i in range(1, n):
+        tr = max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1]))
+        atr_vals.append(tr)
+
+    # Wilder ATR smoothing
+    if len(atr_vals) < period:
+        return None
+    atr = sum(atr_vals[:period]) / period
+    atr_series = [atr]
+    for tr in atr_vals[period:]:
+        atr = (atr * (period - 1) + tr) / period
+        atr_series.append(tr)  # note: using raw TR for band calc (more reactive)
+
+    # Align: atr_series[i] corresponds to candle index i+period
+    if len(atr_series) < 2:
+        return None
+
+    # Build upper/lower basic bands, then apply Supertrend flipping logic
+    # We need at least 2 computed bars for the flip logic
+    # Use simplified but correct approach: compute on the last few candles
+    results = []
+    atr_smooth = sum(atr_vals[:period]) / period
+    for i in range(period, n):
+        atr_smooth = (atr_smooth * (period - 1) + atr_vals[i-1]) / period
+        hl2 = (h[i] + l[i]) / 2.0
+        basic_upper = hl2 + multiplier * atr_smooth
+        basic_lower = hl2 - multiplier * atr_smooth
+        results.append((basic_upper, basic_lower, c[i]))
+
+    if not results:
+        return None
+
+    # Supertrend flip state machine
+    final_upper = results[0][0]
+    final_lower = results[0][1]
+    direction   = 1 if results[0][2] > results[0][0] else -1
+
+    for bu, bl, close in results[1:]:
+        # Upper band: only move down
+        new_upper = min(bu, final_upper) if close < final_upper else bu
+        # Lower band: only move up
+        new_lower = max(bl, final_lower) if close > final_lower else bl
+
+        if direction == 1:
+            if close < new_lower:
+                direction = -1
+                final_upper = new_upper
+                final_lower = new_lower
+            else:
+                final_lower = new_lower
+                final_upper = new_upper
+        else:
+            if close > new_upper:
+                direction = 1
+                final_upper = new_upper
+                final_lower = new_lower
+            else:
+                final_upper = new_upper
+                final_lower = new_lower
+
+    st_val = final_lower if direction == 1 else final_upper
+    return st_val, direction
+
+
+def _pivot_points(highs: List[float], lows: List[float],
+                  closes: List[float]) -> Optional[Dict[str, float]]:
+    """
+    Classic daily pivot points computed from the previous full candle window.
+    Returns dict with keys: P, R1, R2, R3, S1, S2, S3.
+    Uses the most recent 20-bar window as the "previous session".
+    """
+    if len(closes) < 22:
+        return None
+    # Use previous 20-candle window as the reference period
+    h = max(highs[-21:-1])
+    l = min(lows[-21:-1])
+    c = closes[-2]   # previous close (one candle behind current)
+    p = (h + l + c) / 3.0
+    r1 = 2 * p - l
+    r2 = p + (h - l)
+    r3 = h + 2 * (p - l)
+    s1 = 2 * p - h
+    s2 = p - (h - l)
+    s3 = l - 2 * (h - p)
+    return {"P": p, "R1": r1, "R2": r2, "R3": r3, "S1": s1, "S2": s2, "S3": s3}
+
+
+def _keltner_channel(closes: List[float], highs: List[float],
+                     lows: List[float], ema_period: int = 20,
+                     atr_period: int = 10, multiplier: float = 2.0
+                     ) -> Optional[Tuple[float, float, float]]:
+    """
+    Keltner Channel: Middle = EMA(20), Upper = EMA + 2×ATR(10), Lower = EMA - 2×ATR(10).
+    Returns (upper, middle, lower) or None.
+    Used with Bollinger Bands to detect squeeze: when BB is inside KC → breakout imminent.
+    """
+    n = min(len(closes), len(highs), len(lows))
+    if n < max(ema_period, atr_period) + 5:
+        return None
+    c, h, l = closes[-n:], highs[-n:], lows[-n:]
+    mid = _ema(c, ema_period)
+    if mid is None:
+        return None
+    atr_val = _true_atr(c, h, l, atr_period)
+    if atr_val is None:
+        atr_val = _atr_close(c, atr_period) or 0.0
+    upper = mid + multiplier * atr_val
+    lower = mid - multiplier * atr_val
+    return upper, mid, lower
+
+
+def _parabolic_sar(highs: List[float], lows: List[float],
+                   af_start: float = 0.02, af_max: float = 0.20
+                   ) -> Optional[Tuple[float, int]]:
+    """
+    Parabolic SAR — trailing stop indicator.
+    Returns (sar_value, direction) where direction=+1 = bullish (SAR below price),
+    direction=-1 = bearish (SAR above price).
+    Requires at least 5 candles.
+    """
+    n = min(len(highs), len(lows))
+    if n < 5:
+        return None
+    h, l = highs[-n:], lows[-n:]
+
+    # Initial state: assume bullish on first bar
+    direction = 1
+    sar       = l[0]
+    ep        = h[0]   # extreme point
+    af        = af_start
+
+    for i in range(1, n):
+        prev_sar = sar
+        sar = sar + af * (ep - sar)
+
+        if direction == 1:
+            # Bullish
+            sar = min(sar, l[i-1], l[i-2] if i >= 2 else l[i-1])
+            if l[i] < sar:
+                # Flip to bearish
+                direction = -1
+                sar = ep
+                ep  = l[i]
+                af  = af_start
+            else:
+                if h[i] > ep:
+                    ep = h[i]
+                    af = min(af + af_start, af_max)
+        else:
+            # Bearish
+            sar = max(sar, h[i-1], h[i-2] if i >= 2 else h[i-1])
+            if h[i] > sar:
+                # Flip to bullish
+                direction = 1
+                sar = ep
+                ep  = h[i]
+                af  = af_start
+            else:
+                if l[i] < ep:
+                    ep = l[i]
+                    af = min(af + af_start, af_max)
+
+    return sar, direction
+
+
+def _ich_cloud(highs: List[float], lows: List[float], closes: List[float],
+               tenkan: int = 9, kijun: int = 26, senkou_b: int = 52
+               ) -> Optional[Dict[str, float]]:
+    """
+    Full Ichimoku Cloud computation.
+    Returns dict with tenkan, kijun, senkou_a, senkou_b, chikou.
+    Senkou A/B define the cloud (support/resistance zones).
+    """
+    n = min(len(closes), len(highs), len(lows))
+    if n < senkou_b:
+        return None
+    h, l, c = highs[-n:], lows[-n:], closes[-n:]
+
+    def mid_point(period, idx_end):
+        sl = h[max(0, idx_end - period):idx_end]
+        ll = l[max(0, idx_end - period):idx_end]
+        if not sl or not ll:
+            return None
+        return (max(sl) + min(ll)) / 2.0
+
+    ten_val = mid_point(tenkan, n)
+    kij_val = mid_point(kijun, n)
+    sA      = ((ten_val or 0) + (kij_val or 0)) / 2.0 if ten_val and kij_val else None
+    sB      = mid_point(senkou_b, n)
+    chikou  = c[-1]  # current close plotted 26 periods back
+
+    return {
+        "tenkan":   ten_val,
+        "kijun":    kij_val,
+        "senkou_a": sA,
+        "senkou_b": sB,
+        "chikou":   chikou,
+        "cloud_top": max(sA, sB) if sA is not None and sB is not None else None,
+        "cloud_bot": min(sA, sB) if sA is not None and sB is not None else None,
+    }
+
+
+def _rsi_divergence(closes: List[float], period: int = 14,
+                    lookback: int = 30) -> Optional[Tuple[str, float]]:
+    """
+    RSI divergence detection — scans last `lookback` bars for price/RSI divergence.
+    Returns ("bullish", strength) for bullish divergence, ("bearish", strength) for bearish,
+    or None if no significant divergence.
+    strength ∈ [0, 1] reflects how clear the divergence is.
+    """
+    if len(closes) < lookback + period + 5:
+        return None
+    recent = closes[-(lookback + period):]
+
+    # Compute RSI for each bar in the window
+    rsi_vals = []
+    for i in range(len(recent) - lookback, len(recent)):
+        r = _rsi(recent[:i+1], period)
+        if r is not None:
+            rsi_vals.append(r)
+        else:
+            rsi_vals.append(50.0)
+
+    if len(rsi_vals) < 10:
+        return None
+
+    price_window = recent[-len(rsi_vals):]
+
+    # Find swing lows for bullish divergence (price makes lower low, RSI makes higher low)
+    n = len(price_window)
+    # Use simple 3-bar swing: local minima and maxima
+    price_lows_idx  = [i for i in range(2, n-2)
+                       if price_window[i] <= price_window[i-1] and price_window[i] <= price_window[i+1]
+                       and price_window[i] <= price_window[i-2] and price_window[i] <= price_window[i+2]]
+    price_highs_idx = [i for i in range(2, n-2)
+                       if price_window[i] >= price_window[i-1] and price_window[i] >= price_window[i+1]
+                       and price_window[i] >= price_window[i-2] and price_window[i] >= price_window[i+2]]
+
+    # Bullish divergence: price lower low + RSI higher low
+    if len(price_lows_idx) >= 2:
+        i1, i2 = price_lows_idx[-2], price_lows_idx[-1]
+        price_ll = price_window[i2] < price_window[i1]
+        rsi_hl   = rsi_vals[i2] > rsi_vals[i1]
+        if price_ll and rsi_hl:
+            price_diff = (price_window[i1] - price_window[i2]) / max(price_window[i1], 1e-9)
+            rsi_diff   = (rsi_vals[i2] - rsi_vals[i1]) / max(abs(rsi_vals[i1]) + 1, 1e-9)
+            strength   = min((price_diff * 10 + rsi_diff * 5), 1.0)
+            if strength > 0.1:
+                return "bullish", strength
+
+    # Bearish divergence: price higher high + RSI lower high
+    if len(price_highs_idx) >= 2:
+        i1, i2 = price_highs_idx[-2], price_highs_idx[-1]
+        price_hh = price_window[i2] > price_window[i1]
+        rsi_lh   = rsi_vals[i2] < rsi_vals[i1]
+        if price_hh and rsi_lh:
+            price_diff = (price_window[i2] - price_window[i1]) / max(price_window[i1], 1e-9)
+            rsi_diff   = (rsi_vals[i1] - rsi_vals[i2]) / max(abs(rsi_vals[i1]) + 1, 1e-9)
+            strength   = min((price_diff * 10 + rsi_diff * 5), 1.0)
+            if strength > 0.1:
+                return "bearish", strength
+
+    return None
+
+
+def _volume_profile_poc(closes: List[float], volumes: List[float],
+                        n_bins: int = 20) -> Optional[float]:
+    """
+    Volume Profile — Point of Control (POC): price level with highest traded volume.
+    Returns the POC price level which acts as a strong S/R magnet.
+    """
+    if len(closes) < 20 or len(volumes) < 20:
+        return None
+    n = min(len(closes), len(volumes))
+    c, v = closes[-n:], volumes[-n:]
+    lo, hi = min(c), max(c)
+    if hi == lo:
+        return None
+    bin_size = (hi - lo) / n_bins
+    bins = [0.0] * n_bins
+    for price, vol in zip(c, v):
+        idx = min(int((price - lo) / bin_size), n_bins - 1)
+        bins[idx] += vol
+    max_bin = max(range(n_bins), key=lambda i: bins[i])
+    poc = lo + (max_bin + 0.5) * bin_size
+    return poc
+
+
+def _squeeze_momentum(closes: List[float], highs: List[float],
+                      lows: List[float], bb_period: int = 20,
+                      kc_period: int = 20, kc_atr: int = 14,
+                      kc_mult: float = 1.5) -> Optional[Tuple[bool, float]]:
+    """
+    Squeeze Momentum (TTM Squeeze): detects when Bollinger Bands are inside
+    Keltner Channels (high-probability breakout setup).
+    Returns (squeeze_on, momentum_value) where:
+    - squeeze_on = True means BB is inside KC (breakout imminent)
+    - momentum_value > 0 = bullish breakout likely, < 0 = bearish likely
+    """
+    n = min(len(closes), len(highs), len(lows))
+    if n < max(bb_period, kc_period) + 5:
+        return None
+
+    c, h, l = closes[-n:], highs[-n:], lows[-n:]
+
+    # Bollinger Bands
+    bb_up, bb_mid, bb_lo = _bollinger(c, bb_period, 2.0)
+    if bb_up is None:
+        return None
+
+    # Keltner Channel
+    kc_result = _keltner_channel(c, h, l, kc_period, kc_atr, kc_mult)
+    if kc_result is None:
+        return None
+    kc_up, kc_mid, kc_lo = kc_result
+
+    # Squeeze: BB inside KC
+    squeeze_on = (bb_up < kc_up) and (bb_lo > kc_lo)
+
+    # Momentum: linear regression of (close - midpoint of BB and KC)
+    if n < 5:
+        return squeeze_on, 0.0
+    mom_vals = []
+    for i in range(-5, 0):
+        mid_ref = (bb_mid + kc_mid) / 2.0 if bb_mid and kc_mid else c[i]
+        mom_vals.append(c[i] - mid_ref)
+    momentum = mom_vals[-1] - mom_vals[0] if len(mom_vals) >= 2 else 0.0
+
+    return squeeze_on, momentum
