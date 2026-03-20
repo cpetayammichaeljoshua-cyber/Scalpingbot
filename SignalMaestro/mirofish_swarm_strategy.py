@@ -2050,6 +2050,39 @@ class MiroFishSwarmStrategy:
                         break
         sym_graph = self._symbol_graphs[symbol]
 
+        # ── HTF 1H klines prefetch for trend filter ────────────────────────────
+        # BUG FIX: _htf_cache / _htf_cache_ttl were defined in __init__ but the
+        # 1H klines were never actually fetched or passed to _analyze_timeframe.
+        # This populates the cache once per symbol per 5-minute TTL window and
+        # supplies htf_closes to every timeframe's analysis pipeline.
+        htf_closes_1h: Optional[List[float]] = None
+        _skip_htf = any(tf == "1h" for tf in self.timeframes)  # avoid double-fetch on 1H scans
+        if not _skip_htf:
+            try:
+                _now_ts = time.time()
+                _cached  = self._htf_cache.get(symbol)
+                if _cached and (_now_ts - _cached[1]) < self._htf_cache_ttl:
+                    htf_closes_1h = _cached[0]
+                    self.logger.debug(f"[{symbol}] HTF 1H cache hit ({len(htf_closes_1h)} bars)")
+                else:
+                    _htf_raw = await asyncio.wait_for(
+                        trader.get_market_data(symbol, "1h", 55), timeout=5.0
+                    )
+                    if _htf_raw and len(_htf_raw) >= 25:
+                        htf_closes_1h = [float(k[4]) for k in _htf_raw]
+                        self._htf_cache[symbol] = (htf_closes_1h, _now_ts)
+                        # Cap cache size to 120 entries (same logic as _symbol_graphs)
+                        if len(self._htf_cache) > 120:
+                            for _ev in list(self._htf_cache.keys()):
+                                if _ev != "BTCUSDT":
+                                    del self._htf_cache[_ev]
+                                    break
+                        self.logger.debug(
+                            f"[{symbol}] HTF 1H fetched — {len(htf_closes_1h)} bars cached"
+                        )
+            except Exception as _htf_err:
+                self.logger.debug(f"[{symbol}] HTF 1H fetch skipped: {_htf_err}")
+
         for tf in self.timeframes:
             try:
                 params = BTCUSDT_PARAMS.get(tf, BTCUSDT_PARAMS["5m"])
@@ -2064,7 +2097,8 @@ class MiroFishSwarmStrategy:
                     continue
 
                 signal = await self._analyze_timeframe(
-                    klines, tf, params, funding_rate, symbol, sym_graph
+                    klines, tf, params, funding_rate, symbol, sym_graph,
+                    htf_closes=htf_closes_1h
                 )
                 if signal:
                     signals.append(signal)
@@ -2083,7 +2117,8 @@ class MiroFishSwarmStrategy:
     async def _analyze_timeframe(self, klines: List, tf: str, params: dict,
                                   funding_rate: float = None,
                                   symbol: str = "BTCUSDT",
-                                  graph: "MarketGraphMemory" = None) -> Optional[SwarmSignal]:
+                                  graph: "MarketGraphMemory" = None,
+                                  htf_closes: Optional[List[float]] = None) -> Optional[SwarmSignal]:
         if graph is None:
             # Fallback: create a temporary graph (should not normally happen)
             graph = MarketGraphMemory(max_nodes=100, max_edges=200)
@@ -2135,7 +2170,14 @@ class MiroFishSwarmStrategy:
                 closes, volumes, graph, funding_rate
             )
 
-            # ── Step 2: Build base agent votes ──
+            # ── Step 1b: PivotSRAgent — institutional S/R analysis ─────────────
+            # BUG FIX: pivot_agent was initialized in __init__ but never called —
+            # the 9th agent was completely wasted.  Now properly integrated.
+            pivot_vote, pivot_conf = self.pivot_agent.analyze(
+                closes, highs, lows, volumes, graph
+            )
+
+            # ── Step 2: Build base agent votes (all 8 deterministic agents) ──
             base_votes = {
                 "TrendAgent":       {"vote": trend_vote,    "conf": trend_conf},
                 "MomentumAgent":    {"vote": momentum_vote, "conf": momentum_conf},
@@ -2144,6 +2186,7 @@ class MiroFishSwarmStrategy:
                 "OrderFlowAgent":   {"vote": of_vote,       "conf": of_conf},
                 "SentimentAgent":   {"vote": sent_vote,     "conf": sent_conf},
                 "FundingFlowAgent": {"vote": funding_vote,  "conf": funding_conf},
+                "PivotSRAgent":     {"vote": pivot_vote,    "conf": pivot_conf},
             }
 
             # ── Step 3: AI Orchestration (ReACT) ──
@@ -2173,6 +2216,7 @@ class MiroFishSwarmStrategy:
                 "OrderFlowAgent":       self.orderflow_agent.PROFILE,
                 "SentimentAgent":       self.sentiment_agent.PROFILE,
                 "FundingFlowAgent":     self.funding_agent.PROFILE,
+                "PivotSRAgent":         self.pivot_agent.PROFILE,
                 "AIOrchestrationAgent": self.ai_agent.PROFILE,
             }
 
@@ -2268,6 +2312,41 @@ class MiroFishSwarmStrategy:
 
             signal_strength = min(weighted_conf * 0.55 + consensus * 100 * 0.45, 100.0)
             confidence = weighted_conf
+
+            # ── Step 5b: HTF 1H trend alignment filter ────────────────────────
+            # BUG FIX: _htf_cache was designed and allocated in __init__ but the
+            # actual klines were never fetched or used here. This wires the cache
+            # into the decision pipeline so counter-trend signals on 15m/5m/3m
+            # are penalised when the 1H EMA9/21 disagrees with the action.
+            if htf_closes is not None and len(htf_closes) >= 25:
+                try:
+                    htf_ema9  = _ema(htf_closes, 9)
+                    htf_ema21 = _ema(htf_closes, 21)
+                    if htf_ema9 is not None and htf_ema21 is not None:
+                        htf_bullish = htf_ema9 > htf_ema21
+                        htf_aligned = (
+                            (action == "BUY"  and htf_bullish) or
+                            (action == "SELL" and not htf_bullish)
+                        )
+                        if not htf_aligned:
+                            # Counter-trend: penalise confidence -13%
+                            old_conf = confidence
+                            confidence    = max(confidence    * 0.87, 50.0)
+                            signal_strength = max(signal_strength * 0.87, 0.0)
+                            self.logger.debug(
+                                f"[{symbol}|{tf}] ⬇️ HTF 1H counter-trend — "
+                                f"conf {old_conf:.1f}% → {confidence:.1f}%"
+                            )
+                        else:
+                            # Trend-aligned: small reward +4%
+                            confidence    = min(confidence    * 1.04, 100.0)
+                            signal_strength = min(signal_strength * 1.04, 100.0)
+                            self.logger.debug(
+                                f"[{symbol}|{tf}] ⬆️ HTF 1H aligned with {action} "
+                                f"— conf={confidence:.1f}%"
+                            )
+                except Exception:
+                    pass
 
             if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
                 return None

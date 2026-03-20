@@ -1538,7 +1538,7 @@ class FXSUSDTTelegramBot:
 Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy.
 
 **🚀 How It Works:**
-• 8 specialized AI agents analyze BTC independently
+• 9 specialized AI agents analyze markets independently
 • Each agent has a unique market perspective
 • Swarm consensus determines signal direction
 • Only signals with ≥72% agent agreement are sent
