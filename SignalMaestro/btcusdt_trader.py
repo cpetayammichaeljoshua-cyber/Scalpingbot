@@ -190,29 +190,57 @@ class BTCUSDTTrader:
                 self._klines_cache.move_to_end((c_sym, c_interval, c_limit))
                 return c_data[-limit:] if len(c_data) >= limit else c_data
 
-        try:
-            url = f"{self.base_url}/fapi/v1/klines"
-            params = {"symbol": sym, "interval": interval, "limit": limit}
-            s = await self._get_session()
-            async with s.get(url, params=params) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    # LRU eviction using OrderedDict: O(1) popitem(last=False) removes
-                    # the oldest entry instead of the previous O(n) min() scan.
-                    if cache_key in self._klines_cache:
-                        self._klines_cache.move_to_end(cache_key)
-                    self._klines_cache[cache_key] = (data, now)
-                    while len(self._klines_cache) > self._klines_cache_max:
-                        self._klines_cache.popitem(last=False)  # O(1): remove oldest
-                    return data
-                body = await r.text()
-                # Use 500-char limit (previously 200) so multi-field error bodies
-                # (e.g. Binance code + msg + serverTime) are fully captured in logs.
-                self.logger.error(f"Klines error [{sym}|{interval}] HTTP {r.status}: {body[:500]}")
-        except asyncio.TimeoutError:
-            self.logger.warning(f"⏱ Timeout fetching klines {interval}")
-        except Exception as e:
-            self.logger.error(f"get_klines error: {e}")
+        # Retry loop — handles Binance 429 (rate-limited) with Retry-After backoff.
+        # Other 4xx errors are treated as permanent and break out immediately.
+        _max_attempts = 3
+        for _attempt in range(_max_attempts):
+            try:
+                url = f"{self.base_url}/fapi/v1/klines"
+                params = {"symbol": sym, "interval": interval, "limit": limit}
+                s = await self._get_session()
+                async with s.get(url, params=params) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        # LRU eviction using OrderedDict: O(1) popitem(last=False) removes
+                        # the oldest entry instead of the previous O(n) min() scan.
+                        if cache_key in self._klines_cache:
+                            self._klines_cache.move_to_end(cache_key)
+                        self._klines_cache[cache_key] = (data, now)
+                        while len(self._klines_cache) > self._klines_cache_max:
+                            self._klines_cache.popitem(last=False)  # O(1): remove oldest
+                        return data
+
+                    if r.status == 429:
+                        # Binance sends Retry-After (seconds) on hard rate-limit.
+                        # Parse the header and honour it; fall back to 5s if absent.
+                        _retry_after = int(r.headers.get("Retry-After", "5"))
+                        _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
+                        self.logger.warning(
+                            f"⏳ Binance 429 klines [{sym}|{interval}] "
+                            f"(attempt {_attempt+1}/{_max_attempts}) "
+                            f"— backing off {_retry_after}s"
+                        )
+                        await asyncio.sleep(_retry_after)
+                        continue  # retry
+
+                    body = await r.text()
+                    # Use 500-char limit so multi-field error bodies
+                    # (e.g. Binance code + msg + serverTime) are fully captured.
+                    self.logger.error(
+                        f"Klines error [{sym}|{interval}] HTTP {r.status}: {body[:500]}"
+                    )
+                    break  # Other 4xx/5xx — no retry
+
+            except asyncio.TimeoutError:
+                self.logger.warning(
+                    f"⏱ Timeout fetching klines {interval} "
+                    f"(attempt {_attempt+1}/{_max_attempts})"
+                )
+                if _attempt < _max_attempts - 1:
+                    await asyncio.sleep(2 ** _attempt)
+            except Exception as e:
+                self.logger.error(f"get_klines error: {e}")
+                break  # Unexpected error — no retry
         return None
 
     async def get_24hr_ticker_stats(self, symbol: Optional[str] = None) -> Optional[Dict]:
@@ -433,14 +461,31 @@ class BTCUSDTTrader:
                 async with s.get(url) as r:
                     if r.status == 200:
                         return await r.json()
+
+                    if r.status == 429:
+                        # Rate-limited by Binance — honour Retry-After before retrying.
+                        # Previously lumped with all 4xx and returned None immediately,
+                        # causing the symbol list to fall back to ["BTCUSDT"] for the
+                        # next hour even after the rate-limit window had already passed.
+                        _retry_after = int(r.headers.get("Retry-After", "5"))
+                        _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
+                        self.logger.warning(
+                            f"⏳ Binance 429 24hr ticker "
+                            f"(attempt {attempt+1}/{retries}) "
+                            f"— backing off {_retry_after}s"
+                        )
+                        await asyncio.sleep(_retry_after)
+                        continue  # retry
+
                     body = await r.text()
                     self.logger.error(
                         f"24hr ticker (all) HTTP {r.status} "
                         f"(attempt {attempt+1}/{retries}): {body[:200]}"
                     )
-                    # 4xx errors are not retryable
+                    # Other 4xx errors are permanent — no retry
                     if 400 <= r.status < 500:
                         return None
+
             except asyncio.TimeoutError:
                 self.logger.warning(
                     f"⏱ Timeout fetching 24hr ticker list "

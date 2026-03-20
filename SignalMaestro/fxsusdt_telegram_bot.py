@@ -207,6 +207,17 @@ class FXSUSDTTelegramBot:
         )
         self.signal_timestamps: List[datetime] = []
 
+        # ── AI confidence threshold — cached at init so process_signals never
+        # calls os.getenv() for every signal from 20 parallel coroutines.
+        # Mutable at runtime: update self._ai_threshold_pct if the env var is
+        # changed while the bot is running (e.g. via /settings command).
+        _ai_thresh_env = os.getenv("AI_THRESHOLD_PERCENT", "80").strip()
+        self._ai_threshold_pct: float = (
+            float(_ai_thresh_env)
+            if _ai_thresh_env.replace(".", "", 1).isdigit()
+            else 80.0
+        )
+
         # ── Polling offset (instance, not class-level to avoid shared state) ──
         self._poll_offset: int = 0
 
@@ -216,6 +227,12 @@ class FXSUSDTTelegramBot:
         # asyncio.Lock() is safe to create in __init__ (Python 3.10+; also
         # works on 3.8/3.9 when not bound to a specific event loop at creation).
         self._signal_gate_lock: asyncio.Lock = asyncio.Lock()
+
+        # ── Pre-built scan semaphore — avoids allocating a new asyncio.Semaphore
+        # object on every scan_all_parallel() call (every 30-60s cycle).
+        # The env var is read once at startup; restart the bot to apply changes.
+        _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "20")))
+        self._scan_semaphore: asyncio.Semaphore = asyncio.Semaphore(_scan_limit)
 
         # Telegram send throttle: limits to 1 message every _TG_SEND_MIN_GAP_SEC
         # to avoid HTTP 429 (Telegram rate limit: ~20 msgs/min to channels).
@@ -484,8 +501,10 @@ class FXSUSDTTelegramBot:
     # ─────────────────────────────────────────
 
     # ── Rate-limiting constants — quality over quantity ─────────────────────
-    _GLOBAL_MIN_GAP_SECONDS = 90   # minimum seconds between ANY two signals (all symbols)
-    _MAX_SIGNALS_PER_HOUR   = 5    # class-level default; overridden by SIGNALS_PER_HOUR_MAX env var in __init__
+    # NOTE: _GLOBAL_MIN_GAP_SECONDS and _MAX_SIGNALS_PER_HOUR are now set as
+    # instance attributes in __init__ (from env vars) and never as class-level
+    # attributes — the class-level defaults previously here were always shadowed
+    # by the __init__ instance assignments and served only to confuse readers.
 
     def _refresh_symbol_blacklist(self):
         """
@@ -748,17 +767,26 @@ class FXSUSDTTelegramBot:
         return msg
 
     async def send_signal_to_channel(self, signal: SwarmSignal,
-                                     bb_position: float = None) -> bool:
+                                     bb_position: float = None,
+                                     _skip_rate_check: bool = False) -> bool:
         """
         Send formatted Cornix-compatible swarm signal.
         Uses per-symbol rate limiting so each market has its own cooldown.
         Broadcasts to signal_channel_id (@ichimokutradingsignal).
         Also pings admin_chat_id if configured and different from channel.
+
+        Args:
+            _skip_rate_check: Internal flag — set True when called from
+                process_signals() while the _signal_gate_lock is already
+                held and can_send_signal() has already been checked.
+                Avoids the otherwise redundant 3rd rate-limit check.
         """
         try:
             symbol = getattr(signal, "symbol", "BTCUSDT") or "BTCUSDT"
 
-            if not self.can_send_signal(symbol):
+            # Only re-check rate limiting when called directly (not via the
+            # locked path in process_signals which already verified the gates).
+            if not _skip_rate_check and not self.can_send_signal(symbol):
                 return False
 
             formatted = self.format_swarm_signal(signal)
@@ -901,12 +929,10 @@ class FXSUSDTTelegramBot:
         if not symbols:
             return 0
 
-        # Max 20 concurrent scan coroutines — respects Binance REST rate limits
-        _PARALLEL_LIMIT = int(os.getenv("SCAN_PARALLEL_LIMIT", "20"))
-        sem = asyncio.Semaphore(max(1, _PARALLEL_LIMIT))
-
+        # Reuse the pre-built self._scan_semaphore (created in __init__) to
+        # avoid allocating a new asyncio.Semaphore object every 30-60s scan cycle.
         async def _scan_one(symbol: str) -> bool:
-            async with sem:
+            async with self._scan_semaphore:
                 try:
                     return await self.scan_and_signal(symbol)
                 except Exception as exc:
@@ -948,10 +974,9 @@ class FXSUSDTTelegramBot:
         # After STREAK_TRIGGER_N consecutive losses the gate rises by
         # STREAK_BOOST_PER_LOSS% per additional loss (capped at STREAK_MAX_BOOST_PCT)
         # so the bot becomes more selective until the NN re-learns from the mistakes.
-        confidence_threshold = (
-            float(os.getenv("AI_THRESHOLD_PERCENT", "80"))
-            + self._adaptive_conf_boost
-        )
+        # _ai_threshold_pct is cached at __init__ to avoid per-signal env reads
+        # from 20 parallel coroutines every scan cycle.
+        confidence_threshold = self._ai_threshold_pct + self._adaptive_conf_boost
 
         # Work on a COPY of the signal so confidence mutations in Phase 1 (boost
         # analysis) never modify the original object that the strategy may still
@@ -977,9 +1002,17 @@ class FXSUSDTTelegramBot:
         # pre-boost confidence penalty so historically unreliable symbols face a
         # harder gate.  This does NOT affect the per-symbol blacklist — it's a
         # soft quality control that still allows great signals through.
+        #
+        # OPTIMISATION: reuse self._symbol_stats (populated hourly by
+        # _refresh_symbol_blacklist) instead of issuing a fresh SQLite query for
+        # every signal from the 20 parallel scan coroutines.  Falls back to a
+        # live DB query only when the cache is empty (first cycle or after error).
         if self.trade_memory:
             try:
-                _sym_stats = self.trade_memory.get_symbol_stats(min_trades=5)
+                if self._symbol_stats:
+                    _sym_stats = self._symbol_stats
+                else:
+                    _sym_stats = self.trade_memory.get_symbol_stats(min_trades=5)
                 _sym_perf  = _sym_stats.get(symbol, {})
                 _sym_rlr   = float(_sym_perf.get("recent_loss_rate", 0.0))
                 if _sym_rlr > 0.65:
@@ -1240,7 +1273,15 @@ class FXSUSDTTelegramBot:
                     return False
 
                 # ── Send to @ichimokutradingsignal ──
-                return await self.send_signal_to_channel(signal, bb_position=_local_bb_position)
+                # _skip_rate_check=True: rate gates were already verified twice
+                # (pre-lock at line ~965 and inside lock above).  Skipping the
+                # third redundant check inside send_signal_to_channel saves one
+                # synchronous iteration through signal_timestamps per signal.
+                return await self.send_signal_to_channel(
+                    signal,
+                    bb_position=_local_bb_position,
+                    _skip_rate_check=True,
+                )
 
             except Exception as e:
                 self.logger.error(f"process_signals error: {e}")
@@ -1731,7 +1772,7 @@ Strategy: github.com/666ghj/MiroFish
 **⚙️ Consensus Rules:**
 • Min swarm agreement: `72%`
 • Pre-boost strength gate: `62%`
-• Final confidence gate: `{os.getenv('AI_THRESHOLD_PERCENT', '80')}%`
+• Final confidence gate: `{self._ai_threshold_pct:.0f}%`
 • Session-aware agent weights: Active
 
 **🏆 MiroFish Architecture:**
