@@ -1002,6 +1002,19 @@ class FXSUSDTTelegramBot:
         # The effective pre-boost floor is now 80 - 12 = 68%, which is still above
         # the strategy's min_confidence gate of 64%.
         _MAX_BOOST = 12.0
+
+        # ── Pre-boost impossibility gate ─────────────────────────────────────
+        # If even the maximum possible boost cannot bring this signal to the
+        # confidence threshold, skip ALL Phase 1 network I/O (klines fetch +
+        # ATAS + MarketIntel + Insider + Microstructure + AI) immediately.
+        # Example: conf=67.7% + max_boost=12pt = 79.7% < 80% threshold → skip.
+        if _pre_boost_conf + _MAX_BOOST < confidence_threshold:
+            self.logger.debug(
+                f"⛔ [{symbol}] Pre-skip: conf={_pre_boost_conf:.1f}%"
+                f" + max_boost={_MAX_BOOST:.0f}pt < threshold={confidence_threshold:.0f}%"
+            )
+            return False
+
         # LOCAL variable — avoids the race where another coroutine overwrites
         # self._current_bb_position between Phase 1 and Phase 2.
         _local_bb_position: float = 0.5

@@ -95,8 +95,21 @@ async def _analyze_signal_fallback(signal_text: str) -> dict:
 if OPENAI_AVAILABLE:
     _openai_client = _AsyncOpenAI(api_key=_OPENAI_API_KEY)
 
+    # Circuit breaker: once a permanent auth error (401/403) is detected, stop
+    # making OpenAI calls for the lifetime of the process.  Avoids a flood of
+    # HTTP 401 WARNING lines — one per signal per scan cycle — when the key is
+    # known bad.  Reset to False only if the module is reloaded.
+    _openai_auth_failed: bool = False
+
     async def analyze_trading_signal(signal_text: str) -> dict:
-        """Real GPT-4o-mini signal analysis. Falls back to rule-based on API error."""
+        """Real GPT-4o-mini signal analysis. Falls back to rule-based on API error.
+
+        Circuit breaker: after the first 401/403 the flag _openai_auth_failed is
+        set and all subsequent calls skip the HTTP request immediately.
+        """
+        global _openai_auth_failed
+        if _openai_auth_failed:
+            return await _analyze_signal_fallback(signal_text)
         try:
             response = await _openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -127,9 +140,21 @@ if OPENAI_AVAILABLE:
                 "analysis_type":    "gpt-4o-mini",
             }
         except Exception as _gpt_err:
-            logging.getLogger(__name__).warning(
-                f"OpenAI GPT call failed, using rule-based fallback: {_gpt_err}"
-            )
+            _err_str = str(_gpt_err).lower()
+            # Detect permanent auth failure — log once, then silence all future attempts.
+            _auth_keywords = ("401", "invalid_api_key", "incorrect api key", "403",
+                               "insufficient_quota", "billing", "payment")
+            if any(kw in _err_str for kw in _auth_keywords):
+                if not _openai_auth_failed:
+                    _openai_auth_failed = True
+                    logging.getLogger(__name__).warning(
+                        "🔑 OpenAI API key invalid (401) — switching to rule-based fallback "
+                        "permanently. Set a valid OPENAI_API_KEY to re-enable AI analysis."
+                    )
+            else:
+                logging.getLogger(__name__).warning(
+                    f"OpenAI GPT call failed, using rule-based fallback: {_gpt_err}"
+                )
             return await _analyze_signal_fallback(signal_text)
 
     async def analyze_sentiment(text: str) -> dict:

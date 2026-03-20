@@ -34,6 +34,7 @@ import sys
 import time
 import signal
 import logging
+import shutil
 import subprocess
 import threading
 import json
@@ -248,16 +249,75 @@ def _print_banner() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Gunicorn Binary Resolver
+# ─────────────────────────────────────────────────────────────────────────────
+def _find_gunicorn_bin() -> Optional[str]:
+    """
+    Locate the gunicorn executable.
+
+    Tries (in order):
+      1. The bin/ directory alongside sys.executable (same venv / pythonlibs).
+      2. shutil.which("gunicorn") — system PATH.
+      3. importlib to find the package and derive the script path.
+
+    Returns the absolute path string, or None if not found.
+    """
+    python_bin_dir = Path(sys.executable).parent
+
+    candidates = [
+        python_bin_dir / "gunicorn",
+        python_bin_dir / "gunicorn3",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return str(c)
+
+    which_result = shutil.which("gunicorn")
+    if which_result:
+        return which_result
+
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("gunicorn")
+        if spec and spec.origin:
+            gunicorn_pkg = Path(spec.origin).parent
+            script = gunicorn_pkg / "__main__.py"
+            if script.is_file():
+                return f"{sys.executable} {script}"
+    except Exception:
+        pass
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Gunicorn Process Builder
 # ─────────────────────────────────────────────────────────────────────────────
-def _build_gunicorn_cmd() -> list[str]:
-    """Build the gunicorn command list."""
+def _build_gunicorn_cmd() -> Optional[list[str]]:
+    """
+    Build the gunicorn command list.
+
+    Uses the gunicorn BINARY directly (not 'python -m gunicorn') so that
+    the subprocess inherits its own venv/pythonlibs and PYTHONPATH overrides
+    in the subprocess env do not strip the gunicorn package from sys.path.
+
+    Returns None if gunicorn cannot be located (caller should fall back to Flask).
+    """
+    gunicorn_bin = _find_gunicorn_bin()
+    if not gunicorn_bin:
+        logger.error(
+            "❌ gunicorn executable not found in PATH or alongside sys.executable. "
+            "Run: pip install gunicorn"
+        )
+        return None
+
     access_log = str(LOG_DIR / "gunicorn_access.log")
     error_log  = str(LOG_DIR / "gunicorn_error.log")
 
+    logger.info(f"🔍 gunicorn binary: {gunicorn_bin}")
+
     return [
-        sys.executable, "-m", "gunicorn",
-        # WSGI app module path (relative to BACKEND_DIR added to sys.path)
+        gunicorn_bin,
         "app:create_app()",
         "--bind",               f"{_FLASK_HOST}:{_FLASK_PORT}",
         "--workers",            str(_GUNICORN_WORKERS),
@@ -307,12 +367,26 @@ def _run_once() -> bool:
     global _current_process
 
     cmd = _build_gunicorn_cmd()
-    env = os.environ.copy()
-    # Ensure BACKEND_DIR is first in PYTHONPATH for the subprocess
-    old_pypath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(BACKEND_DIR) + (f":{old_pypath}" if old_pypath else "")
+    if cmd is None:
+        logger.warning("⚠️ gunicorn not available — falling back to Flask dev server")
+        return _run_flask_fallback()
 
-    logger.info(f"🚀 Launching gunicorn: {' '.join(cmd[2:])}")
+    env = os.environ.copy()
+    # Prepend BACKEND_DIR to PYTHONPATH so app modules are found first.
+    # IMPORTANT: preserve the full existing PYTHONPATH (which contains pythonlibs)
+    # so gunicorn workers can still import their own dependencies.
+    old_pypath = env.get("PYTHONPATH", "")
+    pythonlibs_site = str(Path(sys.executable).parent.parent / "lib" /
+                          f"python{sys.version_info.major}.{sys.version_info.minor}" /
+                          "site-packages")
+    parts = [str(BACKEND_DIR)]
+    if old_pypath:
+        parts.append(old_pypath)
+    if pythonlibs_site not in parts:
+        parts.append(pythonlibs_site)
+    env["PYTHONPATH"] = ":".join(parts)
+
+    logger.info(f"🚀 Launching gunicorn: {' '.join(cmd[1:])}")
 
     try:
         proc = subprocess.Popen(

@@ -137,6 +137,15 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
+# Suppress noisy HTTP client INFO logs (every request appears at INFO by default).
+# httpx logs every outgoing request at INFO — including all 401s from invalid API
+# keys — polluting logs with hundreds of irrelevant lines per minute.
+# Setting these to WARNING ensures only genuine problems (retries, errors) surface.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
+
 
 # ─────────────────────────────────────────────
 # Main Async Bot Runner

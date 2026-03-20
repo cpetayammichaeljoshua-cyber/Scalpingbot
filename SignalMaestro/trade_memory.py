@@ -627,6 +627,26 @@ class OutcomeTracker:
     async def run(self):
         """Main loop — run as asyncio.create_task()."""
         self.logger.info("🔎 OutcomeTracker started (multi-symbol)")
+
+        # ── Startup training on historical data ────────────────────────────────
+        # If the NN has not been trained yet and labeled trades already exist in
+        # the DB (e.g. from a previous session), train immediately so the NN gate
+        # is active from the first scan cycle.  Without this, the bot waits for
+        # the first new resolution event (which can take hours), leaving 200+
+        # historical labeled trades unused on restart.
+        try:
+            await asyncio.sleep(5)  # Brief delay to let bot fully initialise
+            if self.trainer is not None and not getattr(self.trainer, "trained", False):
+                labeled = self.memory.get_labeled_trades()
+                if len(labeled) >= self.MIN_TRAIN_SAMPLES:
+                    self.logger.info(
+                        f"🧠 Startup: training NN on {len(labeled)} existing labeled "
+                        f"trades (trainer was untrained after restart)"
+                    )
+                    await self._maybe_retrain()
+        except Exception as _startup_err:
+            self.logger.warning(f"Startup NN training skipped: {_startup_err}")
+
         while True:
             try:
                 await asyncio.sleep(self.CHECK_INTERVAL)

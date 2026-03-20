@@ -1534,6 +1534,9 @@ class AIOrchestrationAgent:
         self._openai_err_count  = 0
         # Set True when Claude is permanently disabled (e.g. no credits, invalid key)
         self._claude_disabled   = False
+        # Set True when OpenAI returns a permanent auth/billing error (401/403)
+        # so we stop wasting HTTP round-trips on every symbol scan.
+        self._openai_disabled   = False
         self._init_claude()
         self._init_openai()
 
@@ -1743,8 +1746,15 @@ class AIOrchestrationAgent:
     # ── OpenAI query ─────────────────────────────────────────────────────────
 
     async def _query_openai(self, prompt: str) -> Optional[dict]:
-        """Send prompt to OpenAI; return parsed dict or None on any error."""
-        if self.openai_client is None:
+        """Send prompt to OpenAI; return parsed dict or None on any error.
+
+        Circuit breaker: permanently disables OpenAI calls after the first
+        401/403 (invalid key, insufficient quota, billing issue).  This prevents
+        wasting one HTTP round-trip per symbol per scan cycle when the key is
+        known bad — a very noisy problem that polluted logs with hundreds of
+        401 WARNING lines per minute.
+        """
+        if self.openai_client is None or self._openai_disabled:
             return None
         try:
             response = await asyncio.wait_for(
@@ -1768,6 +1778,23 @@ class AIOrchestrationAgent:
             return None
         except Exception as e:
             self._openai_err_count += 1
+            err_str = str(e)
+            # Detect permanent auth / billing / invalid-key errors — disable permanently.
+            # Status code 401 (invalid key) and 403 (forbidden) will never succeed on retry.
+            _permanent_phrases = (
+                "401", "invalid_api_key", "incorrect api key",
+                "403", "insufficient_quota", "billing", "payment",
+                "access denied", "permission denied", "your account",
+            )
+            if any(p in err_str.lower() for p in _permanent_phrases):
+                if not self._openai_disabled:
+                    self._openai_disabled = True
+                    self.logger.warning(
+                        "🔑 AIOrchestrationAgent: OpenAI permanently disabled — "
+                        "invalid/expired API key (401). Rule-based fallback active. "
+                        "Set a valid OPENAI_API_KEY to re-enable."
+                    )
+                return None
             if self._openai_err_count <= 3:
                 self.logger.debug(f"OpenAI error: {type(e).__name__}: {e}")
             return None

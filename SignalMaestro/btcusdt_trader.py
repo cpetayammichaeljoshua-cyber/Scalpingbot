@@ -538,7 +538,28 @@ class BTCUSDTTrader:
                 qualifying.append((quote_vol, sym))
 
         qualifying.sort(reverse=True)
-        symbols = [sym for _, sym in qualifying[:cap]]
+
+        # ── USDC deduplication ─────────────────────────────────────────────────
+        # BTCUSDC/ETHUSDC/SOLUSDC/XRPUSDC are the same underlying market as
+        # their USDT counterparts.  Including both wastes scan slots and the
+        # hourly signal cap, and can send near-identical signals back-to-back.
+        # Strategy: build the full qualifying symbol set, then when iterating
+        # to fill up to `cap`, skip any XYZUSDC whose XYZUSDT sibling also
+        # qualifies (prefer USDT; keep USDC only when no USDT sibling exists).
+        all_qualifying_syms = {sym for _, sym in qualifying}
+        deduplicated: List[str] = []
+        n_usdc_dropped = 0
+        for _, sym in qualifying:
+            if sym.endswith("USDC"):
+                usdt_sibling = sym[:-4] + "USDT"
+                if usdt_sibling in all_qualifying_syms:
+                    n_usdc_dropped += 1
+                    continue  # Drop USDC variant — USDT version preferred
+            deduplicated.append(sym)
+            if len(deduplicated) >= cap:
+                break
+
+        symbols = deduplicated
 
         if "BTCUSDT" not in symbols:
             symbols.insert(0, "BTCUSDT")
@@ -546,9 +567,10 @@ class BTCUSDTTrader:
             symbols.remove("BTCUSDT")
             symbols.insert(0, "BTCUSDT")
 
+        dedup_note = f", dropped {n_usdc_dropped} USDC dupes" if n_usdc_dropped else ""
         self.logger.info(
             f"🌐 Discovered {len(symbols)} USDM symbols "
-            f"(min_vol=${min_vol/1e6:.0f}M, cap={cap}) — "
+            f"(min_vol=${min_vol/1e6:.0f}M, cap={cap}{dedup_note}) — "
             f"top 5: {symbols[:5]}"
         )
         return symbols

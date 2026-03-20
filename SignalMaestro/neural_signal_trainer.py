@@ -69,6 +69,46 @@ _VOTE    = {"BUY": 1.0, "SELL": -1.0, "NEUTRAL": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Helper: safe float conversion for legacy SQLite BLOB fields
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """
+    Convert `value` to float, handling legacy SQLite REAL columns that were
+    accidentally stored as raw binary blobs (struct-packed IEEE 754 float32).
+
+    SQLite's Python driver returns bytes when a REAL column contains a raw
+    blob (e.g. from an older code version using struct.pack).  Attempting
+    `float(b'\\x0c\\x19\\xb8B')` raises ValueError; we unpack it instead.
+
+    Falls back to `default` on any conversion error.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, bytes):
+        import struct
+        # 4-byte IEEE 754 little-endian float32 (SQLite REAL stored as BLOB)
+        if len(value) == 4:
+            try:
+                return float(struct.unpack('<f', value)[0])
+            except Exception:
+                pass
+        # 8-byte IEEE 754 little-endian float64
+        if len(value) == 8:
+            try:
+                return float(struct.unpack('<d', value)[0])
+            except Exception:
+                pass
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Feature engineering  (41 features — v3: PivotSRAgent added, INPUT_DIM 40→41)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -107,16 +147,16 @@ def build_features(trade: Dict) -> "np.ndarray":
     direction = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
     session   = _SESSION.get((trade.get("session") or "US").upper(), 1.0)
 
-    rsi        = float(trade.get("rsi", 50.0))
-    hour       = float(trade.get("hour_of_day", 12))
-    leverage   = float(trade.get("leverage", 10))
-    bb_pos     = float(trade.get("bb_position", 0.5))
-    confidence = float(trade.get("confidence", 70.0)) / 100.0
-    consensus  = float(trade.get("swarm_consensus", 0.75))
-    vol_ratio  = float(trade.get("volume_ratio", 1.0))
-    rr         = float(trade.get("risk_reward_ratio", 1.5))
-    atr_ratio  = float(trade.get("atr_ratio", 0.003))
-    part_rate  = float(trade.get("participation_rate", 0.625))
+    rsi        = _safe_float(trade.get("rsi"),              50.0)
+    hour       = _safe_float(trade.get("hour_of_day"),     12.0)
+    leverage   = _safe_float(trade.get("leverage"),        10.0)
+    bb_pos     = _safe_float(trade.get("bb_position"),      0.5)
+    confidence = _safe_float(trade.get("confidence"),      70.0) / 100.0
+    consensus  = _safe_float(trade.get("swarm_consensus"), 0.75)
+    vol_ratio  = _safe_float(trade.get("volume_ratio"),     1.0)
+    rr         = _safe_float(trade.get("risk_reward_ratio"), 1.5)
+    atr_ratio  = _safe_float(trade.get("atr_ratio"),       0.003)
+    part_rate  = _safe_float(trade.get("participation_rate"), 0.625)
 
     # Derived consensus metrics
     all_votes = [votes.get(a, "NEUTRAL") for a in AGENT_ORDER]
@@ -260,7 +300,7 @@ def build_label(trade: Dict) -> float:
     if outcome == "SL":
         return 0.0
     # EXPIRED: require a meaningful P&L to generate a reliable label
-    pnl = float(trade.get("pnl_pct") or 0.0)
+    pnl = _safe_float(trade.get("pnl_pct"), 0.0)
     if pnl >= 0.5:
         return 1.0
     if pnl <= -0.5:
