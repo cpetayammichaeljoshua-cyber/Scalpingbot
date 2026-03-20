@@ -2250,7 +2250,10 @@ class MiroFishSwarmStrategy:
                 return None
 
             # ── Consensus ──
-            if buy_weight >= sell_weight:
+            # BUG FIX: `>=` defaulted to BUY on exactly-equal weights (spurious BUY bias).
+            # Use `>` so a genuine tie produces SELL (or we skip — handled below by the
+            # consensus gate min_swarm_consensus = 72%, which equal weights always fail).
+            if buy_weight > sell_weight:
                 action    = "BUY"
                 consensus = buy_weight / total_signal_weight
             else:
@@ -2455,6 +2458,29 @@ class MiroFishSwarmStrategy:
             rsi_val   = _rsi_raw if _rsi_raw is not None else 50.0
             _avg_vol  = sum(volumes[-20:-1]) / 19 if len(volumes) >= 20 else 0.0
             vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
+
+            # ── Extreme volatility filter ──────────────────────────────────────
+            # When ATR > 4% of price, the market is in a high-volatility regime
+            # where SL placement becomes imprecise and slippage is extreme.
+            # Reject these signals to protect the Cornix position from blow-up.
+            if atr and atr > 0 and cur_price > 0:
+                atr_ratio_pct = atr / cur_price
+                if atr_ratio_pct > 0.04:
+                    self.logger.debug(
+                        f"⚠️ [{symbol}|{tf}] ATR={atr_ratio_pct:.1%} > 4% "
+                        f"(extreme volatility) — signal rejected"
+                    )
+                    return None
+
+            # ── Minimum volume confirmation ────────────────────────────────────
+            # Require at least 80% of average volume to avoid signals on thin
+            # liquidity candles where price action is unreliable.
+            if vol_ratio < 0.80:
+                self.logger.debug(
+                    f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < 0.80x "
+                    f"— low-volume signal rejected"
+                )
+                return None
 
             # ── Step 8: Update graph signal node ──
             signal_node_id = graph.add_node(

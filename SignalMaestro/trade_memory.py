@@ -29,7 +29,7 @@ TRADE_EXPIRY_SECONDS = 21_600
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
-    "FundingFlowAgent", "AIOrchestrationAgent",
+    "FundingFlowAgent", "PivotSRAgent", "AIOrchestrationAgent",
 ]
 
 
@@ -314,25 +314,56 @@ class TradeMemory:
             return c.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
 
     def get_stats(self) -> Dict[str, Any]:
-        """Summary statistics for /stats command and heartbeat."""
-        with self._db() as c:
-            total    = c.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
-            labeled  = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL").fetchone()[0]
-            wins     = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL AND pnl_pct > 0").fetchone()[0]
-            losses   = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL AND pnl_pct <= 0").fetchone()[0]
-            avg_pnl  = c.execute("SELECT AVG(pnl_pct) FROM trades WHERE pnl_pct IS NOT NULL").fetchone()[0]
-            tp1_hits = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='TP1'").fetchone()[0]
-            tp2_hits = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='TP2'").fetchone()[0]
-            tp3_hits = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='TP3'").fetchone()[0]
-            sl_hits  = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='SL'").fetchone()[0]
+        """
+        Summary statistics for /stats command and heartbeat.
 
-        win_rate = (wins / labeled * 100) if labeled > 0 else 0.0
+        BUG FIX: Previously used pnl_pct > 0 for wins and pnl_pct <= 0 for losses.
+        This miscounted neutral EXPIRED trades (pnl ~0%) as confirmed losses, inflating
+        the reported loss rate and misrepresenting bot performance.
+
+        Fix: use the unambiguous outcome field:
+          wins   = outcome IN ('TP1','TP2','TP3')  — price reached take-profit
+          losses = outcome = 'SL'                  — stop-loss hit
+          EXPIRED trades are reported separately (not counted as win or loss).
+
+        Also reduced from 8 separate SQL calls to 2 for lower DB overhead.
+        """
+        with self._db() as c:
+            total   = c.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+            labeled = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL").fetchone()[0]
+
+            row = c.execute("""
+                SELECT
+                    COUNT(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 END) AS wins,
+                    COUNT(CASE WHEN outcome = 'SL'                 THEN 1 END) AS losses,
+                    COUNT(CASE WHEN outcome = 'TP1'                THEN 1 END) AS tp1_hits,
+                    COUNT(CASE WHEN outcome = 'TP2'                THEN 1 END) AS tp2_hits,
+                    COUNT(CASE WHEN outcome = 'TP3'                THEN 1 END) AS tp3_hits,
+                    COUNT(CASE WHEN outcome = 'SL'                 THEN 1 END) AS sl_hits,
+                    COUNT(CASE WHEN outcome = 'EXPIRED'            THEN 1 END) AS expired_count,
+                    AVG(pnl_pct)                                               AS avg_pnl
+                FROM trades
+                WHERE outcome IS NOT NULL
+            """).fetchone()
+
+        wins         = row[0] or 0
+        losses       = row[1] or 0
+        tp1_hits     = row[2] or 0
+        tp2_hits     = row[3] or 0
+        tp3_hits     = row[4] or 0
+        sl_hits      = row[5] or 0
+        expired_count = row[6] or 0
+        avg_pnl      = row[7]
+
+        resolved     = wins + losses  # definitive outcomes only (excludes EXPIRED)
+        win_rate     = (wins / resolved * 100) if resolved > 0 else 0.0
         return {
             "total_signals":  total,
             "labeled":        labeled,
             "open":           total - labeled,
             "wins":           wins,
             "losses":         losses,
+            "expired":        expired_count,
             "win_rate":       round(win_rate, 1),
             "avg_pnl_pct":    round(avg_pnl or 0, 3),
             "tp1_hits":       tp1_hits,

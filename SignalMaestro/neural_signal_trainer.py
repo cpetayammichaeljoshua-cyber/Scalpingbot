@@ -54,43 +54,48 @@ except ImportError:
 WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
 MIN_TRAIN_SAMPLES = 20   # minimum labeled trades before NN activates
-INPUT_DIM        = 40    # v2 expanded: +10 interaction/regime features over v1 30-feature set
+INPUT_DIM        = 41    # v3: +1 for PivotSRAgent vote (was 40); 9 agents now fully captured
 
-# Agent order — all 8 votes used as features
+# Agent order — all 9 votes used as features (PivotSRAgent added in v4.1 — INPUT_DIM 40→41)
+# IMPORTANT: Adding PivotSRAgent here changes W1 shape from (40,128) to (41,128).
+# _load_weights() detects the shape mismatch and re-initialises cleanly (no crash).
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
-    "FundingFlowAgent", "AIOrchestrationAgent",
+    "FundingFlowAgent", "PivotSRAgent", "AIOrchestrationAgent",
 ]
 _SESSION = {"ASIAN": 0.0, "EU": 0.33, "US": 1.0, "TRANSITION": 0.17}
 _VOTE    = {"BUY": 1.0, "SELL": -1.0, "NEUTRAL": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature engineering  (40 features — v2)
+# Feature engineering  (41 features — v3: PivotSRAgent added, INPUT_DIM 40→41)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    40-feature normalised vector from a trade record dict (v2 — expanded from 30).
+    41-feature normalised vector from a trade record dict (v3 — PivotSRAgent added).
+
+    v3 change: PivotSRAgent vote added as feature 25 (was missing in v2).
+    All features after 24 shift up by 1. INPUT_DIM: 40 → 41.
 
     Features 1-12:  scalar signal quality indicators
     Features 13-16: time / leverage encoding
-    Features 17-24: all 8 agent votes [-1, 0, +1]
-    Features 25-26: derived consensus metrics (agreement fraction, purity)
-    Features 27-28: RSI regime flags (overbought / oversold binary)
-    Features 29-30: Bollinger Band extreme zone flags (upper / lower extreme)
-    Features 31-40: v2 non-linear interaction & regime terms
-      31 — RSI strength aligned to direction  (punishes counter-RSI signals)
-      32 — BB position aligned to direction   (punishes counter-BB signals)
-      33 — confidence × consensus product     (joint quality gate interaction)
-      34 — R:R quadratic scaling              (super-linear reward for high R:R)
-      35 — participation rate squared         (super-linear reward for quorum)
-      36 — consensus cubed                    (strongly amplifies near-unanimous)
-      37 — log-normalised volume ratio        (handles vol spikes non-linearly)
-      38 — ATR ratio quadratic                (super-linear for high volatility)
-      39 — sub-day cosine cycle               (captures intra-session 6h rhythm)
-      40 — RSI trap risk aligned to direction (warns of exhaustion in direction)
+    Features 17-25: all 9 agent votes [-1, 0, +1]   ← +1 for PivotSRAgent
+    Features 26-27: derived consensus metrics (agreement fraction, purity)
+    Features 28-29: RSI regime flags (overbought / oversold binary)
+    Features 30-31: Bollinger Band extreme zone flags (upper / lower extreme)
+    Features 32-41: v2 non-linear interaction & regime terms
+      32 — RSI strength aligned to direction  (punishes counter-RSI signals)
+      33 — BB position aligned to direction   (punishes counter-BB signals)
+      34 — confidence × consensus product     (joint quality gate interaction)
+      35 — R:R quadratic scaling              (super-linear reward for high R:R)
+      36 — participation rate squared         (super-linear reward for quorum)
+      37 — consensus cubed                    (strongly amplifies near-unanimous)
+      38 — log-normalised volume ratio        (handles vol spikes non-linearly)
+      39 — ATR ratio quadratic                (super-linear for high volatility)
+      40 — sub-day cosine cycle               (captures intra-session 6h rhythm)
+      41 — RSI trap risk aligned to direction (warns of exhaustion in direction)
     """
     if not _HAS_NUMPY:
         raise ImportError("numpy required for neural signal trainer")
@@ -201,31 +206,31 @@ def build_features(trade: Dict) -> "np.ndarray":
         (rsi - 50.0) ** 2 / 2500.0,                                      # 14 rsi extremity [0,1]
         math.sin(2.0 * math.pi * hour / 24.0),                           # 15 hour_sin
         math.cos(2.0 * math.pi * hour / 24.0),                           # 16 hour_cos
-    ] + agent_feats + [                                                   # 17-24 all 8 agent votes
+    ] + agent_feats + [                                                   # 17-25 all 9 agent votes (PivotSRAgent added)
 
-        # ── Derived consensus metrics (25-26) ────────────────────────────────
-        agreement_frac,                                                   # 25 direction agreement [0,1]
-        consensus_purity,                                                 # 26 dominant-side purity [0,1]
+        # ── Derived consensus metrics (26-27) ────────────────────────────────
+        agreement_frac,                                                   # 26 direction agreement [0,1]
+        consensus_purity,                                                 # 27 dominant-side purity [0,1]
 
-        # ── RSI regime flags (27-28) ─────────────────────────────────────────
-        rsi_overbought,                                                   # 27 1 if RSI>70 (OB trap risk)
-        rsi_oversold,                                                     # 28 1 if RSI<30 (OS trap risk)
+        # ── RSI regime flags (28-29) ─────────────────────────────────────────
+        rsi_overbought,                                                   # 28 1 if RSI>70 (OB trap risk)
+        rsi_oversold,                                                     # 29 1 if RSI<30 (OS trap risk)
 
-        # ── Bollinger Band extreme zone flags (29-30) ────────────────────────
-        bb_upper_extreme,                                                 # 29 1 if price near upper BB
-        bb_lower_extreme,                                                 # 30 1 if price near lower BB
+        # ── Bollinger Band extreme zone flags (30-31) ────────────────────────
+        bb_upper_extreme,                                                 # 30 1 if price near upper BB
+        bb_lower_extreme,                                                 # 31 1 if price near lower BB
 
-        # ── v2 Non-linear interaction & regime features (31-40) ──────────────
-        rsi_aligned,                                                      # 31 RSI aligned to direction
-        bb_aligned,                                                       # 32 BB pos aligned to direction
-        conf_x_consensus,                                                 # 33 confidence × consensus
-        rr_quadratic,                                                     # 34 R:R quadratic
-        part_sq,                                                          # 35 participation squared
-        consensus_cubed,                                                  # 36 consensus cubed
-        vol_log,                                                          # 37 log vol ratio
-        atr_quad,                                                         # 38 ATR quadratic
-        hour_cos2,                                                        # 39 sub-day cosine (6h)
-        rsi_trap,                                                         # 40 RSI trap risk aligned
+        # ── v2 Non-linear interaction & regime features (32-41) ──────────────
+        rsi_aligned,                                                      # 32 RSI aligned to direction
+        bb_aligned,                                                       # 33 BB pos aligned to direction
+        conf_x_consensus,                                                 # 34 confidence × consensus
+        rr_quadratic,                                                     # 35 R:R quadratic
+        part_sq,                                                          # 36 participation squared
+        consensus_cubed,                                                  # 37 consensus cubed
+        vol_log,                                                          # 38 log vol ratio
+        atr_quad,                                                         # 39 ATR quadratic
+        hour_cos2,                                                        # 40 sub-day cosine (6h)
+        rsi_trap,                                                         # 41 RSI trap risk aligned
     ]
 
     arr = np.array(f, dtype=np.float32)
@@ -284,6 +289,10 @@ class LossPatternAnalyzer:
         self.win_means: Optional["np.ndarray"]  = None
         self.loss_means: Optional["np.ndarray"] = None
         self.is_fitted = False
+        # Base loss rate from training data — stored so danger_penalty uses a relative
+        # threshold rather than the hardcoded 0.65 that caused negative penalties when
+        # the base rate was below 65% (e.g. zones with loss_rate 0.63 gave penalty < 0).
+        self._base_loss_rate: float = 0.50
 
     # Maximum number of danger zones kept in memory.
     # With 40 features × 10 bins = 400 candidate zones; cap prevents the
@@ -336,6 +345,7 @@ class LossPatternAnalyzer:
 
             # Base loss rate for this training batch
             base_loss_rate = float(1.0 - y.mean())
+            self._base_loss_rate = base_loss_rate  # stored for use in danger_penalty()
 
             # Danger zones: zones where loss_rate meaningfully exceeds base rate.
             # Threshold = base_rate + 15pp (e.g. 48% base → 63% threshold).
@@ -377,17 +387,30 @@ class LossPatternAnalyzer:
         """
         Return a penalty [0, 0.15] to subtract from win_probability for signals
         that fall inside known danger zones.  Higher = more dangerous pattern.
+
+        BUG FIX: Previously used hardcoded 0.65 as the penalty base. After the
+        relative threshold fix in fit() (base_rate + 15pp), zones with loss_rate
+        between base_rate+15pp and 0.65 produced NEGATIVE penalties, boosting
+        the confidence of bad signals instead of penalising them.
+
+        Fix: use self._base_loss_rate as the reference so penalty is always
+        proportional to how much the zone exceeds the base rate (always ≥ 0).
+        Penalty = (loss_rate - base_rate) × importance × scaling_factor
+        Capped at 0.15 to prevent over-rejection.
         """
         if not self.is_fitted or not self.danger_zones:
             return 0.0
         try:
             penalty = 0.0
+            base_lr = max(self._base_loss_rate, 0.30)  # floor at 30% for safety
             for fi, lo, hi, loss_rate in self.danger_zones:
                 if lo <= x[fi] <= hi:
-                    # Weight by feature importance
+                    excess = loss_rate - base_lr   # always ≥ 0 since zone_threshold = base + 15pp
+                    if excess <= 0:
+                        continue
                     imp = min(self.feature_importance[fi], 3.0) / 3.0
-                    penalty += (loss_rate - 0.65) * imp * 0.5
-            return min(penalty, 0.15)
+                    penalty += excess * imp * 0.5
+            return min(max(penalty, 0.0), 0.15)
         except Exception:
             return 0.0
 
@@ -1182,6 +1205,8 @@ class NeuralSignalTrainer:
                 "feature_importance": [float(x) for x in self.loss_analyzer.feature_importance],
                 "win_means":  self.loss_analyzer.win_means.tolist()  if self.loss_analyzer.win_means  is not None else None,
                 "loss_means": self.loss_analyzer.loss_means.tolist() if self.loss_analyzer.loss_means is not None else None,
+                "lpa_base_loss_rate": float(self.loss_analyzer._base_loss_rate),
+                "input_dim": INPUT_DIM,  # stored to detect architecture upgrades on load
             }
             # Atomic write: dump to temp file, then rename (POSIX atomic)
             tmp_path = WEIGHTS_PATH + ".tmp"
@@ -1198,6 +1223,15 @@ class NeuralSignalTrainer:
         try:
             with open(WEIGHTS_PATH) as f:
                 d = json.load(f)
+
+            # Early exit if saved weights used a different INPUT_DIM (architecture upgrade)
+            saved_input_dim = d.get("input_dim")
+            if saved_input_dim is not None and int(saved_input_dim) != INPUT_DIM:
+                self.logger.info(
+                    f"ℹ️  NN architecture upgraded (input_dim {saved_input_dim}→{INPUT_DIM}) — "
+                    f"discarding old weights, starting fresh"
+                )
+                return
 
             w1 = np.array(d["W1"], dtype=np.float32)
             b1 = np.array(d["b1"], dtype=np.float32)
@@ -1280,6 +1314,10 @@ class NeuralSignalTrainer:
                     self.loss_analyzer.win_means  = np.array(d["win_means"],  np.float32)
                 if d.get("loss_means"):
                     self.loss_analyzer.loss_means = np.array(d["loss_means"], np.float32)
+                # Restore stored base loss rate (avoids negative penalties on reload)
+                self.loss_analyzer._base_loss_rate = float(
+                    d.get("lpa_base_loss_rate", 0.50)
+                )
                 self.loss_analyzer.is_fitted = True
 
             # Restore the quality-gated trained flag.

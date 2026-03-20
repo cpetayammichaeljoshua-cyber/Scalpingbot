@@ -971,11 +971,36 @@ class FXSUSDTTelegramBot:
             f"Swarm={signal.swarm_consensus:.0%}"
         )
 
+        # ── Per-symbol loss-streak penalty (applied before Phase 1 boost) ────
+        # If a symbol has lost >65% of its last 10 definitive trades, apply a
+        # pre-boost confidence penalty so historically unreliable symbols face a
+        # harder gate.  This does NOT affect the per-symbol blacklist — it's a
+        # soft quality control that still allows great signals through.
+        if self.trade_memory:
+            try:
+                _sym_stats = self.trade_memory.get_symbol_stats(min_trades=5)
+                _sym_perf  = _sym_stats.get(symbol, {})
+                _sym_rlr   = float(_sym_perf.get("recent_loss_rate", 0.0))
+                if _sym_rlr > 0.65:
+                    _sym_penalty = min((_sym_rlr - 0.65) * 50.0, 8.0)  # max -8pt
+                    signal.confidence = max(0.0, signal.confidence - _sym_penalty)
+                    self.logger.debug(
+                        f"📉 [{symbol}] Recent loss rate {_sym_rlr:.0%} > 65% — "
+                        f"pre-boost penalty -{_sym_penalty:.1f}pt "
+                        f"→ conf={signal.confidence:.1f}%"
+                    )
+            except Exception:
+                pass
+
         # ── Phase 1: Boost analysis — ALL network I/O runs outside the lock ──
         # With Semaphore(20), up to 20 coroutines run boost analysis concurrently.
         # Holding the lock here would serialize them into a single-file queue.
         _pre_boost_conf = signal.confidence
-        _MAX_BOOST = 8.0
+        # Raised from 8.0 → 12.0: allows multi-source agreement (ATAS + Market Intel +
+        # Insider + Microstructure + AI) to push a quality signal from 72% to 84%.
+        # The effective pre-boost floor is now 80 - 12 = 68%, which is still above
+        # the strategy's min_confidence gate of 64%.
+        _MAX_BOOST = 12.0
         # LOCAL variable — avoids the race where another coroutine overwrites
         # self._current_bb_position between Phase 1 and Phase 2.
         _local_bb_position: float = 0.5
