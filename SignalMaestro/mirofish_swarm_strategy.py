@@ -598,6 +598,23 @@ class TrendAgent:
                 except Exception:
                     pass
 
+            # ── Hull Moving Average slope confirmation ────────────────────────
+            # HMA is lag-reduced and responsive — its slope gives a clean early
+            # trend-direction read that complements the multi-EMA alignment above.
+            if len(closes) >= fast + 4:
+                try:
+                    hma_now  = _hma(closes, fast)
+                    hma_prev = _hma(closes[:-2], fast)
+                    if hma_now is not None and hma_prev is not None:
+                        hma_rising  = hma_now > hma_prev
+                        hma_falling = hma_now < hma_prev
+                        if vote == "BUY"  and hma_rising:  conf = min(conf + 4, 100)
+                        if vote == "SELL" and hma_falling: conf = min(conf + 4, 100)
+                        if vote == "BUY"  and hma_falling: conf = max(conf - 3, 50)
+                        if vote == "SELL" and hma_rising:  conf = max(conf - 3, 50)
+                except Exception:
+                    pass
+
             # Graph memory: confirm with stored TrendState
             trend_state = graph.get_trend_state()
             if trend_state:
@@ -2358,23 +2375,117 @@ class MiroFishSwarmStrategy:
                             (action == "BUY"  and htf_bullish) or
                             (action == "SELL" and not htf_bullish)
                         )
+                        # EMA spread as a measure of trend strength on 1H
+                        htf_spread_pct = abs(htf_ema9 - htf_ema21) / max(htf_ema21, 1e-9) * 100
+
                         if not htf_aligned:
-                            # Counter-trend: penalise confidence -13%
-                            old_conf = confidence
-                            confidence    = max(confidence    * 0.87, 50.0)
-                            signal_strength = max(signal_strength * 0.87, 0.0)
-                            self.logger.debug(
-                                f"[{symbol}|{tf}] ⬇️ HTF 1H counter-trend — "
-                                f"conf {old_conf:.1f}% → {confidence:.1f}%"
-                            )
+                            if htf_spread_pct >= 0.50:
+                                # Strong opposing HTF trend — hard reject to protect
+                                # short-timeframe signals from being blown out by the
+                                # higher-timeframe trend.  e.g. 15m BUY vs 1H bearish
+                                # with EMA spread ≥ 0.5% = high-confidence macro trend.
+                                self.logger.debug(
+                                    f"[{symbol}|{tf}] 🚫 HTF 1H strong counter-trend "
+                                    f"(spread={htf_spread_pct:.2f}%) — hard reject"
+                                )
+                                return None
+                            else:
+                                # Weak opposing HTF — soft penalty only
+                                old_conf = confidence
+                                confidence      = max(confidence      * 0.87, 50.0)
+                                signal_strength = max(signal_strength * 0.87, 0.0)
+                                self.logger.debug(
+                                    f"[{symbol}|{tf}] ⬇️ HTF 1H counter-trend "
+                                    f"(spread={htf_spread_pct:.2f}%) — "
+                                    f"conf {old_conf:.1f}% → {confidence:.1f}%"
+                                )
                         else:
-                            # Trend-aligned: small reward +4%
-                            confidence    = min(confidence    * 1.04, 100.0)
-                            signal_strength = min(signal_strength * 1.04, 100.0)
+                            # Trend-aligned: reward scaled by HTF trend strength
+                            htf_reward = 1.04 if htf_spread_pct < 0.30 else 1.06
+                            confidence      = min(confidence      * htf_reward, 100.0)
+                            signal_strength = min(signal_strength * htf_reward, 100.0)
                             self.logger.debug(
                                 f"[{symbol}|{tf}] ⬆️ HTF 1H aligned with {action} "
-                                f"— conf={confidence:.1f}%"
+                                f"(spread={htf_spread_pct:.2f}%) — conf={confidence:.1f}%"
                             )
+                except Exception:
+                    pass
+
+            # ── Step 5c: Supertrend directional confirmation ──────────────────
+            # _supertrend() is fully implemented but was wired to zero agents.
+            # Direction=+1 means bullish (price above ST), -1 = bearish.
+            # Aligned → +3% confidence reward; contradicting → -10% penalty.
+            if len(closes) >= 15 and highs and lows:
+                try:
+                    st_result = _supertrend(closes, highs, lows, period=10, multiplier=3.0)
+                    if st_result is not None:
+                        st_val, st_dir = st_result
+                        st_aligned = (
+                            (action == "BUY"  and st_dir == 1) or
+                            (action == "SELL" and st_dir == -1)
+                        )
+                        if st_aligned:
+                            confidence      = min(confidence      * 1.03, 100.0)
+                            signal_strength = min(signal_strength * 1.03, 100.0)
+                            self.logger.debug(
+                                f"[{symbol}|{tf}] ⬆️ Supertrend aligned (+3%)"
+                            )
+                        else:
+                            confidence      = max(confidence      * 0.90, 50.0)
+                            signal_strength = max(signal_strength * 0.90, 0.0)
+                            self.logger.debug(
+                                f"[{symbol}|{tf}] ⬇️ Supertrend contra (-10%)"
+                            )
+                except Exception:
+                    pass
+
+            # ── Step 5d: Parabolic SAR directional confirmation ───────────────
+            # SAR direction=+1 = price above SAR (bullish), -1 = bearish.
+            # Small reward (+2pt) when aligned; penalty (-4pt) when contrary.
+            if highs and lows and len(highs) >= 5:
+                try:
+                    sar_result = _parabolic_sar(highs, lows)
+                    if sar_result is not None:
+                        _sar_val, sar_dir = sar_result
+                        sar_aligned = (
+                            (action == "BUY"  and sar_dir == 1) or
+                            (action == "SELL" and sar_dir == -1)
+                        )
+                        if sar_aligned:
+                            confidence = min(confidence + 2.0, 100.0)
+                        else:
+                            confidence = max(confidence - 4.0, 50.0)
+                except Exception:
+                    pass
+
+            # ── Step 5e: Ichimoku Cloud position filter ───────────────────────
+            # Price above cloud → bullish; below cloud → bearish; inside → neutral.
+            # Trades in the cloud get -5pt; trades against the cloud -10pt.
+            if highs and lows and len(closes) >= 52:
+                try:
+                    ich = _ich_cloud(highs, lows, closes)
+                    if ich:
+                        cloud_top = ich.get("cloud_top")
+                        cloud_bot = ich.get("cloud_bot")
+                        _cur = closes[-1]
+                        if cloud_top is not None and cloud_bot is not None:
+                            above_cloud  = _cur > cloud_top
+                            below_cloud  = _cur < cloud_bot
+                            inside_cloud = not above_cloud and not below_cloud
+                            if action == "BUY":
+                                if above_cloud:
+                                    confidence = min(confidence + 3.0, 100.0)
+                                elif inside_cloud:
+                                    confidence = max(confidence - 5.0, 50.0)
+                                else:
+                                    confidence = max(confidence - 10.0, 50.0)
+                            else:
+                                if below_cloud:
+                                    confidence = min(confidence + 3.0, 100.0)
+                                elif inside_cloud:
+                                    confidence = max(confidence - 5.0, 50.0)
+                                else:
+                                    confidence = max(confidence - 10.0, 50.0)
                 except Exception:
                     pass
 
@@ -3109,19 +3220,32 @@ def _rsi_divergence(closes: List[float], period: int = 14,
     Returns ("bullish", strength) for bullish divergence, ("bearish", strength) for bearish,
     or None if no significant divergence.
     strength ∈ [0, 1] reflects how clear the divergence is.
+
+    O(n) single-pass Wilder RSI — replaces the O(n²) loop that called _rsi() from
+    scratch for each of the `lookback` bars (80 symbols × 2 calls/cycle = 160 full
+    RSI recalculations per scan round).
     """
     if len(closes) < lookback + period + 5:
         return None
     recent = closes[-(lookback + period):]
 
-    # Compute RSI for each bar in the window
-    rsi_vals = []
-    for i in range(len(recent) - lookback, len(recent)):
-        r = _rsi(recent[:i+1], period)
-        if r is not None:
-            rsi_vals.append(r)
-        else:
-            rsi_vals.append(50.0)
+    # Incremental Wilder RSI series — one forward pass over `recent`
+    gains  = [max(recent[i] - recent[i - 1], 0.0) for i in range(1, len(recent))]
+    losses = [max(recent[i - 1] - recent[i], 0.0) for i in range(1, len(recent))]
+
+    if len(gains) < period:
+        return None
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    rs       = avg_gain / avg_loss if avg_loss > 0 else 100.0
+    rsi_vals = [100.0 - (100.0 / (1.0 + rs))]
+
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        rs = avg_gain / avg_loss if avg_loss > 0 else 100.0
+        rsi_vals.append(100.0 - (100.0 / (1.0 + rs)))
 
     if len(rsi_vals) < 10:
         return None

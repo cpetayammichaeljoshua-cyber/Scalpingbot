@@ -1754,12 +1754,12 @@ Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals pow
             from SignalMaestro.mirofish_swarm_strategy import get_current_market_session
             session, activity = get_current_market_session()
 
-            msg = f"""🐟 **MiroFish Swarm — v3 Graph+ReACT**
+            msg = f"""🐟 **MiroFish Swarm — v4 Graph+ReACT**
 Strategy: github.com/666ghj/MiroFish
 
 **🌐 Market Session:** `{session}` (activity={activity:.2f}×)
 
-**🤖 Active Agents (8):**
+**🤖 Active Agents (9):**
 {agent_lines}
 
 **🗄️ Graph-State Memory:**
