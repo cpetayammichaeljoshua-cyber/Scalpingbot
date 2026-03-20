@@ -36,16 +36,24 @@ args = "python3 start_ultimate_bot.py"
 outputType = "console"
 
 [[workflows.workflow]]
-name = "mirofish_bot.py"
+name = ""
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "FLASK_PORT=8000 python mirofish_bot.py"
-waitForPort = 8000
+args = ""
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "FLASK_PORT=8000 python mirofish_bot.py"
+mode = "sequential"
+author = 47973864
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "mirofish_bot.py"
 
 [[ports]]
 localPort = 3000

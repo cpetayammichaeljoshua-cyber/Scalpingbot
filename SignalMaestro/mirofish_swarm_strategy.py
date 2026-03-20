@@ -3046,7 +3046,10 @@ def _supertrend(closes: List[float], highs: List[float], lows: List[float],
     # Supertrend flip state machine
     final_upper = results[0][0]
     final_lower = results[0][1]
-    direction   = 1 if results[0][2] > results[0][0] else -1
+    # BUG FIX: initial direction compared close against basic_upper (almost always
+    # false since basic_upper = HL2 + mult*ATR is above the close by construction).
+    # Correct check: if close is above basic_lower the trend starts bullish.
+    direction   = 1 if results[0][2] > results[0][1] else -1
 
     for bu, bl, close in results[1:]:
         # Upper band: only move down
@@ -3348,7 +3351,11 @@ def _squeeze_momentum(closes: List[float], highs: List[float],
         return squeeze_on, 0.0
     mom_vals = []
     for i in range(-5, 0):
-        mid_ref = (bb_mid + kc_mid) / 2.0 if bb_mid and kc_mid else c[i]
+        # BUG FIX: `if bb_mid and kc_mid` evaluates to False when either float
+        # is exactly 0.0, silently falling back to raw close and hiding the
+        # real midpoint.  Use `is not None` so any numeric value (including 0)
+        # is correctly treated as valid.
+        mid_ref = (bb_mid + kc_mid) / 2.0 if bb_mid is not None and kc_mid is not None else c[i]
         mom_vals.append(c[i] - mid_ref)
     momentum = mom_vals[-1] - mom_vals[0] if len(mom_vals) >= 2 else 0.0
 

@@ -1010,13 +1010,13 @@ class NeuralSignalTrainer:
                     p    = np.clip(A4, _eps, 1.0 - _eps)
                     p_t  = np.where(yb == 1, p, 1.0 - p)
                     wt   = np.where(yb == 1, self._w_win, self._w_loss)
-                    focal_w = (1.0 - p_t) ** γ
+                    focal_w = (1.0 - p_t) ** γ  # precomputed — reused below to avoid redundant pow
 
                     # d(focal_BCE)/d(A4): chain rule through focal weight
                     d_pt_dp = np.where(yb == 1, 1.0, -1.0)
                     grad_p = wt * (
                         γ * (1.0 - p_t) ** (γ - 1) * np.log(p_t + _eps)
-                        - (1.0 - p_t) ** γ / (p_t + _eps)
+                        - focal_w / (p_t + _eps)          # BUG FIX: was re-computing (1-p_t)^γ inline
                     ) * d_pt_dp
                     # Through sigmoid: dA4/dZ4 = A4*(1-A4)
                     dZ4 = grad_p * A4 * (1.0 - A4) / m
@@ -1445,11 +1445,11 @@ class NeuralSignalTrainer:
                 p = np.clip(A4, _eps, 1.0 - _eps)
                 p_t = np.where(y == 1, p, 1.0 - p)
                 wt = np.where(y == 1, self._w_win, self._w_loss)
-                focal_w = (1.0 - p_t) ** γ
+                focal_w = (1.0 - p_t) ** γ  # precomputed — reused below to avoid redundant pow
                 d_pt_dp = np.where(y == 1, 1.0, -1.0)
                 grad_p = wt * (
                     γ * (1.0 - p_t) ** (γ - 1) * np.log(p_t + _eps)
-                    - (1.0 - p_t) ** γ / (p_t + _eps)
+                    - focal_w / (p_t + _eps)              # BUG FIX: was re-computing (1-p_t)^γ inline
                 ) * d_pt_dp
                 # m=1 for single sample — no /m needed since dZ4 carries 1/1
                 dZ4 = grad_p * A4 * (1.0 - A4)

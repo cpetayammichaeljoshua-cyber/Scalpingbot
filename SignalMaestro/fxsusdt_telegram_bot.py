@@ -232,6 +232,7 @@ class FXSUSDTTelegramBot:
         # object on every scan_all_parallel() call (every 30-60s cycle).
         # The env var is read once at startup; restart the bot to apply changes.
         _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "20")))
+        self._scan_limit: int = _scan_limit        # stored so log/diagnostics can read the live value
         self._scan_semaphore: asyncio.Semaphore = asyncio.Semaphore(_scan_limit)
 
         # Telegram send throttle: limits to 1 message every _TG_SEND_MIN_GAP_SEC
@@ -444,7 +445,7 @@ class FXSUSDTTelegramBot:
                 f"🐟 MIROFISH SWARM — ALL USDM MARKETS — ONLINE\n\n"
                 f"Bot: {self.bot_username}\n"
                 f"Signal Channel: @ichimokutradingsignal ({self.signal_channel_id})\n"
-                f"Strategy: MiroFish Multi-Agent Swarm v3.2 (Graph+ReACT+Claude)\n"
+                f"Strategy: MiroFish Multi-Agent Swarm v4.1 (Graph+ReACT+Claude)\n"
                 f"Source: github.com/666ghj/MiroFish\n"
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
@@ -917,8 +918,9 @@ class FXSUSDTTelegramBot:
         with 5-15s delays, causing a full-cycle lag of 6-20 minutes for 80 symbols.
         Now: all 80 symbols complete in ~20-40 seconds (network-bound).
 
-        A Semaphore(20) limits concurrent in-flight requests to Binance to prevent
-        rate-limit errors (HTTP 429) while still achieving ~4× parallel throughput.
+        A configurable Semaphore (default 20, set via SCAN_PARALLEL_LIMIT env var) limits
+        concurrent in-flight requests to Binance to prevent rate-limit errors (HTTP 429)
+        while still achieving ~4× parallel throughput.
 
         Args:
             symbols: list of USDM symbols to scan
@@ -1027,8 +1029,9 @@ class FXSUSDTTelegramBot:
                 pass
 
         # ── Phase 1: Boost analysis — ALL network I/O runs outside the lock ──
-        # With Semaphore(20), up to 20 coroutines run boost analysis concurrently.
-        # Holding the lock here would serialize them into a single-file queue.
+        # With the configured semaphore (SCAN_PARALLEL_LIMIT), multiple coroutines run
+        # boost analysis concurrently.  Holding the lock here would serialize them into
+        # a single-file queue, eliminating the parallelism benefit.
         _pre_boost_conf = signal.confidence
         # Raised from 8.0 → 12.0: allows multi-source agreement (ATAS + Market Intel +
         # Insider + Microstructure + AI) to push a quality signal from 72% to 84%.
@@ -1322,19 +1325,19 @@ class FXSUSDTTelegramBot:
         Main continuous scanner — TRUE PARALLEL scan of ALL USDM markets simultaneously.
 
         Architecture change from legacy round-robin (one symbol every 5-15s → 6-20 min
-        per full cycle of 80 symbols) to asyncio.gather parallel batches (semaphore=20)
-        completing a full pass of all 80 symbols in ~20-40 seconds.
+        per full cycle of 80 symbols) to asyncio.gather parallel batches (semaphore
+        configured via SCAN_PARALLEL_LIMIT) completing a full pass in ~20-40 seconds.
 
         Cycle:
           1. Refresh symbol list (hourly)
           2. Check price alerts
-          3. Parallel-scan ALL active symbols (asyncio.gather + Semaphore(20))
+          3. Parallel-scan ALL active symbols (asyncio.gather + Semaphore(SCAN_PARALLEL_LIMIT))
           4. Heartbeat log every 5 min
           5. Poll Telegram for commands
           6. Sleep CYCLE_SLEEP_SECONDS between full parallel-scan cycles
         """
         self.logger.info("🚀 Starting MiroFish PARALLEL scanner — ALL USDM FUTURES...")
-        self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore(20))")
+        self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore({self._scan_limit}))")
 
         await self.test_telegram_connection()
         await self._drain_pending_updates()
