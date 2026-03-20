@@ -396,24 +396,35 @@ class TradeMemory:
         return [dict(r) for r in rows]
 
     def get_stats_by_session(self) -> Dict[str, Dict]:
-        """Win rate broken down by trading session."""
+        """
+        Win rate broken down by trading session.
+
+        BUG FIX: Previously used pnl_pct > 0 for wins, which miscounted neutral
+        EXPIRED trades (pnl ~0%) as losses, identical to the bug fixed in get_stats().
+        Now uses the unambiguous outcome field consistent with all other stat methods:
+          wins   = outcome IN ('TP1','TP2','TP3')
+          losses = outcome = 'SL'
+          EXPIRED trades are excluded from both win and loss counts.
+        """
         with self._db() as c:
             rows = c.execute("""
                 SELECT session,
                        COUNT(*) as total,
-                       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) as wins
+                       SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) as wins,
+                       SUM(CASE WHEN outcome = 'SL'                 THEN 1 ELSE 0 END) as losses
                 FROM trades
                 WHERE outcome IS NOT NULL
                 GROUP BY session
             """).fetchall()
         result = {}
         for row in rows:
-            sess, total, wins = row[0], row[1], row[2]
+            sess, total, wins, losses = row[0], row[1], row[2] or 0, row[3] or 0
+            resolved = wins + losses
             result[sess] = {
                 "total":    total,
                 "wins":     wins,
-                "losses":   total - wins,
-                "win_rate": round(wins / total * 100, 1) if total > 0 else 0.0,
+                "losses":   losses,
+                "win_rate": round(wins / resolved * 100, 1) if resolved > 0 else 0.0,
             }
         return result
 
@@ -477,8 +488,8 @@ class TradeMemory:
             rows = c.execute("""
                 SELECT symbol,
                        COUNT(*) AS total,
-                       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) AS wins,
-                       SUM(CASE WHEN pnl_pct <= 0 THEN 1 ELSE 0 END) AS losses
+                       SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) AS wins,
+                       SUM(CASE WHEN outcome = 'SL'                 THEN 1 ELSE 0 END) AS losses
                 FROM trades
                 WHERE outcome IS NOT NULL
                 GROUP BY symbol
@@ -487,11 +498,12 @@ class TradeMemory:
         result: Dict[str, Dict] = {}
         for row in rows:
             sym, total, wins, sym_losses = row[0], row[1], row[2] or 0, row[3] or 0
+            resolved = wins + sym_losses
             result[sym] = {
                 "total":    total,
                 "wins":     wins,
                 "losses":   sym_losses,
-                "win_rate": round(wins / total, 4) if total > 0 else 0.0,
+                "win_rate": round(wins / resolved, 4) if resolved > 0 else 0.0,
             }
 
         # Also compute recent_loss_rate (last 10 definitive) per symbol.

@@ -192,12 +192,13 @@ class FXSUSDTTelegramBot:
         # ── Rate limiting — 15M timeframe: minimum 120s between signals ──
         _interval_sec = max(60, int(os.getenv("SIGNAL_INTERVAL_SECONDS", "120")))
         self.min_signal_interval_minutes = _interval_sec / 60.0
-        # Strictly enforce 5/5 hourly cap.
-        # Env var may reduce it further but NEVER exceeds 5 — overrides old
-        # calculated value (int(3600/120)=30) that was incorrectly used before.
+        # Honour SIGNALS_PER_HOUR_MAX from the environment (launcher sets 8).
+        # The hard ceiling of 20 prevents misconfiguration; default is 5 when
+        # the env var is absent.  The old min(5, ...) silently discarded the
+        # launcher's SIGNALS_PER_HOUR_MAX=8 setting.
         _sph_env = os.getenv("SIGNALS_PER_HOUR_MAX", "").strip()
         _sph_requested = int(_sph_env) if _sph_env.isdigit() else 5
-        self._MAX_SIGNALS_PER_HOUR = min(5, max(1, _sph_requested))
+        self._MAX_SIGNALS_PER_HOUR = min(20, max(1, _sph_requested))
         # Global minimum gap between any two signals (across all symbols).
         # Matches the class attribute default of 90s documented in can_send_signal.
         _gap_env = os.getenv("GLOBAL_MIN_GAP_SECONDS", "").strip()
@@ -484,7 +485,7 @@ class FXSUSDTTelegramBot:
 
     # ── Rate-limiting constants — quality over quantity ─────────────────────
     _GLOBAL_MIN_GAP_SECONDS = 90   # minimum seconds between ANY two signals (all symbols)
-    _MAX_SIGNALS_PER_HOUR   = 5    # global cap: strict 5/5 signals per hour
+    _MAX_SIGNALS_PER_HOUR   = 5    # class-level default; overridden by SIGNALS_PER_HOUR_MAX env var in __init__
 
     def _refresh_symbol_blacklist(self):
         """
@@ -601,7 +602,7 @@ class FXSUSDTTelegramBot:
         recent_1h = [ts for ts in self.signal_timestamps if ts > cutoff_1h]
         if len(recent_1h) >= self._MAX_SIGNALS_PER_HOUR:
             self.logger.info(
-                f"🚦 [global] Strict hourly cap reached ({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR} — 5/5) "
+                f"🚦 [global] Hourly cap reached ({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR}) "
                 f"— pausing [{symbol}]"
             )
             return False

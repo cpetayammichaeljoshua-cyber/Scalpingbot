@@ -92,6 +92,17 @@ A production-grade Binance USDM Perpetual Futures signal bot powered by the **Mi
 ### `SignalMaestro/btcusdt_trader.py`
 - **FIX — klines cache key collision** (strategy 250 bars vs boost 200 bars): Added cross-key cache lookup — if a cached result with the same `(symbol, interval)` has `limit >= requested_limit` and is still fresh, it returns a slice instead of making a duplicate API call. Eliminates ~50% of duplicate Binance klines fetches.
 
+## Bug Fixes (Session 5)
+All fixes verified with zero compile-time errors across all modified files.
+
+### `SignalMaestro/fxsusdt_telegram_bot.py`
+- **FIX — `_MAX_SIGNALS_PER_HOUR` capped to 5 regardless of `SIGNALS_PER_HOUR_MAX` env var**: `__init__` used `min(5, max(1, _sph_requested))` which silently discarded the launcher's `SIGNALS_PER_HOUR_MAX=8` setting, leaving the hourly cap always at 5. Changed to `min(20, max(1, _sph_requested))` so the env var is honoured. The class-level default attribute comment was also corrected.
+- **FIX — `can_send_signal` log message hardcoded "5/5"**: The hourly cap log line read `({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR} — 5/5)` with a literal "5/5" suffix that was always wrong when the cap was not 5. Removed the hardcoded suffix; count is now shown dynamically as `{len}/{cap}`.
+
+### `SignalMaestro/trade_memory.py`
+- **FIX — `get_stats_by_session()` used `pnl_pct > 0` for win counting**: Inconsistent with the already-fixed `get_stats()`. EXPIRED trades with ~0% PnL were miscounted as losses, inflating per-session loss rates. Fixed to `outcome IN ('TP1','TP2','TP3')` for wins and `outcome = 'SL'` for losses, matching every other stat method. Win-rate denominator now uses `resolved` (wins+losses) instead of `total`, excluding EXPIRED from the rate.
+- **FIX — `get_symbol_stats()` aggregate query used `pnl_pct > 0 / <= 0`**: The bulk per-symbol query for overall `win_rate` and `losses` had the same `pnl_pct` bug. Fixed to `outcome IN ('TP1','TP2','TP3')` for wins and `outcome = 'SL'` for losses. Win-rate denominator uses `resolved` instead of `total`. The per-symbol `recent_loss_rate` sub-loop was already correct and left unchanged.
+
 ## Bug Fixes (Session 4 — Historical)
 - **CRITICAL FIX — `openai.py` shadowing the real `openai` package**: Root-level `openai.py` was intercepting every `from openai import AsyncOpenAI` call in `mirofish_swarm_strategy.py`, `ai_enhanced_signal_processor.py`, `ai_sentiment_analyzer.py`, and `ai_capability_checker.py`, causing `ImportError: cannot import name 'AsyncOpenAI'`. This completely disabled the AIOrchestrationAgent's GPT-4o-mini ReACT mode. Fixed by renaming `openai.py` → `openai_handler.py`. Real openai v2.9.0 is now resolved correctly. Confirmed at runtime: `✅ AIOrchestrationAgent: OpenAI GPT-4o-mini ready (async ReACT mode)`.
 - **FIX — `dynamic_signal_integrator.py` and `bot_health_check.py` broken imports**: Both used `from openai import get_openai_status` — a function that lives in the local `openai_handler.py`, not the real openai package. After the rename both were updated to `from openai_handler import get_openai_status`.
