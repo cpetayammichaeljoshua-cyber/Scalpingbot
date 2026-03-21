@@ -32,7 +32,9 @@ class SignalEngine:
     4. Risk:Reward calculation for take profit
     """
     
-    def __init__(self, 
+    def __init__(self,
+                 symbol: str = "ETHUSDT",
+                 timeframe: str = "5m",
                  ut_key_value: float = 1.0,
                  ut_atr_period: int = 10,
                  ut_use_heikin_ashi: bool = False,
@@ -45,8 +47,10 @@ class SignalEngine:
                  max_risk_percent: float = 3.0):
         """
         Initialize Signal Engine
-        
+
         Args:
+            symbol: Trading pair symbol (e.g. 'ETHUSDT'), injected from config
+            timeframe: Chart timeframe (e.g. '5m'), injected from config
             ut_key_value: UT Bot sensitivity (default 1.0)
             ut_atr_period: UT Bot ATR period (default 10)
             ut_use_heikin_ashi: Use Heikin Ashi for UT Bot (default False)
@@ -58,6 +62,8 @@ class SignalEngine:
             min_risk_percent: Minimum risk percentage (default 0.5%)
             max_risk_percent: Maximum risk percentage (default 3.0%)
         """
+        self.symbol = symbol
+        self.timeframe = timeframe
         self.ut_bot = UTBotAlerts(
             key_value=ut_key_value,
             atr_period=ut_atr_period,
@@ -334,8 +340,8 @@ class SignalEngine:
             if self.min_risk_percent <= risk_percent <= self.max_risk_percent:
                 signal = {
                     'type': 'LONG',
-                    'symbol': 'ETH/USDT',
-                    'timeframe': '5m',
+                    'symbol': self.symbol,
+                    'timeframe': self.timeframe,
                     'entry_price': entry_price,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
@@ -367,8 +373,8 @@ class SignalEngine:
             if self.min_risk_percent <= risk_percent <= self.max_risk_percent:
                 signal = {
                     'type': 'SHORT',
-                    'symbol': 'ETH/USDT',
-                    'timeframe': '5m',
+                    'symbol': self.symbol,
+                    'timeframe': self.timeframe,
                     'entry_price': entry_price,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,

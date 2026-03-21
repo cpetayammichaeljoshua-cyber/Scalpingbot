@@ -1,7 +1,7 @@
 """
 AI Trading Brain Module
 
-Advanced AI-powered trading analysis using OpenAI GPT-5 for:
+Advanced AI-powered trading analysis using OpenAI GPT-4o-mini for:
 - Signal analysis with confidence scoring
 - Learning from trade outcomes
 - Dynamic market insights
@@ -37,13 +37,14 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 class AITradingBrain:
     """
-    Advanced AI Trading Brain with GPT-5 integration.
-    
+    Advanced AI Trading Brain with GPT-4o-mini integration.
+
     Provides intelligent trading analysis, learning capabilities,
-    and parameter optimization using OpenAI's GPT-5 model.
+    and parameter optimization using OpenAI's GPT-4o-mini model.
+    Falls back to rule-based analysis when OpenAI is unavailable.
     """
-    
-    MODEL = "gpt-5"
+
+    MODEL = "gpt-4o-mini"
     
     def __init__(self, db_path: str = "ut_bot_strategy/data/ai_trading_brain.db",
                  cache_ttl_seconds: int = 300):
@@ -62,7 +63,7 @@ class AITradingBrain:
         if OPENAI_AVAILABLE and OPENAI_API_KEY:
             self.openai_client = OpenAI(api_key=OPENAI_API_KEY)
             self.ai_available = True
-            logger.info("AITradingBrain initialized with OpenAI GPT-5")
+            logger.info(f"AITradingBrain initialized with OpenAI {self.MODEL}")
         else:
             self.openai_client = None
             self.ai_available = False

@@ -71,6 +71,8 @@ class TradingOrchestrator:
         )
         
         self.signal_engine = SignalEngine(
+            symbol=self.config.trading.symbol,
+            timeframe=self.config.trading.timeframe,
             ut_key_value=self.config.ut_bot.key_value,
             ut_atr_period=self.config.ut_bot.atr_period,
             ut_use_heikin_ashi=self.config.ut_bot.use_heikin_ashi,
@@ -205,8 +207,14 @@ class TradingOrchestrator:
                 return None
             
             current_price = signal.get('entry_price', 0)
-            atr = df['high'].iloc[-14:].max() - df['low'].iloc[-14:].min()
-            atr = atr / 14
+            # Use ATR already calculated by the signal engine (true ATR via UTBotAlerts).
+            # The previous range/14 formula was not a true ATR — it computed the
+            # highest-high minus lowest-low over 14 bars divided by 14, which
+            # ignores gaps and overestimates volatility in trending markets.
+            atr = signal.get('atr', 0)
+            if not atr or atr <= 0:
+                # Fallback: simple percentage of price if ATR is unavailable
+                atr = current_price * 0.01
             
             leverage_result = self.leverage_calculator.calculate_optimal_leverage(
                 signal=signal,

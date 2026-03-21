@@ -9,9 +9,21 @@ import asyncio
 import logging
 import os
 import json
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
+
+try:
+    import numpy as np
+    _NP_AVAILABLE = True
+except ImportError:
+    np = None  # type: ignore
+    _NP_AVAILABLE = False
+
+try:
+    import pandas as pd
+    _PD_AVAILABLE = True
+except ImportError:
+    pd = None  # type: ignore
+    _PD_AVAILABLE = False
 from typing import Dict, Any, List, Optional, Tuple, Union
 from dataclasses import dataclass, asdict
 import sqlite3
@@ -126,35 +138,33 @@ class AIOrchestrator:
     Coordinates sentiment analysis, market prediction, and ML systems
     """
 
-    def __init__(self, enforce_requirements: bool = True):
+    def __init__(self, enforce_requirements: bool = False):
         self.logger = logging.getLogger(__name__)
-        
+
         # Perform comprehensive capability check
         self.system_capability = None
         self.capability_checker = None
-        
+
         if CAPABILITY_CHECKER_AVAILABLE:
             try:
                 self.capability_checker = get_capability_checker()
                 self.system_capability = self.capability_checker.check_system_capabilities()
-                
-                # Enforce smart analysis requirements if requested
+
+                # enforce_requirements defaults to False so a missing optional
+                # dependency never prevents the swarm bot from starting.
+                # The bot always falls back to rule-based analysis when AI
+                # components are unavailable.
                 if enforce_requirements:
                     if not self.capability_checker.enforce_smart_analysis_requirements(self.system_capability):
-                        error_msg = (
-                            "❌ CRITICAL: AI Orchestrator cannot start - Smart analysis requirements not met!\n"
-                            "The system requires genuine AI-powered analysis capabilities.\n"
-                            "Please install required dependencies and try again."
+                        self.logger.warning(
+                            "⚠️ AI Orchestrator: smart analysis requirements not fully met — "
+                            "running in degraded/rule-based mode."
                         )
-                        self.logger.critical(error_msg)
-                        raise RuntimeError(error_msg)
-                
+
                 self.degraded_mode_info = self.capability_checker.get_degraded_mode_info(self.system_capability)
-                
+
             except Exception as e:
-                if enforce_requirements:
-                    raise
-                self.logger.warning(f"⚠️ Capability check failed: {e}")
+                self.logger.warning(f"⚠️ Capability check failed (non-fatal): {e}")
         else:
             self.logger.warning("⚠️ Capability checker not available - running without validation")
         
@@ -168,31 +178,25 @@ class AIOrchestrator:
                 self.sentiment_analyzer = get_sentiment_analyzer()
                 self.logger.info("✅ Sentiment Analyzer initialized")
             except Exception as e:
-                self.logger.warning(f"⚠️ Sentiment Analyzer initialization failed: {e}")
-                if enforce_requirements and self._is_component_critical('sentiment_analysis'):
-                    raise RuntimeError(f"Critical sentiment analysis component failed: {e}")
+                self.logger.warning(f"⚠️ Sentiment Analyzer initialization failed (non-fatal): {e}")
+                self.sentiment_analyzer = None
         elif self._has_fallback('sentiment_analysis'):
             self.logger.info("🔄 Sentiment Analyzer running in fallback mode")
         else:
-            self.logger.error("❌ Sentiment Analyzer unavailable")
-            if enforce_requirements:
-                raise RuntimeError("Critical sentiment analysis component unavailable")
-        
+            self.logger.warning("⚠️ Sentiment Analyzer unavailable — using rule-based fallback")
+
         # Initialize market predictor
         if MARKET_PREDICTOR_AVAILABLE and self._is_component_available('market_prediction'):
             try:
                 self.market_predictor = get_market_predictor()
                 self.logger.info("✅ Market Predictor initialized")
             except Exception as e:
-                self.logger.warning(f"⚠️ Market Predictor initialization failed: {e}")
-                if enforce_requirements and self._is_component_critical('market_prediction'):
-                    raise RuntimeError(f"Critical market prediction component failed: {e}")
+                self.logger.warning(f"⚠️ Market Predictor initialization failed (non-fatal): {e}")
+                self.market_predictor = None
         elif self._has_fallback('market_prediction'):
             self.logger.info("🔄 Market Predictor running in fallback mode")
         else:
-            self.logger.error("❌ Market Predictor unavailable")
-            if enforce_requirements:
-                raise RuntimeError("Critical market prediction component unavailable")
+            self.logger.warning("⚠️ Market Predictor unavailable — using rule-based fallback")
         
         # Database for storing AI decisions
         self.db_path = "SignalMaestro/ai_orchestrator.db"
