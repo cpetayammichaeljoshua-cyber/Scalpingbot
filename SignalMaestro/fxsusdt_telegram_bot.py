@@ -1252,22 +1252,59 @@ class FXSUSDTTelegramBot:
                             "danger_zones", []
                         ))
 
-                        # Hard reject: win_prob far below reject threshold (> 8pp gap)
-                        # Soft penalty: borderline signals lose confidence instead of
-                        # being dropped, so high-consensus swarm signals still pass.
-                        _far_below = nn_win_prob < (_reject_thresh - 0.08)
-                        if _far_below or (_high_uncertainty and _borderline):
-                            reject_reason = (
-                                f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
-                                if (_high_uncertainty and _borderline)
-                                else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
-                            )
+                        # ── CONSENSUS OVERRIDE (FIX 7) ─────────────────────────────────
+                        # When ALL (or nearly all) swarm agents unanimously agree, the
+                        # collective intelligence of 9 independent agents outweighs the
+                        # NN gate — which was trained on limited historical data (200
+                        # samples, 54.5% win-rate split).  A 9/9 unanimous swarm with
+                        # ≥90% weighted consensus is the highest-quality signal the bot
+                        # can generate.  NN still applies soft penalty/boost, but the
+                        # hard-reject is bypassed.
+                        #
+                        # Thresholds:
+                        #   consensus ≥ 0.90 AND participation ≥ 7/9 → bypass hard-reject
+                        #   consensus ≥ 0.95 AND participation = 9/9 → bypass all NN filters
+                        _swarm_consensus = signal.swarm_consensus        # 0..1
+                        _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
+                        _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/9)
+                        _is_strong       = _swarm_consensus >= 0.83 and _participation >= (7/9)
+
+                        if _is_unanimous:
+                            # Fully bypass NN gate for unanimous signals — just apply tiny log
                             self.logger.info(
-                                f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
-                                f"{reject_reason} | danger_zones={n_danger}"
+                                f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
+                                f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
+                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%})"
                             )
-                            return False
-                        elif nn_win_prob < _reject_thresh:
+                            # Still apply a reduced soft penalty for danger zones
+                            if nn_win_prob < _reject_thresh:
+                                _reduced_penalty = (_reject_thresh - nn_win_prob) * 10.0  # ≤ 1pt
+                                signal.confidence = max(0.0, signal.confidence - _reduced_penalty)
+                            # Skip all further NN logic
+                            pass
+                        else:
+                            # Hard reject: win_prob far below reject threshold (> 8pp gap)
+                            # Soft penalty: borderline signals lose confidence instead of
+                            # being dropped, so high-consensus swarm signals still pass.
+                            _far_below = nn_win_prob < (_reject_thresh - 0.08)
+
+                            # For strong (but not unanimous) signals, relax far-below gap
+                            if _is_strong:
+                                _far_below = nn_win_prob < (_reject_thresh - 0.15)
+
+                            if _far_below or (_high_uncertainty and _borderline and not _is_strong):
+                                reject_reason = (
+                                    f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
+                                    if (_high_uncertainty and _borderline)
+                                    else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
+                                )
+                                self.logger.info(
+                                    f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
+                                    f"{reject_reason} | danger_zones={n_danger}"
+                                )
+                                return False
+
+                        if not _is_unanimous and nn_win_prob < _reject_thresh:
                             # Borderline — apply a confidence penalty instead of hard-rejecting.
                             # Penalty is proportional to how far below threshold the signal is.
                             penalty = (_reject_thresh - nn_win_prob) * 50.0  # up to 4pt

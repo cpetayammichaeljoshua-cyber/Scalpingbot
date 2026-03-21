@@ -1537,20 +1537,22 @@ class AIOrchestrationAgent:
     )
 
     # Claude model cascade — tried in order until one succeeds.
-    # ORDER: most universally accessible models FIRST (confirmed working on standard
-    # Anthropic API plans), then tier-gated / newer models after.
-    # claude-3-5-sonnet-20240620 is placed first — it is the broadest-access stable
-    # model confirmed to work on virtually all Anthropic API accounts.
-    # 404-failed models are skipped; set is cleared every _CLAUDE_MODEL_RETRY_INTERVAL
-    # seconds so newly-provisioned models are auto-discovered without a bot restart.
+    # ORDER: Claude 4+ / latest models FIRST (user-specified: claude-sonnet-4-6),
+    # then 3.x legacy models as fallback.  404-failed models are skipped and added
+    # to _claude_failed_models; set clears every _CLAUDE_MODEL_RETRY_INTERVAL secs
+    # so newly-provisioned models (e.g. after account upgrade) are auto-discovered.
     _CLAUDE_MODELS = [
-        "claude-3-5-sonnet-20240620",   # Jun 2024: broadest-access stable model (primary)
-        "claude-3-5-haiku-20241022",    # Oct 2024: fastest/cheapest 3.5 tier
-        "claude-3-5-sonnet-20241022",   # Oct 2024: high-quality 3.5 sonnet
-        "claude-3-haiku-20240307",      # Mar 2024: widely available legacy haiku
-        "claude-3-opus-20240229",       # Feb 2024: highest capability legacy
-        "claude-3-sonnet-20240229",     # Feb 2024: claude 3 sonnet legacy
-        "claude-3-7-sonnet-20250219",   # Feb 2025: Claude 3.7 (requires tier access)
+        # ── Claude 4 / latest generation (2025-2026) — PRIMARY ───────────────
+        "claude-sonnet-4-6",            # Latest: Claude Sonnet 4.6 (user-specified primary)
+        "claude-opus-4-5",              # May 2025: Claude Opus 4.5 (highest capability)
+        "claude-sonnet-4-5",            # May 2025: Claude Sonnet 4.5
+        "claude-haiku-4-5",             # May 2025: Claude Haiku 4.5 (fastest)
+        # ── Claude 3.7 / 3.5 — FALLBACK (older plan compatibility) ──────────
+        "claude-3-7-sonnet-20250219",   # Feb 2025: Claude 3.7 Sonnet
+        "claude-3-5-sonnet-20241022",   # Oct 2024: Claude 3.5 Sonnet
+        "claude-3-5-haiku-20241022",    # Oct 2024: Claude 3.5 Haiku
+        "claude-3-5-sonnet-20240620",   # Jun 2024: original 3.5 sonnet release
+        "claude-3-opus-20240229",       # Feb 2024: Claude 3 Opus
     ]
     # Interval to reset the 404-failed model set — allows recovery when Anthropic
     # provisions new model access on the account without requiring a bot restart.
@@ -1587,6 +1589,13 @@ class AIOrchestrationAgent:
         # simultaneously every time the 10-min retry window clears.
         self._claude_probe_lock: Optional[asyncio.Lock] = None
         self._claude_probe_in_progress: bool = False
+        # Claude API inference semaphore — limits CONCURRENT Claude API calls to
+        # prevent 429 "too many concurrent connections" rate-limit errors when
+        # 30 parallel symbol scans all try to call Claude simultaneously.
+        # Lazy-created inside the running event loop by _get_api_sem().
+        self._claude_api_sem: Optional[asyncio.Semaphore] = None
+        # 429 rate-limit: short cooldown (seconds) before next cycle can retry Claude.
+        self._claude_ratelimit_until: float = 0.0
         # Same pattern for OpenAI — 401 triggers periodic re-test (key may change).
         self._openai_disabled_until: float = 0.0
         self._openai_perm_disabled: bool   = False
@@ -1599,6 +1608,17 @@ class AIOrchestrationAgent:
         if self._claude_probe_lock is None:
             self._claude_probe_lock = asyncio.Lock()
         return self._claude_probe_lock
+
+    def _get_api_sem(self) -> asyncio.Semaphore:
+        """Lazily create the Claude API concurrency semaphore inside the event loop.
+
+        Limits to 3 simultaneous Claude API calls so that 30 parallel symbol
+        scans do not all hammer the API at once — prevents 429 concurrent-
+        connection rate-limit errors on lower-tier Anthropic accounts.
+        """
+        if self._claude_api_sem is None:
+            self._claude_api_sem = asyncio.Semaphore(3)
+        return self._claude_api_sem
 
     # ── Client initialisation ────────────────────────────────────────────────
 
@@ -1829,6 +1849,13 @@ class AIOrchestrationAgent:
             else:
                 return None  # Still in cooldown — fast exit
 
+        # ── 429 Concurrent rate-limit cooldown (per-cycle, short) ───────
+        if self._claude_ratelimit_until > 0:
+            _now_rl = time.time()
+            if _now_rl < self._claude_ratelimit_until:
+                return None  # Still in rate-limit cool-off; use rule-based this cycle
+            self._claude_ratelimit_until = 0.0  # Cooldown elapsed — try again
+
         # ── Credits / billing cooldown ───────────────────────────────────
         if self._claude_disabled_until > 0:
             _now = time.time()
@@ -1862,12 +1889,16 @@ class AIOrchestrationAgent:
 
         for _current_model in available_models:
             try:
-                coro = self.claude_client.messages.create(
-                    model=_current_model,
-                    max_tokens=self._MAX_TOKENS,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                response = await asyncio.wait_for(coro, timeout=self._AI_TIMEOUT)
+                # ── Concurrency gate: max 3 simultaneous Claude API calls ──
+                # Prevents 429 "too many concurrent connections" errors when
+                # 30 parallel symbol scans all try Claude at the same time.
+                async with self._get_api_sem():
+                    coro = self.claude_client.messages.create(
+                        model=_current_model,
+                        max_tokens=self._MAX_TOKENS,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    response = await asyncio.wait_for(coro, timeout=self._AI_TIMEOUT)
                 text = ""
                 for block in response.content:
                     if hasattr(block, "text"):
@@ -1875,6 +1906,7 @@ class AIOrchestrationAgent:
                 data = self._parse_ai_response(text.strip())
                 if data:
                     self._claude_err_count = 0
+                    self._claude_ratelimit_until = 0.0  # Clear any rate limit cooldown
                     # Log once when a model succeeds after cascade fallback
                     if len(self._claude_failed_models) > 0:
                         self.logger.info(
@@ -1954,6 +1986,28 @@ class AIOrchestrationAgent:
                             "Add credits at console.anthropic.com if needed."
                         )
                     return None
+
+                # ── 429 Concurrent connection rate-limit ──────────────────
+                # The model IS accessible — the account just limits simultaneous
+                # connections.  The API semaphore (max 3) gates future calls.
+                # Do NOT add the model to _claude_failed_models.
+                # Apply a short per-cycle cooldown so rule-based runs this round,
+                # and Claude resumes on the NEXT scan cycle automatically.
+                _RATELIMIT_PHRASES = (
+                    "rate_limit_error", "rate limit", "concurrent connections",
+                    "ratelimiterror", "too many requests",
+                )
+                if (any(p in err_str for p in _RATELIMIT_PHRASES)
+                        or "429" in str(e)):
+                    if self._claude_ratelimit_until == 0.0:
+                        # First rate-limit hit — set 30s cooldown and log once
+                        self._claude_ratelimit_until = time.time() + 30.0
+                        self.logger.warning(
+                            f"⏳ Claude/{_current_model} rate-limited (429 concurrent) "
+                            "— 30s cooldown. Rule-based active this cycle. "
+                            "Semaphore(3) gates future calls to prevent recurrence."
+                        )
+                    return None  # Model valid — don't add to failed set
 
                 # ── Generic transient error ───────────────────────────────
                 self._claude_err_count += 1

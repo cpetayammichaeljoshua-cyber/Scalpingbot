@@ -56,10 +56,10 @@ assert CYCLE_SLEEP_MIN <= CYCLE_SLEEP_MAX, "CYCLE_SLEEP_MIN must be <= CYCLE_SLE
 # Binance USDM rate limit: 1200 req/min. 80 symbols × ~3 req = 240 req/cycle — safe at 30.
 SCAN_PARALLEL_LIMIT = 30   # 30 concurrent Binance REST requests (well within rate limits)
 
-SIGNAL_INTERVAL_MIN = 120  # 120s minimum between signals on 15m timeframe
+SIGNAL_INTERVAL_MIN = 300  # 300s (5 min) per-symbol cooldown — prevents same-symbol spam on 15M
 
 SIGNALS_PER_HOUR_MIN = 5   # Global hourly floor — always emit at least 5/hour when setups exist
-SIGNALS_PER_HOUR_MAX = 8   # Global hourly cap — raised from 5 to allow 8 in high-signal markets
+SIGNALS_PER_HOUR_MAX = 10  # Global hourly cap — allow up to 10 for diverse multi-market coverage
 assert SIGNALS_PER_HOUR_MIN <= SIGNALS_PER_HOUR_MAX, "SIGNALS_PER_HOUR_MIN must be <= SIGNALS_PER_HOUR_MAX"
 
 AI_THRESHOLD_PERCENT = 80  # Minimum confidence % required to send a signal (post-boost)
@@ -222,7 +222,7 @@ async def main():
     logger.info("   😱 SentimentAgent     — Fear/greed proxy + vol contraction regime             ( 5% w)")
     logger.info("   💹 FundingFlowAgent   — VWAP deviation + OI proxy + squeeze detection        ( 5% w)")
     logger.info("   📐 PivotSRAgent      — Institutional S/R pivot levels + POC analysis         ( 5% w)")
-    logger.info("   🤖 AIOrchestration   — Claude 3.5 Sonnet (primary) + GPT-4o-mini (fallback)   ( 5% w)")
+    logger.info("   🤖 AIOrchestration   — Claude Sonnet 4.6 (primary) + GPT-4o-mini (fallback)    ( 5% w)")
     logger.info("                          ReACT: Reason → Act → Reflect → Conclude")
     logger.info("")
     logger.info("✅ MIROFISH ARCHITECTURE (github.com/666ghj/MiroFish):")
@@ -255,7 +255,7 @@ async def main():
     logger.info(f"   • Full scan time:     ~20-40s for all 80 symbols")
     logger.info(f"   • Cycle sleep:        {CYCLE_SLEEP_MIN}–{CYCLE_SLEEP_MAX}s between full parallel rounds")
     logger.info(f"   • Signal Interval:    {SIGNAL_INTERVAL_MIN}s minimum per-symbol cooldown")
-    logger.info(f"   • Est. Signals/Hour:  {SIGNALS_PER_HOUR_MIN} (strict 5/5 hourly cap)")
+    logger.info(f"   • Est. Signals/Hour:  {SIGNALS_PER_HOUR_MIN}–{SIGNALS_PER_HOUR_MAX} (hourly cap)")
     logger.info("=" * 90)
 
     # ── Initialize Bot ──
