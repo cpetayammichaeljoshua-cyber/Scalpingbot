@@ -1,9 +1,45 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 8 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 9 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
-## Bug Fixes & Enhancements (Session 8 — Current)
+## Bug Fixes & Enhancements (Session 9 — Current)
+
+### `SignalMaestro/fxsusdt_telegram_bot.py` — Duplicate `close_tg_session` (CRITICAL)
+- **ROOT CAUSE**: Two definitions of `close_tg_session` existed (lines 475–509 and 528–534). Python's class body executes sequentially — the second shorter definition at line 528 overwrote the first full version, stripping out:
+  - `telegram_app` updater/shutdown (leaked PTB Application)
+  - `_outcome_tracker_task` cancellation (leaked OutcomeTracker background coroutine)
+- **FIX**: Removed the second, shorter duplicate definition (lines 528–534). The first full version (lines 475–509) is the canonical `close_tg_session`.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Claude Model Cascade Expanded (7 models)
+- **ROOT CAUSE**: All 3 original cascade models returned 404 (account plan doesn't have access to those specific versioned Claude model IDs). The cascade was exhausted immediately, permanently disabling Claude on every run.
+- **FIX**: Expanded `_CLAUDE_MODELS` from 3 → 7 models in order: `claude-3-7-sonnet-20250219` (Feb 2025 release), `claude-3-5-haiku-20241022`, `claude-3-5-sonnet-20241022`, `claude-3-5-sonnet-20240620`, `claude-3-haiku-20240307`, `claude-3-sonnet-20240229`, `claude-3-opus-20240229`. Any plan tier should find at least one accessible model.
+- **FIX**: Added periodic 30-minute retry mechanism (`_CLAUDE_MODEL_RETRY_INTERVAL = 1800.0`). When `_claude_perm_disabled=True`, the check expires every 30 min, clears `_claude_failed_models`, and re-tests the full cascade — enabling automatic recovery after an account upgrade without a bot restart.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Rule-Based AI Fallback Overhauled (win rate)
+- **ROOT CAUSE**: The old `_rule_based_analysis` used only agent vote counts with a simple confidence formula. When both Claude and OpenAI are unavailable (current state), every signal went through this path — making it the primary AI signal for all production signals.
+- **FIX — Multi-layer technical confirmation**: RSI overbought/oversold, MACD histogram direction, and Bollinger band position now independently confirm or veto the rule-based vote. RSI overbought into a BUY (or oversold into a SELL) hard-vetoes the signal to prevent buying tops/selling bottoms.
+- **FIX — Stricter quorum raised 3 → 4**: Requires 4 agents to agree (vs 3) before going directional.
+- **FIX — Dominant-side margin gate**: Winning side must score ≥60% of total agent score (vs no gate). Thin-margin setups return NEUTRAL instead of marginal direction.
+- **FIX — Confidence cap raised 82 → 88**: Allows genuine high-conviction setups (5+ aligned agents, RSI confirms, MACD confirms) to reach the 80% confidence gate more reliably.
+- **FIX — Momentum uses 5-bar + 8-bar dual slope**: More robust than single 4-bar slope; both must confirm direction for a bonus.
+- **FIX — 1H change scaled by magnitude**: Tail-wind bonus now `+6pt` for >1.5% move (vs flat `+4pt`) and `+3pt` for >0.5%; head-wind applies `-4pt` penalty.
+- **FIX — Unanimity bonus for ≥5 aligned, 0 contrary**: `+4pt` bonus applied to unanimous large-quorum setups.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Signal Quality Gate Tightening (win rate)
+- **FIX — `min_swarm_consensus` raised 0.72 → 0.75**: Requires 75% weighted consensus (vs 72%) before a signal is emitted. Reduces marginal-consensus signals.
+- **FIX — `min_rr_ratio` raised 1.50 → 1.55**: Rejects signals with R:R below 1.55:1 (using TP2 as reward target).
+- **FIX — Extreme volatility filter tightened 4% → 3%**: ATR > 3% of price now rejects the signal (was 4%), avoiding erratic alt-coin high-volatility signals.
+- **FIX — Bollinger Band width chop filter added**: New pre-signal filter: when BB width < 0.5% of price (extreme compression/chop), direction is unknowable and signal is rejected. This prevents entering positions ahead of unpredictable breakouts.
+
+### Production Validation (Session 9)
+- 47 USDM symbols scanned in **4.6s** (parallel mode confirmed)
+- Consensus gate confirmed: **75%** in logs
+- First signal: UAIUSDT SELL — 9/9 agents unanimous, consensus=100%, conf=84.8%
+- Symbol blacklist: RIVERUSDT, TRUMPUSDT, ZECUSDT auto-blocked (recent_loss_rate ≥ 70%)
+- OutcomeTracker background task started cleanly (duplicate-bug fix verified)
+
+## Bug Fixes & Enhancements (Session 8)
 
 ### `SignalMaestro/neural_signal_trainer.py` — `_save_weights` float32 serialization (critical)
 - **ROOT CAUSE**: `danger_zones` tuples contain NumPy float32 bin-edge values from ndarray slicing (`lo`, `hi`); `feature_importance` is a plain Python `list()` of NumPy float32 scalars from `abs(win_mean - loss_mean) / ...`; several scalar fields (`class_weight_loss`, `_w_win`, `_w_loss`, etc.) may be float32 from NumPy arithmetic. `json.dump` raises `TypeError: Object of type float32 is not JSON serializable` on all of these.

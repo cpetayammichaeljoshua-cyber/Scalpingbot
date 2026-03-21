@@ -1537,17 +1537,26 @@ class AIOrchestrationAgent:
     )
 
     # Claude model cascade — tried in order until one succeeds.
-    # claude-3-5-haiku-20241022 is the preferred model (fastest, cheapest).
-    # claude-3-haiku-20240307   is the stable fallback (broadly available).
-    # claude-3-5-sonnet-20241022 is the final Claude fallback (higher tier).
+    # Cascade includes every known stable model ID (newest → oldest) so that
+    # accounts on any Anthropic plan tier can find at least one accessible model.
+    # 404-failed models are added to _claude_failed_models and skipped on future
+    # calls, BUT every 30 minutes the set is cleared so newly-provisioned models
+    # (e.g. after an account upgrade) are automatically retried.
     _CLAUDE_MODELS = [
-        "claude-3-5-haiku-20241022",   # primary: latest haiku
-        "claude-3-haiku-20240307",      # fallback: stable haiku (broadly available)
-        "claude-3-5-sonnet-20241022",   # last resort: higher-tier Claude
+        "claude-3-7-sonnet-20250219",   # Feb 2025: Claude 3.7 Sonnet (extended thinking)
+        "claude-3-5-haiku-20241022",    # Oct 2024: fastest/cheapest 3.5 tier
+        "claude-3-5-sonnet-20241022",   # Oct 2024: high-quality 3.5 sonnet
+        "claude-3-5-sonnet-20240620",   # Jun 2024: original 3.5 sonnet release
+        "claude-3-haiku-20240307",      # Mar 2024: broadly available legacy haiku
+        "claude-3-sonnet-20240229",     # Feb 2024: claude 3 sonnet legacy
+        "claude-3-opus-20240229",       # Feb 2024: highest capability legacy
     ]
+    # Interval to reset the 404-failed model set — allows recovery when Anthropic
+    # provisions new model access on the account without requiring a bot restart.
+    _CLAUDE_MODEL_RETRY_INTERVAL = 1800.0   # 30 minutes
     _OPENAI_MODEL  = "gpt-4o-mini"
-    _AI_TIMEOUT    = 10.0   # seconds — hard timeout for any AI call
-    _MAX_TOKENS    = 256    # sufficient for the structured JSON response
+    _AI_TIMEOUT    = 12.0   # seconds — hard timeout for any AI call (raised from 10)
+    _MAX_TOKENS    = 300    # sufficient for the structured JSON response (raised from 256)
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".AIOrchestrationAgent")
@@ -1559,8 +1568,11 @@ class AIOrchestrationAgent:
         # Claude model cascade — set of models confirmed as 404 (not available on account).
         # When a model 404s, it is added here and skipped on all future calls.
         # Each model is logged exactly ONCE when first added (deduplicates parallel coroutines).
-        # When _claude_failed_models == set(_CLAUDE_MODELS), permanently disable.
+        # Every _CLAUDE_MODEL_RETRY_INTERVAL seconds the set is cleared so that newly
+        # provisioned models (e.g. after an account upgrade) are retried automatically.
         self._claude_failed_models: set = set()
+        # Timestamp of last failed-model-set reset (monotonic seconds).
+        self._claude_failed_models_last_reset: float = time.time()
         # Unix timestamp until which Claude is disabled (0 = enabled).
         # Credits-exhausted errors set a 30-min cooldown; invalid key is permanent.
         self._claude_disabled_until: float = 0.0
@@ -1767,7 +1779,23 @@ class AIOrchestrationAgent:
         if self.claude_client is None:
             return None
         if self._claude_perm_disabled:
-            return None
+            # ── Periodic model-set reset ─────────────────────────────────
+            # _claude_perm_disabled is set when ALL known models return 404.
+            # Every _CLAUDE_MODEL_RETRY_INTERVAL seconds we clear the failed set
+            # and re-enable so that a newly provisioned model is discovered
+            # without requiring a full bot restart (account upgrade scenario).
+            _now_reset = time.time()
+            if (_now_reset - self._claude_failed_models_last_reset
+                    >= self._CLAUDE_MODEL_RETRY_INTERVAL):
+                self._claude_failed_models.clear()
+                self._claude_failed_models_last_reset = _now_reset
+                self._claude_perm_disabled = False
+                self.logger.info(
+                    "🔄 Claude model retry window reached — clearing failed-model "
+                    "set and re-enabling cascade. Will test all models again."
+                )
+            else:
+                return None
         if self._claude_disabled_until > 0:
             _now = time.time()
             if _now < self._claude_disabled_until:
@@ -2132,12 +2160,15 @@ class AIOrchestrationAgent:
         1. Quality over quantity — prefer NEUTRAL when conviction is low so the
            swarm's other gates (72% consensus, 80% confidence) can still reject
            marginal setups rather than rubber-stamping them with a weak AI vote.
-        2. Momentum-aligned — short-term price velocity must agree with the vote
-           direction; conflicting momentum degrades confidence.
-        3. Stricter quorum — require ≥3 agents agreeing before taking a position,
-           so a single-agent BUY/SELL never drives the AI-orchestration vote alone.
-        4. Confidence is capped at 82 in fallback mode (vs 95 with live AI) to
-           honestly reflect the reduced information quality when AI is absent.
+        2. Momentum + RSI + MACD confirmation — 3-layer technical validation
+           required; conflicting signals degrade confidence and can veto signals.
+        3. Stricter quorum (≥4 agents) — four independent agents must agree before
+           going directional, preventing noise-driven orchestration votes.
+        4. Confidence range 50–88: capped at 88 (vs 95 with live AI) to honestly
+           reflect reduced information quality, but high enough to pass the 80%
+           gate for genuine high-consensus setups.
+        5. Dominant-side margin requirement — if the winning side's score margin
+           is too thin (< 15% edge over the losing side), issue NEUTRAL.
         """
         buy_confs  = [v["conf"] for v in agent_summary.values() if v["vote"] == "BUY"]
         sell_confs = [v["conf"] for v in agent_summary.values() if v["vote"] == "SELL"]
@@ -2148,54 +2179,185 @@ class AIOrchestrationAgent:
         if n_buy == 0 and n_sell == 0:
             return "NEUTRAL", 50.0, "No agent consensus"
 
-        # Weighted aggregate confidence per side
+        # Weighted aggregate confidence per side (sum rewarded by agent count AND depth)
         avg_buy_conf  = sum(buy_confs)  / n_buy  if n_buy  else 0.0
         avg_sell_conf = sum(sell_confs) / n_sell if n_sell else 0.0
 
-        # Score: number_of_agents × avg_confidence — rewards both breadth and depth
+        # Score = count × avg_confidence — rewards both breadth and depth of agreement
         buy_score  = n_buy  * avg_buy_conf
         sell_score = n_sell * avg_sell_conf
 
-        # ── Momentum confirmation from recent closes ──────────────────────────
-        # Compute a simple short-term slope (last 4 closes) normalised by price.
-        # Positive slope → price rising (supports BUY), negative → supports SELL.
-        _momentum_bonus = 0.0
-        _momentum_conflict = False
-        if len(closes) >= 4 and closes[-1] > 0:
-            _slope  = (closes[-1] - closes[-4]) / closes[-1] * 100   # 4-bar % change
-            # Bonus when direction agrees with slope; penalty when it conflicts
-            if buy_score > sell_score and _slope > 0.20:
-                _momentum_bonus   = min(_slope * 2.0, 8.0)           # up to +8 pts
-            elif buy_score > sell_score and _slope < -0.30:
-                _momentum_conflict = True                             # price falling into BUY
-            elif sell_score > buy_score and _slope < -0.20:
-                _momentum_bonus   = min(abs(_slope) * 2.0, 8.0)      # up to +8 pts
-            elif sell_score > buy_score and _slope > 0.30:
-                _momentum_conflict = True                             # price rising into SELL
+        # ── Dominant-side margin requirement ──────────────────────────────────
+        # If the winning side's score is within 15% of the total (very thin margin),
+        # the consensus is too close to call — issue NEUTRAL to avoid marginal calls.
+        total_score = buy_score + sell_score
+        if total_score > 0:
+            buy_frac  = buy_score  / total_score
+            sell_frac = sell_score / total_score
+        else:
+            return "NEUTRAL", 50.0, "No scored agents"
+        if max(buy_frac, sell_frac) < 0.60:   # need at least 60% dominance
+            return "NEUTRAL", 50.0, (
+                f"Rule-based: thin margin — BUY {buy_frac:.0%} vs SELL {sell_frac:.0%}"
+            )
 
-        # ── Quorum gate: require ≥3 agents before going directional ──────────
-        # One or two agents agreeing may just be noise; below quorum → NEUTRAL.
-        _MIN_QUORUM = 3
+        # ── Technical indicator layer ─────────────────────────────────────────
+        # RSI overbought/oversold, MACD direction, Bollinger band position, and
+        # short-term price momentum are computed directly from closes to provide
+        # independent technical confirmation beyond the 8-agent swarm votes.
+        _rsi_raw  = _rsi(closes, 14)       if len(closes) >= 16  else None
+        _macd_l, _macd_s = _macd(closes)   if len(closes) >= 36  else (None, None)
+        _bb_u, _bb_m, _bb_l = _bollinger(closes, 20) if len(closes) >= 20 else (None, None, None)
+
+        _momentum_bonus    = 0.0
+        _momentum_conflict = False
+        _tech_boost        = 0.0
+        _tech_veto         = False
+        _tech_notes        = []
+
+        # 4-bar slope for short-term directional momentum
+        if len(closes) >= 5 and closes[-1] > 0:
+            _slope4 = (closes[-1] - closes[-5]) / closes[-1] * 100
+
+            # Stronger momentum check using 8-bar slope for trend confirmation
+            if len(closes) >= 9:
+                _slope8 = (closes[-1] - closes[-9]) / closes[-1] * 100
+            else:
+                _slope8 = _slope4
+
+            if buy_score > sell_score:
+                if _slope4 > 0.15 and _slope8 > 0.05:
+                    _momentum_bonus = min(_slope4 * 3.0, 10.0)     # up to +10 pts
+                    _tech_notes.append(f"momentum+{_momentum_bonus:.1f}pt")
+                elif _slope4 < -0.40:
+                    _momentum_conflict = True
+                    _tech_notes.append("momentum_conflict")
+                elif _slope4 < -0.20:
+                    _momentum_bonus = -5.0                         # soft penalty
+                    _tech_notes.append("momentum_weak_contra-5pt")
+            elif sell_score > buy_score:
+                if _slope4 < -0.15 and _slope8 < -0.05:
+                    _momentum_bonus = min(abs(_slope4) * 3.0, 10.0)
+                    _tech_notes.append(f"momentum+{_momentum_bonus:.1f}pt")
+                elif _slope4 > 0.40:
+                    _momentum_conflict = True
+                    _tech_notes.append("momentum_conflict")
+                elif _slope4 > 0.20:
+                    _momentum_bonus = -5.0
+                    _tech_notes.append("momentum_weak_contra-5pt")
+
+        # RSI confirmation
+        if _rsi_raw is not None:
+            if buy_score > sell_score:
+                if _rsi_raw < 35:                                  # oversold — strong BUY support
+                    _tech_boost += 5.0
+                    _tech_notes.append(f"RSI_oversold({_rsi_raw:.0f})+5pt")
+                elif _rsi_raw < 45:                                # mild oversold
+                    _tech_boost += 2.0
+                    _tech_notes.append(f"RSI_low({_rsi_raw:.0f})+2pt")
+                elif _rsi_raw > 72:                                # overbought into BUY — veto
+                    _tech_veto = True
+                    _tech_notes.append(f"RSI_overbought({_rsi_raw:.0f})VETO")
+                elif _rsi_raw > 63:                                # elevated into BUY — penalty
+                    _tech_boost -= 5.0
+                    _tech_notes.append(f"RSI_high({_rsi_raw:.0f})-5pt")
+            else:
+                if _rsi_raw > 65:                                  # overbought — strong SELL support
+                    _tech_boost += 5.0
+                    _tech_notes.append(f"RSI_overbought({_rsi_raw:.0f})+5pt")
+                elif _rsi_raw > 55:                                # mild overbought
+                    _tech_boost += 2.0
+                    _tech_notes.append(f"RSI_high({_rsi_raw:.0f})+2pt")
+                elif _rsi_raw < 28:                                # oversold into SELL — veto
+                    _tech_veto = True
+                    _tech_notes.append(f"RSI_oversold({_rsi_raw:.0f})VETO")
+                elif _rsi_raw < 37:                                # low into SELL — penalty
+                    _tech_boost -= 5.0
+                    _tech_notes.append(f"RSI_low({_rsi_raw:.0f})-5pt")
+
+        # MACD histogram direction confirmation
+        if _macd_l is not None and _macd_s is not None:
+            macd_hist = _macd_l - _macd_s
+            if buy_score > sell_score:
+                if macd_hist > 0:
+                    _tech_boost += 3.0
+                    _tech_notes.append("MACD_bull+3pt")
+                else:
+                    _tech_boost -= 4.0
+                    _tech_notes.append("MACD_bear-4pt")
+            else:
+                if macd_hist < 0:
+                    _tech_boost += 3.0
+                    _tech_notes.append("MACD_bear+3pt")
+                else:
+                    _tech_boost -= 4.0
+                    _tech_notes.append("MACD_bull-4pt")
+
+        # Bollinger band position — price relative to mid and bands
+        if _bb_u is not None and _bb_l is not None and _bb_m is not None and closes[-1] > 0:
+            _bb_width_pct = (_bb_u - _bb_l) / closes[-1] * 100
+            _bb_pos = (closes[-1] - _bb_l) / (_bb_u - _bb_l) if (_bb_u - _bb_l) > 0 else 0.5
+            if buy_score > sell_score:
+                if _bb_pos < 0.25:                                 # price near lower band
+                    _tech_boost += 3.0
+                    _tech_notes.append("BB_low+3pt")
+                elif _bb_pos > 0.85:                               # price near upper band → stretched
+                    _tech_boost -= 4.0
+                    _tech_notes.append("BB_high-4pt")
+                # Bollinger squeeze: very narrow band = pending breakout (neutral)
+                if _bb_width_pct < 0.5:
+                    _tech_boost -= 3.0
+                    _tech_notes.append("BB_squeeze-3pt")
+            else:
+                if _bb_pos > 0.75:                                 # price near upper band
+                    _tech_boost += 3.0
+                    _tech_notes.append("BB_high+3pt")
+                elif _bb_pos < 0.15:                               # price near lower band → stretched
+                    _tech_boost -= 4.0
+                    _tech_notes.append("BB_low-4pt")
+                if _bb_width_pct < 0.5:
+                    _tech_boost -= 3.0
+                    _tech_notes.append("BB_squeeze-3pt")
+
+        # ── Quorum gate: require ≥4 agents before going directional ──────────
+        # Raised from 3 → 4: four independent agents must agree, preventing
+        # a single strong agent from swinging the AI orchestration vote.
+        _MIN_QUORUM = 4
 
         if buy_score > sell_score:
             if n_buy < _MIN_QUORUM:
                 return "NEUTRAL", 50.0, (
                     f"Rule-based: only {n_buy}/{n_total} agents BUY — below quorum ({_MIN_QUORUM})"
                 )
+            # Technical veto: RSI overbought into BUY is hard rejection
+            if _tech_veto:
+                return "NEUTRAL", 50.0, (
+                    f"Rule-based: BUY vetoed by technical indicator | {', '.join(_tech_notes)}"
+                )
             participation = (n_buy + n_sell) / n_total
-            conf = (avg_buy_conf * 0.70) + (50.0 * 0.30)   # anchor to avg confidence
-            conf += participation * 10.0                    # breadth bonus (max ~10)
+            # Base confidence: weighted blend of avg agent confidence and breadth bonus
+            conf = (avg_buy_conf * 0.65) + (50.0 * 0.35)
+            conf += participation * 12.0                     # breadth bonus up to +12
             conf += _momentum_bonus
+            conf += _tech_boost
             if _momentum_conflict:
-                conf = max(conf - 10.0, 50.0)              # penalise conflicting price action
-            if chg_1h > 0.5:
-                conf = min(conf + 4.0, 82.0)               # 1h tail-wind
-            conf = min(conf, 82.0)                         # fallback cap (honest signal)
+                conf = max(conf - 12.0, 50.0)               # hard penalty for conflicting price
+            # 1H tail-wind: scaled by magnitude (stronger trend = bigger bonus)
+            if chg_1h > 1.5:
+                conf = min(conf + 6.0, 88.0)
+            elif chg_1h > 0.5:
+                conf = min(conf + 3.0, 88.0)
+            elif chg_1h < -0.5:                              # 1H head-wind vs BUY
+                conf = max(conf - 4.0, 50.0)
+            # Unanimity bonus: all active agents on same side
+            if n_sell == 0 and n_buy >= 5:
+                conf = min(conf + 4.0, 88.0)                # unanimous big-quorum bonus
+            conf = min(conf, 88.0)
             margin = buy_score - sell_score
             narrative = (
                 f"Rule-based AI: {n_buy}/{n_total} BUY "
                 f"(avg={avg_buy_conf:.1f}%, margin={margin:.1f}, "
-                f"1h={chg_1h:+.2f}%)"
+                f"1h={chg_1h:+.2f}%, tech=[{', '.join(_tech_notes) or 'none'}])"
             )
             return "BUY", round(conf, 1), narrative
 
@@ -2204,20 +2366,31 @@ class AIOrchestrationAgent:
                 return "NEUTRAL", 50.0, (
                     f"Rule-based: only {n_sell}/{n_total} agents SELL — below quorum ({_MIN_QUORUM})"
                 )
+            if _tech_veto:
+                return "NEUTRAL", 50.0, (
+                    f"Rule-based: SELL vetoed by technical indicator | {', '.join(_tech_notes)}"
+                )
             participation = (n_buy + n_sell) / n_total
-            conf = (avg_sell_conf * 0.70) + (50.0 * 0.30)
-            conf += participation * 10.0
+            conf = (avg_sell_conf * 0.65) + (50.0 * 0.35)
+            conf += participation * 12.0
             conf += _momentum_bonus
+            conf += _tech_boost
             if _momentum_conflict:
-                conf = max(conf - 10.0, 50.0)
-            if chg_1h < -0.5:
-                conf = min(conf + 4.0, 82.0)
-            conf = min(conf, 82.0)
+                conf = max(conf - 12.0, 50.0)
+            if chg_1h < -1.5:
+                conf = min(conf + 6.0, 88.0)
+            elif chg_1h < -0.5:
+                conf = min(conf + 3.0, 88.0)
+            elif chg_1h > 0.5:
+                conf = max(conf - 4.0, 50.0)
+            if n_buy == 0 and n_sell >= 5:
+                conf = min(conf + 4.0, 88.0)
+            conf = min(conf, 88.0)
             margin = sell_score - buy_score
             narrative = (
                 f"Rule-based AI: {n_sell}/{n_total} SELL "
                 f"(avg={avg_sell_conf:.1f}%, margin={margin:.1f}, "
-                f"1h={chg_1h:+.2f}%)"
+                f"1h={chg_1h:+.2f}%, tech=[{', '.join(_tech_notes) or 'none'}])"
             )
             return "SELL", round(conf, 1), narrative
 
@@ -2243,9 +2416,9 @@ class MiroFishSwarmStrategy:
         # Pre-boost signal gates — calibrated for quality over quantity
         self.min_signal_strength = 62.0     # raised: require stronger pre-boost signal
         self.min_confidence      = 64.0     # raised: require solid agent agreement
-        self.min_swarm_consensus = 0.72     # raised: ≥72% weighted consensus (was 62%)
+        self.min_swarm_consensus = 0.75     # raised: ≥75% weighted consensus (was 72%)
         self.min_active_agents   = 5        # raised: quorum needs 5/8 agents non-NEUTRAL (was 3)
-        self.min_rr_ratio        = 1.50     # raised: minimum 1.5:1 risk-reward (was 1.30)
+        self.min_rr_ratio        = 1.55     # raised: minimum 1.55:1 risk-reward (was 1.50)
 
         # ── Initialize all 9 agents (v4: +PivotSRAgent) ──
         self.trend_agent      = TrendAgent()
@@ -2840,15 +3013,30 @@ class MiroFishSwarmStrategy:
             vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
 
             # ── Extreme volatility filter ──────────────────────────────────────
-            # When ATR > 4% of price, the market is in a high-volatility regime
+            # When ATR > 3% of price, the market is in a high-volatility regime
             # where SL placement becomes imprecise and slippage is extreme.
             # Reject these signals to protect the Cornix position from blow-up.
+            # (Tightened from 4% → 3% to avoid erratic alt-coin signals.)
             if atr and atr > 0 and cur_price > 0:
                 atr_ratio_pct = atr / cur_price
-                if atr_ratio_pct > 0.04:
+                if atr_ratio_pct > 0.03:
                     self.logger.debug(
-                        f"⚠️ [{symbol}|{tf}] ATR={atr_ratio_pct:.1%} > 4% "
+                        f"⚠️ [{symbol}|{tf}] ATR={atr_ratio_pct:.1%} > 3% "
                         f"(extreme volatility) — signal rejected"
+                    )
+                    return None
+
+            # ── Bollinger Band width chop filter ──────────────────────────────
+            # When BB width < 0.5% of price the market is in extreme compression
+            # (chop/consolidation) — breakout direction is unknowable, so both
+            # BUY and SELL signals have low win probability.  Skip these setups.
+            _bb_u_f, _bb_m_f, _bb_l_f = _bollinger(closes, 20)
+            if _bb_u_f is not None and _bb_l_f is not None and cur_price > 0:
+                _bb_w_pct = (_bb_u_f - _bb_l_f) / cur_price * 100
+                if _bb_w_pct < 0.50:
+                    self.logger.debug(
+                        f"⚠️ [{symbol}|{tf}] BB width {_bb_w_pct:.2f}% < 0.50% "
+                        f"(choppy/compressed market) — signal rejected"
                     )
                     return None
 

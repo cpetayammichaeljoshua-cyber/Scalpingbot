@@ -525,14 +525,6 @@ class FXSUSDTTelegramBot:
             self.logger.error(f"❌ Telegram connection test failed: {e}")
         return False
 
-    async def close_tg_session(self):
-        """Gracefully close the shared Telegram HTTP session (call on shutdown)."""
-        if self._tg_session and not self._tg_session.closed:
-            await self._tg_session.close()
-        self._tg_session   = None
-        self._tg_connector = None
-        self.logger.debug("🔗 Telegram session closed")
-
     # ─────────────────────────────────────────
     # Rate Limiting
     # ─────────────────────────────────────────
