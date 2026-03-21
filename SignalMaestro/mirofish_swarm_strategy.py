@@ -1536,8 +1536,15 @@ class AIOrchestrationAgent:
         session_multipliers={"ASIAN": 1.00, "EU": 1.00, "US": 1.05, "TRANSITION": 0.65}
     )
 
-    # Claude model — fast, highly capable, cost-effective for trading signals
-    _CLAUDE_MODEL  = "claude-3-5-haiku-20241022"
+    # Claude model cascade — tried in order until one succeeds.
+    # claude-3-5-haiku-20241022 is the preferred model (fastest, cheapest).
+    # claude-3-haiku-20240307   is the stable fallback (broadly available).
+    # claude-3-5-sonnet-20241022 is the final Claude fallback (higher tier).
+    _CLAUDE_MODELS = [
+        "claude-3-5-haiku-20241022",   # primary: latest haiku
+        "claude-3-haiku-20240307",      # fallback: stable haiku (broadly available)
+        "claude-3-5-sonnet-20241022",   # last resort: higher-tier Claude
+    ]
     _OPENAI_MODEL  = "gpt-4o-mini"
     _AI_TIMEOUT    = 10.0   # seconds — hard timeout for any AI call
     _MAX_TOKENS    = 256    # sufficient for the structured JSON response
@@ -1549,15 +1556,18 @@ class AIOrchestrationAgent:
         self._react_log: deque = deque(maxlen=50)
         self._claude_err_count  = 0
         self._openai_err_count  = 0
-        # Unix timestamp until which Claude is disabled (0 = enabled, inf = permanent).
-        # Credits-exhausted errors set a 30-min cooldown; invalid key is permanent (inf).
-        # This replaces the old boolean that permanently silenced Claude for the entire
-        # process lifetime even after the user adds credits to their Anthropic account.
+        # Claude model cascade — set of models confirmed as 404 (not available on account).
+        # When a model 404s, it is added here and skipped on all future calls.
+        # Each model is logged exactly ONCE when first added (deduplicates parallel coroutines).
+        # When _claude_failed_models == set(_CLAUDE_MODELS), permanently disable.
+        self._claude_failed_models: set = set()
+        # Unix timestamp until which Claude is disabled (0 = enabled).
+        # Credits-exhausted errors set a 30-min cooldown; invalid key is permanent.
         self._claude_disabled_until: float = 0.0
-        self._claude_perm_disabled: bool   = False  # True only for invalid/expired key
+        self._claude_perm_disabled: bool   = False
         # Same pattern for OpenAI — 401 is permanent, billing/quota is 30-min cooldown.
         self._openai_disabled_until: float = 0.0
-        self._openai_perm_disabled: bool   = False  # True only for invalid/expired key
+        self._openai_perm_disabled: bool   = False
         self._init_claude()
         self._init_openai()
 
@@ -1592,8 +1602,11 @@ class AIOrchestrationAgent:
                     api_key=api_key,
                     max_retries=0,
                 )
+                _primary = self._CLAUDE_MODELS[0]
+                _fallbacks = self._CLAUDE_MODELS[1:]
                 self.logger.info(
-                    f"✅ AIOrchestrationAgent: Claude ({self._CLAUDE_MODEL}) ready — primary AI"
+                    f"✅ AIOrchestrationAgent: Claude ready — primary model: {_primary} "
+                    f"| fallback cascade: {_fallbacks}"
                 )
             else:
                 self.logger.info("ℹ️  AIOrchestrationAgent: No ANTHROPIC_API_KEY — Claude disabled")
@@ -1738,90 +1751,158 @@ class AIOrchestrationAgent:
         """
         Send prompt to Claude; return parsed dict or None on any error.
 
-        Circuit-breaker behaviour (time-based, not permanent):
-        ─────────────────────────────────────────────────────
-        • credits exhausted / billing → 30-min cooldown, then auto-retry
-          (user may add credits between cycles without restarting the bot).
-        • invalid/expired key → permanent disable (wrong key won't fix itself).
+        Circuit-breaker + model cascade behaviour:
+        ──────────────────────────────────────────
+        • 404 not_found_error (model unavailable on this account) →
+          automatically advances to the next model in _CLAUDE_MODELS cascade
+          and retries in the SAME call (no wasted cycle).  Logs once per
+          model switch to avoid spam.
+        • credits exhausted / billing → 30-min cooldown (auto-retry).
+          Race-condition safe: only the first coroutine to fire the cooldown
+          logs the warning; subsequent parallel coroutines see the flag and
+          return silently.
+        • invalid/expired key → permanent disable (won't fix itself).
         • network timeout → silent fallback, counted in _claude_err_count.
         """
         if self.claude_client is None:
             return None
-        # Permanent key error — never retry
         if self._claude_perm_disabled:
             return None
-        # Time-based cooldown — check if cooldown has elapsed
         if self._claude_disabled_until > 0:
             _now = time.time()
             if _now < self._claude_disabled_until:
                 return None
-            # Cooldown elapsed — re-enable and try again
             self._claude_disabled_until = 0.0
             self._claude_err_count      = 0
             self.logger.info(
                 "💳 Claude cooldown elapsed — re-enabling. "
                 "Attempting API call (credits may have been added)."
             )
-        try:
-            coro = self.claude_client.messages.create(
-                model=self._CLAUDE_MODEL,
-                max_tokens=self._MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            response = await asyncio.wait_for(coro, timeout=self._AI_TIMEOUT)
-            text = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    text += block.text
-            data = self._parse_ai_response(text.strip())
-            if data:
-                self._claude_err_count = 0
-            return data
-        except asyncio.TimeoutError:
-            self._claude_err_count += 1
-            if self._claude_err_count <= 3:
-                self.logger.warning("⏱ Claude timeout — falling back to OpenAI")
-            return None
-        except Exception as e:
-            self._claude_err_count += 1
-            err_str = str(e).lower()
 
-            # ── Permanent errors: wrong key, no access ──
-            _PERM_PHRASES = (
-                "invalid x-api-key", "invalid api key",
-                "authentication_error", "permission_error",
-                "access denied", "permission denied",
-            )
-            if any(p in err_str for p in _PERM_PHRASES):
-                if not self._claude_perm_disabled:
-                    self._claude_perm_disabled = True
+        # ── Model cascade using deduplicating failed-model set ───────────
+        # _claude_failed_models is a shared set (single agent instance).
+        # When a model is added, ALL concurrent coroutines see it immediately
+        # at their next check, so each model is logged as failed EXACTLY ONCE
+        # regardless of how many parallel symbol scans are in flight.
+        available_models = [m for m in self._CLAUDE_MODELS
+                            if m not in self._claude_failed_models]
+        if not available_models:
+            if not self._claude_perm_disabled:
+                self._claude_perm_disabled = True
+                self.logger.warning(
+                    f"🔑 Claude permanently disabled — no accessible model found "
+                    f"in cascade {self._CLAUDE_MODELS}. "
+                    "Verify ANTHROPIC_API_KEY has model access. Rule-based active."
+                )
+            return None
+
+        for _current_model in available_models:
+            try:
+                coro = self.claude_client.messages.create(
+                    model=_current_model,
+                    max_tokens=self._MAX_TOKENS,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                response = await asyncio.wait_for(coro, timeout=self._AI_TIMEOUT)
+                text = ""
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        text += block.text
+                data = self._parse_ai_response(text.strip())
+                if data:
+                    self._claude_err_count = 0
+                return data
+
+            except asyncio.TimeoutError:
+                self._claude_err_count += 1
+                if self._claude_err_count <= 3:
                     self.logger.warning(
-                        "🔑 Claude permanently disabled — invalid or expired API key. "
-                        "Set a valid ANTHROPIC_API_KEY to re-enable."
+                        f"⏱ Claude/{_current_model} timeout — falling back to OpenAI"
                     )
                 return None
 
-            # ── Temporary errors: credits exhausted / billing — 30-min retry ──
-            _CREDIT_PHRASES = (
-                "credit balance is too low", "insufficient_quota",
-                "billing", "payment", "your account",
-                "overloaded_error",
-            )
-            if any(p in err_str for p in _CREDIT_PHRASES):
-                _cooldown = 1800  # 30 minutes
-                self._claude_disabled_until = time.time() + _cooldown
-                self.logger.warning(
-                    f"💳 Claude paused — API credits/billing issue. "
-                    f"Auto-retrying in {_cooldown // 60} min. "
-                    f"Add credits at console.anthropic.com if needed."
+            except Exception as e:
+                err_str = str(e).lower()
+
+                # ── 404 not_found: model unavailable on this account ──────
+                # Add to failed set — set.add() is idempotent, so concurrent
+                # coroutines adding the same model is safe.  Only log when
+                # the model is NEWLY added (_is_new flag).
+                _NOT_FOUND_PHRASES = (
+                    "not_found_error", "not found", "404",
+                    "model: claude", "no such model", "unknown model",
                 )
+                if any(p in err_str for p in _NOT_FOUND_PHRASES):
+                    _is_new = _current_model not in self._claude_failed_models
+                    self._claude_failed_models.add(_current_model)
+                    if _is_new:
+                        _remaining = [m for m in self._CLAUDE_MODELS
+                                      if m not in self._claude_failed_models]
+                        if _remaining:
+                            self.logger.warning(
+                                f"⚠️ Claude model not accessible: {_current_model}. "
+                                f"Falling back to: {_remaining[0]}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"⚠️ Claude model not accessible: {_current_model}. "
+                                "All cascade models exhausted — rule-based active."
+                            )
+                    # Try next model in the for-loop (continue cascade)
+                    continue
+
+                # ── Permanent errors: wrong key, no access ────────────────
+                _PERM_PHRASES = (
+                    "invalid x-api-key", "invalid api key",
+                    "authentication_error", "permission_error",
+                    "access denied", "permission denied",
+                )
+                if any(p in err_str for p in _PERM_PHRASES):
+                    if not self._claude_perm_disabled:
+                        self._claude_perm_disabled = True
+                        self.logger.warning(
+                            "🔑 Claude permanently disabled — invalid or expired API key. "
+                            "Set a valid ANTHROPIC_API_KEY to re-enable."
+                        )
+                    return None
+
+                # ── Temporary errors: credits/billing — 30-min cooldown ───
+                # Race-condition safe: _was_enabled ensures only the first
+                # coroutine logs the warning; subsequent ones silently skip.
+                _CREDIT_PHRASES = (
+                    "credit balance is too low", "insufficient_quota",
+                    "billing", "payment", "your account",
+                    "overloaded_error",
+                )
+                if any(p in err_str for p in _CREDIT_PHRASES):
+                    _cooldown = 1800  # 30 minutes
+                    _was_enabled = self._claude_disabled_until == 0.0
+                    self._claude_disabled_until = time.time() + _cooldown
+                    if _was_enabled:
+                        self.logger.warning(
+                            f"💳 Claude paused — credits/billing issue. "
+                            f"Auto-retrying in {_cooldown // 60} min. "
+                            "Add credits at console.anthropic.com if needed."
+                        )
+                    return None
+
+                # ── Generic transient error ───────────────────────────────
+                self._claude_err_count += 1
+                if self._claude_err_count <= 5:
+                    self.logger.warning(
+                        f"⚠️ Claude/{_current_model} {type(e).__name__} "
+                        f"(#{self._claude_err_count}): {str(e)[:200]}"
+                    )
                 return None
 
-            if self._claude_err_count <= 5:
-                self.logger.warning(
-                    f"⚠️ Claude {type(e).__name__} (#{self._claude_err_count}): {str(e)[:200]}"
-                )
-            return None
+        # All cascade models failed with 404 — mark permanently disabled
+        if not self._claude_perm_disabled:
+            self._claude_perm_disabled = True
+            self.logger.warning(
+                "🔑 Claude permanently disabled — all models returned 404. "
+                "Rule-based fallback active for all future signals."
+            )
+        return None
 
     # ── OpenAI query ─────────────────────────────────────────────────────────
 
@@ -1833,19 +1914,18 @@ class AIOrchestrationAgent:
         ─────────────────────────────────────────────────────────────────
         • 401 / invalid key → permanent disable (wrong key won't fix itself).
         • billing / quota / rate-limit → 30-min cooldown, then auto-retry.
+          Race-condition safe: only the first coroutine to hit the quota
+          error logs the warning; parallel coroutines silently return None.
         • network timeout → silent fallback, counted in _openai_err_count.
         """
         if self.openai_client is None:
             return None
-        # Permanent key error — never retry
         if self._openai_perm_disabled:
             return None
-        # Time-based cooldown — check if cooldown has elapsed
         if self._openai_disabled_until > 0:
             _now = time.time()
             if _now < self._openai_disabled_until:
                 return None
-            # Cooldown elapsed — re-enable
             self._openai_disabled_until = 0.0
             self._openai_err_count      = 0
             self.logger.info(
@@ -1876,7 +1956,6 @@ class AIOrchestrationAgent:
             err_str = str(e).lower()
 
             # ── Permanent errors: invalid/expired key (401) ──
-            # These will never succeed without a new key — disable forever.
             _PERM_PHRASES = (
                 "401", "invalid_api_key", "incorrect api key",
                 "authentication", "invalid x-api-key",
@@ -1891,6 +1970,9 @@ class AIOrchestrationAgent:
                 return None
 
             # ── Temporary errors: billing/quota/rate-limit — 30-min retry ──
+            # Race-condition safe: check if WE are the first coroutine to set
+            # the cooldown.  Parallel symbol-scan coroutines all fail at the
+            # same timestamp; only the first logs the warning.
             _TEMP_PHRASES = (
                 "insufficient_quota", "billing", "payment", "your account",
                 "429", "rate_limit_exceeded", "overloaded", "service_unavailable",
@@ -1898,11 +1980,14 @@ class AIOrchestrationAgent:
             )
             if any(p in err_str for p in _TEMP_PHRASES):
                 _cooldown = 1800  # 30 minutes
+                _was_enabled = self._openai_disabled_until == 0.0
                 self._openai_disabled_until = time.time() + _cooldown
-                self.logger.warning(
-                    f"🔑 OpenAI paused — quota/billing/rate issue. "
-                    f"Auto-retrying in {_cooldown // 60} min. Rule-based active until then."
-                )
+                if _was_enabled:
+                    # Only the first coroutine logs — subsequent ones are silenced.
+                    self.logger.warning(
+                        f"🔑 OpenAI paused — quota/billing/rate issue. "
+                        f"Auto-retrying in {_cooldown // 60} min. Rule-based active until then."
+                    )
                 return None
 
             if self._openai_err_count <= 3:
@@ -1979,11 +2064,16 @@ class AIOrchestrationAgent:
             bb_pct=_bb_pct, stoch_k=_stoch_k, atr_pct=_atr_pct
         )
 
-        # ── ACT: Claude (primary) ──
+        # ── ACT: Claude (primary, with automatic model cascade on 404) ──
         ai_source = None
         data = await self._query_claude(prompt)
         if data:
-            ai_source = f"Claude/{self._CLAUDE_MODEL}"
+            # Report the first model in the cascade that's not confirmed failed
+            _active_model = next(
+                (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
+                self._CLAUDE_MODELS[-1]
+            )
+            ai_source = f"Claude/{_active_model}"
         else:
             # ── ACT: OpenAI (secondary fallback) ──
             data = await self._query_openai(prompt)
