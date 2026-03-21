@@ -146,6 +146,21 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
 
+# Suppress openai SDK internal retry INFO messages.
+# The openai._base_client emits an INFO log "Retrying request to /chat/completions
+# in Xs" for every SDK-internal retry attempt (default max_retries=2).
+# On a 401/invalid-key these fire twice per call BEFORE the circuit breaker can
+# detect the permanent failure, flooding logs with hundreds of lines per minute
+# when many symbols are scanned in parallel.  Raising to WARNING so only
+# genuine problems (rate limits, server errors) remain visible.
+logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+logging.getLogger("openai.resources").setLevel(logging.WARNING)
+
+# Suppress Anthropic SDK internal retry messages (same issue as openai above).
+logging.getLogger("anthropic").setLevel(logging.WARNING)
+logging.getLogger("anthropic._base_client").setLevel(logging.WARNING)
+
 
 # ─────────────────────────────────────────────
 # Main Async Bot Runner

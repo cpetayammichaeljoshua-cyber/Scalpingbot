@@ -1570,12 +1570,24 @@ class AIOrchestrationAgent:
         ).strip()
 
     def _init_claude(self):
-        """Initialise the Anthropic AsyncAnthropic client (non-blocking)."""
+        """Initialise the Anthropic AsyncAnthropic client (non-blocking).
+
+        max_retries=0: disable SDK-internal retries on every call.
+        Auth / billing errors (credits exhausted) should NEVER be retried —
+        they are permanent until resolved by the user.  Without this, each
+        call that hits a credits-exhausted 402 internally retries twice,
+        flooding logs with 'Retrying request…' INFO lines from the SDK before
+        the permanent-disable circuit breaker can fire.  The circuit breaker
+        in _query_claude() handles retry logic at the application layer.
+        """
         try:
             import anthropic
             api_key = self._clean_api_key(os.getenv("ANTHROPIC_API_KEY", ""))
             if api_key:
-                self.claude_client = anthropic.AsyncAnthropic(api_key=api_key)
+                self.claude_client = anthropic.AsyncAnthropic(
+                    api_key=api_key,
+                    max_retries=0,
+                )
                 self.logger.info(
                     f"✅ AIOrchestrationAgent: Claude ({self._CLAUDE_MODEL}) ready — primary AI"
                 )
@@ -1587,12 +1599,22 @@ class AIOrchestrationAgent:
             self.logger.debug(f"Claude init error: {e}")
 
     def _init_openai(self):
-        """Initialise the AsyncOpenAI client as fallback."""
+        """Initialise the AsyncOpenAI client as fallback.
+
+        max_retries=0: disable SDK-internal retries.
+        A 401 (invalid key) or 403 (billing) is permanent — retrying wastes
+        HTTP round-trips and floods logs with INFO retry messages before our
+        circuit breaker (_openai_disabled) can permanently silence the client.
+        Application-layer retry decisions are made in _query_openai().
+        """
         try:
             from openai import AsyncOpenAI
             api_key = self._clean_api_key(os.getenv("OPENAI_API_KEY", ""))
             if api_key:
-                self.openai_client = AsyncOpenAI(api_key=api_key)
+                self.openai_client = AsyncOpenAI(
+                    api_key=api_key,
+                    max_retries=0,
+                )
                 self.logger.info(
                     f"✅ AIOrchestrationAgent: OpenAI ({self._OPENAI_MODEL}) ready — secondary fallback"
                 )
@@ -1941,43 +1963,102 @@ class AIOrchestrationAgent:
     def _rule_based_analysis(agent_summary: dict, closes: List[float],
                               chg_1h: float) -> Tuple[str, float, str]:
         """
-        Comprehensive rule-based AI fallback when OpenAI is unavailable.
-        Aggregates agent votes with confidence weighting.
+        High-precision rule-based AI fallback active when both Claude and OpenAI
+        are unavailable (credits exhausted / invalid key).
+
+        Design goals
+        ────────────
+        1. Quality over quantity — prefer NEUTRAL when conviction is low so the
+           swarm's other gates (72% consensus, 80% confidence) can still reject
+           marginal setups rather than rubber-stamping them with a weak AI vote.
+        2. Momentum-aligned — short-term price velocity must agree with the vote
+           direction; conflicting momentum degrades confidence.
+        3. Stricter quorum — require ≥3 agents agreeing before taking a position,
+           so a single-agent BUY/SELL never drives the AI-orchestration vote alone.
+        4. Confidence is capped at 82 in fallback mode (vs 95 with live AI) to
+           honestly reflect the reduced information quality when AI is absent.
         """
         buy_confs  = [v["conf"] for v in agent_summary.values() if v["vote"] == "BUY"]
         sell_confs = [v["conf"] for v in agent_summary.values() if v["vote"] == "SELL"]
-        n_buy  = len(buy_confs)
-        n_sell = len(sell_confs)
+        n_buy   = len(buy_confs)
+        n_sell  = len(sell_confs)
         n_total = len(agent_summary)
 
         if n_buy == 0 and n_sell == 0:
             return "NEUTRAL", 50.0, "No agent consensus"
 
-        # Weight-adjusted aggregate confidence
-        avg_buy_conf  = sum(buy_confs)  / n_buy  if n_buy  else 0
-        avg_sell_conf = sum(sell_confs) / n_sell if n_sell else 0
+        # Weighted aggregate confidence per side
+        avg_buy_conf  = sum(buy_confs)  / n_buy  if n_buy  else 0.0
+        avg_sell_conf = sum(sell_confs) / n_sell if n_sell else 0.0
 
-        # Score: number × avg confidence
+        # Score: number_of_agents × avg_confidence — rewards both breadth and depth
         buy_score  = n_buy  * avg_buy_conf
         sell_score = n_sell * avg_sell_conf
 
-        if buy_score > sell_score and n_buy >= 1:
-            participation = (n_buy + n_sell) / n_total
-            conf = avg_buy_conf * 0.65 + 50 * 0.35
-            conf += participation * 12
-            if chg_1h > 0.5: conf = min(conf + 5, 95)
-            narrative = (f"Rule-based: {n_buy}/{n_total} agents BUY "
-                         f"(avg_conf={avg_buy_conf:.1f}%, 1h={chg_1h:+.2f}%)")
-            return "BUY", min(conf, 90.0), narrative
+        # ── Momentum confirmation from recent closes ──────────────────────────
+        # Compute a simple short-term slope (last 4 closes) normalised by price.
+        # Positive slope → price rising (supports BUY), negative → supports SELL.
+        _momentum_bonus = 0.0
+        _momentum_conflict = False
+        if len(closes) >= 4 and closes[-1] > 0:
+            _slope  = (closes[-1] - closes[-4]) / closes[-1] * 100   # 4-bar % change
+            # Bonus when direction agrees with slope; penalty when it conflicts
+            if buy_score > sell_score and _slope > 0.20:
+                _momentum_bonus   = min(_slope * 2.0, 8.0)           # up to +8 pts
+            elif buy_score > sell_score and _slope < -0.30:
+                _momentum_conflict = True                             # price falling into BUY
+            elif sell_score > buy_score and _slope < -0.20:
+                _momentum_bonus   = min(abs(_slope) * 2.0, 8.0)      # up to +8 pts
+            elif sell_score > buy_score and _slope > 0.30:
+                _momentum_conflict = True                             # price rising into SELL
 
-        elif sell_score > buy_score and n_sell >= 1:
+        # ── Quorum gate: require ≥3 agents before going directional ──────────
+        # One or two agents agreeing may just be noise; below quorum → NEUTRAL.
+        _MIN_QUORUM = 3
+
+        if buy_score > sell_score:
+            if n_buy < _MIN_QUORUM:
+                return "NEUTRAL", 50.0, (
+                    f"Rule-based: only {n_buy}/{n_total} agents BUY — below quorum ({_MIN_QUORUM})"
+                )
             participation = (n_buy + n_sell) / n_total
-            conf = avg_sell_conf * 0.65 + 50 * 0.35
-            conf += participation * 12
-            if chg_1h < -0.5: conf = min(conf + 5, 95)
-            narrative = (f"Rule-based: {n_sell}/{n_total} agents SELL "
-                         f"(avg_conf={avg_sell_conf:.1f}%, 1h={chg_1h:+.2f}%)")
-            return "SELL", min(conf, 90.0), narrative
+            conf = (avg_buy_conf * 0.70) + (50.0 * 0.30)   # anchor to avg confidence
+            conf += participation * 10.0                    # breadth bonus (max ~10)
+            conf += _momentum_bonus
+            if _momentum_conflict:
+                conf = max(conf - 10.0, 50.0)              # penalise conflicting price action
+            if chg_1h > 0.5:
+                conf = min(conf + 4.0, 82.0)               # 1h tail-wind
+            conf = min(conf, 82.0)                         # fallback cap (honest signal)
+            margin = buy_score - sell_score
+            narrative = (
+                f"Rule-based AI: {n_buy}/{n_total} BUY "
+                f"(avg={avg_buy_conf:.1f}%, margin={margin:.1f}, "
+                f"1h={chg_1h:+.2f}%)"
+            )
+            return "BUY", round(conf, 1), narrative
+
+        elif sell_score > buy_score:
+            if n_sell < _MIN_QUORUM:
+                return "NEUTRAL", 50.0, (
+                    f"Rule-based: only {n_sell}/{n_total} agents SELL — below quorum ({_MIN_QUORUM})"
+                )
+            participation = (n_buy + n_sell) / n_total
+            conf = (avg_sell_conf * 0.70) + (50.0 * 0.30)
+            conf += participation * 10.0
+            conf += _momentum_bonus
+            if _momentum_conflict:
+                conf = max(conf - 10.0, 50.0)
+            if chg_1h < -0.5:
+                conf = min(conf + 4.0, 82.0)
+            conf = min(conf, 82.0)
+            margin = sell_score - buy_score
+            narrative = (
+                f"Rule-based AI: {n_sell}/{n_total} SELL "
+                f"(avg={avg_sell_conf:.1f}%, margin={margin:.1f}, "
+                f"1h={chg_1h:+.2f}%)"
+            )
+            return "SELL", round(conf, 1), narrative
 
         return "NEUTRAL", 50.0, "Balanced signals — no edge"
 

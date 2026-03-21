@@ -93,7 +93,15 @@ async def _analyze_signal_fallback(signal_text: str) -> dict:
 
 
 if OPENAI_AVAILABLE:
-    _openai_client = _AsyncOpenAI(api_key=_OPENAI_API_KEY)
+    # max_retries=0: disable SDK-internal automatic retries.
+    # The openai SDK retries up to 2 times by default before raising an exception.
+    # On a 401 (invalid key) or billing error these retries are useless and generate
+    # a flood of INFO log lines ("Retrying request to /chat/completions in Xs") from
+    # openai._base_client — one set per parallel symbol scan — before our circuit
+    # breaker can permanently silence the client.
+    # With max_retries=0 the SDK raises immediately; our circuit breaker fires on
+    # the first failure and disables all subsequent calls in a single log line.
+    _openai_client = _AsyncOpenAI(api_key=_OPENAI_API_KEY, max_retries=0)
 
     # Circuit breaker: once a permanent auth error (401/403) is detected, stop
     # making OpenAI calls for the lifetime of the process.  Avoids a flood of
@@ -152,13 +160,20 @@ if OPENAI_AVAILABLE:
                         "permanently. Set a valid OPENAI_API_KEY to re-enable AI analysis."
                     )
             else:
-                logging.getLogger(__name__).warning(
+                logging.getLogger(__name__).debug(
                     f"OpenAI GPT call failed, using rule-based fallback: {_gpt_err}"
                 )
             return await _analyze_signal_fallback(signal_text)
 
     async def analyze_sentiment(text: str) -> dict:
-        """Real GPT-4o-mini sentiment analysis."""
+        """Real GPT-4o-mini sentiment analysis.
+
+        Respects the _openai_auth_failed circuit breaker so a permanently invalid
+        key does not trigger repeated API calls from this function either.
+        """
+        global _openai_auth_failed
+        if _openai_auth_failed:
+            return {"sentiment": "neutral", "score": 0.0, "fallback": True}
         try:
             response = await _openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -182,15 +197,24 @@ if OPENAI_AVAILABLE:
                 "score":     float(result.get("score", 0.0)),
                 "fallback":  False,
             }
-        except Exception:
+        except Exception as _sent_err:
+            _err_str = str(_sent_err).lower()
+            _auth_keywords = ("401", "invalid_api_key", "incorrect api key", "403",
+                               "insufficient_quota", "billing", "payment")
+            if any(kw in _err_str for kw in _auth_keywords):
+                if not _openai_auth_failed:
+                    _openai_auth_failed = True
+                    logging.getLogger(__name__).warning(
+                        "🔑 OpenAI API key invalid — sentiment analysis permanently disabled."
+                    )
             return {"sentiment": "neutral", "score": 0.0, "fallback": True}
 
     def get_openai_status() -> dict:
         return {
             "configured":      True,
-            "enabled":         True,
+            "enabled":         not _openai_auth_failed,
             "model":           "gpt-4o-mini",
-            "fallback_active": False,
+            "fallback_active": _openai_auth_failed,
         }
 
 else:
