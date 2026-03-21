@@ -54,15 +54,15 @@ except ImportError:
 WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
 MIN_TRAIN_SAMPLES = 20   # minimum labeled trades before NN activates
-INPUT_DIM        = 41    # v3: +1 for PivotSRAgent vote (was 40); 9 agents now fully captured
+INPUT_DIM        = 42    # v4: +1 for FLOOPAgent vote (was 41); 10 agents now fully captured
 
-# Agent order — all 9 votes used as features (PivotSRAgent added in v4.1 — INPUT_DIM 40→41)
-# IMPORTANT: Adding PivotSRAgent here changes W1 shape from (40,128) to (41,128).
+# Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
+# IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
 # _load_weights() detects the shape mismatch and re-initialises cleanly (no crash).
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
-    "FundingFlowAgent", "PivotSRAgent", "AIOrchestrationAgent",
+    "FundingFlowAgent", "PivotSRAgent", "FLOOPAgent", "AIOrchestrationAgent",
 ]
 _SESSION = {"ASIAN": 0.0, "EU": 0.33, "US": 1.0, "TRANSITION": 0.17}
 _VOTE    = {"BUY": 1.0, "SELL": -1.0, "NEUTRAL": 0.0}
@@ -109,39 +109,39 @@ def _safe_float(value, default: float = 0.0) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature engineering  (41 features — v3: PivotSRAgent added, INPUT_DIM 40→41)
+# Feature engineering  (42 features — v4: FLOOPAgent added, INPUT_DIM 41→42)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    41-feature normalised vector from a trade record dict (v3 — PivotSRAgent added).
+    42-feature normalised vector from a trade record dict (v4 — FLOOPAgent added).
 
-    v3 change: PivotSRAgent vote added as feature 25 (was missing in v2).
-    All features after 24 shift up by 1. INPUT_DIM: 40 → 41.
+    v4 change: FLOOPAgent vote added as feature 26 (between PivotSRAgent and AIOrchestrationAgent).
+    All features after 25 shift up by 1. INPUT_DIM: 41 → 42.
 
     Features 1-12:  scalar signal quality indicators
     Features 13-16: time / leverage encoding
-    Features 17-25: all 9 agent votes [-1, 0, +1]   ← +1 for PivotSRAgent
-    Features 26-27: derived consensus metrics (agreement fraction, purity)
-    Features 28-29: RSI regime flags (overbought / oversold binary)
-    Features 30-31: Bollinger Band extreme zone flags (upper / lower extreme)
-    Features 32-41: v2 non-linear interaction & regime terms
-      32 — RSI strength aligned to direction  (punishes counter-RSI signals)
-      33 — BB position aligned to direction   (punishes counter-BB signals)
-      34 — confidence × consensus product     (joint quality gate interaction)
-      35 — R:R quadratic scaling              (super-linear reward for high R:R)
-      36 — participation rate squared         (super-linear reward for quorum)
-      37 — consensus cubed                    (strongly amplifies near-unanimous)
-      38 — log-normalised volume ratio        (handles vol spikes non-linearly)
-      39 — ATR ratio quadratic                (super-linear for high volatility)
-      40 — sub-day cosine cycle               (captures intra-session 6h rhythm)
-      41 — RSI trap risk aligned to direction (warns of exhaustion in direction)
+    Features 17-26: all 10 agent votes [-1, 0, +1]   ← +1 for FLOOPAgent
+    Features 27-28: derived consensus metrics (agreement fraction, purity)
+    Features 29-30: RSI regime flags (overbought / oversold binary)
+    Features 31-32: Bollinger Band extreme zone flags (upper / lower extreme)
+    Features 33-42: v2 non-linear interaction & regime terms
+      33 — RSI strength aligned to direction  (punishes counter-RSI signals)
+      34 — BB position aligned to direction   (punishes counter-BB signals)
+      35 — confidence × consensus product     (joint quality gate interaction)
+      36 — R:R quadratic scaling              (super-linear reward for high R:R)
+      37 — participation rate squared         (super-linear reward for quorum)
+      38 — consensus cubed                    (strongly amplifies near-unanimous)
+      39 — log-normalised volume ratio        (handles vol spikes non-linearly)
+      40 — ATR ratio quadratic                (super-linear for high volatility)
+      41 — sub-day cosine cycle               (captures intra-session 6h rhythm)
+      42 — RSI trap risk aligned to direction (warns of exhaustion in direction)
     """
     if not _HAS_NUMPY:
         raise ImportError("numpy required for neural signal trainer")
 
     votes = json.loads(trade.get("agent_votes_json", "{}"))
-    # All 8 agent votes (FundingFlow + AI now included, not just first 6)
+    # All 10 agent votes (FLOOPAgent added in v5.0 — auto-generated from AGENT_ORDER)
     agent_feats = [_VOTE.get(votes.get(a, "NEUTRAL"), 0.0) for a in AGENT_ORDER]
 
     direction = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
@@ -246,31 +246,31 @@ def build_features(trade: Dict) -> "np.ndarray":
         (rsi - 50.0) ** 2 / 2500.0,                                      # 14 rsi extremity [0,1]
         math.sin(2.0 * math.pi * hour / 24.0),                           # 15 hour_sin
         math.cos(2.0 * math.pi * hour / 24.0),                           # 16 hour_cos
-    ] + agent_feats + [                                                   # 17-25 all 9 agent votes (PivotSRAgent added)
+    ] + agent_feats + [                                                   # 17-26 all 10 agent votes (FLOOPAgent added)
 
-        # ── Derived consensus metrics (26-27) ────────────────────────────────
-        agreement_frac,                                                   # 26 direction agreement [0,1]
-        consensus_purity,                                                 # 27 dominant-side purity [0,1]
+        # ── Derived consensus metrics (27-28) ────────────────────────────────
+        agreement_frac,                                                   # 27 direction agreement [0,1]
+        consensus_purity,                                                 # 28 dominant-side purity [0,1]
 
-        # ── RSI regime flags (28-29) ─────────────────────────────────────────
-        rsi_overbought,                                                   # 28 1 if RSI>70 (OB trap risk)
-        rsi_oversold,                                                     # 29 1 if RSI<30 (OS trap risk)
+        # ── RSI regime flags (29-30) ─────────────────────────────────────────
+        rsi_overbought,                                                   # 29 1 if RSI>70 (OB trap risk)
+        rsi_oversold,                                                     # 30 1 if RSI<30 (OS trap risk)
 
-        # ── Bollinger Band extreme zone flags (30-31) ────────────────────────
-        bb_upper_extreme,                                                 # 30 1 if price near upper BB
-        bb_lower_extreme,                                                 # 31 1 if price near lower BB
+        # ── Bollinger Band extreme zone flags (31-32) ────────────────────────
+        bb_upper_extreme,                                                 # 31 1 if price near upper BB
+        bb_lower_extreme,                                                 # 32 1 if price near lower BB
 
-        # ── v2 Non-linear interaction & regime features (32-41) ──────────────
-        rsi_aligned,                                                      # 32 RSI aligned to direction
-        bb_aligned,                                                       # 33 BB pos aligned to direction
-        conf_x_consensus,                                                 # 34 confidence × consensus
-        rr_quadratic,                                                     # 35 R:R quadratic
-        part_sq,                                                          # 36 participation squared
-        consensus_cubed,                                                  # 37 consensus cubed
-        vol_log,                                                          # 38 log vol ratio
-        atr_quad,                                                         # 39 ATR quadratic
-        hour_cos2,                                                        # 40 sub-day cosine (6h)
-        rsi_trap,                                                         # 41 RSI trap risk aligned
+        # ── v2 Non-linear interaction & regime features (33-42) ──────────────
+        rsi_aligned,                                                      # 33 RSI aligned to direction
+        bb_aligned,                                                       # 34 BB pos aligned to direction
+        conf_x_consensus,                                                 # 35 confidence × consensus
+        rr_quadratic,                                                     # 36 R:R quadratic
+        part_sq,                                                          # 37 participation squared
+        consensus_cubed,                                                  # 38 consensus cubed
+        vol_log,                                                          # 39 log vol ratio
+        atr_quad,                                                         # 40 ATR quadratic
+        hour_cos2,                                                        # 41 sub-day cosine (6h)
+        rsi_trap,                                                         # 42 RSI trap risk aligned
     ]
 
     arr = np.array(f, dtype=np.float32)

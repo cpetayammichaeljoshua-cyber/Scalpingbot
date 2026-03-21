@@ -28,6 +28,7 @@ v3.1 — Comprehensive Enhancement:
 
 import asyncio
 import logging
+import math
 from collections import deque
 import os
 import time
@@ -2518,6 +2519,220 @@ class AIOrchestrationAgent:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# FLOOP Pro Agent — ML-Optimized Range Filter (Pine Script → Python)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FLOOPAgent:
+    """
+    FLOOP Pro Agent — 10th swarm member, ML-optimized range filter.
+
+    Python port of the FLOOP Pro Pine Script indicator with ML-proven scoring.
+
+    Feature importance (from ML backtesting analysis of Pine Script signals):
+      1. ROC momentum (5/10/20-period) : ~38%  — top predictor
+      2. ATR/price volatility norm     : ~23%
+      3. EMA alignment (60/200)        : ~14%  (+27pt win-rate lift)
+      4. Sensitivity cross-check S:12/16: ~12%
+      5. HTF MA filter (EMA200 on 1H)  : ~13%
+
+    ML scoring: EMA=4, ROC≤4, VOL=2, SENS=3, HTF=1 → max 14 pts
+
+    Range filter core (Pine Script → Python):
+      rng = ATR × atr_mult × (sensitivity / 8.0)
+      Filter tracks price: breaks above band → filter rises; breaks below → falls.
+      Trend = +1 rising, -1 falling.
+    """
+    NAME = "FLOOPAgent"
+    PROFILE = AgentProfile(
+        agent_id=10,
+        name="FLOOPAgent",
+        persona=(
+            "FLOOP Pro ML-optimized range filter. EMA60/200 alignment (+27pt WR). "
+            "ROC 5/10/20 momentum (top predictor). ATR adaptive band S:12/S:16 cross-check."
+        ),
+        stance="neutral",
+        activity_level=0.90,
+        influence_weight=0.10,
+        sentiment_bias=0.0,
+        response_delay_min=10,
+        response_delay_max=50,
+        active_sessions=["ASIAN", "EU", "US", "TRANSITION"],
+        session_multipliers={"ASIAN": 0.90, "EU": 1.05, "US": 1.10, "TRANSITION": 0.75},
+    )
+
+    _SENSITIVITIES = [12, 16]   # S:12 and S:16 most predictive per ML analysis
+    _ATR_LEN       = 14
+    _ATR_MULT      = 1.5
+    _FILTER_HIST   = 60         # bars of history used in batch range filter
+
+    def analyze(
+        self,
+        closes: List[float],
+        highs:  List[float],
+        lows:   List[float],
+        graph:  "MarketGraphMemory",
+        htf_closes: Optional[List[float]] = None,
+    ) -> Tuple[str, float]:
+        """Run FLOOP Pro analysis. Returns (vote, confidence)."""
+        try:
+            n = len(closes)
+            if n < 210:
+                return "NEUTRAL", 50.0
+
+            score = 0.0   # positive → BUY, negative → SELL
+
+            # ── 1. EMA Alignment (ML weight=4, +27pt WR lift) ────────────────
+            ema_fast = _ema(closes, 60)
+            ema_slow = _ema(closes, 200)
+            ema_bull = False
+            ema_bear = False
+            if ema_fast is not None and ema_slow is not None:
+                if ema_fast > ema_slow:
+                    score    += 4.0
+                    ema_bull  = True
+                else:
+                    score    -= 4.0
+                    ema_bear  = True
+
+            # ── 2. ROC Momentum (ML ~38% importance, max ±4 pts) ─────────────
+            # Three ROC periods 5/10/20 — each bullish +1, bearish -1
+            roc_raw = 0.0
+            for period in (5, 10, 20):
+                if n > period + 1:
+                    base = closes[-(period + 1)]
+                    if base > 0:
+                        roc = (closes[-1] - base) / base * 100.0
+                        roc_raw += 1.0 if roc > 0 else -1.0
+            # roc_raw in [-3, +3] → scale to ±4
+            score += roc_raw * (4.0 / 3.0)
+
+            # ── 3. ATR/Price Volatility Norm (ML ~23% importance, ±2 pts) ───
+            atr_val = _true_atr(closes, highs, lows, self._ATR_LEN)
+            cur     = closes[-1]
+            atr_norm = 0.0
+            if atr_val is not None and cur > 0:
+                atr_norm = atr_val / cur
+                if 0.004 <= atr_norm <= 0.030:
+                    # Good volatility regime: enough to profit, not chaotic
+                    score += 2.0 if score >= 0 else -2.0
+                elif atr_norm > 0.060:
+                    # Chaotic volatility: dampen confidence
+                    score *= 0.65
+
+            # ── 4. Range Filter Sensitivity Cross-Check (ML ~12%, ±3 pts) ───
+            rf_votes = [
+                self._range_filter_trend(closes, highs, lows, s)
+                for s in self._SENSITIVITIES
+            ]
+            n_bull_rf = rf_votes.count(1)
+            n_bear_rf = rf_votes.count(-1)
+            n_sens    = len(self._SENSITIVITIES)
+            if n_bull_rf == n_sens:
+                score += 3.0          # unanimous bullish across all sensitivities
+            elif n_bear_rf == n_sens:
+                score -= 3.0          # unanimous bearish across all sensitivities
+            elif n_bull_rf > n_bear_rf:
+                score += 1.5          # majority bullish
+            elif n_bear_rf > n_bull_rf:
+                score -= 1.5          # majority bearish
+
+            # ── 5. HTF MA Filter — 1H EMA200 (ML ~13%, ±1 pt) ──────────────
+            if htf_closes and len(htf_closes) >= 200:
+                htf_ema200 = _ema(htf_closes, 200)
+                if htf_ema200 is not None:
+                    score += 1.0 if htf_closes[-1] > htf_ema200 else -1.0
+
+            # ── Convert score to vote ─────────────────────────────────────────
+            # Max possible: 4+4+2+3+1 = 14; min: -14
+            abs_s = abs(score)
+            if score >= 7.0:
+                vote = "BUY"
+                conf = min(62.0 + abs_s * 2.2, 90.0)
+            elif score >= 4.0:
+                vote = "BUY"
+                conf = min(53.0 + abs_s * 1.8, 78.0)
+            elif score <= -7.0:
+                vote = "SELL"
+                conf = min(62.0 + abs_s * 2.2, 90.0)
+            elif score <= -4.0:
+                vote = "SELL"
+                conf = min(53.0 + abs_s * 1.8, 78.0)
+            else:
+                vote = "NEUTRAL"
+                conf = 50.0
+
+            graph.add_node(
+                MarketEntityType.INDICATOR_STATE, "FLOOP_State",
+                (f"FLOOP score={score:.1f} ema_bull={ema_bull} "
+                 f"rf={rf_votes} atr_norm={atr_norm:.4f}"),
+                {"floop_score": score, "ema_bull": ema_bull,
+                 "rf_votes": rf_votes, "atr_norm": round(atr_norm, 5)}
+            )
+            return vote, min(conf, 90.0)
+
+        except Exception:
+            return "NEUTRAL", 50.0
+
+    def _range_filter_trend(
+        self,
+        closes:      List[float],
+        highs:       List[float],
+        lows:        List[float],
+        sensitivity: int,
+        atr_mult:    float = 1.5,
+        atr_len:     int   = 14,
+    ) -> int:
+        """
+        FLOOP range filter batch computation.
+
+        Returns +1 (bullish trend), -1 (bearish trend), 0 (indeterminate).
+
+        Algorithm:
+          rng = ATR × atr_mult × (sensitivity / 8.0)
+          filter tracks close:
+            - close > filter+rng  → filter = close - rng  (bullish break)
+            - close < filter-rng  → filter = close + rng  (bearish break)
+          Trend direction = last two filter values compared.
+        """
+        n = len(closes)
+        if n < atr_len + 5:
+            return 0
+
+        # Work on last _FILTER_HIST bars
+        use = min(n, self._FILTER_HIST)
+        c_w = closes[-use:]
+        h_w = highs[-use:] if len(highs) >= use else highs
+        l_w = lows[-use:]  if len(lows)  >= use else lows
+        m   = len(c_w)
+
+        atr_val = _true_atr(c_w, h_w, l_w, atr_len)
+        if atr_val is None or atr_val <= 0:
+            return 0
+
+        rng = atr_val * atr_mult * (sensitivity / 8.0)
+
+        filt      = c_w[0]
+        prev_filt = filt
+        for i in range(1, m):
+            c = c_w[i]
+            if c > filt + rng:
+                new_filt = c - rng
+            elif c < filt - rng:
+                new_filt = c + rng
+            else:
+                new_filt = filt
+            if i == m - 2:
+                prev_filt = filt
+            filt = new_filt
+
+        if filt > prev_filt:
+            return 1
+        elif filt < prev_filt:
+            return -1
+        return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MiroFish Swarm Strategy — Main Orchestrator
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2540,7 +2755,7 @@ class MiroFishSwarmStrategy:
         self.min_active_agents   = 5        # raised: quorum needs 5/8 agents non-NEUTRAL (was 3)
         self.min_rr_ratio        = 1.55     # raised: minimum 1.55:1 risk-reward (was 1.50)
 
-        # ── Initialize all 9 agents (v4: +PivotSRAgent) ──
+        # ── Initialize all 10 agents (v5: +FLOOPAgent) ──
         self.trend_agent      = TrendAgent()
         self.momentum_agent   = MomentumAgent()
         self.volume_agent     = VolumeAgent()
@@ -2548,13 +2763,14 @@ class MiroFishSwarmStrategy:
         self.orderflow_agent  = OrderFlowAgent()
         self.sentiment_agent  = SentimentAgent()
         self.funding_agent    = FundingFlowAgent()
-        self.pivot_agent      = PivotSRAgent()          # v4: new S/R agent
+        self.pivot_agent      = PivotSRAgent()          # v4: S/R agent
+        self.floop_agent      = FLOOPAgent()            # v5: FLOOP Pro ML range filter
         self.ai_agent         = AIOrchestrationAgent()
 
         self._agents = [
             self.trend_agent, self.momentum_agent, self.volume_agent,
             self.volatility_agent, self.orderflow_agent, self.sentiment_agent,
-            self.funding_agent, self.pivot_agent, self.ai_agent,
+            self.funding_agent, self.pivot_agent, self.floop_agent, self.ai_agent,
         ]
 
         # ── Per-symbol Market Knowledge Graphs ──
@@ -2571,12 +2787,11 @@ class MiroFishSwarmStrategy:
         self._current_session  = "UNKNOWN"
         self._session_activity = 1.0
 
-        self.logger.info("🐟 MiroFish Swarm Strategy v4.0 initialized — USDM Futures")
-        self.logger.info("   Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions+PivotSR")
+        self.logger.info("🐟 MiroFish Swarm Strategy v5.0 initialized — USDM Futures")
+        self.logger.info("   Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions+PivotSR+FLOOPPro")
         self.logger.info(f"   Agents: {len(self._agents)} | Quorum: {self.min_active_agents} | "
                          f"Consensus gate: {self.min_swarm_consensus:.0%}")
-        self.logger.info("   v4 Enhancements: Supertrend+ParabolicSAR+IchimokuCloud+KeltnerSqueeze+"
-                         "RSIDivergence+PivotPoints+VolumePOC+HTF1HFilter")
+        self.logger.info("   v5 Enhancements: FLOOPPro(EMA60/200+ROC5/10/20+ATRnorm+RangeFilter+HTFfilter)")
 
     # ─────────────────────────────────────────
     # Public API
@@ -2756,7 +2971,14 @@ class MiroFishSwarmStrategy:
                 closes, highs, lows, volumes, graph
             )
 
-            # ── Step 2: Build base agent votes (all 8 deterministic agents) ──
+            # ── Step 1c: FLOOPAgent — ML-optimized range filter (v5) ──────────
+            # Implements FLOOP Pro Pine Script logic in pure Python.
+            # Uses HTF 1H closes for the HTF MA filter (1pt of ML scoring).
+            floop_vote, floop_conf = self.floop_agent.analyze(
+                closes, highs, lows, graph, htf_closes=htf_closes
+            )
+
+            # ── Step 2: Build base agent votes (all 9 deterministic agents) ──
             base_votes = {
                 "TrendAgent":       {"vote": trend_vote,    "conf": trend_conf},
                 "MomentumAgent":    {"vote": momentum_vote, "conf": momentum_conf},
@@ -2766,6 +2988,7 @@ class MiroFishSwarmStrategy:
                 "SentimentAgent":   {"vote": sent_vote,     "conf": sent_conf},
                 "FundingFlowAgent": {"vote": funding_vote,  "conf": funding_conf},
                 "PivotSRAgent":     {"vote": pivot_vote,    "conf": pivot_conf},
+                "FLOOPAgent":       {"vote": floop_vote,    "conf": floop_conf},
             }
 
             # ── Step 3: AI Orchestration (ReACT) ──
@@ -2796,6 +3019,7 @@ class MiroFishSwarmStrategy:
                 "SentimentAgent":       self.sentiment_agent.PROFILE,
                 "FundingFlowAgent":     self.funding_agent.PROFILE,
                 "PivotSRAgent":         self.pivot_agent.PROFILE,
+                "FLOOPAgent":           self.floop_agent.PROFILE,
                 "AIOrchestrationAgent": self.ai_agent.PROFILE,
             }
 
