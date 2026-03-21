@@ -1549,11 +1549,15 @@ class AIOrchestrationAgent:
         self._react_log: deque = deque(maxlen=50)
         self._claude_err_count  = 0
         self._openai_err_count  = 0
-        # Set True when Claude is permanently disabled (e.g. no credits, invalid key)
-        self._claude_disabled   = False
-        # Set True when OpenAI returns a permanent auth/billing error (401/403)
-        # so we stop wasting HTTP round-trips on every symbol scan.
-        self._openai_disabled   = False
+        # Unix timestamp until which Claude is disabled (0 = enabled, inf = permanent).
+        # Credits-exhausted errors set a 30-min cooldown; invalid key is permanent (inf).
+        # This replaces the old boolean that permanently silenced Claude for the entire
+        # process lifetime even after the user adds credits to their Anthropic account.
+        self._claude_disabled_until: float = 0.0
+        self._claude_perm_disabled: bool   = False  # True only for invalid/expired key
+        # Same pattern for OpenAI — 401 is permanent, billing/quota is 30-min cooldown.
+        self._openai_disabled_until: float = 0.0
+        self._openai_perm_disabled: bool   = False  # True only for invalid/expired key
         self._init_claude()
         self._init_openai()
 
@@ -1602,9 +1606,9 @@ class AIOrchestrationAgent:
         """Initialise the AsyncOpenAI client as fallback.
 
         max_retries=0: disable SDK-internal retries.
-        A 401 (invalid key) or 403 (billing) is permanent — retrying wastes
-        HTTP round-trips and floods logs with INFO retry messages before our
-        circuit breaker (_openai_disabled) can permanently silence the client.
+        A 401 (invalid key) is permanent — retrying wastes HTTP round-trips
+        and floods logs with INFO retry messages.  Billing/quota errors use a
+        time-based 30-min cooldown that auto-retries without a bot restart.
         Application-layer retry decisions are made in _query_openai().
         """
         try:
@@ -1731,9 +1735,33 @@ class AIOrchestrationAgent:
     # ── Claude query ─────────────────────────────────────────────────────────
 
     async def _query_claude(self, prompt: str) -> Optional[dict]:
-        """Send prompt to Claude; return parsed dict or None on any error."""
-        if self.claude_client is None or self._claude_disabled:
+        """
+        Send prompt to Claude; return parsed dict or None on any error.
+
+        Circuit-breaker behaviour (time-based, not permanent):
+        ─────────────────────────────────────────────────────
+        • credits exhausted / billing → 30-min cooldown, then auto-retry
+          (user may add credits between cycles without restarting the bot).
+        • invalid/expired key → permanent disable (wrong key won't fix itself).
+        • network timeout → silent fallback, counted in _claude_err_count.
+        """
+        if self.claude_client is None:
             return None
+        # Permanent key error — never retry
+        if self._claude_perm_disabled:
+            return None
+        # Time-based cooldown — check if cooldown has elapsed
+        if self._claude_disabled_until > 0:
+            _now = time.time()
+            if _now < self._claude_disabled_until:
+                return None
+            # Cooldown elapsed — re-enable and try again
+            self._claude_disabled_until = 0.0
+            self._claude_err_count      = 0
+            self.logger.info(
+                "💳 Claude cooldown elapsed — re-enabling. "
+                "Attempting API call (credits may have been added)."
+            )
         try:
             coro = self.claude_client.messages.create(
                 model=self._CLAUDE_MODEL,
@@ -1756,45 +1784,73 @@ class AIOrchestrationAgent:
             return None
         except Exception as e:
             self._claude_err_count += 1
-            err_str = str(e)
-            # Detect permanent billing / permission errors — disable Claude immediately
-            _permanent_phrases = (
-                "credit balance is too low",
-                "insufficient_quota",
-                "billing",
-                "payment",
-                "access denied",
-                "permission denied",
-                "your account",
+            err_str = str(e).lower()
+
+            # ── Permanent errors: wrong key, no access ──
+            _PERM_PHRASES = (
+                "invalid x-api-key", "invalid api key",
+                "authentication_error", "permission_error",
+                "access denied", "permission denied",
             )
-            if any(p in err_str.lower() for p in _permanent_phrases):
-                if not self._claude_disabled:
-                    self._claude_disabled = True
+            if any(p in err_str for p in _PERM_PHRASES):
+                if not self._claude_perm_disabled:
+                    self._claude_perm_disabled = True
                     self.logger.warning(
-                        "💳 Claude disabled — insufficient API credits. "
-                        "Add credits at console.anthropic.com to re-enable. "
-                        "Falling back to OpenAI + rule-based permanently."
+                        "🔑 Claude permanently disabled — invalid or expired API key. "
+                        "Set a valid ANTHROPIC_API_KEY to re-enable."
                     )
                 return None
+
+            # ── Temporary errors: credits exhausted / billing — 30-min retry ──
+            _CREDIT_PHRASES = (
+                "credit balance is too low", "insufficient_quota",
+                "billing", "payment", "your account",
+                "overloaded_error",
+            )
+            if any(p in err_str for p in _CREDIT_PHRASES):
+                _cooldown = 1800  # 30 minutes
+                self._claude_disabled_until = time.time() + _cooldown
+                self.logger.warning(
+                    f"💳 Claude paused — API credits/billing issue. "
+                    f"Auto-retrying in {_cooldown // 60} min. "
+                    f"Add credits at console.anthropic.com if needed."
+                )
+                return None
+
             if self._claude_err_count <= 5:
                 self.logger.warning(
-                    f"⚠️ Claude {type(e).__name__} (#{self._claude_err_count}): {err_str[:200]}"
+                    f"⚠️ Claude {type(e).__name__} (#{self._claude_err_count}): {str(e)[:200]}"
                 )
             return None
 
     # ── OpenAI query ─────────────────────────────────────────────────────────
 
     async def _query_openai(self, prompt: str) -> Optional[dict]:
-        """Send prompt to OpenAI; return parsed dict or None on any error.
-
-        Circuit breaker: permanently disables OpenAI calls after the first
-        401/403 (invalid key, insufficient quota, billing issue).  This prevents
-        wasting one HTTP round-trip per symbol per scan cycle when the key is
-        known bad — a very noisy problem that polluted logs with hundreds of
-        401 WARNING lines per minute.
         """
-        if self.openai_client is None or self._openai_disabled:
+        Send prompt to OpenAI; return parsed dict or None on any error.
+
+        Circuit-breaker behaviour (time-based, not permanent for billing):
+        ─────────────────────────────────────────────────────────────────
+        • 401 / invalid key → permanent disable (wrong key won't fix itself).
+        • billing / quota / rate-limit → 30-min cooldown, then auto-retry.
+        • network timeout → silent fallback, counted in _openai_err_count.
+        """
+        if self.openai_client is None:
             return None
+        # Permanent key error — never retry
+        if self._openai_perm_disabled:
+            return None
+        # Time-based cooldown — check if cooldown has elapsed
+        if self._openai_disabled_until > 0:
+            _now = time.time()
+            if _now < self._openai_disabled_until:
+                return None
+            # Cooldown elapsed — re-enable
+            self._openai_disabled_until = 0.0
+            self._openai_err_count      = 0
+            self.logger.info(
+                "🔑 OpenAI cooldown elapsed — re-enabling. Attempting API call."
+            )
         try:
             response = await asyncio.wait_for(
                 self.openai_client.chat.completions.create(
@@ -1817,23 +1873,38 @@ class AIOrchestrationAgent:
             return None
         except Exception as e:
             self._openai_err_count += 1
-            err_str = str(e)
-            # Detect permanent auth / billing / invalid-key errors — disable permanently.
-            # Status code 401 (invalid key) and 403 (forbidden) will never succeed on retry.
-            _permanent_phrases = (
+            err_str = str(e).lower()
+
+            # ── Permanent errors: invalid/expired key (401) ──
+            # These will never succeed without a new key — disable forever.
+            _PERM_PHRASES = (
                 "401", "invalid_api_key", "incorrect api key",
-                "403", "insufficient_quota", "billing", "payment",
-                "access denied", "permission denied", "your account",
+                "authentication", "invalid x-api-key",
             )
-            if any(p in err_str.lower() for p in _permanent_phrases):
-                if not self._openai_disabled:
-                    self._openai_disabled = True
+            if any(p in err_str for p in _PERM_PHRASES):
+                if not self._openai_perm_disabled:
+                    self._openai_perm_disabled = True
                     self.logger.warning(
-                        "🔑 AIOrchestrationAgent: OpenAI permanently disabled — "
-                        "invalid/expired API key (401). Rule-based fallback active. "
-                        "Set a valid OPENAI_API_KEY to re-enable."
+                        "🔑 OpenAI permanently disabled — invalid/expired API key (401). "
+                        "Rule-based fallback active. Set a valid OPENAI_API_KEY to re-enable."
                     )
                 return None
+
+            # ── Temporary errors: billing/quota/rate-limit — 30-min retry ──
+            _TEMP_PHRASES = (
+                "insufficient_quota", "billing", "payment", "your account",
+                "429", "rate_limit_exceeded", "overloaded", "service_unavailable",
+                "access denied", "permission denied",
+            )
+            if any(p in err_str for p in _TEMP_PHRASES):
+                _cooldown = 1800  # 30 minutes
+                self._openai_disabled_until = time.time() + _cooldown
+                self.logger.warning(
+                    f"🔑 OpenAI paused — quota/billing/rate issue. "
+                    f"Auto-retrying in {_cooldown // 60} min. Rule-based active until then."
+                )
+                return None
+
             if self._openai_err_count <= 3:
                 self.logger.debug(f"OpenAI error: {type(e).__name__}: {e}")
             return None
@@ -2824,7 +2895,13 @@ def _rsi(closes: List[float], period: int = 14) -> Optional[float]:
     for i in range(period, len(gains)):
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-    rs = avg_gain / avg_loss if avg_loss > 0 else 100.0
+    # Exact boundary: pure uptrend → RSI must be exactly 100.0 (not 99.01).
+    # Pure downtrend → exactly 0.0.  Normal case: standard RS formula.
+    if avg_loss == 0.0:
+        return 100.0
+    if avg_gain == 0.0:
+        return 0.0
+    rs = avg_gain / avg_loss
     return 100.0 - (100.0 / (1.0 + rs))
 
 
@@ -3322,14 +3399,20 @@ def _rsi_divergence(closes: List[float], period: int = 14,
 
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
-    rs       = avg_gain / avg_loss if avg_loss > 0 else 100.0
-    rsi_vals = [100.0 - (100.0 / (1.0 + rs))]
+
+    def _to_rsi(ag: float, al: float) -> float:
+        if al == 0.0:
+            return 100.0
+        if ag == 0.0:
+            return 0.0
+        return 100.0 - (100.0 / (1.0 + ag / al))
+
+    rsi_vals = [_to_rsi(avg_gain, avg_loss)]
 
     for i in range(period, len(gains)):
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-        rs = avg_gain / avg_loss if avg_loss > 0 else 100.0
-        rsi_vals.append(100.0 - (100.0 / (1.0 + rs)))
+        rsi_vals.append(_to_rsi(avg_gain, avg_loss))
 
     if len(rsi_vals) < 10:
         return None

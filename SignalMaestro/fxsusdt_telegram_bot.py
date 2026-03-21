@@ -472,6 +472,42 @@ class FXSUSDTTelegramBot:
             self.logger.warning(f"⚠️ Startup message exception: {e}")
             return False
 
+    async def close_tg_session(self):
+        """
+        Gracefully close the shared persistent Telegram HTTP session and connector.
+        Called by the launcher's finally block on clean shutdown and by the standalone
+        main() entry point.  Safe to call even if the session was never opened.
+        """
+        if self._tg_session and not self._tg_session.closed:
+            try:
+                await self._tg_session.close()
+            except Exception:
+                pass
+        self._tg_session   = None
+        self._tg_connector = None
+
+        # Also stop the telegram Application updater if polling was started
+        _app = getattr(self, "telegram_app", None)
+        if _app is not None:
+            try:
+                if _app.updater and _app.updater.running:
+                    await _app.updater.stop()
+                await _app.stop()
+                await _app.shutdown()
+            except Exception:
+                pass
+
+        # Cancel the OutcomeTracker background task if running
+        _task = getattr(self, "_outcome_tracker_task", None)
+        if _task is not None and not _task.done():
+            _task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_task), timeout=2.0)
+            except Exception:
+                pass
+
+        self.logger.debug("🔗 Telegram session closed")
+
     async def test_telegram_connection(self) -> bool:
         try:
             session = await self._get_tg_session()
