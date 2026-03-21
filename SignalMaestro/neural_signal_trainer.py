@@ -2,7 +2,7 @@
 """
 NeuralSignalTrainer — Self-learning signal quality filter for MiroFish Swarm.
 
-Architecture  : 40-feature input → Dense(128, ReLU) → Dense(64, ReLU)
+Architecture  : 42-feature input → Dense(128, ReLU) → Dense(64, ReLU)
                 → Dense(32, ReLU) → Dense(1, Sigmoid)
 Optimizer     : Adam with L2 regularisation + dropout (training only)
 Loss          : Focal BCE with dynamic class-weighting (adapts to actual W/L ratio)
@@ -10,8 +10,8 @@ Persistence   : Weights saved as JSON — survives bot restarts with full warm-s
 Training data : Labeled trades from TradeMemory (TP1/TP2/TP3 = win, SL = loss)
 Output        : win_probability ∈ [0, 1] for any SwarmSignal
 
-Architecture v2 (40-feature, 4-layer):
-  • Expanded from 30 → 40 features: 10 new non-linear interaction & regime terms
+Architecture v2 (42-feature, 4-layer):
+  • Expanded from 30 → 42 features: 12 new non-linear interaction & regime terms
   • Wider hidden layers (64/32/16 → 128/64/32) for greater model capacity
   • New features capture: RSI-direction alignment, BB-direction alignment,
     confidence×consensus interaction, quadratic R:R, log volume, cubic consensus,
@@ -463,13 +463,13 @@ class NeuralSignalTrainer:
     """
     Three-hidden-layer MLP (v2 wider) trained with mini-batch Adam + focal BCE loss.
 
-    Forward:  X(N,40) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
+    Forward:  X(N,42) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
                       → Z2=A1·W2+b2 → A2=ReLU(Z2) → [dropout]
                       → Z3=A2·W3+b3 → A3=ReLU(Z3)
                       → Z4=A3·W4+b4 → out=σ(Z4)  (N,1)
 
-    Architecture v2: 40→128→64→32→1
-      • 40 input features (v1 had 30; +10 non-linear interaction & regime terms)
+    Architecture v2: 42→128→64→32→1
+      • 42 input features (v1 had 30; +12 non-linear interaction & regime terms)
       • Wider hidden layers: 128/64/32 (v1: 64/32/16) for greater capacity
       • Same 4 parameters groups (W1/b1 through W4/b4)
 
@@ -760,7 +760,7 @@ class NeuralSignalTrainer:
                 "confidence":         signal.confidence,
                 "swarm_consensus":    signal.swarm_consensus,
                 "signal_strength":    signal.signal_strength,
-                "participation_rate": getattr(signal, "participation_rate", 0.875),
+                "participation_rate": getattr(signal, "participation_rate", 0.700),
                 "rsi":                signal.rsi,
                 "volume_ratio":       signal.volume_ratio,
                 "risk_reward_ratio":  signal.risk_reward_ratio,
@@ -816,7 +816,7 @@ class NeuralSignalTrainer:
                 "confidence":         signal.confidence,
                 "swarm_consensus":    signal.swarm_consensus,
                 "signal_strength":    signal.signal_strength,
-                "participation_rate": getattr(signal, "participation_rate", 0.875),
+                "participation_rate": getattr(signal, "participation_rate", 0.700),
                 "rsi":                signal.rsi,
                 "volume_ratio":       signal.volume_ratio,
                 "risk_reward_ratio":  signal.risk_reward_ratio,

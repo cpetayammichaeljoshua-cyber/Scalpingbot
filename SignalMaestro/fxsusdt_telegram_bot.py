@@ -445,14 +445,14 @@ class FXSUSDTTelegramBot:
                 f"🐟 MIROFISH SWARM — ALL USDM MARKETS — ONLINE\n\n"
                 f"Bot: {self.bot_username}\n"
                 f"Signal Channel: @ichimokutradingsignal ({self.signal_channel_id})\n"
-                f"Strategy: MiroFish Multi-Agent Swarm v4.1 (Graph+ReACT+Claude)\n"
+                f"Strategy: MiroFish Multi-Agent Swarm v5.0 (Graph+ReACT+Claude)\n"
                 f"Source: github.com/666ghj/MiroFish\n"
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
-                f"Agents: 9 swarm agents | Consensus: ≥72% | Quorum: 5/9\n"
+                f"Agents: 10 swarm agents | Consensus: ≥75% | Quorum: 5/10\n"
                 f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
-                f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 5/hr\n"
+                f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 10/hr\n"
                 f"Format: Cornix-compatible\n"
                 f"Started: {ts}\n"
                 f"Status: ONLINE ✅"
@@ -1254,20 +1254,20 @@ class FXSUSDTTelegramBot:
 
                         # ── CONSENSUS OVERRIDE (FIX 7) ─────────────────────────────────
                         # When ALL (or nearly all) swarm agents unanimously agree, the
-                        # collective intelligence of 9 independent agents outweighs the
+                        # collective intelligence of 10 independent agents outweighs the
                         # NN gate — which was trained on limited historical data (200
-                        # samples, 54.5% win-rate split).  A 9/9 unanimous swarm with
+                        # samples, 54.5% win-rate split).  A 10/10 unanimous swarm with
                         # ≥90% weighted consensus is the highest-quality signal the bot
                         # can generate.  NN still applies soft penalty/boost, but the
                         # hard-reject is bypassed.
                         #
                         # Thresholds:
-                        #   consensus ≥ 0.90 AND participation ≥ 7/9 → bypass hard-reject
-                        #   consensus ≥ 0.95 AND participation = 9/9 → bypass all NN filters
+                        #   consensus ≥ 0.90 AND participation ≥ 7/10 → bypass hard-reject
+                        #   consensus ≥ 0.95 AND participation = 10/10 → bypass all NN filters
                         _swarm_consensus = signal.swarm_consensus        # 0..1
                         _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
-                        _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/9)
-                        _is_strong       = _swarm_consensus >= 0.83 and _participation >= (7/9)
+                        _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
+                        _is_strong       = _swarm_consensus >= 0.83 and _participation >= (7/10)
 
                         if _is_unanimous:
                             # Fully bypass NN gate for unanimous signals — just apply tiny log

@@ -29,7 +29,7 @@ TRADE_EXPIRY_SECONDS = 21_600
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
-    "FundingFlowAgent", "PivotSRAgent", "AIOrchestrationAgent",
+    "FundingFlowAgent", "PivotSRAgent", "FLOOPAgent", "AIOrchestrationAgent",
 ]
 
 
@@ -125,7 +125,7 @@ class TradeMemory:
                     confidence        REAL    NOT NULL,
                     swarm_consensus   REAL    NOT NULL,
                     signal_strength   REAL    NOT NULL,
-                    participation_rate REAL   NOT NULL DEFAULT 0.875,
+                    participation_rate REAL   NOT NULL DEFAULT 0.700,
                     rsi               REAL    NOT NULL DEFAULT 50.0,
                     volume_ratio      REAL    NOT NULL DEFAULT 1.0,
                     risk_reward_ratio REAL    NOT NULL DEFAULT 1.5,
@@ -211,7 +211,7 @@ class TradeMemory:
                 signal.confidence,
                 signal.swarm_consensus,
                 signal.signal_strength,
-                getattr(signal, "participation_rate", 0.875),
+                getattr(signal, "participation_rate", 0.700),
                 signal.rsi,
                 signal.volume_ratio,
                 signal.risk_reward_ratio,
