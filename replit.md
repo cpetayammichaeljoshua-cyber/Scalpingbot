@@ -1,7 +1,7 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 9 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
 ## Bug Fixes & Enhancements (Session 9 — Current)
 
@@ -173,17 +173,17 @@ All fixes verified with zero compile-time errors across all modified files.
 | Scan interval | 5–15s |
 | Signal interval | 120s minimum |
 | Signals/hour | 3–10 (cap 10/h) |
-| Quorum | ≥5 of 8 agents must vote non-NEUTRAL |
-| Consensus gate | ≥72% weighted (was 62%) |
-| Pre-boost confidence | ≥64% (was 52%) |
-| Post-boost confidence | ≥80% (was 74%) |
-| Boost cap | +8pt max (was +12pt) |
+| Quorum | ≥5 of 10 agents must vote non-NEUTRAL |
+| Consensus gate | ≥75% weighted (was 72%) |
+| Pre-boost confidence | ≥64% |
+| Post-boost confidence | ≥80% |
+| Boost cap | +12pt max |
 | Min signal strength | ≥62% (was 52%) |
 | Stop Loss | 0.65% base (ATR×1.5 scaled) |
 | TP1 | 1.10% base (ATR×2.54 scaled, min 1.0%) |
 | TP2 | 2.00% base (ATR×4.62 scaled, min 1.8%, always > TP1) |
 | TP3 | 3.10% base (ATR×7.15 scaled, min 2.8%, always > TP2) |
-| Min R:R | 1.50:1 (was 1.30, signals below rejected) |
+| Min R:R | 1.55:1 (signals below rejected) |
 | TP allocation | 45% / 35% / 20% |
 | Global gap | 90s between signals (was 30s) |
 | Micro-price filter | Skip symbols priced < $0.0001 |
@@ -191,9 +191,9 @@ All fixes verified with zero compile-time errors across all modified files.
 ## Architecture
 
 ### Core Strategy Engine
-- **`SignalMaestro/mirofish_swarm_strategy.py`** — MiroFish Swarm Intelligence strategy (v3.1)
-  - 8 specialized swarm agents with independent market analysis personas
-  - Weighted consensus voting (≥72% agreement, quorum ≥5 of 8 agents)
+- **`SignalMaestro/mirofish_swarm_strategy.py`** — MiroFish Swarm Intelligence strategy (v5.0)
+  - 10 specialized swarm agents with independent market analysis personas
+  - Weighted consensus voting (≥75% agreement, quorum ≥5 of 10 agents)
   - Graph-state memory (500 nodes / 1000 edges, MarketEntityType ontology)
   - InsightForge sub-query decomposition + graph retrieval
   - ReACT pattern for AI orchestration (Reason→Act→Reflect→Conclude)
@@ -201,29 +201,32 @@ All fixes verified with zero compile-time errors across all modified files.
   - ATR-scaled SL/TP with guaranteed TP1<TP2<TP3 ordering
   - $0.10 tick size rounding for all price levels
 
-### Swarm Agents & Weights (MiroFish Architecture)
+### Swarm Agents & Weights (MiroFish Architecture v5.0)
 | Agent | Focus | Weight |
 |-------|-------|--------|
-| TrendAgent | EMA 9/21 crossover + EMA200 + graph TrendState | 20% |
-| MomentumAgent | RSI + MACD + IndicatorState graph node | 22% |
+| TrendAgent | EMA 9/21 crossover + EMA200 + graph TrendState | 22% |
+| MomentumAgent | RSI + MACD + IndicatorState graph node | 20% |
 | VolumeAgent | OBV + volume surge + Catalyst node on 2x spike | 18% |
 | VolatilityAgent | Bollinger Bands + ATR + PriceLevel nodes | 15% |
 | OrderFlowAgent | Candle patterns + Pattern graph nodes | 15% |
 | SentimentAgent | Fear/greed proxy + vol contraction regime | 5% |
 | FundingFlowAgent | VWAP deviation + OI proxy + squeeze detection | 5% |
-| AIOrchestrationAgent | GPT-4o-mini ReACT overlay | 5% |
+| PivotSRAgent | Institutional S/R pivot levels + POC analysis | 8% |
+| FLOOPAgent | FLOOP Pro ML-optimized range filter + ROC momentum | 10% |
+| AIOrchestrationAgent | Claude Sonnet 4.6 (primary) + GPT-4o-mini (fallback) ReACT | 5% |
 
 ### Market Connector
 - **`SignalMaestro/btcusdt_trader.py`** — Binance USDM Futures REST API wrapper
-  - Symbol: BTCUSDT Perpetual (fapi.binance.com)
-  - Handles klines, pricing, account balance, positions, leverage, funding rate, OI
+  - ALL USDM Perpetual markets (fapi.binance.com), up to 80 symbols
+  - Handles klines, pricing, multi-symbol batch prices, funding rate, OI
+  - LRU klines cache (300 entries, 90s TTL), USDC deduplication
 
 ### Telegram Bot
 - **`SignalMaestro/fxsusdt_telegram_bot.py`** — Signal bot and command handler
   - Class: `FXSUSDTTelegramBot`
   - Compact Cornix-compatible signal format (15 lines max)
   - Instance-level poll offset (no shared class-state bug)
-  - Boost cap: +8pt maximum from optional analyzers (hard cap, was +12pt)
+  - Boost cap: +12pt maximum from optional analyzers
   - Signal deduplication: 120s cooldown
   - 30+ Telegram commands (/price, /scan, /swarm, /balance, /position, etc.)
 

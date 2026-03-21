@@ -2765,7 +2765,7 @@ class MiroFishSwarmStrategy:
         self.min_signal_strength = 62.0     # raised: require stronger pre-boost signal
         self.min_confidence      = 64.0     # raised: require solid agent agreement
         self.min_swarm_consensus = 0.75     # raised: ≥75% weighted consensus (was 72%)
-        self.min_active_agents   = 5        # raised: quorum needs 5/8 agents non-NEUTRAL (was 3)
+        self.min_active_agents   = 5        # raised: quorum needs 5/10 agents non-NEUTRAL (was 3)
         self.min_rr_ratio        = 1.55     # raised: minimum 1.55:1 risk-reward (was 1.50)
 
         # ── Initialize all 10 agents (v5: +FLOOPAgent) ──
@@ -3068,7 +3068,7 @@ class MiroFishSwarmStrategy:
             # ── Consensus ──
             # BUG FIX: `>=` defaulted to BUY on exactly-equal weights (spurious BUY bias).
             # Use `>` so a genuine tie produces SELL (or we skip — handled below by the
-            # consensus gate min_swarm_consensus = 72%, which equal weights always fail).
+            # consensus gate min_swarm_consensus = 75%, which equal weights always fail).
             if buy_weight > sell_weight:
                 action    = "BUY"
                 consensus = buy_weight / total_signal_weight
@@ -3098,11 +3098,11 @@ class MiroFishSwarmStrategy:
             n_contrary = len(contrary_agents)
             participation_rate = n_active / len(all_votes)
 
-            if participation_rate >= 0.625:    # ≥5 agents active
+            if participation_rate >= 0.60:     # ≥6/10 agents active
                 participation_bonus = (participation_rate - 0.5) * 30
                 weighted_conf = min(weighted_conf + participation_bonus, 100.0)
-            elif participation_rate < 0.375:   # <3 agents active
-                participation_penalty = (0.375 - participation_rate) * 25
+            elif participation_rate < 0.30:    # <3/10 agents active
+                participation_penalty = (0.30 - participation_rate) * 25
                 weighted_conf = max(weighted_conf - participation_penalty, 50.0)
 
             # Contrary agent divergence penalty
@@ -3115,7 +3115,7 @@ class MiroFishSwarmStrategy:
 
             # ── Unanimous consensus bonus ──────────────────────────────────────
             # When every non-neutral agent votes the same direction (0 contrarians)
-            # AND at least 6/8 agents participated, this is an extremely rare and
+            # AND at least 6/10 agents participated, this is an extremely rare and
             # highly reliable setup.  Apply a direct +4% confidence bonus.
             # This partially offsets the strict min_confidence gate for elite setups.
             if n_contrary == 0 and n_active >= 6:

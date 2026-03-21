@@ -156,7 +156,7 @@ def build_features(trade: Dict) -> "np.ndarray":
     vol_ratio  = _safe_float(trade.get("volume_ratio"),     1.0)
     rr         = _safe_float(trade.get("risk_reward_ratio"), 1.5)
     atr_ratio  = _safe_float(trade.get("atr_ratio"),       0.003)
-    part_rate  = _safe_float(trade.get("participation_rate"), 0.625)
+    part_rate  = _safe_float(trade.get("participation_rate"), 0.700)
 
     # Derived consensus metrics
     all_votes = [votes.get(a, "NEUTRAL") for a in AGENT_ORDER]
@@ -230,7 +230,7 @@ def build_features(trade: Dict) -> "np.ndarray":
         # ── Signal quality (1-12) ─────────────────────────────────────────────
         confidence,                                                       # 1
         consensus,                                                        # 2
-        float(trade.get("signal_strength",     65.0)) / 100.0,          # 3
+        _safe_float(trade.get("signal_strength", 65.0), 65.0) / 100.0,   # 3
         part_rate,                                                        # 4
         (rsi - 50.0) / 50.0,                                             # 5  rsi bias [-1,+1]
         min(vol_ratio / 3.0, 1.0),                                       # 6
@@ -335,7 +335,7 @@ class LossPatternAnalyzer:
         self._base_loss_rate: float = 0.50
 
     # Maximum number of danger zones kept in memory.
-    # With 40 features × 10 bins = 400 candidate zones; cap prevents the
+    # With 42 features × 8 bins = 336 candidate zones; cap prevents the
     # danger-zone penalty from covering ALL of feature space when the
     # base loss rate is already high (e.g. 55% → every bin exceeds 65%).
     MAX_DANGER_ZONES = 20
@@ -569,7 +569,7 @@ class NeuralSignalTrainer:
             s = np.sqrt(2.0 / fan_in)
             return rng.normal(0, s, (fan_in, fan_out)).astype(np.float32)
 
-        # v2 architecture: 40 → 128 → 64 → 32 → 1  (wider + deeper capacity)
+        # v2 architecture: 42 → 128 → 64 → 32 → 1  (wider + deeper capacity)
         self.W1 = _w(INPUT_DIM, 128); self.b1 = np.zeros((1, 128), np.float32)
         self.W2 = _w(128, 64);        self.b2 = np.zeros((1, 64),  np.float32)
         self.W3 = _w(64, 32);         self.b3 = np.zeros((1, 32),  np.float32)

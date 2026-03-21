@@ -179,7 +179,7 @@ async def main():
     os.environ.setdefault("CYCLE_SLEEP_MIN",         str(CYCLE_SLEEP_MIN))
     os.environ.setdefault("CYCLE_SLEEP_MAX",         str(CYCLE_SLEEP_MAX))
     os.environ.setdefault("SCAN_PARALLEL_LIMIT",     str(SCAN_PARALLEL_LIMIT))
-    # Hourly signal cap — strictly 5/5 (propagated to bot __init__)
+    # Hourly signal cap — 5–10 per hour (propagated to bot __init__)
     os.environ["SIGNALS_PER_HOUR_MAX"] = str(SIGNALS_PER_HOUR_MAX)
     os.environ["SIGNALS_PER_HOUR_MIN"] = str(SIGNALS_PER_HOUR_MIN)
     # Heartbeat interval — propagate launcher constant so scanner reads it
@@ -202,7 +202,7 @@ async def main():
 
     # ── Startup Banner ──
     logger.info("=" * 90)
-    logger.info("🐟 MIROFISH SWARM TRADING BOT v4.1 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
+    logger.info("🐟 MIROFISH SWARM TRADING BOT v5.0 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
     logger.info("=" * 90)
     logger.info("📊 Markets:    ALL Binance USDM Perpetual Futures (up to 80, $50M+ 24h vol)")
     logger.info("🐟 Strategy:   MiroFish Multi-Agent Swarm Intelligence")
@@ -213,7 +213,7 @@ async def main():
     logger.info(f"🔄 Scanner:    TRUE PARALLEL — {SCAN_PARALLEL_LIMIT} concurrent streams (asyncio.gather + Semaphore)")
     logger.info(f"📡 Hourly Cap: {SIGNALS_PER_HOUR_MIN}–{SIGNALS_PER_HOUR_MAX} signals/hour | Interval: ≥{SIGNAL_INTERVAL_MIN}s between signals")
     logger.info("")
-    logger.info("✅ MIROFISH SWARM AGENTS (9 agents, 15M-tuned) — 100% MiroFish Architecture:")
+    logger.info("✅ MIROFISH SWARM AGENTS (10 agents, 15M-tuned) — 100% MiroFish Architecture:")
     logger.info("   🐟 TrendAgent        — EMA 9/21 crossover + EMA200 + graph TrendState node    (22% w)")
     logger.info("   ⚡ MomentumAgent      — RSI + MACD + IndicatorState node → graph              (20% w)")
     logger.info("   📊 VolumeAgent       — OBV + vol surge + Catalyst node on 2x spike            (18% w)")
@@ -221,7 +221,8 @@ async def main():
     logger.info("   🕯️  OrderFlowAgent    — Candle patterns + Pattern graph nodes                 (15% w)")
     logger.info("   😱 SentimentAgent     — Fear/greed proxy + vol contraction regime             ( 5% w)")
     logger.info("   💹 FundingFlowAgent   — VWAP deviation + OI proxy + squeeze detection        ( 5% w)")
-    logger.info("   📐 PivotSRAgent      — Institutional S/R pivot levels + POC analysis         ( 5% w)")
+    logger.info("   📐 PivotSRAgent      — Institutional S/R pivot levels + POC analysis         ( 8% w)")
+    logger.info("   🔄 FLOOPAgent        — FLOOP Pro ML-optimized range filter + ROC momentum    (10% w)")
     logger.info("   🤖 AIOrchestration   — Claude Sonnet 4.6 (primary) + GPT-4o-mini (fallback)    ( 5% w)")
     logger.info("                          ReACT: Reason → Act → Reflect → Conclude")
     logger.info("")
@@ -379,8 +380,8 @@ def main_launcher():
     except (ValueError, TypeError):
         restart_delay_base = DEFAULT_RESTART_DELAY_BASE
 
-    logger.info("🐟 MiroFish Swarm Bot Launcher v4 — Production Ready")
-    logger.info(f"📊 Markets: ALL Binance USDM Perpetual Futures (PARALLEL, up to 80 symbols, Semaphore={SCAN_PARALLEL_LIMIT}) | 9 agents")
+    logger.info("🐟 MiroFish Swarm Bot Launcher v5 — Production Ready")
+    logger.info(f"📊 Markets: ALL Binance USDM Perpetual Futures (PARALLEL, up to 80 symbols, Semaphore={SCAN_PARALLEL_LIMIT}) | 10 agents")
     logger.info("🌐 Starting with auto-restart protection...")
     logger.info(f"📋 Config: max_restarts={max_restarts}, base_delay={restart_delay_base}s")
 

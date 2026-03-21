@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-BTCUSDT Perpetual Futures Telegram Signal Bot
+ALL USDM Perpetual Futures Telegram Signal Bot — MiroFish Swarm v5.0
 Powered by MiroFish Swarm Intelligence Strategy (github.com/666ghj/MiroFish)
-Multi-agent consensus trading signals for @ichimokutradingsignal
-Enhanced with comprehensive error handling, AI agents, and market analysis
+10-agent consensus trading signals for @ichimokutradingsignal
+TRUE parallel scanning of up to 80 USDM symbols with asyncio.gather + Semaphore
 """
 
 import asyncio
@@ -60,7 +60,7 @@ except ImportError:
 
 class FXSUSDTTelegramBot:
     """
-    BTCUSDT Futures Telegram Signal Bot — MiroFish Swarm Edition
+    ALL USDM Futures Telegram Signal Bot — MiroFish Swarm v5.0 Edition
     (Class name kept for backward compatibility with start_ultimate_bot.py)
     """
 
@@ -231,7 +231,7 @@ class FXSUSDTTelegramBot:
         # ── Pre-built scan semaphore — avoids allocating a new asyncio.Semaphore
         # object on every scan_all_parallel() call (every 30-60s cycle).
         # The env var is read once at startup; restart the bot to apply changes.
-        _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "20")))
+        _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "30")))
         self._scan_limit: int = _scan_limit        # stored so log/diagnostics can read the live value
         self._scan_semaphore: asyncio.Semaphore = asyncio.Semaphore(_scan_limit)
 
