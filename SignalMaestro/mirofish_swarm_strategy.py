@@ -3264,12 +3264,85 @@ class MiroFishSwarmStrategy:
             if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
                 return None
 
+            # ── Step 5f: Cheap rejection filters (before expensive TP/SL computation) ──
+            cur_price = closes[-1]
+
+            if atr and atr > 0 and cur_price > 0:
+                atr_ratio_pct = atr / cur_price
+                if atr_ratio_pct > 0.03:
+                    self.logger.debug(
+                        f"⚠️ [{symbol}|{tf}] ATR={atr_ratio_pct:.1%} > 3% "
+                        f"(extreme volatility) — signal rejected"
+                    )
+                    return None
+
+            _bb_u_f, _bb_m_f, _bb_l_f = _bollinger(closes, 20)
+            if _bb_u_f is not None and _bb_l_f is not None and cur_price > 0:
+                _bb_w_pct = (_bb_u_f - _bb_l_f) / cur_price * 100
+                if _bb_w_pct < 0.50:
+                    self.logger.debug(
+                        f"⚠️ [{symbol}|{tf}] BB width {_bb_w_pct:.2f}% < 0.50% "
+                        f"(choppy/compressed market) — signal rejected"
+                    )
+                    return None
+
+            _rsi_raw  = _rsi(closes, 14)
+            rsi_val   = _rsi_raw if _rsi_raw is not None else 50.0
+            _avg_vol  = sum(volumes[-20:-1]) / 19 if len(volumes) >= 20 else 0.0
+            vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
+            leverage  = LEVERAGE_MAP.get(tf, 15)
+
+            if vol_ratio < 0.80:
+                self.logger.debug(
+                    f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < 0.80x "
+                    f"— low-volume signal rejected"
+                )
+                return None
+
+            # ── Step 5g: RSI divergence confirmation ──
+            if len(closes) >= 30:
+                try:
+                    _rsi_div = _rsi_divergence(closes, period=14, lookback=20)
+                    if _rsi_div is not None:
+                        _div_type, _div_strength = _rsi_div
+                        _div_aligned = (
+                            (action == "BUY"  and _div_type == "bullish") or
+                            (action == "SELL" and _div_type == "bearish")
+                        )
+                        if _div_aligned and _div_strength > 0.3:
+                            confidence = min(confidence + 3.0, 100.0)
+                            signal_strength = min(signal_strength + 2.0, 100.0)
+                        elif not _div_aligned and _div_strength > 0.5:
+                            confidence = max(confidence - 5.0, 50.0)
+                except Exception:
+                    pass
+
+            # ── Step 5h: Squeeze momentum confirmation ──
+            if len(closes) >= 25 and highs and lows:
+                try:
+                    _sq = _squeeze_momentum(closes, highs, lows)
+                    if _sq is not None:
+                        _sq_on, _sq_val = _sq
+                        if _sq_on:
+                            _sq_aligned = (
+                                (action == "BUY"  and _sq_val > 0) or
+                                (action == "SELL" and _sq_val < 0)
+                            )
+                            if _sq_aligned:
+                                confidence = min(confidence + 2.0, 100.0)
+                            else:
+                                confidence = max(confidence - 3.0, 50.0)
+                except Exception:
+                    pass
+
+            if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
+                return None
+
             # ── Step 6: InsightForge market context ──
             insight          = graph.insight_forge(f"{symbol} {action} signal", n_facts=5)
             graph_insight_txt = insight.to_text()
 
             # ── Step 7: ATR-based price levels ──
-            cur_price = closes[-1]
             sl_pct  = params["sl_pct"]  / 100
             tp1_pct = params["tp1_pct"] / 100
             tp2_pct = params["tp2_pct"] / 100
@@ -3358,52 +3431,6 @@ class MiroFishSwarmStrategy:
             if rr < self.min_rr_ratio:
                 self.logger.debug(
                     f"⚠️ [{tf}] R:R(TP2)={rr:.2f} below minimum {self.min_rr_ratio:.2f} — signal rejected"
-                )
-                return None
-
-            leverage  = LEVERAGE_MAP.get(tf, 15)
-            # BUG FIX: `_rsi(...) or 50.0` treats RSI=0.0 as falsy and wrongly
-            # maps it to 50.  Use an explicit None check instead.
-            _rsi_raw  = _rsi(closes, 14)
-            rsi_val   = _rsi_raw if _rsi_raw is not None else 50.0
-            _avg_vol  = sum(volumes[-20:-1]) / 19 if len(volumes) >= 20 else 0.0
-            vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
-
-            # ── Extreme volatility filter ──────────────────────────────────────
-            # When ATR > 3% of price, the market is in a high-volatility regime
-            # where SL placement becomes imprecise and slippage is extreme.
-            # Reject these signals to protect the Cornix position from blow-up.
-            # (Tightened from 4% → 3% to avoid erratic alt-coin signals.)
-            if atr and atr > 0 and cur_price > 0:
-                atr_ratio_pct = atr / cur_price
-                if atr_ratio_pct > 0.03:
-                    self.logger.debug(
-                        f"⚠️ [{symbol}|{tf}] ATR={atr_ratio_pct:.1%} > 3% "
-                        f"(extreme volatility) — signal rejected"
-                    )
-                    return None
-
-            # ── Bollinger Band width chop filter ──────────────────────────────
-            # When BB width < 0.5% of price the market is in extreme compression
-            # (chop/consolidation) — breakout direction is unknowable, so both
-            # BUY and SELL signals have low win probability.  Skip these setups.
-            _bb_u_f, _bb_m_f, _bb_l_f = _bollinger(closes, 20)
-            if _bb_u_f is not None and _bb_l_f is not None and cur_price > 0:
-                _bb_w_pct = (_bb_u_f - _bb_l_f) / cur_price * 100
-                if _bb_w_pct < 0.50:
-                    self.logger.debug(
-                        f"⚠️ [{symbol}|{tf}] BB width {_bb_w_pct:.2f}% < 0.50% "
-                        f"(choppy/compressed market) — signal rejected"
-                    )
-                    return None
-
-            # ── Minimum volume confirmation ────────────────────────────────────
-            # Require at least 80% of average volume to avoid signals on thin
-            # liquidity candles where price action is unreliable.
-            if vol_ratio < 0.80:
-                self.logger.debug(
-                    f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < 0.80x "
-                    f"— low-volume signal rejected"
                 )
                 return None
 
