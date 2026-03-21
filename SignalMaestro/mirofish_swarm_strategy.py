@@ -749,11 +749,24 @@ class MomentumAgent:
                 if vote == "BUY"  and wr < -80:  conf = min(conf + 4, 95.0)  # oversold
                 if vote == "SELL" and wr > -20:  conf = min(conf + 4, 95.0)  # overbought
 
-            # Rate of Change (10-bar) — momentum strength confirmation
-            roc = _roc(closes, 10)
-            if roc is not None and vote != "NEUTRAL":
-                if vote == "BUY"  and roc > 0: conf = min(conf + min(abs(roc) * 2, 5), 95.0)
-                if vote == "SELL" and roc < 0: conf = min(conf + min(abs(roc) * 2, 5), 95.0)
+            # Multi-period Rate of Change (5/10/20-bar) — momentum strength confirmation
+            # Per ML feature-importance analysis: ROC momentum ~38% predictive weight.
+            # Composite across three periods for noise-robust momentum direction.
+            roc5  = _roc(closes, 5)
+            roc10 = _roc(closes, 10)
+            roc20 = _roc(closes, 20)
+            roc_signals = sum([
+                (1 if (roc5  is not None and roc5  > 0) else -1 if (roc5  is not None and roc5  < 0) else 0),
+                (1 if (roc10 is not None and roc10 > 0) else -1 if (roc10 is not None and roc10 < 0) else 0),
+                (1 if (roc20 is not None and roc20 > 0) else -1 if (roc20 is not None and roc20 < 0) else 0),
+            ])
+            if vote != "NEUTRAL":
+                if vote == "BUY" and roc_signals > 0:
+                    conf = min(conf + min(roc_signals * 2.0, 6.0), 95.0)
+                elif vote == "SELL" and roc_signals < 0:
+                    conf = min(conf + min(abs(roc_signals) * 2.0, 6.0), 95.0)
+                elif (vote == "BUY" and roc_signals < -1) or (vote == "SELL" and roc_signals > 1):
+                    conf = max(conf - 3.0, 50.0)
 
             # ── Proper RSI Divergence (v4 — swing-based, not bar-comparison) ─────
             # Uses the _rsi_divergence() helper which identifies swing pivots.

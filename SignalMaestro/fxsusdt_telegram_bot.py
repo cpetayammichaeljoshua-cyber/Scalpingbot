@@ -746,7 +746,7 @@ class FXSUSDTTelegramBot:
             "TrendAgent": "Tr", "MomentumAgent": "Mo", "VolumeAgent": "Vo",
             "VolatilityAgent": "Vl", "OrderFlowAgent": "OF",
             "SentimentAgent": "Se", "FundingFlowAgent": "Fn",
-            "PivotSRAgent": "Pi", "AIOrchestrationAgent": "AI",
+            "PivotSRAgent": "Pi", "FLOOPAgent": "FL", "AIOrchestrationAgent": "AI",
         }
         _sym = {"BUY": "B", "SELL": "S", "NEUTRAL": "N"}
         votes_str = " ".join(
@@ -1683,13 +1683,13 @@ class FXSUSDTTelegramBot:
         chat_id = str(update.effective_chat.id)
         msg = """🐟 **BTCUSDT MiroFish Swarm Bot**
 
-Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy.
+Welcome! This bot delivers high-confidence USDM Futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy scanning ALL active Binance USDM Perpetual markets.
 
 **🚀 How It Works:**
-• 9 specialized AI agents analyze markets independently
+• 10 specialized AI agents analyze markets independently
 • Each agent has a unique market perspective
 • Swarm consensus determines signal direction
-• Only signals with ≥72% agent agreement are sent
+• Only signals with ≥75% agent agreement are sent
 
 **📋 Key Commands:**
 • `/price` — Current BTCUSDT price
@@ -1701,7 +1701,7 @@ Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals pow
 • `/help` — Full command list
 
 **📡 Signals Channel:** @ichimokutradingsignal
-**⚡ Strategy:** MiroFish Swarm v1 (BTCUSDT USDM Perp)"""
+**⚡ Strategy:** MiroFish Swarm v5.0 (ALL USDM Perp Futures)"""
         await self.send_message(chat_id, msg)
         self.commands_used[chat_id] = self.commands_used.get(chat_id, 0) + 1
 
