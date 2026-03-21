@@ -222,7 +222,7 @@ async def main():
     logger.info("   😱 SentimentAgent     — Fear/greed proxy + vol contraction regime             ( 5% w)")
     logger.info("   💹 FundingFlowAgent   — VWAP deviation + OI proxy + squeeze detection        ( 5% w)")
     logger.info("   📐 PivotSRAgent      — Institutional S/R pivot levels + POC analysis         ( 5% w)")
-    logger.info("   🤖 AIOrchestration   — Claude 3.5 Haiku (primary) + GPT-4o-mini (fallback)   ( 5% w)")
+    logger.info("   🤖 AIOrchestration   — Claude 3.5 Sonnet (primary) + GPT-4o-mini (fallback)   ( 5% w)")
     logger.info("                          ReACT: Reason → Act → Reflect → Conclude")
     logger.info("")
     logger.info("✅ MIROFISH ARCHITECTURE (github.com/666ghj/MiroFish):")

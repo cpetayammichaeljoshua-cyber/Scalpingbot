@@ -1537,26 +1537,30 @@ class AIOrchestrationAgent:
     )
 
     # Claude model cascade — tried in order until one succeeds.
-    # Cascade includes every known stable model ID (newest → oldest) so that
-    # accounts on any Anthropic plan tier can find at least one accessible model.
-    # 404-failed models are added to _claude_failed_models and skipped on future
-    # calls, BUT every 30 minutes the set is cleared so newly-provisioned models
-    # (e.g. after an account upgrade) are automatically retried.
+    # ORDER: most universally accessible models FIRST (confirmed working on standard
+    # Anthropic API plans), then tier-gated / newer models after.
+    # claude-3-5-sonnet-20240620 is placed first — it is the broadest-access stable
+    # model confirmed to work on virtually all Anthropic API accounts.
+    # 404-failed models are skipped; set is cleared every _CLAUDE_MODEL_RETRY_INTERVAL
+    # seconds so newly-provisioned models are auto-discovered without a bot restart.
     _CLAUDE_MODELS = [
-        "claude-3-7-sonnet-20250219",   # Feb 2025: Claude 3.7 Sonnet (extended thinking)
+        "claude-3-5-sonnet-20240620",   # Jun 2024: broadest-access stable model (primary)
         "claude-3-5-haiku-20241022",    # Oct 2024: fastest/cheapest 3.5 tier
         "claude-3-5-sonnet-20241022",   # Oct 2024: high-quality 3.5 sonnet
-        "claude-3-5-sonnet-20240620",   # Jun 2024: original 3.5 sonnet release
-        "claude-3-haiku-20240307",      # Mar 2024: broadly available legacy haiku
-        "claude-3-sonnet-20240229",     # Feb 2024: claude 3 sonnet legacy
+        "claude-3-haiku-20240307",      # Mar 2024: widely available legacy haiku
         "claude-3-opus-20240229",       # Feb 2024: highest capability legacy
+        "claude-3-sonnet-20240229",     # Feb 2024: claude 3 sonnet legacy
+        "claude-3-7-sonnet-20250219",   # Feb 2025: Claude 3.7 (requires tier access)
     ]
     # Interval to reset the 404-failed model set — allows recovery when Anthropic
     # provisions new model access on the account without requiring a bot restart.
-    _CLAUDE_MODEL_RETRY_INTERVAL = 1800.0   # 30 minutes
+    # Reduced to 10 min (from 30) so new access is discovered faster.
+    _CLAUDE_MODEL_RETRY_INTERVAL = 600.0    # 10 minutes (was 30)
+    # OpenAI re-test interval for permanently-disabled state (key may be updated)
+    _OPENAI_RETRY_INTERVAL = 14400.0        # 4 hours — re-probe if key was updated
     _OPENAI_MODEL  = "gpt-4o-mini"
-    _AI_TIMEOUT    = 12.0   # seconds — hard timeout for any AI call (raised from 10)
-    _MAX_TOKENS    = 300    # sufficient for the structured JSON response (raised from 256)
+    _AI_TIMEOUT    = 15.0   # seconds — hard timeout for any AI call (raised from 12)
+    _MAX_TOKENS    = 300    # sufficient for the structured JSON response
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".AIOrchestrationAgent")
@@ -1577,11 +1581,24 @@ class AIOrchestrationAgent:
         # Credits-exhausted errors set a 30-min cooldown; invalid key is permanent.
         self._claude_disabled_until: float = 0.0
         self._claude_perm_disabled: bool   = False
-        # Same pattern for OpenAI — 401 is permanent, billing/quota is 30-min cooldown.
+        # Async probe lock — only ONE coroutine probes the cascade after a reset;
+        # all others skip and use rule-based fallback until a winner is found.
+        # This prevents 80 parallel symbol scans from each retrying all 7 models
+        # simultaneously every time the 10-min retry window clears.
+        self._claude_probe_lock: Optional[asyncio.Lock] = None
+        self._claude_probe_in_progress: bool = False
+        # Same pattern for OpenAI — 401 triggers periodic re-test (key may change).
         self._openai_disabled_until: float = 0.0
         self._openai_perm_disabled: bool   = False
+        self._openai_perm_disabled_at: float = 0.0   # timestamp of permanent disable
         self._init_claude()
         self._init_openai()
+
+    def _get_probe_lock(self) -> asyncio.Lock:
+        """Lazily create the probe lock inside the running event loop."""
+        if self._claude_probe_lock is None:
+            self._claude_probe_lock = asyncio.Lock()
+        return self._claude_probe_lock
 
     # ── Client initialisation ────────────────────────────────────────────────
 
@@ -1775,27 +1792,44 @@ class AIOrchestrationAgent:
           return silently.
         • invalid/expired key → permanent disable (won't fix itself).
         • network timeout → silent fallback, counted in _claude_err_count.
+
+        Probe-lock: when the 10-min retry window clears, ONLY ONE coroutine
+        runs the cascade probe.  All 80 parallel symbol-scan coroutines would
+        otherwise simultaneously try all 7 models → 560 error lines in a burst.
+        Non-probe coroutines return None and fall through to rule-based until the
+        probe completes and confirms a working model (or re-sets perm_disabled).
         """
         if self.claude_client is None:
             return None
+
+        # ── Permanent-disable + periodic reset ──────────────────────────
         if self._claude_perm_disabled:
-            # ── Periodic model-set reset ─────────────────────────────────
-            # _claude_perm_disabled is set when ALL known models return 404.
-            # Every _CLAUDE_MODEL_RETRY_INTERVAL seconds we clear the failed set
-            # and re-enable so that a newly provisioned model is discovered
-            # without requiring a full bot restart (account upgrade scenario).
             _now_reset = time.time()
             if (_now_reset - self._claude_failed_models_last_reset
                     >= self._CLAUDE_MODEL_RETRY_INTERVAL):
-                self._claude_failed_models.clear()
-                self._claude_failed_models_last_reset = _now_reset
-                self._claude_perm_disabled = False
-                self.logger.info(
-                    "🔄 Claude model retry window reached — clearing failed-model "
-                    "set and re-enabling cascade. Will test all models again."
-                )
+                # Only ONE coroutine resets and runs the probe; others skip.
+                _lock = self._get_probe_lock()
+                if _lock.locked():
+                    # Another coroutine is already probing — return None for now.
+                    return None
+                async with _lock:
+                    # Re-check inside lock (another coroutine may have just reset).
+                    if self._claude_perm_disabled and (
+                        time.time() - self._claude_failed_models_last_reset
+                            >= self._CLAUDE_MODEL_RETRY_INTERVAL
+                    ):
+                        self._claude_failed_models.clear()
+                        self._claude_failed_models_last_reset = time.time()
+                        self._claude_perm_disabled = False
+                        self.logger.info(
+                            "🔄 Claude retry window reached — clearing failed-model set. "
+                            "Probing cascade (1 coroutine only). Others use rule-based."
+                        )
+                    # Fall through to attempt below (still inside lock = single probe)
             else:
-                return None
+                return None  # Still in cooldown — fast exit
+
+        # ── Credits / billing cooldown ───────────────────────────────────
         if self._claude_disabled_until > 0:
             _now = time.time()
             if _now < self._claude_disabled_until:
@@ -1817,10 +1851,12 @@ class AIOrchestrationAgent:
         if not available_models:
             if not self._claude_perm_disabled:
                 self._claude_perm_disabled = True
+                self._claude_failed_models_last_reset = time.time()
                 self.logger.warning(
-                    f"🔑 Claude permanently disabled — no accessible model found "
-                    f"in cascade {self._CLAUDE_MODELS}. "
-                    "Verify ANTHROPIC_API_KEY has model access. Rule-based active."
+                    "🔑 Claude: no accessible model in cascade. "
+                    f"Tried: {self._CLAUDE_MODELS}. "
+                    f"Re-probe in {int(self._CLAUDE_MODEL_RETRY_INTERVAL//60)} min. "
+                    "Rule-based fallback active."
                 )
             return None
 
@@ -1839,13 +1875,20 @@ class AIOrchestrationAgent:
                 data = self._parse_ai_response(text.strip())
                 if data:
                     self._claude_err_count = 0
+                    # Log once when a model succeeds after cascade fallback
+                    if len(self._claude_failed_models) > 0:
+                        self.logger.info(
+                            f"✅ Claude cascade: {_current_model} working "
+                            f"(skipped {len(self._claude_failed_models)} unavailable model(s))"
+                        )
                 return data
 
             except asyncio.TimeoutError:
                 self._claude_err_count += 1
                 if self._claude_err_count <= 3:
                     self.logger.warning(
-                        f"⏱ Claude/{_current_model} timeout — falling back to OpenAI"
+                        f"⏱ Claude/{_current_model} timeout ({self._AI_TIMEOUT}s) "
+                        "— falling back to OpenAI/rule-based"
                     )
                 return None
 
@@ -1853,9 +1896,8 @@ class AIOrchestrationAgent:
                 err_str = str(e).lower()
 
                 # ── 404 not_found: model unavailable on this account ──────
-                # Add to failed set — set.add() is idempotent, so concurrent
-                # coroutines adding the same model is safe.  Only log when
-                # the model is NEWLY added (_is_new flag).
+                # set.add() is idempotent — concurrent coroutines are safe.
+                # Log ONCE when newly added (_is_new flag).
                 _NOT_FOUND_PHRASES = (
                     "not_found_error", "not found", "404",
                     "model: claude", "no such model", "unknown model",
@@ -1868,18 +1910,18 @@ class AIOrchestrationAgent:
                                       if m not in self._claude_failed_models]
                         if _remaining:
                             self.logger.warning(
-                                f"⚠️ Claude model not accessible: {_current_model}. "
-                                f"Falling back to: {_remaining[0]}"
+                                f"⚠️ Claude model unavailable: {_current_model} → "
+                                f"trying: {_remaining[0]}"
                             )
                         else:
                             self.logger.warning(
-                                f"⚠️ Claude model not accessible: {_current_model}. "
+                                f"⚠️ Claude model unavailable: {_current_model}. "
                                 "All cascade models exhausted — rule-based active."
                             )
-                    # Try next model in the for-loop (continue cascade)
+                    # Try next model in the cascade for-loop
                     continue
 
-                # ── Permanent errors: wrong key, no access ────────────────
+                # ── Permanent errors: wrong key / no access ───────────────
                 _PERM_PHRASES = (
                     "invalid x-api-key", "invalid api key",
                     "authentication_error", "permission_error",
@@ -1888,15 +1930,14 @@ class AIOrchestrationAgent:
                 if any(p in err_str for p in _PERM_PHRASES):
                     if not self._claude_perm_disabled:
                         self._claude_perm_disabled = True
+                        self._claude_failed_models_last_reset = time.time()
                         self.logger.warning(
-                            "🔑 Claude permanently disabled — invalid or expired API key. "
-                            "Set a valid ANTHROPIC_API_KEY to re-enable."
+                            "🔑 Claude disabled — invalid or expired API key. "
+                            "Update ANTHROPIC_API_KEY secret to re-enable."
                         )
                     return None
 
                 # ── Temporary errors: credits/billing — 30-min cooldown ───
-                # Race-condition safe: _was_enabled ensures only the first
-                # coroutine logs the warning; subsequent ones silently skip.
                 _CREDIT_PHRASES = (
                     "credit balance is too low", "insufficient_quota",
                     "billing", "payment", "your account",
@@ -1923,12 +1964,14 @@ class AIOrchestrationAgent:
                     )
                 return None
 
-        # All cascade models failed with 404 — mark permanently disabled
+        # All available cascade models failed with 404 this round
         if not self._claude_perm_disabled:
             self._claude_perm_disabled = True
+            self._claude_failed_models_last_reset = time.time()
             self.logger.warning(
-                "🔑 Claude permanently disabled — all models returned 404. "
-                "Rule-based fallback active for all future signals."
+                f"🔑 Claude: all {len(self._CLAUDE_MODELS)} models returned 404. "
+                f"Re-probe in {int(self._CLAUDE_MODEL_RETRY_INTERVAL//60)} min. "
+                "Rule-based fallback active."
             )
         return None
 
@@ -1938,9 +1981,10 @@ class AIOrchestrationAgent:
         """
         Send prompt to OpenAI; return parsed dict or None on any error.
 
-        Circuit-breaker behaviour (time-based, not permanent for billing):
-        ─────────────────────────────────────────────────────────────────
-        • 401 / invalid key → permanent disable (wrong key won't fix itself).
+        Circuit-breaker behaviour:
+        ──────────────────────────
+        • 401 / invalid key → timed disable: re-probes every 4 hours in case
+          the OPENAI_API_KEY secret has been updated since the last failure.
         • billing / quota / rate-limit → 30-min cooldown, then auto-retry.
           Race-condition safe: only the first coroutine to hit the quota
           error logs the warning; parallel coroutines silently return None.
@@ -1949,7 +1993,27 @@ class AIOrchestrationAgent:
         if self.openai_client is None:
             return None
         if self._openai_perm_disabled:
-            return None
+            # Re-probe every 4 hours — the user may have updated the API key secret.
+            _since = time.time() - self._openai_perm_disabled_at
+            if _since < self._OPENAI_RETRY_INTERVAL:
+                return None
+            # Re-read and re-init the client with the (possibly updated) key
+            _new_key = self._clean_api_key(os.getenv("OPENAI_API_KEY", ""))
+            if not _new_key:
+                self._openai_perm_disabled_at = time.time()  # reset timer
+                return None
+            try:
+                from openai import AsyncOpenAI
+                self.openai_client = AsyncOpenAI(api_key=_new_key, max_retries=0)
+                self._openai_perm_disabled      = False
+                self._openai_perm_disabled_at   = 0.0
+                self._openai_err_count          = 0
+                self.logger.info(
+                    "🔄 OpenAI re-enabled — detected new API key. Testing connectivity…"
+                )
+            except Exception:
+                self._openai_perm_disabled_at = time.time()
+                return None
         if self._openai_disabled_until > 0:
             _now = time.time()
             if _now < self._openai_disabled_until:
@@ -1990,10 +2054,12 @@ class AIOrchestrationAgent:
             )
             if any(p in err_str for p in _PERM_PHRASES):
                 if not self._openai_perm_disabled:
-                    self._openai_perm_disabled = True
+                    self._openai_perm_disabled     = True
+                    self._openai_perm_disabled_at  = time.time()
                     self.logger.warning(
-                        "🔑 OpenAI permanently disabled — invalid/expired API key (401). "
-                        "Rule-based fallback active. Set a valid OPENAI_API_KEY to re-enable."
+                        "🔑 OpenAI disabled — invalid/expired API key (401). "
+                        f"Auto-re-probe in {int(self._OPENAI_RETRY_INTERVAL//3600)}h. "
+                        "Set a valid OPENAI_API_KEY secret to re-enable immediately."
                     )
                 return None
 

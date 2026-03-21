@@ -450,7 +450,7 @@ class FXSUSDTTelegramBot:
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
                 f"Agents: 9 swarm agents | Consensus: ≥72% | Quorum: 5/9\n"
-                f"AI: Claude 3.5 Haiku (primary) → GPT-4o-mini → Rule-based\n"
+                f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
                 f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 5/hr\n"
                 f"Format: Cornix-compatible\n"
