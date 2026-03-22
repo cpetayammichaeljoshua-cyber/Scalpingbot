@@ -3,7 +3,38 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
-## Bug Fixes & Enhancements (Session 10 — Current)
+## Session 11 — ClawRouter + PublicAPIIntelligence Integration
+
+### `SignalMaestro/smart_llm_router.py` — NEW: ClawRouter-Inspired Smart LLM Router
+- Multi-dimensional request scoring adapted from ClawRouter's 14-dimension rules system (compressed to 8 Python dimensions: token count, technical complexity, reasoning markers, structured output, domain specificity, multi-step, question complexity, simple indicators)
+- Tier-based model selection: SIMPLE / MEDIUM / COMPLEX / REASONING with configurable thresholds
+- Model health tracking: success rate, average latency, consecutive failures per model
+- Cost estimation and savings calculation vs always using the most expensive model
+- Wired into AIOrchestrationAgent: routes prompts before Claude/OpenAI calls, records outcomes (success/failure/latency) after each call for continuous learning
+
+### `SignalMaestro/public_api_intelligence.py` — NEW: Free Market Intelligence Feeds
+- Fear & Greed Index from alternative.me (no API key, 30-min cache TTL)
+- CoinGecko global data: BTC dominance, total market cap Δ24h (5-min TTL)
+- CoinGecko trending coins list (15-min TTL)
+- CoinCap BTC 24h price change (5-min TTL)
+- Background async refresh loop with failure tracking and backoff
+- `get_sentiment_adjustment()`: returns confidence adjustment (-6pt to +1pt based on Fear & Greed level)
+- `get_directional_bias()`: returns per-direction (BUY/SELL) adjustments based on market conditions
+
+### Wiring into Existing Strategy
+- **AIOrchestrationAgent** (`mirofish_swarm_strategy.py`): SmartLLMRouter instantiated in `__init__`, route decisions logged before Claude calls, outcomes recorded after each successful/failed call
+- **FXSUSDTTelegramBot** (`fxsusdt_telegram_bot.py`): PublicAPIIntelligence instantiated in `__init__`, background refresh task started alongside OutcomeTracker, sentiment adjustment applied in `process_signals` before Phase 1 boost analysis (Fear & Greed + directional bias modify signal confidence)
+- Graceful shutdown: PublicAPIIntelligence task cancelled in `close_tg_session`
+
+### Production Validation (Session 11)
+- 38 USDM symbols scanned in 4.5s (parallel mode confirmed)
+- SmartLLMRouter initialized with 10 models
+- PublicAPI fetched: Fear & Greed=12 (Extreme Fear), BTC dom=56.4%, Mkt cap Δ24h=-0.4%
+- NN: 224 samples, acc=97.3%, threshold=0.550
+- Symbol blacklist: RIVERUSDT, TRUMPUSDT, ZECUSDT (recent_loss_rate ≥ 70%)
+- First signal: ETHUSDT SELL — 8/10 agents, consensus=80%, conf=85.2%
+
+## Bug Fixes & Enhancements (Session 10)
 
 ### `SignalMaestro/mirofish_swarm_strategy.py` — Filter Ordering Optimization (performance + win rate)
 - **ROOT CAUSE**: Cheap rejection filters (ATR extreme >3%, BB width <0.5%, volume ratio <0.80) ran AFTER the expensive TP/SL distance computation block (ATR scaling, tick rounding, R:R calculation). Every rejected signal wasted CPU cycles computing price levels that were immediately discarded.

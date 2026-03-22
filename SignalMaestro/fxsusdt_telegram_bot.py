@@ -43,6 +43,16 @@ def _try_import(module_path: str, attr: str, default=None):
 DynamicPositionManager   = _try_import("SignalMaestro.dynamic_position_manager",   "DynamicPositionManager")
 market_analyzer          = _try_import("SignalMaestro.market_intelligence_analyzer", "market_analyzer")
 SmartDynamicSLTPSystem   = _try_import("SignalMaestro.smart_dynamic_sltp_system",   "SmartDynamicSLTPSystem")
+
+try:
+    from SignalMaestro.public_api_intelligence import PublicAPIIntelligence
+    _HAS_PUBLIC_API = True
+except ImportError:
+    try:
+        from public_api_intelligence import PublicAPIIntelligence
+        _HAS_PUBLIC_API = True
+    except ImportError:
+        _HAS_PUBLIC_API = False
 insider_analyzer         = _try_import("SignalMaestro.insider_trading_analyzer",    "insider_analyzer")
 atas_analyzer            = _try_import("SignalMaestro.atas_integrated_analyzer",    "atas_analyzer")
 bookmap_analyzer         = _try_import("SignalMaestro.bookmap_trading_analyzer",    "bookmap_analyzer")
@@ -269,6 +279,16 @@ class FXSUSDTTelegramBot:
                 self.logger.warning(f"⚠️  Self-learning init failed: {e}")
                 self.trade_memory = None
                 self.nn_trainer   = None
+
+        self.public_api: Optional[Any] = None
+        self._public_api_task: Optional[asyncio.Task] = None
+        if _HAS_PUBLIC_API:
+            try:
+                self.public_api = PublicAPIIntelligence()
+                self.logger.info("🌐 PublicAPIIntelligence initialized (Fear&Greed, CoinGecko, CoinCap)")
+            except Exception as pai_err:
+                self.logger.warning(f"⚠️ PublicAPIIntelligence init failed: {pai_err}")
+                self.public_api = None
 
         # ── BB position for current scan cycle (passed to trade recorder) ──
         self._current_bb_position: float = 0.5
@@ -503,6 +523,19 @@ class FXSUSDTTelegramBot:
             _task.cancel()
             try:
                 await asyncio.wait_for(asyncio.shield(_task), timeout=2.0)
+            except Exception:
+                pass
+
+        _pai_task = getattr(self, "_public_api_task", None)
+        if _pai_task is not None and not _pai_task.done():
+            _pai_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_pai_task), timeout=2.0)
+            except Exception:
+                pass
+        if self.public_api is not None:
+            try:
+                await self.public_api.close()
             except Exception:
                 pass
 
@@ -1056,6 +1089,25 @@ class FXSUSDTTelegramBot:
             except Exception:
                 pass
 
+        if self.public_api is not None:
+            try:
+                _fg_adj = self.public_api.get_sentiment_adjustment()
+                _dir_bias = self.public_api.get_directional_bias()
+                _total_api_adj = _fg_adj
+                if signal.action == "BUY":
+                    _total_api_adj += _dir_bias.get("buy_adj", 0.0)
+                elif signal.action == "SELL":
+                    _total_api_adj += _dir_bias.get("sell_adj", 0.0)
+                if _total_api_adj != 0.0:
+                    signal.confidence = max(0.0, signal.confidence + _total_api_adj)
+                    self.logger.debug(
+                        f"🌐 [{symbol}] F&G adj={_fg_adj:+.1f}pt, "
+                        f"dir_bias={_dir_bias}, total={_total_api_adj:+.1f}pt, "
+                        f"conf→{signal.confidence:.1f}%"
+                    )
+            except Exception:
+                pass
+
         # ── Phase 1: Boost analysis — ALL network I/O runs outside the lock ──
         # With the configured semaphore (SCAN_PARALLEL_LIMIT), multiple coroutines run
         # boost analysis concurrently.  Holding the lock here would serialize them into
@@ -1434,6 +1486,26 @@ class FXSUSDTTelegramBot:
                 self.logger.info("🧠 OutcomeTracker background task started")
             except Exception as ot_err:
                 self.logger.warning(f"⚠️ OutcomeTracker init failed: {ot_err}")
+
+        if self.public_api is not None and self._public_api_task is None:
+            try:
+                self._public_api_task = asyncio.create_task(
+                    self.public_api.run(),
+                    name="PublicAPIIntelligence",
+                )
+                def _pai_done_cb(t: asyncio.Task):
+                    if t.cancelled():
+                        return
+                    exc = t.exception()
+                    if exc is not None:
+                        self.logger.error(
+                            "❌ PublicAPIIntelligence task exited with exception",
+                            exc_info=exc,
+                        )
+                self._public_api_task.add_done_callback(_pai_done_cb)
+                self.logger.info("🌐 PublicAPIIntelligence background refresh started")
+            except Exception as pai_err:
+                self.logger.warning(f"⚠️ PublicAPIIntelligence background start failed: {pai_err}")
 
         # ── Initial symbol list refresh ───────────────────────────────────────
         await self._refresh_symbol_list()

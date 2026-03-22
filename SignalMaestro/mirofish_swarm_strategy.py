@@ -36,6 +36,14 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+try:
+    from SignalMaestro.smart_llm_router import SmartLLMRouter
+except ImportError:
+    try:
+        from smart_llm_router import SmartLLMRouter
+    except ImportError:
+        SmartLLMRouter = None
 from typing import Dict, Any, Optional, List, Tuple
 from enum import Enum
 
@@ -1614,6 +1622,9 @@ class AIOrchestrationAgent:
         self._openai_disabled_until: float = 0.0
         self._openai_perm_disabled: bool   = False
         self._openai_perm_disabled_at: float = 0.0   # timestamp of permanent disable
+        self._llm_router: Optional[Any] = None
+        if SmartLLMRouter is not None:
+            self._llm_router = SmartLLMRouter(available_models=list(self._CLAUDE_MODELS) + [self._OPENAI_MODEL])
         self._init_claude()
         self._init_openai()
 
@@ -2227,20 +2238,46 @@ class AIOrchestrationAgent:
         )
 
         # ── ACT: Claude (primary, with automatic model cascade on 404) ──
+        # ClawRouter-inspired routing: log the routing decision for this prompt
+        _route_decision = None
+        if self._llm_router is not None:
+            try:
+                _route_decision = self._llm_router.route(
+                    prompt=prompt, max_output_tokens=self._MAX_TOKENS,
+                )
+            except Exception:
+                pass
+
         ai_source = None
+        _call_start = time.time()
         data = await self._query_claude(prompt)
+        _call_ms = (time.time() - _call_start) * 1000
         if data:
-            # Report the first model in the cascade that's not confirmed failed
             _active_model = next(
                 (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
                 self._CLAUDE_MODELS[-1]
             )
             ai_source = f"Claude/{_active_model}"
+            if self._llm_router is not None:
+                self._llm_router.record_outcome(_active_model, success=True, latency_ms=_call_ms)
         else:
+            if self._llm_router is not None:
+                _failed_model = next(
+                    (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
+                    self._CLAUDE_MODELS[0]
+                )
+                self._llm_router.record_outcome(_failed_model, success=False, latency_ms=_call_ms)
             # ── ACT: OpenAI (secondary fallback) ──
+            _call_start = time.time()
             data = await self._query_openai(prompt)
+            _call_ms = (time.time() - _call_start) * 1000
             if data:
                 ai_source = f"OpenAI/{self._OPENAI_MODEL}"
+                if self._llm_router is not None:
+                    self._llm_router.record_outcome(self._OPENAI_MODEL, success=True, latency_ms=_call_ms)
+            else:
+                if self._llm_router is not None:
+                    self._llm_router.record_outcome(self._OPENAI_MODEL, success=False, latency_ms=_call_ms)
 
         if data:
             vote        = data.get("vote", "NEUTRAL").upper().strip()
