@@ -157,6 +157,14 @@ class SwarmSignal:
     react_reasoning: str = ""
     participation_rate: float = 0.0  # fraction of agents that voted non-NEUTRAL
 
+    # ── Prediction Market Papers (Shannon / Kelly / Decay) ──────────────────
+    # shannon_entropy: H = -p·log₂(p) - (1-p)·log₂(1-p)  → 0=certain, 1=random
+    # kelly_fraction:  f = max(0, (p·b - q) / b)           → optimal edge fraction
+    # kelly_decay_factor: 1 - e^(-λt), λ=ln(2)/3          → trend-maturity 0→1
+    shannon_entropy: float = 0.0
+    kelly_fraction: float = 0.0
+    kelly_decay_factor: float = 1.0
+
     def __post_init__(self):
         if self.take_profit_1 == 0.0:
             self.take_profit_1 = self.take_profit

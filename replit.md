@@ -1,7 +1,39 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+
+## Session 18 — Prediction Market Papers Framework Implementation
+
+### Shannon Entropy + Kelly Criterion + Reaction Decay (`fxsusdt_telegram_bot.py`, `mirofish_swarm_strategy.py`)
+Implements "The Prediction Market Papers" as a new **Step 5n** in the signal pipeline (after Phase 1 boost, before Phase 2 lock):
+
+**1. Shannon Entropy** H = -p·log₂(p) - (1-p)·log₂(1-p)
+- p = swarm_consensus (the swarm's directional certainty)
+- H ∈ [0, 1]: 0 = perfect certainty, 1 = pure coin flip
+- WHEN to enter: low entropy means information is flowing into price (clear directional bias)
+- Gate: H > 0.95 → -7pt penalty, H > 0.90 → -3.5pt, H < 0.70 → +4pt, H < 0.80 → +2pt
+
+**2. Kelly Criterion** f = max(0, (p·b − q) / b)
+- p = swarm_consensus as win probability, b = risk_reward_ratio, q = 1-p
+- HOW MUCH: quantifies edge quality
+- f ≤ 0 → -6pt (negative expectation), f > 0.40 → +4pt (excellent edge)
+- Quarter-Kelly (×0.25) stored as fractional reference
+
+**3. Reaction Decay** f_adj = f · (1 − e^(−λt)), λ = ln(2)/3
+- t = consecutive 15m bars price moved in signal direction (trend maturity)
+- Crypto half-life = 3 bars (45 min)
+- Decay < 0.20 → -3pt (very fresh reversal, unconfirmed), Decay > 0.75 → +2.5pt (established trend)
+
+**PM net adjustment capped at ±8pt** to prevent overriding Phase 1 boost.
+
+**Signal metrics stored** on SwarmSignal: `shannon_entropy`, `kelly_fraction`, `kelly_decay_factor`
+
+**Cornix signal now includes PM line**:
+`PM: Certainty 42% · Kelly 28.0% · Maturity 75%`
+
+**Pipeline order** (complete):
+consensus → risk debate → HTF → Supertrend → SAR → Ichimoku → ATR/BB/vol → RSI div → squeeze → v3 regime → systematic → InsiderTactics → **PM gate (Shannon/Kelly/Decay)** → InsightForge → SL/TP → Kelly → NN gate → BM25 → final gate → send
 
 ## Session 17 — Comprehensive Production Perfection Pass
 

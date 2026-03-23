@@ -10,6 +10,7 @@ import asyncio
 import copy
 import dataclasses
 import logging
+import math
 import aiohttp
 import os
 import time
@@ -831,6 +832,17 @@ class FXSUSDTTelegramBot:
             else:
                 return f"{p:.8f}"
 
+        # ── Prediction Market metrics (only if computed) ──
+        _H    = getattr(signal, "shannon_entropy",    0.0)
+        _fk   = getattr(signal, "kelly_fraction",     0.0)
+        _dk   = getattr(signal, "kelly_decay_factor", 1.0)
+        _pm_line = ""
+        if _H > 0 or _fk > 0:
+            _certainty = max(0.0, 1.0 - _H) * 100   # 0=random, 100=certain
+            _pm_line = (
+                f"\nPM: Certainty {_certainty:.0f}% · Kelly {_fk:.1%} · Maturity {_dk:.0%}"
+            )
+
         msg = (
             f"{d_emoji} {sym_tag} {direction}\n"
             f"Exchange: Binance Futures\n"
@@ -848,7 +860,8 @@ class FXSUSDTTelegramBot:
             f"1) {_fmt(sl)}\n"
             f"\n"
             f"⚡{tf}{sess_tag} · {consensus_pct:.0f}%🐟 · {signal.confidence:.0f}%Conf · RSI {signal.rsi:.0f} · R:R 1:{rr:.1f}\n"
-            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC\n"
+            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC"
+            f"{_pm_line}\n"
             f"📡 @ichimokutradingsignal | MiroFish Swarm"
         )
         return msg
@@ -1159,10 +1172,13 @@ class FXSUSDTTelegramBot:
         # LOCAL variable — avoids the race where another coroutine overwrites
         # self._current_bb_position between Phase 1 and Phase 2.
         _local_bb_position: float = 0.5
+        # PM Framework: klines captured in Phase 1 for use in PM computation
+        _pm_klines: list = []
 
         try:
             raw_klines = await self.trader.get_market_data(symbol, "15m", 200)
             if raw_klines and len(raw_klines) >= 50:
+                _pm_klines = raw_klines  # save for Prediction Market Framework
                 # 6-column format [ts, open, high, low, close, volume]
                 market_data_5col = [
                     [k[0], float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])]
@@ -1276,6 +1292,123 @@ class FXSUSDTTelegramBot:
             self.logger.debug(
                 f"🔒 Boost capped at +{_MAX_BOOST:.0f}pt → conf={signal.confidence:.1f}%"
             )
+
+        # ════════════════════════════════════════════════════════════════════
+        # PREDICTION MARKET PAPERS FRAMEWORK
+        # Ref: "The Prediction Market Papers" (Shannon Entropy + Kelly + Decay)
+        #
+        #   1. Shannon Entropy  H = -p·log₂(p) - (1-p)·log₂(1-p)
+        #      WHEN to enter: measures market certainty via swarm consensus.
+        #      Low H (< 0.70)  → clear directional edge    → confidence bonus
+        #      High H (> 0.93) → near coin-flip, no edge   → confidence penalty
+        #
+        #   2. Kelly Criterion  f = max(0, (p·b − q) / b)
+        #      HOW MUCH: optimal bet-size given edge p and reward:risk b.
+        #      f < 0   → negative expectation   → hard penalty
+        #      f > 0.3 → strong edge            → confidence bonus
+        #      (Fractional Kelly ×0.25 used; full Kelly too aggressive for crypto)
+        #
+        #   3. Reaction Decay   f_adj = f · (1 − e^(−λt))
+        #      URGENCY: λ = ln(2)/3 (half-life = 3 bars of 15m, crypto default).
+        #      t = consecutive 15m bars the price moved in signal direction.
+        #      Low t (fresh reversal)    → low maturity  → small decay penalty
+        #      High t (established trend)→ high maturity → decay bonus
+        # ════════════════════════════════════════════════════════════════════
+        _PM_LAMBDA = math.log(2) / 3.0   # half-life = 3 bars (45 min on 15m TF)
+
+        try:
+            # ── 1. Shannon Entropy from swarm consensus ───────────────────────
+            _p_sw  = max(1e-9, min(1.0 - 1e-9, float(signal.swarm_consensus)))
+            _q_sw  = 1.0 - _p_sw
+            _H     = -(_p_sw * math.log2(_p_sw) + _q_sw * math.log2(_q_sw))
+
+            # ── 2. Kelly Criterion (fractional, conservative) ─────────────────
+            _b_rr     = max(0.5, float(signal.risk_reward_ratio))
+            _p_win    = _p_sw                              # swarm consensus as win prob
+            _f_kelly  = max(0.0, (_p_win * _b_rr - (1.0 - _p_win)) / _b_rr)
+            _f_frac   = 0.25 * _f_kelly                   # quarter-Kelly for safety
+
+            # ── 3. Reaction Decay: count consecutive bars in signal direction ──
+            _t_bars = 2.0   # conservative default (1 confirmed bar)
+            if _pm_klines and len(_pm_klines) >= 8:
+                _pm_closes = [float(k[4]) for k in _pm_klines[-16:]]
+                _dir_mult  = 1 if signal.action == "BUY" else -1
+                _t_bars    = 0.0
+                for _bi in range(len(_pm_closes) - 1, 0, -1):
+                    if _dir_mult * (_pm_closes[_bi] - _pm_closes[_bi - 1]) > 0:
+                        _t_bars += 1.0
+                    else:
+                        break
+                _t_bars = max(1.0, _t_bars)
+
+            _decay    = 1.0 - math.exp(-_PM_LAMBDA * _t_bars)
+            _f_adj    = _f_kelly * _decay               # Kelly × maturity
+
+            # ── Store PM metrics on signal object ─────────────────────────────
+            signal.shannon_entropy    = round(_H, 4)
+            signal.kelly_fraction     = round(_f_kelly, 4)
+            signal.kelly_decay_factor = round(_decay, 4)
+
+            # ── Apply PM confidence adjustments ───────────────────────────────
+            _pm_adj_total = 0.0
+
+            # 1. Entropy adjustment (certainty vs uncertainty)
+            if _H > 0.95:       # near 50/50: very uncertain → hard penalty
+                _ent_adj = -7.0
+            elif _H > 0.90:     # mildly uncertain
+                _ent_adj = -3.5
+            elif _H > 0.85:     # slightly uncertain
+                _ent_adj = -1.5
+            elif _H < 0.60:     # very clear directional bias
+                _ent_adj = +4.0
+            elif _H < 0.70:     # clear directional bias
+                _ent_adj = +2.0
+            elif _H < 0.80:     # somewhat clear
+                _ent_adj = +1.0
+            else:
+                _ent_adj = 0.0
+
+            # 2. Kelly adjustment (edge quality)
+            if _f_kelly <= 0.0:         # negative expectation → penalise hard
+                _kelly_adj = -6.0
+            elif _f_kelly < 0.10:       # thin edge
+                _kelly_adj = -1.0
+            elif _f_kelly > 0.40:       # excellent edge
+                _kelly_adj = +4.0
+            elif _f_kelly > 0.25:       # good edge
+                _kelly_adj = +2.5
+            elif _f_kelly > 0.15:       # moderate edge
+                _kelly_adj = +1.0
+            else:
+                _kelly_adj = 0.0
+
+            # 3. Decay adjustment (trend maturity)
+            if _decay < 0.20:           # very fresh reversal → uncertain
+                _decay_adj = -3.0
+            elif _decay < 0.40:         # early-stage signal
+                _decay_adj = -1.0
+            elif _decay > 0.75:         # well-established trend
+                _decay_adj = +2.5
+            elif _decay > 0.55:         # moderately established
+                _decay_adj = +1.0
+            else:
+                _decay_adj = 0.0
+
+            _pm_adj_total = _ent_adj + _kelly_adj + _decay_adj
+
+            # Cap PM net adjustment to ±8 pts to avoid over-riding Phase 1 boost
+            _pm_adj_total = max(-8.0, min(8.0, _pm_adj_total))
+            signal.confidence = max(0.0, min(100.0, signal.confidence + _pm_adj_total))
+
+            self.logger.info(
+                f"📊 [{symbol}] PM: H={_H:.3f}(adj={_ent_adj:+.1f}) "
+                f"Kelly={_f_kelly:.1%}(adj={_kelly_adj:+.1f}) "
+                f"Decay={_decay:.2f}×t={_t_bars:.0f}bars(adj={_decay_adj:+.1f}) "
+                f"net_adj={_pm_adj_total:+.1f}pt → conf={signal.confidence:.1f}%"
+            )
+
+        except Exception as _pm_err:
+            self.logger.debug(f"PM framework skipped: {_pm_err}")
 
         # ── Phase 2: Atomic gate — lock held for milliseconds only ────────────
         # Two coroutines that both passed the initial pre-check cannot both send
