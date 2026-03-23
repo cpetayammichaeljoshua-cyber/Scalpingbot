@@ -1,7 +1,58 @@
-# MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
+# MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets v5.1
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.1). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. **Now trades directly into Binance account (no Cornix required)** while still broadcasting Cornix-compatible signals to @ichimokutradingsignal.
+
+## Session 19 — Direct Binance Executor (No Cornix) + Cornix Image Config Integration
+
+### New: `SignalMaestro/binance_direct_executor.py`
+Production-grade direct Binance USDM Futures executor — trades directly into Binance account without needing Cornix. Signals still broadcast to Telegram channel in Cornix-compatible format.
+
+**Configuration (exact match from Cornix screenshots):**
+- Amount Per Trade: **2% Risk Percentage** (risk-based position sizing)
+- Direction: **Long + Short** (simultaneous via Hedge Mode)
+- Leverage: **Isolated — Channel** (reads leverage from signal, applies isolated margin)
+- Skip Signals Without Stop-Loss: **Off** (default SL applied if missing)
+- Stop Timeout: **Off**
+- Leveraged Trailing: **Personal → Moving Target, Trigger: #1** (activates after TP1 hit)
+- Trailing Entry: **Without**
+- Trailing Take Profit: **Without**
+- Stop Type: **Market** (STOP_MARKET orders for immediate fill)
+- Operation Hours: **Off** (24/7)
+- Position Mode: **Hedge Mode** (dual-side: simultaneous LONG + SHORT on same symbol)
+- Alternative USD Pairs: **Off**
+
+**Regional Bypass:**
+- 4 FAPI endpoint fallbacks: `fapi.binance.com`, `fapi1`, `fapi2`, `fapi3`
+- Optional HTTP/SOCKS5 proxy via `BINANCE_PROXY` env var
+- Exponential backoff retry (4 attempts)
+- CCXT 4.5 async_support
+
+**Moving Target Trailing Stop:**
+- Activates when price hits TP1 (Trigger #1)
+- LONG: trails SL = highest_price_since_TP1 × (1 - trail_pct)
+- SHORT: trails SL = lowest_price_since_TP1 × (1 + trail_pct)
+- Auto trail_pct = 50% of original SL-to-entry distance (min 0.3%)
+
+**Position Sizing:**
+- qty = (balance × 2%) / |entry - stop_loss|
+- TP allocation: 50% at TP1, 30% at TP2, 20% at TP3
+- All SL orders: STOP_MARKET type
+
+**Integration:**
+- Initialized in `run_continuous_scanner()` (async)
+- Fires after every channel broadcast (fire-and-forget task)
+- `/trades` Telegram command shows active direct trades + trailing status
+- Gracefully closes in `close_tg_session()`
+- Circuit breaker: 5 errors → 2-min cooldown
+
+### New: `direct_trade_config.json`
+Config file documenting all settings from the Cornix screenshots.
+
+### Modified: `start_ultimate_bot.py` → v5.1
+- Loads `direct_trade_config.json` on startup
+- Banner shows Direct Exe status (ENABLED/DISABLED)
+- Shows regional bypass endpoints and trading mode
 
 ## Session 18 — Prediction Market Papers Framework Implementation
 

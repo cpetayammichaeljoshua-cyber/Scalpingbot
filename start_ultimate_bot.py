@@ -200,16 +200,33 @@ async def main():
         logger.error(f"❌ Missing critical env vars: {missing}")
         return False
 
-    # ── Startup Banner ──
+    # ── Startup Banner + Direct Trade Config ──
+    _direct_cfg_path = Path(__file__).parent / "direct_trade_config.json"
+    _direct_cfg: dict = {}
+    try:
+        import json as _json
+        with open(_direct_cfg_path) as _f:
+            _direct_cfg = _json.load(_f)
+        logger.info(f"✅ Direct trade config loaded: {_direct_cfg_path.name}")
+    except Exception:
+        logger.info("ℹ️  direct_trade_config.json not found — using env var defaults")
+
+    _direct_enabled = os.getenv("DIRECT_TRADING_ENABLED", "true").lower() == "true"
+    _has_keys = bool(os.getenv("BINANCE_API_KEY", "").strip())
+
     logger.info("=" * 90)
-    logger.info("🐟 MIROFISH SWARM TRADING BOT v5.0 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
+    logger.info("🐟 MIROFISH SWARM TRADING BOT v5.1 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
     logger.info("=" * 90)
     logger.info("📊 Markets:    ALL Binance USDM Perpetual Futures (up to 80, $50M+ 24h vol)")
     logger.info("🐟 Strategy:   MiroFish Multi-Agent Swarm Intelligence")
     logger.info("               github.com/666ghj/MiroFish")
     logger.info("⏱️  Timeframe:  15M (primary swing/scalp timeframe)")
     logger.info("📢 Channel:    @ichimokutradingsignal | InsiderTactics")
-    logger.info("📋 Format:     Cornix-compatible signal format")
+    logger.info("📋 Signal Fmt: Cornix-compatible (broadcast to channel)")
+    logger.info(f"🔥 Direct Exe: {'ENABLED' if _direct_enabled and _has_keys else 'DISABLED (set DIRECT_TRADING_ENABLED=true + API keys)'}")
+    logger.info(f"   Mode: Hedge (Long+Short) | Margin: Isolated | Risk: 2%/trade")
+    logger.info(f"   Stop: Market | Trailing: Moving Target (trigger: TP1 hit)")
+    logger.info(f"   Regional bypass: 4 FAPI endpoints + optional BINANCE_PROXY")
     logger.info(f"🔄 Scanner:    TRUE PARALLEL — {SCAN_PARALLEL_LIMIT} concurrent streams (asyncio.gather + Semaphore)")
     logger.info(f"📡 Hourly Cap: {SIGNALS_PER_HOUR_MIN}–{SIGNALS_PER_HOUR_MAX} signals/hour | Interval: ≥{SIGNAL_INTERVAL_MIN}s between signals")
     logger.info("")

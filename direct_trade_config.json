@@ -1,0 +1,70 @@
+{
+  "_comment": "Direct Binance trading config — derived from Cornix screenshots",
+  "_images": [
+    "General: 2% Risk Percentage, Long+Short, Leverage=Isolated-Channel",
+    "Stop: Skip No-SL=Off, StopTimeout=Off, Leveraged Trailing=Personal, Type=Moving Target, Trigger=#1",
+    "Advanced: Close On TP Before Entry=Channel, Alt USD Pairs=Off, Stop Type=Market, Op Hours=Off, Position Mode=Hedge",
+    "Config: Trailing Entry=Without, Trailing TP=Without, Trailing Stop=Moving Target Trigger#1"
+  ],
+  "risk": {
+    "risk_percent_per_trade": 2.0,
+    "max_concurrent_trades": 6,
+    "max_portfolio_risk_percent": 10.0,
+    "min_notional_usdt": 5.0,
+    "only_use_if_not_defined_by_group": false
+  },
+  "direction": {
+    "long": true,
+    "short": true,
+    "hedge_mode": true
+  },
+  "leverage": {
+    "type": "isolated",
+    "source": "channel",
+    "min": 3,
+    "max": 20,
+    "default": 6
+  },
+  "entries": {
+    "trailing_entry": false,
+    "entry_type": "market"
+  },
+  "take_profits": {
+    "tp1_allocation_pct": 50,
+    "tp2_allocation_pct": 30,
+    "tp3_allocation_pct": 20,
+    "trailing_take_profit": false,
+    "close_trade_on_tp_before_entry": "channel"
+  },
+  "stop_loss": {
+    "stop_type": "market",
+    "skip_signals_without_sl": false,
+    "default_sl_percent": 1.5,
+    "stop_timeout": false,
+    "leveraged_trailing": {
+      "enabled": true,
+      "mode": "personal",
+      "type": "moving_target",
+      "trigger": 1,
+      "trailing_percent": null,
+      "only_use_if_not_defined_by_group": false
+    }
+  },
+  "advanced": {
+    "alternative_usd_pairs": false,
+    "operation_hours": "24_7",
+    "position_mode": "hedge"
+  },
+  "regional_bypass": {
+    "enabled": true,
+    "fapi_endpoints": [
+      "https://fapi.binance.com",
+      "https://fapi1.binance.com",
+      "https://fapi2.binance.com",
+      "https://fapi3.binance.com"
+    ],
+    "proxy_env_var": "BINANCE_PROXY",
+    "timeout_ms": 20000,
+    "max_retries": 4
+  }
+}

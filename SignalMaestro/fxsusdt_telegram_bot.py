@@ -116,6 +116,18 @@ class FXSUSDTTelegramBot:
         self.strategy = MiroFishSwarmStrategy()
         self.trader   = BTCUSDTTrader()
 
+        # ── Direct Binance Executor (no Cornix) ──
+        # Trades directly into Binance account + sends signals to channel
+        self.direct_executor = None
+        self._direct_trading_enabled = os.getenv("DIRECT_TRADING_ENABLED", "true").lower() == "true"
+        if self._direct_trading_enabled:
+            try:
+                from SignalMaestro.binance_direct_executor import BinanceDirectExecutor
+                self.direct_executor = BinanceDirectExecutor()
+                self.logger.info("✅ Direct Binance executor loaded — initializing async...")
+            except Exception as _de:
+                self.logger.warning(f"⚠️ Direct executor unavailable: {_de}")
+
         # ── Optional analyzers (safe init) ──
         self.market_intelligence = market_analyzer
         self.smart_sltp          = SmartDynamicSLTPSystem() if SmartDynamicSLTPSystem else None
@@ -183,6 +195,7 @@ class FXSUSDTTelegramBot:
             "/orderflow":    self.cmd_order_flow,
             "/dynamic_sl":   self.cmd_dynamic_leveraging_sl,
             "/swarm":        self.cmd_swarm_status,
+            "/trades":       self.cmd_direct_trades,
         }
 
         if self.freqtrade_commands:
@@ -485,6 +498,11 @@ class FXSUSDTTelegramBot:
         """Send startup notification to both signal channel and admin chat"""
         try:
             ts  = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
+            _direct_status = (
+                "ONLINE — 2% risk | Hedge | Isolated | Moving-Target trailing"
+                if getattr(self, "direct_executor", None) is not None
+                else "DISABLED (signal-only mode)"
+            )
             msg = (
                 f"🐟 MIROFISH SWARM — ALL USDM MARKETS — ONLINE\n\n"
                 f"Bot: {self.bot_username}\n"
@@ -497,7 +515,10 @@ class FXSUSDTTelegramBot:
                 f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
                 f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 10/hr\n"
-                f"Format: Cornix-compatible\n"
+                f"Direct Execution: {_direct_status}\n"
+                f"Trade Settings: Long+Short | Stop: Market | TP: 50/30/20%\n"
+                f"Trailing Stop: Moving Target (trigger: TP1 hit)\n"
+                f"Format: Cornix-compatible (signals to channel)\n"
                 f"Started: {ts}\n"
                 f"Status: ONLINE ✅"
             )
@@ -560,6 +581,13 @@ class FXSUSDTTelegramBot:
         if self.public_api is not None:
             try:
                 await self.public_api.close()
+            except Exception:
+                pass
+
+        # Close direct executor cleanly
+        if getattr(self, "direct_executor", None) is not None:
+            try:
+                await self.direct_executor.aclose()
             except Exception:
                 pass
 
@@ -929,6 +957,16 @@ class FXSUSDTTelegramBot:
                     f"→ channel={self.signal_channel_id} "
                     f"(consensus={signal.swarm_consensus:.0%} conf={signal.confidence:.1f}%)"
                 )
+
+                # ── Direct Binance execution (no Cornix) ──────────────────
+                # Fire-and-forget: execute trade directly while signal has
+                # already been broadcast to the channel.
+                if self.direct_executor is not None:
+                    asyncio.create_task(
+                        self._execute_direct_trade(signal),
+                        name=f"direct_{symbol}_{signal.action}"
+                    )
+
                 return True
             else:
                 self.logger.warning(
@@ -940,6 +978,64 @@ class FXSUSDTTelegramBot:
         except Exception as e:
             self.logger.error(f"send_signal_to_channel error: {e}")
             return False
+
+    # ─────────────────────────────────────────
+    # Direct Trade Execution
+    # ─────────────────────────────────────────
+
+    async def _execute_direct_trade(self, signal: Any):
+        """
+        Execute a signal directly on Binance (no Cornix).
+        Called as a fire-and-forget task after channel broadcast.
+
+        Settings (from Cornix images):
+          • Risk: 2% per trade
+          • Mode: Hedge (Long + Short simultaneously)
+          • Margin: Isolated
+          • Stop: Market
+          • Trailing: Moving Target, Trigger #1
+        """
+        if self.direct_executor is None:
+            return
+        symbol    = getattr(signal, "symbol", "BTCUSDT")
+        direction = "LONG" if getattr(signal, "action", "BUY") in ("BUY", "LONG") else "SHORT"
+        try:
+            result = await self.direct_executor.execute_signal(signal)
+            if result.get("success"):
+                entry   = result.get("entry", 0)
+                qty     = result.get("quantity", 0)
+                lev     = result.get("leverage", 1)
+                notional = result.get("notional", 0)
+                risk    = result.get("risk_usdt", 0)
+                msg = (
+                    f"✅ DIRECT TRADE EXECUTED\n"
+                    f"{symbol} {direction} @ {entry:.4g}\n"
+                    f"Qty: {qty} | Lev: {lev}x | Notional: {notional:.2f} USDT\n"
+                    f"Risk: {risk:.2f} USDT (2%)\n"
+                    f"SL: {result.get('stop_loss', 0):.4g} | "
+                    f"TP1: {result.get('take_profit_1', 0):.4g}\n"
+                    f"Trailing: Moving Target (activates on TP1 hit)"
+                )
+                self.logger.info(f"🔥 Direct trade: {symbol} {direction} @ {entry:.4g}")
+                if self.admin_chat_id:
+                    await self.send_message(self.admin_chat_id, msg, parse_mode=None)
+            else:
+                reason = result.get("reason", "unknown")
+                self.logger.warning(f"⚠️ Direct trade skipped for {symbol}: {reason}")
+        except Exception as e:
+            self.logger.error(f"❌ Direct trade error for {symbol}: {e}", exc_info=True)
+
+    async def cmd_direct_trades(self, update, context):
+        """Show all active direct trades and trailing stop status."""
+        if self.direct_executor is None:
+            await self.send_message(
+                update.effective_chat.id,
+                "⚠️ Direct trading not initialized. Set DIRECT_TRADING_ENABLED=true",
+                parse_mode=None
+            )
+            return
+        summary = self.direct_executor.status_summary()
+        await self.send_message(update.effective_chat.id, summary, parse_mode=None)
 
     # ─────────────────────────────────────────
     # Scanner
@@ -1633,6 +1729,19 @@ class FXSUSDTTelegramBot:
         """
         self.logger.info("🚀 Starting MiroFish PARALLEL scanner — ALL USDM FUTURES...")
         self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore({self._scan_limit}))")
+
+        # ── Initialize Direct Executor (async) ──────────────────────────────
+        if self.direct_executor is not None:
+            try:
+                ok = await self.direct_executor.initialize()
+                if ok:
+                    self.logger.info("🔥 Direct Binance executor ONLINE — trading directly (no Cornix)")
+                else:
+                    self.logger.warning("⚠️ Direct executor init failed — signal-only mode")
+                    self.direct_executor = None
+            except Exception as _de:
+                self.logger.warning(f"⚠️ Direct executor init error: {_de}")
+                self.direct_executor = None
 
         await self.test_telegram_connection()
         await self._drain_pending_updates()
