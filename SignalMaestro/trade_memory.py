@@ -163,6 +163,14 @@ class TradeMemory:
                     "📦 DB migrated: added 'partial_outcome' column to trades"
                 )
 
+            if "source" not in existing_cols:
+                c.execute(
+                    "ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'bot'"
+                )
+                self.logger.info(
+                    "📦 DB migrated: added 'source' column to trades"
+                )
+
             # Indexes for fast open-trade and per-symbol queries
             c.execute("""
                 CREATE INDEX IF NOT EXISTS idx_outcome

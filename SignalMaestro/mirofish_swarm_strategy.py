@@ -3333,16 +3333,7 @@ class MiroFishSwarmStrategy:
             vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
             leverage  = LEVERAGE_MAP.get(tf, 15)
 
-            # Kelly Criterion dynamic leverage scaling:
-            # Kelly fraction f* = (bp - q) / b where b=R:R, p=win_prob, q=1-p
-            # R:R estimated from ATR-based TP1/SL multipliers (TP1=2.54×ATR, SL=1.5×ATR).
-            _kelly_p = min(consensus, 0.95) * (confidence / 100.0)
-            _kelly_q = 1.0 - _kelly_p
-            _kelly_b = 2.54 / 1.5 if atr and atr > 0 else 1.5
-            _kelly_f = (_kelly_b * _kelly_p - _kelly_q) / max(_kelly_b, 0.01)
-            _kelly_f = max(0.0, min(_kelly_f, 1.0)) * 0.5
-            if _kelly_f > 0:
-                leverage = max(3, min(int(leverage * (0.5 + _kelly_f)), 30))
+            # Kelly Criterion: moved to after Step 7 (uses actual TP1/SL distances)
 
             if vol_ratio < 0.80:
                 self.logger.debug(
@@ -3394,23 +3385,69 @@ class MiroFishSwarmStrategy:
                 except Exception:
                     pass
 
-            # ── Step 5i: Market regime detection (trending/ranging/volatile) ──
-            # Adjusts confidence based on detected regime. Trending markets
-            # boost trend-following signals; ranging markets penalize them.
-            if len(closes) >= 30 and atr and atr > 0:
+            # ── Step 5i: Market regime detection (v3 multi-indicator voting) ──
+            # Upgraded from simple EMA/ATR check to moss-trade-bot v3 logic:
+            # 4-factor voting: EMA20/50 cross, ADX+DI, ATR-rank, momentum
+            _regime = "RANGING"
+            if len(closes) >= 50 and atr and atr > 0:
                 try:
-                    _ema_fast = closes[-1]
-                    _ema_slow = sum(closes[-20:]) / 20
+                    _votes_bull = 0
+                    _votes_bear = 0
+                    _votes_side = 0
+
+                    _ema20 = _ema(closes, 20)
+                    _ema50 = _ema(closes, 50)
+                    if _ema20 is not None and _ema50 is not None:
+                        if _ema20 > _ema50:
+                            _votes_bull += 1
+                        elif _ema20 < _ema50:
+                            _votes_bear += 1
+                        else:
+                            _votes_side += 1
+
+                    _adx_proxy = _compute_adx_proxy(closes, highs, lows, 14) if highs and lows and len(closes) >= 20 else None
+                    if _adx_proxy is not None:
+                        _adx_val_5i, _pdi_5i, _mdi_5i = _adx_proxy
+                        if _adx_val_5i > 25:
+                            if _pdi_5i > _mdi_5i:
+                                _votes_bull += 1
+                            else:
+                                _votes_bear += 1
+                        else:
+                            _votes_side += 1
+                    else:
+                        _votes_side += 1
+
                     _atr_norm = atr / cur_price if cur_price > 0 else 0.01
-                    _trend_strength = abs(_ema_fast - _ema_slow) / _ema_slow if _ema_slow > 0 else 0
-                    if _trend_strength > 0.015 and _atr_norm < 0.02:
-                        _regime = "TRENDING"
-                        confidence = min(confidence + 2.0, 100.0)
-                    elif _atr_norm > 0.025:
-                        _regime = "VOLATILE"
-                        confidence = max(confidence - 2.0, 50.0)
+                    if _atr_norm < 0.008:
+                        _votes_side += 1
+
+                    _mom_ret = (closes[-1] - closes[-min(48, len(closes))]) / closes[-min(48, len(closes))] if closes[-min(48, len(closes))] != 0 else 0
+                    if _mom_ret > 0.05:
+                        _votes_bull += 1
+                    elif _mom_ret < -0.05:
+                        _votes_bear += 1
+                    else:
+                        _votes_side += 1
+
+                    if _votes_bull > _votes_bear and _votes_bull > _votes_side:
+                        _regime = "BULL"
+                    elif _votes_bear > _votes_bull and _votes_bear > _votes_side:
+                        _regime = "BEAR"
                     else:
                         _regime = "RANGING"
+
+                    if _regime == "BULL":
+                        if action == "BUY":
+                            confidence = min(confidence + 2.5, 100.0)
+                        else:
+                            confidence = max(confidence - 2.0, 50.0)
+                    elif _regime == "BEAR":
+                        if action == "SELL":
+                            confidence = min(confidence + 2.5, 100.0)
+                        else:
+                            confidence = max(confidence - 2.0, 50.0)
+                    else:
                         if consensus < 0.90:
                             confidence = max(confidence - 1.5, 50.0)
                 except Exception:
@@ -3493,6 +3530,48 @@ class MiroFishSwarmStrategy:
                             confidence = min(confidence + 1.5, 100.0)
                 except Exception:
                     pass
+
+            # ── Step 5k: InsiderTactics data-driven filters (4326-trade analysis) ──
+            try:
+                from datetime import datetime, timezone as _tz
+                _utc_h = datetime.now(_tz.utc).hour
+
+                _IT_BEST_HOURS  = {0, 2, 3, 11, 12, 19, 23}
+                _IT_WORST_HOURS = {1, 5, 8, 16}
+                if _utc_h in _IT_BEST_HOURS:
+                    confidence = min(confidence + 2.0, 100.0)
+                elif _utc_h in _IT_WORST_HOURS:
+                    confidence = max(confidence - 3.0, 50.0)
+
+                if action == "BUY":
+                    confidence = min(confidence + 1.5, 100.0)
+                elif action == "SELL":
+                    confidence = max(confidence - 1.0, 50.0)
+
+                _IT_BLACKLIST = {
+                    "TRUMPUSDT", "STOUSDT", "APRUSDT", "PUMPUSDT", "COSUSDT",
+                    "ASTERUSDT", "MANAUSDT", "GMTUSDT", "XMRUSDT", "KAVAUSDT",
+                }
+                if symbol in _IT_BLACKLIST:
+                    self.logger.debug(f"⚠️ [{symbol}] InsiderTactics blacklist (0% WR) — rejected")
+                    return None
+
+                _IT_BOOST_SYMS = {
+                    "SIRENUSDT": 3.0, "BARDUSDT": 4.0, "ANIMEUSDT": 3.5,
+                    "UNIUSDT": 3.0, "ARBUSDT": 3.0, "DASHUSDT": 3.0,
+                    "BCHUSDT": 2.0, "DOTUSDT": 2.0, "BANDUSDT": 4.0,
+                    "RLCUSDT": 4.0,
+                }
+                _IT_PENALTY_SYMS = {
+                    "ADAUSDT": -2.0, "ETHUSDT": -1.0, "SOLUSDT": -1.5,
+                    "RIVERUSDT": -3.0, "ZECUSDT": -3.0,
+                }
+                if symbol in _IT_BOOST_SYMS:
+                    confidence = min(confidence + _IT_BOOST_SYMS[symbol], 100.0)
+                elif symbol in _IT_PENALTY_SYMS:
+                    confidence = max(confidence + _IT_PENALTY_SYMS[symbol], 50.0)
+            except Exception:
+                pass
 
             if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
                 return None
@@ -3618,6 +3697,17 @@ class MiroFishSwarmStrategy:
                 )
                 return None
 
+            # ── Kelly Criterion dynamic leverage (uses actual TP1/SL distances) ──
+            _kelly_p = min(consensus, 0.95) * (confidence / 100.0)
+            _kelly_q = 1.0 - _kelly_p
+            _kelly_b = abs(take_profit - cur_price) / max(abs(cur_price - stop_loss), 1e-10)
+            if _kelly_b <= 0 or _kelly_b > 20:
+                _kelly_b = 1.693
+            _kelly_f = (_kelly_b * _kelly_p - _kelly_q) / max(_kelly_b, 0.01)
+            _kelly_f = max(0.0, min(_kelly_f, 1.0)) * 0.5
+            if _kelly_f > 0:
+                leverage = max(3, min(int(leverage * (0.5 + _kelly_f)), 30))
+
             # ── Step 8: Update graph signal node ──
             signal_node_id = graph.add_node(
                 MarketEntityType.SIGNAL,
@@ -3703,6 +3793,37 @@ class MiroFishSwarmStrategy:
 # ─────────────────────────────────────────────────────────────────────────────
 # Pure-Python Technical Indicator Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _compute_adx_proxy(closes: List[float], highs: List[float], lows: List[float],
+                       period: int = 14) -> Optional[Tuple[float, float, float]]:
+    n = len(closes)
+    if n < period + 2 or len(highs) < n or len(lows) < n:
+        return None
+    plus_dm_list = []
+    minus_dm_list = []
+    tr_list = []
+    for i in range(1, n):
+        h_diff = highs[i] - highs[i - 1]
+        l_diff = lows[i - 1] - lows[i]
+        plus_dm_list.append(max(h_diff, 0) if h_diff > l_diff else 0)
+        minus_dm_list.append(max(l_diff, 0) if l_diff > h_diff else 0)
+        tr_list.append(max(highs[i] - lows[i],
+                           abs(highs[i] - closes[i - 1]),
+                           abs(lows[i] - closes[i - 1])))
+    if len(tr_list) < period:
+        return None
+    atr_s = sum(tr_list[:period])
+    pdm_s = sum(plus_dm_list[:period])
+    mdm_s = sum(minus_dm_list[:period])
+    for i in range(period, len(tr_list)):
+        atr_s = atr_s - atr_s / period + tr_list[i]
+        pdm_s = pdm_s - pdm_s / period + plus_dm_list[i]
+        mdm_s = mdm_s - mdm_s / period + minus_dm_list[i]
+    pdi = (pdm_s / max(atr_s, 1e-10)) * 100
+    mdi = (mdm_s / max(atr_s, 1e-10)) * 100
+    dx = abs(pdi - mdi) / max(pdi + mdi, 1e-10) * 100
+    return (dx, pdi, mdi)
+
 
 def _ema(data: List[float], period: int) -> Optional[float]:
     if len(data) < period:

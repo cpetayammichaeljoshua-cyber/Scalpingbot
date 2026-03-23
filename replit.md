@@ -3,6 +3,40 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 14 — InsiderTactics + Moss-Trade-Bot Integration
+
+### InsiderTactics Data-Driven Filters (`mirofish_swarm_strategy.py`)
+- **Step 5k: InsiderTactics filters**: New step added after Step 5j, based on analysis of 4,326 trades from two InsiderTactics CSV datasets
+- **UTC hour filter**: Best hours boost +2pt confidence (H00 42.2%, H02 39.1%, H03 35.8%, H11 36.3%, H12 52.7%, H19 37.2%, H23 35.0%); worst hours penalize -3pt (H01 14.8%, H05 19.0%, H08 19.6%, H16 17.3%)
+- **LONG directional bias**: BUY signals get +1.5pt confidence (33.1% WR), SELL gets -1.0pt (26.0% WR)
+- **Symbol blacklist**: 10 symbols with 0% win rate auto-rejected (TRUMPUSDT, STOUSDT, APRUSDT, PUMPUSDT, COSUSDT, ASTERUSDT, MANAUSDT, GMTUSDT, XMRUSDT, KAVAUSDT)
+- **Symbol confidence boost/penalty**: High-WR symbols (SIRENUSDT +3, BARDUSDT +4, ANIMEUSDT +3.5, etc.); low-WR symbols (ADAUSDT -2, ETHUSDT -1, SOLUSDT -1.5, RIVERUSDT -3, ZECUSDT -3)
+
+### Moss-Trade-Bot V3 Regime Detection Upgrade (`mirofish_swarm_strategy.py`)
+- **Step 5i upgraded**: Replaced simple EMA/ATR regime check with multi-indicator v3 voting from moss-trade-bot regime.py
+- **4-factor voting**: EMA20/50 crossover, ADX+DI directional strength (via new `_compute_adx_proxy()`), ATR-rank compression, 48-period momentum
+- **Regime-directional confidence**: BULL regime +2.5pt for BUY/-2.0pt for SELL; BEAR regime +2.5pt for SELL/-2.0pt for BUY; RANGING -1.5pt if consensus < 90%
+- **New helper**: `_compute_adx_proxy()` — pure-Python ADX/+DI/-DI calculator using Wilder's smoothing
+
+### Kelly Criterion Fix (`mirofish_swarm_strategy.py`)
+- **Moved Kelly to after Step 7**: Now uses actual TP1/SL distances for R:R ratio instead of hardcoded 2.54/1.5 ATR estimate
+- **Formula**: `_kelly_b = |TP1 - entry| / |entry - SL|` with fallback to 1.693 if invalid
+- **Half-Kelly safety**: `f* × 0.5` bounded leverage 3x–30x
+
+### InsiderTactics Training Data Import (`trade_memory.py`, `import_insidertactics.py`)
+- **4,326 historical trades imported** into SQLite training database with proper outcome labels (TP1/TP2/TP3/SL)
+- **New `source` column**: Auto-migration adds `source TEXT DEFAULT 'bot'` to trades table; InsiderTactics trades marked as `source='insidertactics'`
+- **Import script**: `import_insidertactics.py` — idempotent, handles both CSV files, extracts TP levels, leverage, UTC hour, PnL
+
+### Production Validation (Session 14)
+- 42 USDM symbols scanned, 0 errors across 4+ cycles
+- NN: 233 samples, acc=89.7%, threshold=0.500 (retrained with InsiderTactics data)
+- TradeMemory: 2,025 historical trades (315 bot + 1,708 InsiderTactics)
+- All new filters active: UTC hour, LONG bias, symbol blacklist/boost, v3 regime, Kelly post-Step-7
+- InsiderTactics training data: 1,708 executed trades (569 wins, 1,139 losses = 33.3% WR), 1,070 cancelled trades excluded
+- Symbol blacklist expanded to 29 symbols (InsiderTactics 0% WR + bot ≥70% loss rate)
+- Signal pipeline: pre-boost → 5f ATR/BB/vol → 5g RSI div → 5h squeeze → 5i v3 regime → 5j systematic → 5k InsiderTactics → NN gate → Kelly → send
+
 ## Session 13 — Comprehensive 23-Bug Fix Pass (All 8 Core Files)
 
 ### Consensus Normalization Fix (`mirofish_swarm_strategy.py`)
