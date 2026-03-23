@@ -584,13 +584,14 @@ class OutcomeTracker:
     # Prevents infinite retrain loop when high_loss_rate gate fires every 90s.
     MIN_RETRAIN_INTERVAL = 1800   # 30 minutes minimum between retrains
 
-    def __init__(self, memory: TradeMemory, trainer, trader, bot=None):
+    def __init__(self, memory: TradeMemory, trainer, trader, bot=None,
+                 bm25_memory=None):
         self.logger  = logging.getLogger(__name__)
         self.memory  = memory
         self.trainer = trainer
         self.trader  = trader
-        # Optional bot reference for adaptive confidence threshold updates
         self.bot = bot
+        self._bm25_memory = bm25_memory
         # Per-trade best outcome seen so far (in-memory ratchet).
         # Pre-populate from the DB so a restart never downgrades a trade that
         # had already reached TP1/TP2 but hasn't been fully resolved yet.
@@ -780,6 +781,45 @@ class OutcomeTracker:
                         self.trainer.update_online(resolved_record, n_steps=5, lr_scale=0.1)
                     except Exception as _oe:
                         self.logger.debug(f"online update skipped: {_oe}")
+
+                if self._bm25_memory is not None:
+                    try:
+                        _sit_parts = [
+                            f"symbol={symbol} action={action}",
+                            f"session={trade.get('session', 'UNKNOWN')}",
+                            f"rsi={trade.get('rsi', 50):.0f}",
+                            f"vol_ratio={trade.get('volume_ratio', 1.0):.2f}",
+                            f"consensus={trade.get('swarm_consensus', 0):.2f}",
+                            f"confidence={trade.get('confidence', 0):.1f}",
+                            f"atr_ratio={trade.get('atr_ratio', 0):.4f}",
+                            f"bb_pos={trade.get('bb_position', 0.5):.2f}",
+                        ]
+                        _avj = trade.get("agent_votes_json", "{}")
+                        try:
+                            _votes = json.loads(_avj) if isinstance(_avj, str) else _avj
+                            _sit_parts.append(
+                                f"votes={' '.join(f'{k[:4]}:{v[0]}' for k, v in _votes.items())}"
+                            )
+                        except Exception:
+                            pass
+                        _situation_text = " | ".join(_sit_parts)
+                        _ind_snapshot = {
+                            "rsi": trade.get("rsi", 50),
+                            "vol_ratio": trade.get("volume_ratio", 1.0),
+                            "atr_ratio": trade.get("atr_ratio", 0),
+                            "bb_position": trade.get("bb_position", 0.5),
+                            "hour": trade.get("hour_of_day", 0),
+                        }
+                        self._bm25_memory.store_trade_reflection(
+                            symbol=symbol,
+                            action=action,
+                            outcome=resolved_outcome,
+                            pnl_pct=pnl_pct,
+                            situation_text=_situation_text,
+                            indicators=_ind_snapshot,
+                        )
+                    except Exception as _ref_err:
+                        self.logger.debug(f"BM25 reflection skipped: {_ref_err}")
 
         if newly_resolved > 0:
             self.logger.info(

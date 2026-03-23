@@ -3,6 +3,48 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 15 — TradingAgents Integration (BM25 Memory, Debate Scoring, PM Gate)
+
+### SwarmBM25Memory (`swarm_bm25_memory.py`) — NEW
+- **BM25Okapi-based offline memory**: 6 role banks (bull, bear, risk_agg, risk_con, risk_neu, portfolio_mgr)
+- **SQLite persistence**: Lessons survive restarts, stored in `SignalMaestro/swarm_memory.db`
+- **Confidence adjustment API**: `get_confidence_adjustment()` queries portfolio_mgr bank, returns ±5pt based on similar past trade outcomes
+- **`store_trade_reflection()`**: Stores structured lesson dicts after each trade resolution
+
+### Reflection System (`trade_memory.py`)
+- **Wired into OutcomeTracker**: After each trade resolution (TP1/TP2/TP3/SL/EXPIRED), a structured situation text + indicator snapshot is stored via `store_trade_reflection()`
+- **Situation text includes**: symbol, action, session, RSI, vol_ratio, consensus, confidence, ATR ratio, BB position, agent votes
+- **Indicators snapshot**: rsi, vol_ratio, atr_ratio, bb_position, hour_of_day
+
+### Bull/Bear Debate Scoring (`mirofish_swarm_strategy.py`)
+- **AIOrchestrationAgent._rule_based_analysis()**: Structured bull/bear evidence scoring using RSI, MACD, momentum, BB position
+- **Debate margin**: Large bull margin → confidence bonus up to +6pt for aligned signals
+
+### Risk Debate — Step 5.5 (`mirofish_swarm_strategy.py`)
+- **3 perspectives**: Aggressive (momentum/breakout boost), Conservative (drawdown/overextension penalty), Neutral (balanced)
+- **`_risk_adj`**: Max ±4pt applied to confidence after consensus, before HTF filter
+- **Pipeline position**: After Step 5 consensus, before Step 5b HTF
+
+### 5-Tier Portfolio Manager Gate — Step 5m (`mirofish_swarm_strategy.py`)
+- **PM score mapping**: BUY(+3)/OVERWEIGHT(+1.5)/HOLD(0)/UNDERWEIGHT(-1.5)/SELL(-3) confidence adjustment
+- **Inputs**: Consensus, participation, contrary agents, regime alignment
+- **Pipeline position**: After Step 5k InsiderTactics, before Step 6 InsightForge
+
+### BM25 Memory Wiring (`fxsusdt_telegram_bot.py`)
+- **Initialization**: `SwarmBM25Memory` instantiated in bot `__init__`, passed to OutcomeTracker
+- **Signal pipeline**: BM25 confidence adjustment applied after NN gate, before final confidence gate
+- **Threshold**: Only adjustments ≥ ±0.3pt are applied (filters noise from empty/sparse memory)
+
+### Updated Signal Pipeline Order
+- Step 5 consensus → **Step 5.5 Risk Debate** → Step 5b HTF → 5c Supertrend → 5d SAR → 5e Ichimoku → 5f ATR/BB/vol → 5g RSI div → 5h squeeze → 5i v3 regime → 5j systematic → 5k InsiderTactics → **Step 5m PM gate** → Step 6 InsightForge → Step 7 SL/TP → Kelly → NN gate → **BM25 memory adj** → final confidence gate → send
+
+### Production Validation (Session 15)
+- 42 USDM symbols scanned, 0 errors across 3+ cycles
+- NN: 987 samples, acc=78.1%, threshold=0.525
+- BM25 Memory: initialized (empty, will populate as trades resolve)
+- All new components active: Risk Debate, PM Gate, Bull/Bear debate, BM25 memory
+- TradeMemory: 2,026 historical trades
+
 ## Session 14 — InsiderTactics + Moss-Trade-Bot Integration
 
 ### InsiderTactics Data-Driven Filters (`mirofish_swarm_strategy.py`)

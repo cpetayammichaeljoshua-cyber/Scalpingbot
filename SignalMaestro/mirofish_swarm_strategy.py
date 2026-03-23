@@ -2323,23 +2323,18 @@ class AIOrchestrationAgent:
     def _rule_based_analysis(agent_summary: dict, closes: List[float],
                               chg_1h: float) -> Tuple[str, float, str]:
         """
-        High-precision rule-based AI fallback active when both Claude and OpenAI
-        are unavailable (credits exhausted / invalid key).
+        High-precision rule-based AI fallback with TradingAgents-style Bull/Bear
+        debate scoring. Active when both Claude and OpenAI are unavailable.
 
         Design goals
         ────────────
-        1. Quality over quantity — prefer NEUTRAL when conviction is low so the
-           swarm's other gates (72% consensus, 80% confidence) can still reject
-           marginal setups rather than rubber-stamping them with a weak AI vote.
-        2. Momentum + RSI + MACD confirmation — 3-layer technical validation
-           required; conflicting signals degrade confidence and can veto signals.
-        3. Stricter quorum (≥4 agents) — four independent agents must agree before
-           going directional, preventing noise-driven orchestration votes.
-        4. Confidence range 50–88: capped at 88 (vs 95 with live AI) to honestly
-           reflect reduced information quality, but high enough to pass the 80%
-           gate for genuine high-consensus setups.
-        5. Dominant-side margin requirement — if the winning side's score margin
-           is too thin (< 15% edge over the losing side), issue NEUTRAL.
+        1. Quality over quantity — prefer NEUTRAL when conviction is low.
+        2. Bull/Bear debate scoring — structured evidence from both sides with
+           debate margin influencing confidence (ported from TradingAgents).
+        3. Momentum + RSI + MACD + BB confirmation — 4-layer technical validation.
+        4. Stricter quorum (≥4 agents) — four independent agents must agree.
+        5. Confidence range 50–88: capped at 88 for reduced information quality.
+        6. Dominant-side margin requirement (≥60% dominance).
         """
         buy_confs  = [v["conf"] for v in agent_summary.values() if v["vote"] == "BUY"]
         sell_confs = [v["conf"] for v in agent_summary.values() if v["vote"] == "SELL"]
@@ -2490,9 +2485,41 @@ class AIOrchestrationAgent:
                     _tech_boost -= 3.0
                     _tech_notes.append("BB_squeeze-3pt")
 
-        # ── Quorum gate: require ≥4 agents before going directional ──────────
-        # Raised from 3 → 4: four independent agents must agree, preventing
-        # a single strong agent from swinging the AI orchestration vote.
+        _bull_evidence = 0.0
+        _bear_evidence = 0.0
+        if _rsi_raw is not None:
+            if _rsi_raw < 40:
+                _bull_evidence += (40 - _rsi_raw) * 0.15
+            elif _rsi_raw > 60:
+                _bear_evidence += (_rsi_raw - 60) * 0.15
+        if _macd_l is not None and _macd_s is not None:
+            _mh = _macd_l - _macd_s
+            if _mh > 0:
+                _bull_evidence += min(abs(_mh) * 100, 3.0)
+            else:
+                _bear_evidence += min(abs(_mh) * 100, 3.0)
+        if len(closes) >= 5 and closes[-1] > 0:
+            _s4 = (closes[-1] - closes[-5]) / closes[-1] * 100
+            if _s4 > 0:
+                _bull_evidence += min(_s4 * 1.5, 3.0)
+            else:
+                _bear_evidence += min(abs(_s4) * 1.5, 3.0)
+        if _bb_u is not None and _bb_l is not None and (_bb_u - _bb_l) > 0:
+            _bp = (closes[-1] - _bb_l) / (_bb_u - _bb_l)
+            if _bp < 0.3:
+                _bull_evidence += 2.0
+            elif _bp > 0.7:
+                _bear_evidence += 2.0
+        _bull_evidence += n_buy * 0.8
+        _bear_evidence += n_sell * 0.8
+        _debate_total = _bull_evidence + _bear_evidence
+        if _debate_total > 0:
+            _debate_margin = abs(_bull_evidence - _bear_evidence) / _debate_total
+        else:
+            _debate_margin = 0.0
+        _debate_bonus = _debate_margin * 6.0
+        _tech_notes.append(f"debate_bull={_bull_evidence:.1f}_bear={_bear_evidence:.1f}_margin={_debate_margin:.2f}")
+
         _MIN_QUORUM = 4
 
         if buy_score > sell_score:
@@ -2506,29 +2533,31 @@ class AIOrchestrationAgent:
                     f"Rule-based: BUY vetoed by technical indicator | {', '.join(_tech_notes)}"
                 )
             participation = (n_buy + n_sell) / n_total
-            # Base confidence: weighted blend of avg agent confidence and breadth bonus
             conf = (avg_buy_conf * 0.65) + (50.0 * 0.35)
-            conf += participation * 12.0                     # breadth bonus up to +12
+            conf += participation * 12.0
             conf += _momentum_bonus
             conf += _tech_boost
+            if _bull_evidence > _bear_evidence:
+                conf += _debate_bonus
+            elif _bear_evidence > _bull_evidence:
+                conf -= _debate_bonus * 0.5
             if _momentum_conflict:
-                conf = max(conf - 12.0, 50.0)               # hard penalty for conflicting price
-            # 1H tail-wind: scaled by magnitude (stronger trend = bigger bonus)
+                conf = max(conf - 12.0, 50.0)
             if chg_1h > 1.5:
                 conf = min(conf + 6.0, 88.0)
             elif chg_1h > 0.5:
                 conf = min(conf + 3.0, 88.0)
-            elif chg_1h < -0.5:                              # 1H head-wind vs BUY
+            elif chg_1h < -0.5:
                 conf = max(conf - 4.0, 50.0)
-            # Unanimity bonus: all active agents on same side
             if n_sell == 0 and n_buy >= 5:
-                conf = min(conf + 4.0, 88.0)                # unanimous big-quorum bonus
+                conf = min(conf + 4.0, 88.0)
             conf = min(conf, 88.0)
             margin = buy_score - sell_score
             narrative = (
                 f"Rule-based AI: {n_buy}/{n_total} BUY "
                 f"(avg={avg_buy_conf:.1f}%, margin={margin:.1f}, "
-                f"1h={chg_1h:+.2f}%, tech=[{', '.join(_tech_notes) or 'none'}])"
+                f"1h={chg_1h:+.2f}%, debate={_debate_margin:.2f}, "
+                f"tech=[{', '.join(_tech_notes) or 'none'}])"
             )
             return "BUY", round(conf, 1), narrative
 
@@ -2546,6 +2575,10 @@ class AIOrchestrationAgent:
             conf += participation * 12.0
             conf += _momentum_bonus
             conf += _tech_boost
+            if _bear_evidence > _bull_evidence:
+                conf += _debate_bonus
+            elif _bull_evidence > _bear_evidence:
+                conf -= _debate_bonus * 0.5
             if _momentum_conflict:
                 conf = max(conf - 12.0, 50.0)
             if chg_1h < -1.5:
@@ -2561,7 +2594,8 @@ class AIOrchestrationAgent:
             narrative = (
                 f"Rule-based AI: {n_sell}/{n_total} SELL "
                 f"(avg={avg_sell_conf:.1f}%, margin={margin:.1f}, "
-                f"1h={chg_1h:+.2f}%, tech=[{', '.join(_tech_notes) or 'none'}])"
+                f"1h={chg_1h:+.2f}%, debate={_debate_margin:.2f}, "
+                f"tech=[{', '.join(_tech_notes) or 'none'}])"
             )
             return "SELL", round(conf, 1), narrative
 
@@ -3169,6 +3203,64 @@ class MiroFishSwarmStrategy:
             signal_strength = min(weighted_conf * 0.55 + consensus * 100 * 0.45, 100.0)
             confidence = weighted_conf
 
+            # ── Step 5.5: TradingAgents-style Risk Debate ───────────────────
+            # 3 risk perspectives (Aggressive/Conservative/Neutral) evaluate
+            # the signal from different angles, producing a net confidence adj.
+            # Ported from TradingAgents risk_mgmt debate pattern.
+            try:
+                _risk_adj = 0.0
+
+                _rsi_5a = _rsi(closes, 14) if len(closes) >= 16 else 50.0
+                _rsi_5a = _rsi_5a if _rsi_5a is not None else 50.0
+                _mom_4bar = ((closes[-1] - closes[-5]) / closes[-5] * 100
+                             if len(closes) >= 5 and closes[-5] != 0 else 0.0)
+                _atr_5a = atr / cur_price * 100 if atr and cur_price > 0 else 0.5
+
+                _agg_score = 0.0
+                if abs(_mom_4bar) > 0.3:
+                    _mom_aligned = (
+                        (action == "BUY" and _mom_4bar > 0) or
+                        (action == "SELL" and _mom_4bar < 0)
+                    )
+                    _agg_score += 2.0 if _mom_aligned else -1.0
+                if consensus >= 0.90:
+                    _agg_score += 1.5
+                if n_contrary == 0 and n_active >= 7:
+                    _agg_score += 1.5
+                _agg_score = max(-3.0, min(_agg_score, 4.0))
+
+                _con_score = 0.0
+                if action == "BUY" and _rsi_5a > 68:
+                    _con_score -= 2.5
+                elif action == "SELL" and _rsi_5a < 32:
+                    _con_score -= 2.5
+                if _atr_5a > 2.0:
+                    _con_score -= 1.5
+                if n_contrary >= 3:
+                    _con_score -= 1.5
+                _con_score = max(-4.0, min(_con_score, 1.0))
+
+                _neu_score = 0.0
+                if 40 < _rsi_5a < 60:
+                    _neu_score += 0.5
+                if 0.5 < _atr_5a < 1.5:
+                    _neu_score += 0.5
+                if consensus >= 0.80 and n_contrary <= 2:
+                    _neu_score += 1.0
+                _neu_score = max(-1.0, min(_neu_score, 2.0))
+
+                _risk_adj = (_agg_score * 0.35 + _con_score * 0.40 + _neu_score * 0.25)
+                _risk_adj = max(-4.0, min(_risk_adj, 3.5))
+                confidence = max(50.0, min(100.0, confidence + _risk_adj))
+                signal_strength = max(0.0, min(100.0, signal_strength + _risk_adj * 0.5))
+                self.logger.debug(
+                    f"[{symbol}|{tf}] Risk debate: agg={_agg_score:+.1f} "
+                    f"con={_con_score:+.1f} neu={_neu_score:+.1f} "
+                    f"→ adj={_risk_adj:+.1f}pt conf={confidence:.1f}%"
+                )
+            except Exception:
+                pass
+
             # ── Step 5b: HTF 1H trend alignment filter ────────────────────────
             # BUG FIX: _htf_cache was designed and allocated in __init__ but the
             # actual klines were never fetched or used here. This wires the cache
@@ -3570,6 +3662,52 @@ class MiroFishSwarmStrategy:
                     confidence = min(confidence + _IT_BOOST_SYMS[symbol], 100.0)
                 elif symbol in _IT_PENALTY_SYMS:
                     confidence = max(confidence + _IT_PENALTY_SYMS[symbol], 50.0)
+            except Exception:
+                pass
+
+            # ── Step 5m: TradingAgents Portfolio Manager 5-tier gate ────────
+            # Synthesizes all accumulated evidence into a final rating:
+            #   BUY(+3) / OVERWEIGHT(+1.5) / HOLD(0) / UNDERWEIGHT(-1.5) / SELL(-3)
+            # Ported from TradingAgents portfolio_manager.py decision pattern.
+            try:
+                _pm_score = 0.0
+                _pm_score += (consensus - 0.75) * 10.0
+                _pm_score += (confidence - 70.0) * 0.1
+                _pm_score += (participation_rate - 0.5) * 4.0
+                if n_contrary == 0:
+                    _pm_score += 1.5
+                elif n_contrary >= 3:
+                    _pm_score -= 2.0
+                if _regime == "BULL" and action == "BUY":
+                    _pm_score += 1.0
+                elif _regime == "BEAR" and action == "SELL":
+                    _pm_score += 1.0
+                elif _regime == "RANGING":
+                    _pm_score -= 0.5
+
+                if _pm_score >= 4.0:
+                    _pm_tier = "BUY"
+                    _pm_adj = 3.0
+                elif _pm_score >= 2.0:
+                    _pm_tier = "OVERWEIGHT"
+                    _pm_adj = 1.5
+                elif _pm_score >= 0.0:
+                    _pm_tier = "HOLD"
+                    _pm_adj = 0.0
+                elif _pm_score >= -2.0:
+                    _pm_tier = "UNDERWEIGHT"
+                    _pm_adj = -1.5
+                else:
+                    _pm_tier = "SELL"
+                    _pm_adj = -3.0
+
+                confidence = max(50.0, min(100.0, confidence + _pm_adj))
+                signal_strength = max(0.0, min(100.0, signal_strength + _pm_adj * 0.5))
+                self.logger.debug(
+                    f"[{symbol}|{tf}] PM gate: score={_pm_score:.1f} "
+                    f"tier={_pm_tier} adj={_pm_adj:+.1f}pt "
+                    f"conf={confidence:.1f}%"
+                )
             except Exception:
                 pass
 

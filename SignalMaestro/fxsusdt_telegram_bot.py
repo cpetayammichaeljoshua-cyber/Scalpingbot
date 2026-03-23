@@ -265,12 +265,11 @@ class FXSUSDTTelegramBot:
         self.nn_trainer:   Optional[Any] = None
         self.outcome_tracker: Optional[Any] = None
         self._outcome_tracker_task: Optional[asyncio.Task] = None
+        self.bm25_memory: Optional[Any] = None
         if _HAS_NEURAL:
             try:
                 self.trade_memory = TradeMemory()
                 self.nn_trainer   = NeuralSignalTrainer()
-                # OutcomeTracker is created later in run_continuous_scanner
-                # (needs the live event loop)
                 self.logger.info(
                     f"🧠 Self-learning system initialized | "
                     f"{self.nn_trainer.status_summary()}"
@@ -279,6 +278,18 @@ class FXSUSDTTelegramBot:
                 self.logger.warning(f"⚠️  Self-learning init failed: {e}")
                 self.trade_memory = None
                 self.nn_trainer   = None
+        try:
+            from SignalMaestro.swarm_bm25_memory import SwarmBM25Memory
+            self.bm25_memory = SwarmBM25Memory()
+            _counts = self.bm25_memory.get_lesson_counts()
+            _total = sum(_counts.values())
+            self.logger.info(
+                f"🧠 BM25 Memory initialized | {_total} lessons "
+                f"({', '.join(f'{r}={c}' for r, c in _counts.items() if c > 0) or 'empty'})"
+            )
+        except Exception as _bm25_err:
+            self.logger.warning(f"⚠️  BM25 Memory init skipped: {_bm25_err}")
+            self.bm25_memory = None
 
         self.public_api: Optional[Any] = None
         self._public_api_task: Optional[asyncio.Task] = None
@@ -1390,6 +1401,29 @@ class FXSUSDTTelegramBot:
                     except Exception as _nn_err:
                         self.logger.debug(f"NN gate skipped: {_nn_err}")
 
+                if self.bm25_memory is not None:
+                    try:
+                        _sit = (
+                            f"symbol={symbol} action={signal.action} "
+                            f"rsi={getattr(signal, 'rsi', 50):.0f} "
+                            f"vol_ratio={getattr(signal, 'volume_ratio', 1.0):.2f} "
+                            f"consensus={getattr(signal, 'swarm_consensus', 0):.2f} "
+                            f"confidence={signal.confidence:.1f}"
+                        )
+                        _bm25_adj = self.bm25_memory.get_confidence_adjustment(
+                            _sit, signal.action
+                        )
+                        if abs(_bm25_adj) >= 0.3:
+                            signal.confidence = max(0, min(100,
+                                signal.confidence + _bm25_adj
+                            ))
+                            self.logger.debug(
+                                f"🧠 BM25 memory adj {_bm25_adj:+.1f}pt → "
+                                f"conf={signal.confidence:.1f}%"
+                            )
+                    except Exception as _bm25_err:
+                        self.logger.debug(f"BM25 query skipped: {_bm25_err}")
+
                 # ── Final confidence gate ──
                 if signal.confidence < confidence_threshold:
                     self.logger.info(
@@ -1479,7 +1513,8 @@ class FXSUSDTTelegramBot:
         if _HAS_NEURAL and self.trade_memory and self.outcome_tracker is None:
             try:
                 self.outcome_tracker = OutcomeTracker(
-                    self.trade_memory, self.nn_trainer, self.trader, bot=self
+                    self.trade_memory, self.nn_trainer, self.trader, bot=self,
+                    bm25_memory=self.bm25_memory
                 )
                 self._outcome_tracker_task = asyncio.create_task(
                     self.outcome_tracker.run(),
