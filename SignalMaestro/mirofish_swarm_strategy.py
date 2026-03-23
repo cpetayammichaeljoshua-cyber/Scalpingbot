@@ -3418,6 +3418,84 @@ class MiroFishSwarmStrategy:
                 except Exception:
                     pass
 
+            # ── Step 5j: Systematic Trading Factors (awesome-systematic-trading) ──
+            # Integrates academic research-backed factors for crypto futures:
+            #
+            # 1. Time-Series Momentum (Moskowitz et al, 2012, Sharpe 0.576):
+            #    12-period lookback excess return → volatility-inverse confidence scaling.
+            #    Assets with positive momentum get boosted; negative penalized.
+            if len(closes) >= 14 and atr and atr > 0:
+                try:
+                    _ts_ret_12 = (closes[-1] - closes[-13]) / closes[-13] if closes[-13] != 0 else 0
+                    _ts_vol = atr / cur_price if cur_price > 0 else 0.01
+                    _ts_vol_inv = min(1.0 / max(_ts_vol, 0.005), 5.0)
+                    _ts_mom_aligned = (
+                        (action == "BUY" and _ts_ret_12 > 0.005) or
+                        (action == "SELL" and _ts_ret_12 < -0.005)
+                    )
+                    _ts_mom_contra = (
+                        (action == "BUY" and _ts_ret_12 < -0.01) or
+                        (action == "SELL" and _ts_ret_12 > 0.01)
+                    )
+                    if _ts_mom_aligned:
+                        _ts_boost = min(abs(_ts_ret_12) * _ts_vol_inv * 15.0, 3.0)
+                        confidence = min(confidence + _ts_boost, 100.0)
+                    elif _ts_mom_contra:
+                        _ts_penalty = min(abs(_ts_ret_12) * _ts_vol_inv * 10.0, 4.0)
+                        confidence = max(confidence - _ts_penalty, 50.0)
+                except Exception:
+                    pass
+
+            # 2. Overnight Seasonality (Dyhrberg et al, 2022, Sharpe 0.892):
+            #    BTC shows statistically significant positive returns 21:00-00:59 UTC.
+            #    Boost BUY confidence during this window; penalize SELL.
+            try:
+                from datetime import datetime, timezone as _tz
+                _utc_hour = datetime.now(_tz.utc).hour
+                _is_overnight_window = _utc_hour in (21, 22, 23, 0)
+                if _is_overnight_window and symbol in ("BTCUSDT", "ETHUSDT"):
+                    if action == "BUY":
+                        confidence = min(confidence + 1.5, 100.0)
+                    elif action == "SELL":
+                        confidence = max(confidence - 1.0, 50.0)
+            except Exception:
+                pass
+
+            # 3. Short-Term Reversal (Jegadeesh 1990, Sharpe 0.816):
+            #    Assets with extreme 1-week returns tend to reverse.
+            #    If signal is contra-extreme-move, boost; if with-extreme-move, penalize.
+            if len(closes) >= 8:
+                try:
+                    _st_ret_5 = (closes[-1] - closes[-6]) / closes[-6] if closes[-6] != 0 else 0
+                    _extreme_up = _st_ret_5 > 0.08
+                    _extreme_down = _st_ret_5 < -0.08
+                    if _extreme_up and action == "SELL":
+                        confidence = min(confidence + 2.0, 100.0)
+                    elif _extreme_down and action == "BUY":
+                        confidence = min(confidence + 2.0, 100.0)
+                    elif _extreme_up and action == "BUY":
+                        confidence = max(confidence - 3.0, 50.0)
+                    elif _extreme_down and action == "SELL":
+                        confidence = max(confidence - 3.0, 50.0)
+                except Exception:
+                    pass
+
+            # 4. Volatility Persistence Filter (Mandelbrot, vol clustering):
+            #    If recent volatility is rising (ATR expanding), tighten SL via reduced
+            #    confidence for trend signals; if contracting (squeeze), boost breakouts.
+            if len(closes) >= 20 and atr and atr > 0:
+                try:
+                    _recent_range = max(highs[-5:]) - min(lows[-5:])
+                    _older_range = max(highs[-15:-5]) - min(lows[-15:-5])
+                    if _older_range > 0:
+                        _vol_expansion = _recent_range / _older_range
+                        if _vol_expansion > 1.8:
+                            confidence = max(confidence - 1.5, 50.0)
+                        elif _vol_expansion < 0.5:
+                            confidence = min(confidence + 1.5, 100.0)
+                except Exception:
+                    pass
+
             if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
                 return None
 

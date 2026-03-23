@@ -37,16 +37,26 @@ A production-grade Binance USDM Perpetual Futures signal bot powered by the **Mi
 - VOLATILE (ATR >3%): -2pt confidence penalty
 - RANGING (consensus <85%): -1.5pt confidence penalty
 
+### Systematic Trading Factors — Step 5j (`mirofish_swarm_strategy.py`)
+Integrates 4 academic research-backed factors from awesome-systematic-trading:
+1. **Time-Series Momentum** (Moskowitz et al 2012, Sharpe 0.576): 12-period lookback excess return with volatility-inverse confidence scaling. Aligned momentum +3pt max; contra-momentum -4pt max.
+2. **Overnight Seasonality** (Dyhrberg et al 2022, Sharpe 0.892): BTC/ETH show statistically significant positive returns 21:00–00:59 UTC. BUY +1.5pt during window; SELL -1pt.
+3. **Short-Term Reversal** (Jegadeesh 1990, Sharpe 0.816): Assets with >8% 5-bar returns tend to reverse. Contra-extreme +2pt boost; with-extreme -3pt penalty.
+4. **Volatility Persistence** (Mandelbrot vol clustering): Recent-vs-older range ratio expansion (>1.8x) tightens confidence -1.5pt; contraction (<0.5x) boosts breakouts +1.5pt.
+
 ### Telegram Markdown Safety (`fxsusdt_telegram_bot.py`)
 - **HTML/plain-text fallback**: When Markdown parse fails ("can't parse" error), automatically strips formatting and retries with plain text
 - Prevents silent message delivery failures
 
-### Production Validation (Session 12)
-- 43 USDM symbols scanned in 2.7s (TRUE PARALLEL confirmed)
-- NN loaded: 227 samples, acc=87.7%, threshold=0.650, 17 danger zones
+### Production Validation (Session 12, final)
+- 43 USDM symbols scanned in 4.8s (TRUE PARALLEL confirmed, Cycle #1)
+- NN loaded: 230 samples, acc=79.6%, threshold=0.550, 14 danger zones
 - Fear & Greed Index: 8 (Extreme Fear), BTC dom=56.2%
+- SIGNUSDT BUY sent: 10/10 unanimous, 96.4% confidence
 - All background tasks running: OutcomeTracker, PublicAPIIntelligence
 - Key constants: SWARM_MIN_CONSENSUS=0.75, SCAN_PARALLEL_LIMIT=30, AI_THRESHOLD=80%, NN acc gate=55%, off-session mult=0.15
+- Step 5j systematic factors active: Time-Series Momentum, Overnight Seasonality, Short-Term Reversal, Volatility Persistence
+- Signal pipeline: pre-boost gate → 5f ATR/BB/vol → 5g RSI div → 5h squeeze → 5i regime → 5j systematic → NN gate → confidence gate → send
 
 ## Session 11 — ClawRouter + PublicAPIIntelligence Integration
 
