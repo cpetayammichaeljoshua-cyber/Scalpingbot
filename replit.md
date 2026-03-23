@@ -3,6 +3,47 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 13 — Comprehensive 23-Bug Fix Pass (All 8 Core Files)
+
+### Consensus Normalization Fix (`mirofish_swarm_strategy.py`)
+- **Ghost consensus bug**: Consensus was dividing by `total_eff` (all agents including NEUTRAL), diluting signal strength. Now divides by `total_signal_weight` (sum of aligned+contrary weights only). Prevents NEUTRAL agents from lowering consensus ratio.
+
+### Kelly Criterion Fix (`mirofish_swarm_strategy.py`)
+- **NameError crash**: `_kelly_b` referenced `sl`/`tp1` variables ~240 lines before they were defined (Step 6). Bot crashed every scan cycle with `NameError: name 'sl' is not defined`.
+- **Fix**: R:R now estimated from ATR multiplier ratio (TP1=2.54×ATR / SL=1.5×ATR = 1.693) instead of forward-referencing undefined variables.
+
+### Regime Detection Fix (`mirofish_swarm_strategy.py`)
+- **Ranging threshold raised**: Skip threshold from `consensus < 0.85` → `< 0.90` for stricter ranging regime filtering.
+- **ADX safety check**: Added length guard to prevent index errors on short kline data.
+
+### Race Condition Fixes (`fxsusdt_telegram_bot.py`)
+- **Async streak lock**: `update_loss_streak` is now `async` with `_streak_lock` (`asyncio.Lock`) protecting `_consecutive_losses` / `_adaptive_conf_boost`.
+- **NN uncertainty bypass guard**: Unanimous bypass now checks NN uncertainty before allowing signal through.
+- **Task leak fix**: Old background tasks cancelled before creating new ones on restart.
+- **Symbol dict cleanup**: `_symbol_last_signal` / `_symbol_signal_count` periodically purged to prevent unbounded memory growth.
+
+### NN Online Learning Fixes (`neural_signal_trainer.py`)
+- **Danger zone cap**: Each danger zone penalty capped at `-0.10` (was uncapped, causing over-suppression).
+
+### SQLite Thread Safety (`trade_memory.py`)
+- **Threading lock**: All SQLite writes now protected by `threading.Lock()` in `TradeMemory._db_lock`.
+- **Async streak update**: `update_loss_streak` properly awaited.
+
+### API Resilience Fixes
+- **Retry-After ValueError** (`btcusdt_trader.py`): Guard against non-numeric `Retry-After` headers from Binance.
+- **PublicAPI KeyError guards** (`public_api_intelligence.py`): CoinGecko/CoinCap parsers handle missing keys gracefully.
+- **SmartLLMRouter fallback** (`smart_llm_router.py`): Tier cascade returns rule-based fallback when no model is available.
+- **Fast-crash detection** (`start_ultimate_bot.py`): Don't retry on config errors (e.g., missing API keys).
+
+### Production Validation (Session 13)
+- 42 USDM symbols scanned in 2.0s (Cycle #1), 0.6s subsequent cycles
+- **0 errors** across 3+ cycles, no crashes, no NameErrors
+- NN: 230 samples, acc=79.6%, threshold=0.550, 14 danger zones
+- Fear & Greed: 8 (Extreme Fear), BTC dom=56.2%
+- Kelly R:R = 1.693 (ATR-based estimate, no forward reference)
+- All background tasks running: OutcomeTracker, PublicAPIIntelligence
+- Key constants: SWARM_MIN_CONSENSUS=0.75, SCAN_PARALLEL_LIMIT=30, NN acc gate=55%, off-session mult=0.15
+
 ## Session 12 — Comprehensive Bug Fixes + Systematic Trading Enhancements
 
 ### Consensus & Agent Weight Fixes (`mirofish_swarm_strategy.py`)

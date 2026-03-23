@@ -89,25 +89,28 @@ class TradeMemory:
 
     # ── Schema ────────────────────────────────────────────────────────────────
 
+    _db_lock = __import__("threading").Lock()
+
     @contextmanager
     def _db(self):
         """
-        Managed SQLite connection context manager.
+        Managed SQLite connection context manager with thread lock.
         Commits on clean exit, rolls back on exception, and always closes
         the connection — preventing file-handle leaks in long-running async bots.
         """
-        conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        with self._db_lock:
+            conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     def _init_db(self):
         with self._db() as c:
@@ -748,7 +751,9 @@ class OutcomeTracker:
                         resolved_outcome == "EXPIRED" and pnl_pct <= -0.5
                     )
                     try:
-                        self.bot.update_loss_streak(is_loss)
+                        _streak_coro = self.bot.update_loss_streak(is_loss)
+                        if asyncio.iscoroutine(_streak_coro):
+                            await _streak_coro
                     except Exception as _se:
                         self.logger.debug(f"streak update skipped: {_se}")
 

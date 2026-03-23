@@ -3086,11 +3086,10 @@ class MiroFishSwarmStrategy:
                 elif data["vote"] == "SELL":
                     sell_weight += eff_w * (data["conf"] / 100.0)
 
-            total_eff = sum(effective_weights.values())
-            if total_eff > 0:
-                buy_weight  /= total_eff
-                sell_weight /= total_eff
-
+            total_signal_weight = buy_weight + sell_weight
+            if total_signal_weight > 0:
+                buy_weight  /= total_signal_weight
+                sell_weight /= total_signal_weight
             total_signal_weight = buy_weight + sell_weight
             if total_signal_weight < 0.005:
                 return None
@@ -3335,14 +3334,13 @@ class MiroFishSwarmStrategy:
             leverage  = LEVERAGE_MAP.get(tf, 15)
 
             # Kelly Criterion dynamic leverage scaling:
-            # Adjusts base leverage by consensus quality and confidence.
             # Kelly fraction f* = (bp - q) / b where b=R:R, p=win_prob, q=1-p
-            # We approximate win_prob from consensus and use a half-Kelly for safety.
+            # R:R estimated from ATR-based TP1/SL multipliers (TP1=2.54×ATR, SL=1.5×ATR).
             _kelly_p = min(consensus, 0.95) * (confidence / 100.0)
             _kelly_q = 1.0 - _kelly_p
-            _kelly_b = 1.5  # approximate R:R
+            _kelly_b = 2.54 / 1.5 if atr and atr > 0 else 1.5
             _kelly_f = (_kelly_b * _kelly_p - _kelly_q) / max(_kelly_b, 0.01)
-            _kelly_f = max(0.0, min(_kelly_f, 1.0)) * 0.5  # half-Kelly for safety
+            _kelly_f = max(0.0, min(_kelly_f, 1.0)) * 0.5
             if _kelly_f > 0:
                 leverage = max(3, min(int(leverage * (0.5 + _kelly_f)), 30))
 
@@ -3413,7 +3411,7 @@ class MiroFishSwarmStrategy:
                         confidence = max(confidence - 2.0, 50.0)
                     else:
                         _regime = "RANGING"
-                        if consensus < 0.85:
+                        if consensus < 0.90:
                             confidence = max(confidence - 1.5, 50.0)
                 except Exception:
                     pass
@@ -3929,6 +3927,8 @@ def _adx(closes: List[float], highs: List[float], lows: List[float],
             tr_vals.append(tr)
 
         def _wilder_smooth(data, p):
+            if len(data) < p:
+                return []
             sm = sum(data[:p])
             result = [sm]
             for v in data[p:]:
@@ -3939,6 +3939,8 @@ def _adx(closes: List[float], highs: List[float], lows: List[float],
         atr_s    = _wilder_smooth(tr_vals, period)
         pdm_s    = _wilder_smooth(plus_dm, period)
         mdm_s    = _wilder_smooth(minus_dm, period)
+        if not atr_s or not pdm_s or not mdm_s:
+            return None
         dx_vals  = []
         for i in range(len(atr_s)):
             if atr_s[i] == 0:

@@ -211,9 +211,11 @@ class BTCUSDTTrader:
                         return data
 
                     if r.status == 429:
-                        # Binance sends Retry-After (seconds) on hard rate-limit.
-                        # Parse the header and honour it; fall back to 5s if absent.
-                        _retry_after = int(r.headers.get("Retry-After", "5"))
+                        _raw_retry = r.headers.get("Retry-After", "5")
+                        try:
+                            _retry_after = int(_raw_retry)
+                        except (ValueError, TypeError):
+                            _retry_after = 5
                         _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
                         self.logger.warning(
                             f"⏳ Binance 429 klines [{sym}|{interval}] "

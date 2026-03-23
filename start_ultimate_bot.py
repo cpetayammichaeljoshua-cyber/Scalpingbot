@@ -445,6 +445,14 @@ def main_launcher():
                 restart_count       += 1
                 consecutive_failures += 1
 
+                if elapsed < 5.0 and consecutive_failures >= 3:
+                    logger.error(
+                        "❌ Bot fails within 5s for 3 consecutive attempts — "
+                        "likely a configuration error. Stopping to prevent "
+                        "infinite restart loop."
+                    )
+                    break
+
                 if consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
                     logger.error(f"🔴 Circuit breaker tripped: {consecutive_failures} consecutive failures")
                     circuit_breaker_triggered = True

@@ -442,14 +442,17 @@ class LossPatternAnalyzer:
             return 0.0
         try:
             penalty = 0.0
-            base_lr = max(self._base_loss_rate, 0.30)  # floor at 30% for safety
+            base_lr = max(self._base_loss_rate, 0.30)
+            _zones_hit = 0
             for fi, lo, hi, loss_rate in self.danger_zones:
                 if lo <= x[fi] <= hi:
-                    excess = loss_rate - base_lr   # always ≥ 0 since zone_threshold = base + 15pp
+                    excess = loss_rate - base_lr
                     if excess <= 0:
                         continue
                     imp = min(self.feature_importance[fi], 3.0) / 3.0
-                    penalty += excess * imp * 0.5
+                    _zone_pen = min(excess * imp * 0.5, 0.10)
+                    penalty += _zone_pen
+                    _zones_hit += 1
             return min(max(penalty, 0.0), 0.15)
         except Exception:
             return 0.0

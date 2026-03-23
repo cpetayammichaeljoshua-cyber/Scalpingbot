@@ -293,6 +293,8 @@ class FXSUSDTTelegramBot:
         # ── BB position for current scan cycle (passed to trade recorder) ──
         self._current_bb_position: float = 0.5
 
+        self._streak_lock = asyncio.Lock()
+
         # ── Adaptive confidence threshold — raised during losing streaks ────
         # Base threshold is AI_THRESHOLD_PERCENT (80%).  After N consecutive
         # resolved losses the threshold is raised by STREAK_BOOST_PER_LOSS
@@ -705,20 +707,15 @@ class FXSUSDTTelegramBot:
         elapsed = time.time() - last_ts
         return max(0, int(self.min_signal_interval_minutes * 60 - elapsed))
 
-    def update_loss_streak(self, is_loss: bool):
+    async def update_loss_streak(self, is_loss: bool):
         """
         Called by OutcomeTracker (or any resolver) whenever a trade resolves.
-
-        Maintains a consecutive-loss counter and adjusts _adaptive_conf_boost:
-          - Win  → reset streak to 0 and remove any extra boost.
-          - Loss → increment streak; when streak ≥ STREAK_TRIGGER_N,
-                   boost the confidence gate by STREAK_BOOST_PER_LOSS% per
-                   additional loss (capped at STREAK_MAX_BOOST_PCT).
-
-        The effect: after 3 consecutive losses the bot becomes harder to satisfy
-        (e.g. 80% → 86%) so it waits for only the strongest setups until the
-        NN adapts via online/batch learning.
+        Protected by _streak_lock to prevent race conditions with parallel scans.
         """
+        async with self._streak_lock:
+            self._update_loss_streak_inner(is_loss)
+
+    def _update_loss_streak_inner(self, is_loss: bool):
         if not is_loss:
             if self.STREAK_RESET_ON_WIN and self._consecutive_losses > 0:
                 old_boost = self._adaptive_conf_boost
@@ -1331,18 +1328,16 @@ class FXSUSDTTelegramBot:
                         _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
                         _is_strong       = _swarm_consensus >= 0.83 and _participation >= (7/10)
 
-                        if _is_unanimous:
-                            # Fully bypass NN gate for unanimous signals — just apply tiny log
+                        if _is_unanimous and not (_high_uncertainty and nn_uncertainty > 0.30):
                             self.logger.info(
                                 f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
                                 f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
-                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%})"
+                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%} "
+                                f"σ={nn_uncertainty:.2f})"
                             )
-                            # Still apply a reduced soft penalty for danger zones
                             if nn_win_prob < _reject_thresh:
-                                _reduced_penalty = (_reject_thresh - nn_win_prob) * 10.0  # ≤ 1pt
+                                _reduced_penalty = (_reject_thresh - nn_win_prob) * 10.0
                                 signal.confidence = max(0.0, signal.confidence - _reduced_penalty)
-                            # Skip all further NN logic
                             pass
                         else:
                             # Hard reject: win_prob far below reject threshold (> 8pp gap)
@@ -1470,6 +1465,16 @@ class FXSUSDTTelegramBot:
         await self._drain_pending_updates()
         await self.send_startup_test_message()
 
+        # ── Cancel stale background tasks from previous runs ────────────────
+        for _task_attr in ("_outcome_tracker_task", "_public_api_task"):
+            _old = getattr(self, _task_attr, None)
+            if _old is not None and not _old.done():
+                _old.cancel()
+                self.logger.info(f"🔄 Cancelled stale {_task_attr}")
+            setattr(self, _task_attr, None)
+        if hasattr(self, "outcome_tracker"):
+            self.outcome_tracker = None
+
         # ── Start OutcomeTracker as a live background task ────────────────────
         if _HAS_NEURAL and self.trade_memory and self.outcome_tracker is None:
             try:
@@ -1541,6 +1546,17 @@ class FXSUSDTTelegramBot:
 
                 # ── 1. Periodically refresh the active symbol list ────────────
                 await self._refresh_symbol_list()
+
+                if cycle_count % 100 == 0:
+                    _active_set = set(self._active_symbols)
+                    self._symbol_last_signal = {
+                        k: v for k, v in self._symbol_last_signal.items()
+                        if k in _active_set or time.time() - v < 86400
+                    }
+                    self._symbol_signal_count = {
+                        k: v for k, v in self._symbol_signal_count.items()
+                        if k in _active_set
+                    }
 
                 # ── 2. Check BTCUSDT price alerts ─────────────────────────────
                 await self.check_price_alerts()

@@ -376,7 +376,7 @@ class SmartLLMRouter:
     def _calibrate_confidence(self, distance: float) -> float:
         return 1.0 / (1.0 + math.exp(-self.CONFIDENCE_STEEPNESS * distance))
 
-    def _select_model(self, tier: str) -> str:
+    def _select_model(self, tier: str) -> Optional[str]:
         candidates = TIER_MODELS.get(tier, TIER_MODELS["MEDIUM"])
 
         for model in candidates:
@@ -392,6 +392,13 @@ class SmartLLMRouter:
             if health and not health.is_available:
                 continue
             return model
+
+        for _fallback_tier in ("SIMPLE", "MEDIUM", "COMPLEX"):
+            for model in TIER_MODELS.get(_fallback_tier, []):
+                health = self._health.get(model)
+                if health and not health.is_available:
+                    continue
+                return model
 
         return candidates[0] if candidates else "gpt-4o-mini"
 
