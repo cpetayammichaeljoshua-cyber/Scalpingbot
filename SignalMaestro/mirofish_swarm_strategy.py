@@ -531,15 +531,15 @@ class TrendAgent:
                 # Rising 3-candle sequence
                 if len(closes) >= 4 and closes[-1] > closes[-2] > closes[-3]:
                     base = min(base + 4, 100)
-                vote, conf = "BUY", min(base, 95.0)
+                vote, conf = "BUY", min(base, 90.0)
             else:
                 base = 55.0 + min(spread_pct * spread_mult, 30.0)
                 base += bearish_count * 3.5
-                if crossover_down: base = min(base + 12, 100)
-                if slope_down:     base = min(base + 5,  100)
+                if crossover_down: base = min(base + 12, 95)
+                if slope_down:     base = min(base + 5,  95)
                 if len(closes) >= 4 and closes[-1] < closes[-2] < closes[-3]:
-                    base = min(base + 4, 100)
-                vote, conf = "SELL", min(base, 95.0)
+                    base = min(base + 4, 95)
+                vote, conf = "SELL", min(base, 90.0)
 
             # Ichimoku Tenkan/Kijun crossover — additional trend confirmation
             # Requires at least 26 candles (kijun period) plus some history
@@ -551,8 +551,8 @@ class TrendAgent:
                     _ich_l = lows  if (lows  and len(lows)  >= 30) else closes
                     _ten_val, _kij_val = _tenkan_kijun(closes, _ich_h, _ich_l, 9, 26)
                     if _ten_val is not None and _kij_val is not None:
-                        if vote == "BUY"  and _ten_val > _kij_val: conf = min(conf + 6, 100)
-                        if vote == "SELL" and _ten_val < _kij_val: conf = min(conf + 6, 100)
+                        if vote == "BUY"  and _ten_val > _kij_val: conf = min(conf + 4, 92)
+                        if vote == "SELL" and _ten_val < _kij_val: conf = min(conf + 4, 92)
                         if vote == "BUY"  and _ten_val < _kij_val: conf = max(conf - 4, 50)
                         if vote == "SELL" and _ten_val > _kij_val: conf = max(conf - 4, 50)
                 except Exception:
@@ -566,9 +566,9 @@ class TrendAgent:
                     _st_result = _supertrend(closes, highs, lows, period=10, multiplier=3.0)
                     if _st_result is not None:
                         _st_val, _st_dir = _st_result
-                        if vote == "BUY"  and _st_dir == 1:  conf = min(conf + 8, 100)
-                        if vote == "SELL" and _st_dir == -1: conf = min(conf + 8, 100)
-                        if vote == "BUY"  and _st_dir == -1: conf = max(conf - 10, 50)  # Hard penalty: counter ST
+                        if vote == "BUY"  and _st_dir == 1:  conf = min(conf + 5, 92)
+                        if vote == "SELL" and _st_dir == -1: conf = min(conf + 5, 92)
+                        if vote == "BUY"  and _st_dir == -1: conf = max(conf - 10, 50)
                         if vote == "SELL" and _st_dir == 1:  conf = max(conf - 10, 50)
                 except Exception:
                     pass
@@ -579,8 +579,8 @@ class TrendAgent:
                     _sar_result = _parabolic_sar(highs, lows)
                     if _sar_result is not None:
                         _sar_val, _sar_dir = _sar_result
-                        if vote == "BUY"  and _sar_dir == 1:  conf = min(conf + 4, 100)
-                        if vote == "SELL" and _sar_dir == -1: conf = min(conf + 4, 100)
+                        if vote == "BUY"  and _sar_dir == 1:  conf = min(conf + 3, 92)
+                        if vote == "SELL" and _sar_dir == -1: conf = min(conf + 3, 92)
                         if vote == "BUY"  and _sar_dir == -1: conf = max(conf - 5, 50)
                         if vote == "SELL" and _sar_dir == 1:  conf = max(conf - 5, 50)
                 except Exception:
@@ -597,11 +597,11 @@ class TrendAgent:
                         _cloud_bot = _ich["cloud_bot"]
                         _cur = closes[-1]
                         if vote == "BUY":
-                            if _cur > _cloud_top:   conf = min(conf + 7, 100)   # above cloud: bullish
+                            if _cur > _cloud_top:   conf = min(conf + 5, 92)   # above cloud: bullish
                             elif _cur < _cloud_bot: conf = max(conf - 8, 50)    # below cloud: bearish
                             else:                   conf = max(conf - 5, 50)    # inside cloud: uncertain
                         elif vote == "SELL":
-                            if _cur < _cloud_bot:   conf = min(conf + 7, 100)   # below cloud: bearish
+                            if _cur < _cloud_bot:   conf = min(conf + 5, 92)   # below cloud: bearish
                             elif _cur > _cloud_top: conf = max(conf - 8, 50)    # above cloud: bullish
                             else:                   conf = max(conf - 5, 50)    # inside cloud: uncertain
                 except Exception:
@@ -617,8 +617,8 @@ class TrendAgent:
                     if hma_now is not None and hma_prev is not None:
                         hma_rising  = hma_now > hma_prev
                         hma_falling = hma_now < hma_prev
-                        if vote == "BUY"  and hma_rising:  conf = min(conf + 4, 100)
-                        if vote == "SELL" and hma_falling: conf = min(conf + 4, 100)
+                        if vote == "BUY"  and hma_rising:  conf = min(conf + 3, 92)
+                        if vote == "SELL" and hma_falling: conf = min(conf + 3, 92)
                         if vote == "BUY"  and hma_falling: conf = max(conf - 3, 50)
                         if vote == "SELL" and hma_rising:  conf = max(conf - 3, 50)
                 except Exception:
@@ -627,8 +627,8 @@ class TrendAgent:
             # Graph memory: confirm with stored TrendState
             trend_state = graph.get_trend_state()
             if trend_state:
-                if vote == "BUY"  and "bullish" in trend_state.lower(): conf = min(conf + 5, 100)
-                elif vote == "SELL" and "bearish" in trend_state.lower(): conf = min(conf + 5, 100)
+                if vote == "BUY"  and "bullish" in trend_state.lower(): conf = min(conf + 3, 92)
+                elif vote == "SELL" and "bearish" in trend_state.lower(): conf = min(conf + 3, 92)
 
             # Update graph TrendState node
             label = "bullish" if vote == "BUY" else "bearish"
@@ -712,20 +712,18 @@ class MomentumAgent:
                 vote, conf = "BUY", min(60.0 + (30 - rsi) * 1.8, 92.0)
                 if rsi_slope_up: conf = min(conf + 5, 95)
             elif rsi > 55:
-                # Bullish momentum zone
                 base = 54.0 + (rsi - 50) * 0.9
-                if macd_bull:      base = min(base + 9, 100)
-                if cross_up:       base = min(base + 10, 100)
-                if rsi_slope_up:   base = min(base + 5, 100)
-                if stoch and stoch > 50: base = min(base + 4, 100)
-                vote, conf = "BUY", min(base, 92.0)
+                if macd_bull:      base = min(base + 8, 90)
+                if cross_up:       base = min(base + 8, 90)
+                if rsi_slope_up:   base = min(base + 4, 90)
+                if stoch and stoch > 50: base = min(base + 3, 90)
+                vote, conf = "BUY", min(base, 88.0)
             elif rsi < 45:
-                # Bearish momentum zone
                 base = 54.0 + (50 - rsi) * 0.9
-                if not macd_bull:    base = min(base + 9, 100)
-                if cross_down:       base = min(base + 10, 100)
-                if rsi_slope_down:   base = min(base + 5, 100)
-                if stoch and stoch < 50: base = min(base + 4, 100)
+                if not macd_bull:    base = min(base + 8, 90)
+                if cross_down:       base = min(base + 8, 90)
+                if rsi_slope_down:   base = min(base + 4, 90)
+                if stoch and stoch < 50: base = min(base + 3, 90)
                 vote, conf = "SELL", min(base, 92.0)
             elif 51 <= rsi <= 55:
                 # Mild bullish bias
@@ -879,18 +877,18 @@ class VolumeAgent:
             # Determine vote based on OBV trend (primary) + surge amplification
             if obv_rising and obv_mom_bull:
                 base = 57.0
-                if cmf and cmf > 0:     base = min(base + cmf * 80, 100)
-                if price_up:            base = min(base + 6, 100)
-                if vol_ratio > 1.5:     base = min(base + min((vol_ratio - 1.5) * 15, 18), 100)
-                elif vol_ratio > 1.2:   base = min(base + 5, 100)
-                vote, conf = "BUY", min(base, 90.0)
+                if cmf and cmf > 0:     base = min(base + cmf * 60, 88)
+                if price_up:            base = min(base + 5, 88)
+                if vol_ratio > 1.5:     base = min(base + min((vol_ratio - 1.5) * 12, 14), 88)
+                elif vol_ratio > 1.2:   base = min(base + 4, 88)
+                vote, conf = "BUY", min(base, 88.0)
             elif obv_falling and obv_mom_bear:
                 base = 57.0
-                if cmf and cmf < 0:     base = min(base + abs(cmf) * 80, 100)
-                if price_down:          base = min(base + 6, 100)
-                if vol_ratio > 1.5:     base = min(base + min((vol_ratio - 1.5) * 15, 18), 100)
-                elif vol_ratio > 1.2:   base = min(base + 5, 100)
-                vote, conf = "SELL", min(base, 90.0)
+                if cmf and cmf < 0:     base = min(base + abs(cmf) * 60, 88)
+                if price_down:          base = min(base + 5, 88)
+                if vol_ratio > 1.5:     base = min(base + min((vol_ratio - 1.5) * 12, 14), 88)
+                elif vol_ratio > 1.2:   base = min(base + 4, 88)
+                vote, conf = "SELL", min(base, 88.0)
             elif vol_ratio > 1.5 and price_up:
                 # Pure surge signal when OBV ambiguous
                 vote, conf = "BUY", min(60.0 + (vol_ratio - 1.5) * 12, 82.0)
@@ -1203,10 +1201,14 @@ class OrderFlowAgent:
                     {"patterns": patterns_detected, "score": score}
                 )
 
+            _min_conviction = 12
+            if abs(score) < _min_conviction:
+                return "NEUTRAL", 50.0
+
             if score > 0:
-                return "BUY",  min(52.0 + abs(score) * 0.85, 92.0)
+                return "BUY",  min(52.0 + abs(score) * 0.75, 88.0)
             elif score < 0:
-                return "SELL", min(52.0 + abs(score) * 0.85, 92.0)
+                return "SELL", min(52.0 + abs(score) * 0.75, 88.0)
             return "NEUTRAL", 50.0
 
         except Exception:
@@ -1522,13 +1524,13 @@ class PivotSRAgent:
 
             # ── Convert score to vote ────────────────────────────────────────
             if score >= 30:
-                vote, conf = "BUY",  min(65.0 + score * 0.6, 88.0)
-            elif score >= 12:
-                vote, conf = "BUY",  min(55.0 + score * 0.8, 78.0)
+                vote, conf = "BUY",  min(62.0 + score * 0.5, 85.0)
+            elif score >= 18:
+                vote, conf = "BUY",  min(55.0 + score * 0.6, 75.0)
             elif score <= -30:
-                vote, conf = "SELL", min(65.0 + abs(score) * 0.6, 88.0)
-            elif score <= -12:
-                vote, conf = "SELL", min(55.0 + abs(score) * 0.8, 78.0)
+                vote, conf = "SELL", min(62.0 + abs(score) * 0.5, 85.0)
+            elif score <= -18:
+                vote, conf = "SELL", min(55.0 + abs(score) * 0.6, 75.0)
             else:
                 vote, conf = "NEUTRAL", 50.0
 
@@ -2473,26 +2475,25 @@ class AIOrchestrationAgent:
             _bb_width_pct = (_bb_u - _bb_l) / closes[-1] * 100
             _bb_pos = (closes[-1] - _bb_l) / (_bb_u - _bb_l) if (_bb_u - _bb_l) > 0 else 0.5
             if buy_score > sell_score:
-                if _bb_pos < 0.25:                                 # price near lower band
+                if _bb_pos < 0.25:
                     _tech_boost += 3.0
                     _tech_notes.append("BB_low+3pt")
-                elif _bb_pos > 0.85:                               # price near upper band → stretched
+                elif _bb_pos > 0.85:
                     _tech_boost -= 4.0
                     _tech_notes.append("BB_high-4pt")
-                # Bollinger squeeze: very narrow band = pending breakout (neutral)
-                if _bb_width_pct < 0.5:
-                    _tech_boost -= 3.0
-                    _tech_notes.append("BB_squeeze-3pt")
+                if _bb_width_pct < 0.35:
+                    _tech_boost -= 2.0
+                    _tech_notes.append("BB_squeeze-2pt")
             else:
-                if _bb_pos > 0.75:                                 # price near upper band
+                if _bb_pos > 0.75:
                     _tech_boost += 3.0
                     _tech_notes.append("BB_high+3pt")
-                elif _bb_pos < 0.15:                               # price near lower band → stretched
+                elif _bb_pos < 0.15:
                     _tech_boost -= 4.0
                     _tech_notes.append("BB_low-4pt")
-                if _bb_width_pct < 0.5:
-                    _tech_boost -= 3.0
-                    _tech_notes.append("BB_squeeze-3pt")
+                if _bb_width_pct < 0.35:
+                    _tech_boost -= 2.0
+                    _tech_notes.append("BB_squeeze-2pt")
 
         _bull_evidence = 0.0
         _bear_evidence = 0.0
@@ -3200,17 +3201,12 @@ class MiroFishSwarmStrategy:
             # highly reliable setup.  Apply a direct +4% confidence bonus.
             # This partially offsets the strict min_confidence gate for elite setups.
             if n_contrary == 0 and n_active >= 6:
-                weighted_conf = min(weighted_conf + 4.0, 100.0)
-                self.logger.debug(
-                    f"⚡ [{symbol}] Unanimous consensus bonus +4% "
-                    f"(all {n_active} active agents aligned)"
-                )
+                weighted_conf = min(weighted_conf + 2.0, 95.0)
 
-            # Session activity boost
-            session_boost = (self._session_activity - 1.0) * 6.0
-            weighted_conf = min(max(weighted_conf + session_boost, 0.0), 100.0)
+            session_boost = (self._session_activity - 1.0) * 3.0
+            weighted_conf = min(max(weighted_conf + session_boost, 0.0), 95.0)
 
-            signal_strength = min(weighted_conf * 0.55 + consensus * 100 * 0.45, 100.0)
+            signal_strength = min(weighted_conf * 0.55 + consensus * 100 * 0.45, 96.0)
             confidence = weighted_conf
 
             # ── Step 5.5: TradingAgents-style Risk Debate ───────────────────
@@ -3261,7 +3257,7 @@ class MiroFishSwarmStrategy:
 
                 _risk_adj = (_agg_score * 0.35 + _con_score * 0.40 + _neu_score * 0.25)
                 _risk_adj = max(-4.0, min(_risk_adj, 3.5))
-                confidence = max(50.0, min(100.0, confidence + _risk_adj))
+                confidence = max(50.0, min(95.0, confidence + _risk_adj))
                 signal_strength = max(0.0, min(100.0, signal_strength + _risk_adj * 0.5))
                 self.logger.debug(
                     f"[{symbol}|{tf}] Risk debate: agg={_agg_score:+.1f} "
@@ -3313,7 +3309,7 @@ class MiroFishSwarmStrategy:
                         else:
                             # Trend-aligned: reward scaled by HTF trend strength
                             htf_reward = 1.04 if htf_spread_pct < 0.30 else 1.06
-                            confidence      = min(confidence      * htf_reward, 100.0)
+                            confidence      = min(confidence      * htf_reward, 95.0)
                             signal_strength = min(signal_strength * htf_reward, 100.0)
                             self.logger.debug(
                                 f"[{symbol}|{tf}] ⬆️ HTF 1H aligned with {action} "
@@ -3336,7 +3332,7 @@ class MiroFishSwarmStrategy:
                             (action == "SELL" and st_dir == -1)
                         )
                         if st_aligned:
-                            confidence      = min(confidence      * 1.03, 100.0)
+                            confidence      = min(confidence      * 1.03, 95.0)
                             signal_strength = min(signal_strength * 1.03, 100.0)
                             self.logger.debug(
                                 f"[{symbol}|{tf}] ⬆️ Supertrend aligned (+3%)"
@@ -3363,7 +3359,7 @@ class MiroFishSwarmStrategy:
                             (action == "SELL" and sar_dir == -1)
                         )
                         if sar_aligned:
-                            confidence = min(confidence + 2.0, 100.0)
+                            confidence = min(confidence + 2.0, 95.0)
                         else:
                             confidence = max(confidence - 4.0, 50.0)
                 except Exception:
@@ -3385,14 +3381,14 @@ class MiroFishSwarmStrategy:
                             inside_cloud = not above_cloud and not below_cloud
                             if action == "BUY":
                                 if above_cloud:
-                                    confidence = min(confidence + 3.0, 100.0)
+                                    confidence = min(confidence + 3.0, 95.0)
                                 elif inside_cloud:
                                     confidence = max(confidence - 5.0, 50.0)
                                 else:
                                     confidence = max(confidence - 10.0, 50.0)
                             else:
                                 if below_cloud:
-                                    confidence = min(confidence + 3.0, 100.0)
+                                    confidence = min(confidence + 3.0, 95.0)
                                 elif inside_cloud:
                                     confidence = max(confidence - 5.0, 50.0)
                                 else:
@@ -3422,10 +3418,10 @@ class MiroFishSwarmStrategy:
             _bb_u_f, _bb_m_f, _bb_l_f = _bollinger(closes, 20)
             if _bb_u_f is not None and _bb_l_f is not None and cur_price > 0:
                 _bb_w_pct = (_bb_u_f - _bb_l_f) / cur_price * 100
-                if _bb_w_pct < 0.50:
+                if _bb_w_pct < 0.25:
                     self.logger.debug(
-                        f"⚠️ [{symbol}|{tf}] BB width {_bb_w_pct:.2f}% < 0.50% "
-                        f"(choppy/compressed market) — signal rejected"
+                        f"⚠️ [{symbol}|{tf}] BB width {_bb_w_pct:.2f}% < 0.25% "
+                        f"(extremely compressed market) — signal rejected"
                     )
                     return None
 
@@ -3437,10 +3433,12 @@ class MiroFishSwarmStrategy:
 
             # Kelly Criterion: moved to after Step 7 (uses actual TP1/SL distances)
 
-            if vol_ratio < 0.80:
+            _cur_sess = getattr(self, "_current_session", "US")
+            _vol_floor = 0.45 if _cur_sess == "ASIAN" else 0.55
+            if vol_ratio < _vol_floor:
                 self.logger.debug(
-                    f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < 0.80x "
-                    f"— low-volume signal rejected"
+                    f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < {_vol_floor:.2f}x "
+                    f"— low-volume signal rejected ({_cur_sess} session)"
                 )
                 return None
 
@@ -3459,10 +3457,10 @@ class MiroFishSwarmStrategy:
                             (action == "SELL" and _div_type == "hidden_bearish")
                         )
                         if _div_aligned and _div_strength > 0.3:
-                            confidence = min(confidence + 3.0, 100.0)
+                            confidence = min(confidence + 3.0, 95.0)
                             signal_strength = min(signal_strength + 2.0, 100.0)
                         elif _hidden_aligned and _div_strength > 0.2:
-                            confidence = min(confidence + 2.0, 100.0)
+                            confidence = min(confidence + 2.0, 95.0)
                             signal_strength = min(signal_strength + 1.5, 100.0)
                         elif not _div_aligned and not _hidden_aligned and _div_strength > 0.5:
                             confidence = max(confidence - 5.0, 50.0)
@@ -3481,7 +3479,7 @@ class MiroFishSwarmStrategy:
                                 (action == "SELL" and _sq_val < 0)
                             )
                             if _sq_aligned:
-                                confidence = min(confidence + 2.0, 100.0)
+                                confidence = min(confidence + 2.0, 95.0)
                             else:
                                 confidence = max(confidence - 3.0, 50.0)
                 except Exception:
@@ -3541,12 +3539,12 @@ class MiroFishSwarmStrategy:
 
                     if _regime == "BULL":
                         if action == "BUY":
-                            confidence = min(confidence + 2.5, 100.0)
+                            confidence = min(confidence + 2.5, 95.0)
                         else:
                             confidence = max(confidence - 2.0, 50.0)
                     elif _regime == "BEAR":
                         if action == "SELL":
-                            confidence = min(confidence + 2.5, 100.0)
+                            confidence = min(confidence + 2.5, 95.0)
                         else:
                             confidence = max(confidence - 2.0, 50.0)
                     else:
@@ -3576,7 +3574,7 @@ class MiroFishSwarmStrategy:
                     )
                     if _ts_mom_aligned:
                         _ts_boost = min(abs(_ts_ret_12) * _ts_vol_inv * 15.0, 3.0)
-                        confidence = min(confidence + _ts_boost, 100.0)
+                        confidence = min(confidence + _ts_boost, 95.0)
                     elif _ts_mom_contra:
                         _ts_penalty = min(abs(_ts_ret_12) * _ts_vol_inv * 10.0, 4.0)
                         confidence = max(confidence - _ts_penalty, 50.0)
@@ -3592,7 +3590,7 @@ class MiroFishSwarmStrategy:
                 _is_overnight_window = _utc_hour in (21, 22, 23, 0)
                 if _is_overnight_window and symbol in ("BTCUSDT", "ETHUSDT"):
                     if action == "BUY":
-                        confidence = min(confidence + 1.5, 100.0)
+                        confidence = min(confidence + 1.5, 95.0)
                     elif action == "SELL":
                         confidence = max(confidence - 1.0, 50.0)
             except Exception:
@@ -3607,9 +3605,9 @@ class MiroFishSwarmStrategy:
                     _extreme_up = _st_ret_5 > 0.08
                     _extreme_down = _st_ret_5 < -0.08
                     if _extreme_up and action == "SELL":
-                        confidence = min(confidence + 2.0, 100.0)
+                        confidence = min(confidence + 2.0, 95.0)
                     elif _extreme_down and action == "BUY":
-                        confidence = min(confidence + 2.0, 100.0)
+                        confidence = min(confidence + 2.0, 95.0)
                     elif _extreme_up and action == "BUY":
                         confidence = max(confidence - 3.0, 50.0)
                     elif _extreme_down and action == "SELL":
@@ -3629,7 +3627,7 @@ class MiroFishSwarmStrategy:
                         if _vol_expansion > 1.8:
                             confidence = max(confidence - 1.5, 50.0)
                         elif _vol_expansion < 0.5:
-                            confidence = min(confidence + 1.5, 100.0)
+                            confidence = min(confidence + 1.5, 95.0)
                 except Exception:
                     pass
 
@@ -3641,12 +3639,12 @@ class MiroFishSwarmStrategy:
                 _IT_BEST_HOURS  = {0, 2, 3, 11, 12, 19, 23}
                 _IT_WORST_HOURS = {1, 5, 8, 16}
                 if _utc_h in _IT_BEST_HOURS:
-                    confidence = min(confidence + 2.0, 100.0)
+                    confidence = min(confidence + 2.0, 95.0)
                 elif _utc_h in _IT_WORST_HOURS:
                     confidence = max(confidence - 3.0, 50.0)
 
                 if action == "BUY":
-                    confidence = min(confidence + 1.5, 100.0)
+                    confidence = min(confidence + 1.5, 95.0)
                 elif action == "SELL":
                     confidence = max(confidence - 1.0, 50.0)
 
@@ -3669,7 +3667,7 @@ class MiroFishSwarmStrategy:
                     "RIVERUSDT": -3.0, "ZECUSDT": -3.0,
                 }
                 if symbol in _IT_BOOST_SYMS:
-                    confidence = min(confidence + _IT_BOOST_SYMS[symbol], 100.0)
+                    confidence = min(confidence + _IT_BOOST_SYMS[symbol], 95.0)
                 elif symbol in _IT_PENALTY_SYMS:
                     confidence = max(confidence + _IT_PENALTY_SYMS[symbol], 50.0)
             except Exception:
@@ -3711,7 +3709,7 @@ class MiroFishSwarmStrategy:
                     _pm_tier = "SELL"
                     _pm_adj = -3.0
 
-                confidence = max(50.0, min(100.0, confidence + _pm_adj))
+                confidence = max(50.0, min(95.0, confidence + _pm_adj))
                 signal_strength = max(0.0, min(100.0, signal_strength + _pm_adj * 0.5))
                 self.logger.debug(
                     f"[{symbol}|{tf}] PM gate: score={_pm_score:.1f} "

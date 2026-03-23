@@ -1142,7 +1142,7 @@ class FXSUSDTTelegramBot:
         # Insider + Microstructure + AI) to push a quality signal from 72% to 84%.
         # The effective pre-boost floor is now 80 - 12 = 68%, which is still above
         # the strategy's min_confidence gate of 64%.
-        _MAX_BOOST = 12.0
+        _MAX_BOOST = 8.0
 
         # ── Pre-boost impossibility gate ─────────────────────────────────────
         # If even the maximum possible boost cannot bring this signal to the
@@ -1314,7 +1314,7 @@ class FXSUSDTTelegramBot:
                         )
 
                         # Read data-driven thresholds (FIX 5)
-                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.40)
+                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.08)
                         _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
                         _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
 

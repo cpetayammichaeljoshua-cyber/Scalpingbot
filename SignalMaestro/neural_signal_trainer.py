@@ -552,7 +552,7 @@ class NeuralSignalTrainer:
         # reject_threshold: signals below this are rejected.
         # boost_threshold:  signals above this get a confidence boost.
         self._opt_threshold    = 0.50   # default; overwritten after each training run
-        self._reject_threshold = 0.40   # lower bound (never below this)
+        self._reject_threshold = 0.08   # lower bound (only reject truly bad signals)
         self._boost_threshold  = 0.70   # upper bound (only boost above this)
 
         # Direction-aware calibration offsets.
@@ -738,7 +738,7 @@ class NeuralSignalTrainer:
 
             # Derived reject / boost thresholds around optimal
             # Wider gap from optimal threshold to reduce blanket rejections
-            self._reject_threshold = max(0.20, best_thresh - 0.18)
+            self._reject_threshold = max(0.08, best_thresh - 0.42)
             self._boost_threshold  = min(0.80, best_thresh + 0.12)
             return best_thresh
         except Exception:
@@ -810,18 +810,16 @@ class NeuralSignalTrainer:
             base_prob = float(self.predict_batch(X_raw)[0])
             X_norm = self._normalise(X_raw)
 
-            # Direction-aware calibration: shift prediction by per-direction offset
-            # to correct for BUY-biased training data underestimating SELL win rates.
             _dir_offset = (
                 self._sell_prob_offset if rec.get("action") == "SELL"
                 else self._buy_prob_offset
             )
-            base_prob = float(np.clip(base_prob + _dir_offset, 0.0, 1.0))
+            base_prob = float(np.clip(base_prob + _dir_offset, 0.05, 1.0))
 
-            # Apply loss-pattern penalty
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                base_prob = max(0.0, base_prob - penalty)
+                penalty *= 0.35
+                base_prob = max(0.05, base_prob - penalty)
 
             return base_prob
         except Exception as e:
@@ -868,18 +866,16 @@ class NeuralSignalTrainer:
             mean_p = float(mean_arr[0])
             std_p  = float(std_arr[0])
 
-            # Direction-aware calibration: shift prediction by per-direction offset
-            # to correct for BUY-biased training data underestimating SELL win rates.
             _dir_offset = (
                 self._sell_prob_offset if rec.get("action") == "SELL"
                 else self._buy_prob_offset
             )
-            mean_p = float(np.clip(mean_p + _dir_offset, 0.0, 1.0))
+            mean_p = float(np.clip(mean_p + _dir_offset, 0.05, 1.0))
 
-            # Apply loss-pattern penalty to mean prediction
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                mean_p = max(0.0, mean_p - penalty)
+                penalty *= 0.35
+                mean_p = max(0.05, mean_p - penalty)
 
             return mean_p, std_p
         except Exception as e:
@@ -1129,14 +1125,17 @@ class NeuralSignalTrainer:
                 _sel_mask  = ~_buy_mask
                 _probs_cal = A4_all.flatten()
                 _actuals   = y_all.flatten()
-                self._buy_prob_offset = (
+                _raw_buy = (
                     float(np.mean(_actuals[_buy_mask]) - np.mean(_probs_cal[_buy_mask]))
                     if _buy_mask.any() else 0.0
                 )
-                self._sell_prob_offset = (
+                _raw_sell = (
                     float(np.mean(_actuals[_sel_mask]) - np.mean(_probs_cal[_sel_mask]))
                     if _sel_mask.any() else 0.0
                 )
+                _MAX_DIR_OFFSET = 0.05
+                self._buy_prob_offset = float(np.clip(_raw_buy, -_MAX_DIR_OFFSET, _MAX_DIR_OFFSET))
+                self._sell_prob_offset = float(np.clip(_raw_sell, -_MAX_DIR_OFFSET, _MAX_DIR_OFFSET))
                 if abs(self._sell_prob_offset) > 0.005 or abs(self._buy_prob_offset) > 0.005:
                     self.logger.info(
                         f"🎯 Direction calibration: "
@@ -1359,7 +1358,7 @@ class NeuralSignalTrainer:
 
             # FIX 5: Restore optimal thresholds
             self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
-            self._reject_threshold = float(d.get("_reject_threshold", 0.40))
+            self._reject_threshold = float(d.get("_reject_threshold", 0.08))
             self._boost_threshold  = float(d.get("_boost_threshold",  0.70))
 
             # Restore direction-aware calibration offsets

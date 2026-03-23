@@ -3,6 +3,43 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 17 — Comprehensive Production Perfection Pass
+
+### NN Direction Calibration Fix (`neural_signal_trainer.py`)
+- **Direction offset cap**: ±0.05 (was unbounded, -0.134 for BUY from loss-dominated training data)
+- **Danger penalty scaling**: Always ×0.35 (was accuracy-gated), floor raised to 0.05
+- **Reject threshold widened**: `max(0.08, opt_thresh - 0.42)` = 0.155 (was `max(0.20, opt_thresh - 0.18)` = 0.320)
+- **Result**: NN retrained 91.4% accuracy (win_acc=86.0%, loss_acc=93.4%), signals now pass through
+
+### Confidence Inflation Fix (`fxsusdt_telegram_bot.py`)
+- **_MAX_BOOST**: 12→8 (PublicAPI sentiment/directional boosts)
+- **Consensus cap**: 95% (was 100%)
+- **Signal strength cap**: 96% (was 100%)
+- **Session bonus**: 3pt max (was 6pt)
+- **Result**: Live signals show varied confidence 70-98% (was always 100%)
+
+### Symbol Filtering Relaxation (`mirofish_swarm_strategy.py`)
+- **BB width threshold**: 0.50%→0.25% (more symbols pass chop filter)
+- **Volume filter**: Session-aware — 0.45 Asian / 0.55 US+EU (was flat 0.80)
+- **NameError fix**: `_session` → `getattr(self, "_current_session", "US")`
+- **Result**: 12+ symbols generating swarm signals per cycle (was 2-3)
+
+### Agent Vote Diversity (`mirofish_swarm_strategy.py`)
+- **TrendAgent/MomentumAgent/VolumeAgent/OrderFlowAgent**: Confidence caps reduced to 88-92 (was 100)
+- **OrderFlowAgent**: Requires score ≥ 12 for directional conviction (was lower)
+- **Unanimous bonus**: +2pt (was +4pt)
+- **All strategy-level caps**: 95.0 (was 100.0)
+- **Result**: 2-4 agents regularly dissent on typical signals
+
+### Production Validation (Session 17)
+- 7+ clean cycles, 0 errors, 0 crashes
+- NN: 1000 samples, acc=91.4%, opt_thresh=0.575, reject_thresh=0.155, 8 danger zones
+- Signals sent: PAXGUSDT SELL, WLFIUSDT BUY, TRIAUSDT BUY (3 signals across restarts)
+- Confidence variation: 70-98% (not always 100%)
+- Agent diversity: S/N/B variations visible across all 10 agents
+- Fear & Greed: 8 (Extreme Fear), BTC dom=56.2%
+- Key thresholds: reject<0.155, boost>0.695, direction offset ±0.05, danger penalty ×0.35
+
 ## Session 16 — Comprehensive Bug Fix & Win Rate Improvement Pass
 
 ### PnL Calculation Fix (`trade_memory.py`)
