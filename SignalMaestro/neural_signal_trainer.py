@@ -454,6 +454,22 @@ class LossPatternAnalyzer:
         except Exception:
             return 0.0
 
+    def update_incremental(self, x: "np.ndarray", label: float):
+        """Incrementally update danger zone loss rates with a single new sample."""
+        if not self.is_fitted or not self.danger_zones:
+            return
+        try:
+            updated = []
+            for fi, lo, hi, loss_rate in self.danger_zones:
+                if lo <= x[fi] <= hi:
+                    alpha = 0.05
+                    is_loss = 1.0 if label == 0.0 else 0.0
+                    loss_rate = loss_rate * (1.0 - alpha) + is_loss * alpha
+                updated.append((fi, lo, hi, loss_rate))
+            self.danger_zones = updated
+        except Exception:
+            pass
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NeuralSignalTrainer
@@ -601,6 +617,19 @@ class NeuralSignalTrainer:
         self._feat_mean  = X.mean(axis=0)
         self._feat_std   = X.std(axis=0) + 1e-8   # avoid divide-by-zero
         self._feat_fitted = True
+
+    @staticmethod
+    def _utc_hour(ts) -> int:
+        """Extract UTC hour from a timestamp, converting from any timezone."""
+        if ts is None:
+            return 12
+        try:
+            if hasattr(ts, 'utcoffset') and ts.utcoffset() is not None:
+                from datetime import timezone
+                ts = ts.astimezone(timezone.utc)
+            return ts.hour
+        except Exception:
+            return 12
 
     def _normalise(self, X: "np.ndarray") -> "np.ndarray":
         """Apply z-score normalisation.  Returns X unchanged if not yet fitted."""
@@ -766,14 +795,14 @@ class NeuralSignalTrainer:
                 "risk_reward_ratio":  signal.risk_reward_ratio,
                 "atr_ratio":          atr_ratio,
                 "bb_position":        bb_position,
-                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
+                "hour_of_day":        self._utc_hour(signal.timestamp),
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
             }
             X_raw = build_features(rec).reshape(1, -1)
+            base_prob = float(self.predict_batch(X_raw)[0])
             X_norm = self._normalise(X_raw)
-            base_prob = float(self.predict_batch(X_raw)[0])  # predict_batch normalises inside
 
             # Direction-aware calibration: shift prediction by per-direction offset
             # to correct for BUY-biased training data underestimating SELL win rates.
@@ -822,7 +851,7 @@ class NeuralSignalTrainer:
                 "risk_reward_ratio":  signal.risk_reward_ratio,
                 "atr_ratio":          atr_ratio,
                 "bb_position":        bb_position,
-                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
+                "hour_of_day":        self._utc_hour(signal.timestamp),
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
@@ -1479,6 +1508,13 @@ class NeuralSignalTrainer:
                 self._adam_step([dW1, db1, dW2, db2, dW3, db3, dW4, db4])
 
             self.lr = orig_lr
+
+            if self.loss_analyzer and self.loss_analyzer.is_fitted:
+                try:
+                    self.loss_analyzer.update_incremental(X_norm[0], label)
+                except Exception:
+                    pass
+
             outcome_label = "WIN" if label == 1.0 else "LOSS"
             self.logger.debug(
                 f"🧠 Online update: {trade.get('symbol','?')} {trade.get('action','?')} "

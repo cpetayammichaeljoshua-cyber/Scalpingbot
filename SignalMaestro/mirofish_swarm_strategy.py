@@ -218,7 +218,7 @@ class AgentProfile:
         if session in self.active_sessions:
             mult = self.session_multipliers.get(session, 1.0)
         else:
-            mult = 0.5
+            mult = 0.15
         return self.influence_weight * self.activity_level * mult
 
 
@@ -3103,15 +3103,16 @@ class MiroFishSwarmStrategy:
                 return None
 
             # ── Consensus ──
-            # BUG FIX: `>=` defaulted to BUY on exactly-equal weights (spurious BUY bias).
-            # Use `>` so a genuine tie produces SELL (or we skip — handled below by the
-            # consensus gate min_swarm_consensus = 75%, which equal weights always fail).
+            # BUG FIX: exact ties now return None (no directional bias).
             if buy_weight > sell_weight:
                 action    = "BUY"
                 consensus = buy_weight / total_signal_weight
-            else:
+            elif sell_weight > buy_weight:
                 action    = "SELL"
                 consensus = sell_weight / total_signal_weight
+            else:
+                self.logger.debug(f"⚠️ Exact weight tie {buy_weight:.4f} — no direction, skipped")
+                return None
 
             if consensus < self.min_swarm_consensus:
                 self.logger.debug(f"⚠️ Weak consensus {consensus:.2f} — skipped")
@@ -3295,8 +3296,12 @@ class MiroFishSwarmStrategy:
                                     confidence = max(confidence - 5.0, 50.0)
                                 else:
                                     confidence = max(confidence - 10.0, 50.0)
+                    else:
+                        confidence = max(confidence - 3.0, 50.0)
                 except Exception:
                     pass
+            elif len(closes) < 52:
+                confidence = max(confidence - 3.0, 50.0)
 
             if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
                 return None
@@ -3329,6 +3334,18 @@ class MiroFishSwarmStrategy:
             vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
             leverage  = LEVERAGE_MAP.get(tf, 15)
 
+            # Kelly Criterion dynamic leverage scaling:
+            # Adjusts base leverage by consensus quality and confidence.
+            # Kelly fraction f* = (bp - q) / b where b=R:R, p=win_prob, q=1-p
+            # We approximate win_prob from consensus and use a half-Kelly for safety.
+            _kelly_p = min(consensus, 0.95) * (confidence / 100.0)
+            _kelly_q = 1.0 - _kelly_p
+            _kelly_b = 1.5  # approximate R:R
+            _kelly_f = (_kelly_b * _kelly_p - _kelly_q) / max(_kelly_b, 0.01)
+            _kelly_f = max(0.0, min(_kelly_f, 1.0)) * 0.5  # half-Kelly for safety
+            if _kelly_f > 0:
+                leverage = max(3, min(int(leverage * (0.5 + _kelly_f)), 30))
+
             if vol_ratio < 0.80:
                 self.logger.debug(
                     f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < 0.80x "
@@ -3336,20 +3353,27 @@ class MiroFishSwarmStrategy:
                 )
                 return None
 
-            # ── Step 5g: RSI divergence confirmation ──
-            if len(closes) >= 30:
+            # ── Step 5g: RSI divergence confirmation (regular + hidden) ──
+            if len(closes) >= 50:
                 try:
-                    _rsi_div = _rsi_divergence(closes, period=14, lookback=20)
+                    _rsi_div = _rsi_divergence(closes, period=14, lookback=40)
                     if _rsi_div is not None:
                         _div_type, _div_strength = _rsi_div
                         _div_aligned = (
                             (action == "BUY"  and _div_type == "bullish") or
                             (action == "SELL" and _div_type == "bearish")
                         )
+                        _hidden_aligned = (
+                            (action == "BUY"  and _div_type == "hidden_bullish") or
+                            (action == "SELL" and _div_type == "hidden_bearish")
+                        )
                         if _div_aligned and _div_strength > 0.3:
                             confidence = min(confidence + 3.0, 100.0)
                             signal_strength = min(signal_strength + 2.0, 100.0)
-                        elif not _div_aligned and _div_strength > 0.5:
+                        elif _hidden_aligned and _div_strength > 0.2:
+                            confidence = min(confidence + 2.0, 100.0)
+                            signal_strength = min(signal_strength + 1.5, 100.0)
+                        elif not _div_aligned and not _hidden_aligned and _div_strength > 0.5:
                             confidence = max(confidence - 5.0, 50.0)
                 except Exception:
                     pass
@@ -3369,6 +3393,28 @@ class MiroFishSwarmStrategy:
                                 confidence = min(confidence + 2.0, 100.0)
                             else:
                                 confidence = max(confidence - 3.0, 50.0)
+                except Exception:
+                    pass
+
+            # ── Step 5i: Market regime detection (trending/ranging/volatile) ──
+            # Adjusts confidence based on detected regime. Trending markets
+            # boost trend-following signals; ranging markets penalize them.
+            if len(closes) >= 30 and atr and atr > 0:
+                try:
+                    _ema_fast = closes[-1]
+                    _ema_slow = sum(closes[-20:]) / 20
+                    _atr_norm = atr / cur_price if cur_price > 0 else 0.01
+                    _trend_strength = abs(_ema_fast - _ema_slow) / _ema_slow if _ema_slow > 0 else 0
+                    if _trend_strength > 0.015 and _atr_norm < 0.02:
+                        _regime = "TRENDING"
+                        confidence = min(confidence + 2.0, 100.0)
+                    elif _atr_norm > 0.025:
+                        _regime = "VOLATILE"
+                        confidence = max(confidence - 2.0, 50.0)
+                    else:
+                        _regime = "RANGING"
+                        if consensus < 0.85:
+                            confidence = max(confidence - 1.5, 50.0)
                 except Exception:
                     pass
 
@@ -3425,6 +3471,17 @@ class MiroFishSwarmStrategy:
             tp2_dist = max(tp2_dist, tp1_dist + min_tp_gap)
             tp3_dist = max(tp3_dist, tp2_dist + min_tp_gap)
 
+            # Post-tick collision guard: ensure rounding doesn't collapse TP levels
+            def _ensure_tp_separation(tp1_d, tp2_d, tp3_d, price, tick_fn):
+                _t1 = tick_fn(price + tp1_d)
+                _t2 = tick_fn(price + tp2_d)
+                _t3 = tick_fn(price + tp3_d)
+                if _t2 <= _t1:
+                    tp2_d = tp1_d + min_tp_gap * 1.5
+                if _t3 <= _t2 or tick_fn(price + tp3_d) <= tick_fn(price + tp2_d):
+                    tp3_d = tp2_d + min_tp_gap * 1.5
+                return tp1_d, tp2_d, tp3_d
+
             def _tick(price: float, tick: float = None) -> float:
                 """Round price to appropriate precision for the current magnitude."""
                 if tick is None:
@@ -3438,6 +3495,10 @@ class MiroFishSwarmStrategy:
                     else:                 tick = 0.00000001
                 return round(round(price / tick) * tick, 10)
 
+            tp1_dist, tp2_dist, tp3_dist = _ensure_tp_separation(
+                tp1_dist, tp2_dist, tp3_dist, cur_price, _tick
+            )
+
             if action == "BUY":
                 stop_loss   = _tick(cur_price - sl_dist)
                 take_profit = _tick(cur_price + tp1_dist)
@@ -3446,6 +3507,11 @@ class MiroFishSwarmStrategy:
                 # Safety: SL strictly below entry
                 if stop_loss >= cur_price:
                     stop_loss = _tick(cur_price * (1 - sl_pct))
+                # Post-tick TP collision check
+                if tp2 <= take_profit:
+                    tp2 = _tick(take_profit + min_tp_gap)
+                if tp3 <= tp2:
+                    tp3 = _tick(tp2 + min_tp_gap)
             else:
                 stop_loss   = _tick(cur_price + sl_dist)
                 take_profit = _tick(cur_price - tp1_dist)
@@ -3454,6 +3520,11 @@ class MiroFishSwarmStrategy:
                 # Safety: SL strictly above entry
                 if stop_loss <= cur_price:
                     stop_loss = _tick(cur_price * (1 + sl_pct))
+                # Post-tick TP collision check (SHORT: TP prices descend)
+                if tp2 >= take_profit:
+                    tp2 = _tick(take_profit - min_tp_gap)
+                if tp3 >= tp2:
+                    tp3 = _tick(tp2 - min_tp_gap)
 
             # R:R uses TP2 as the effective reward target (realistic for a partial-exit
             # strategy where Cornix closes 50% at TP1 and 35% at TP2).  TP1-only R:R
@@ -4074,7 +4145,7 @@ def _ich_cloud(highs: List[float], lows: List[float], closes: List[float],
 
 
 def _rsi_divergence(closes: List[float], period: int = 14,
-                    lookback: int = 30) -> Optional[Tuple[str, float]]:
+                    lookback: int = 50) -> Optional[Tuple[str, float]]:
     """
     RSI divergence detection — scans last `lookback` bars for price/RSI divergence.
     Returns ("bullish", strength) for bullish divergence, ("bearish", strength) for bearish,
@@ -4152,6 +4223,30 @@ def _rsi_divergence(closes: List[float], period: int = 14,
             if strength > 0.1:
                 return "bearish", strength
 
+    # Hidden bullish divergence: price higher low + RSI lower low (trend continuation)
+    if len(price_lows_idx) >= 2:
+        i1, i2 = price_lows_idx[-2], price_lows_idx[-1]
+        price_hl = price_window[i2] > price_window[i1]
+        rsi_ll   = rsi_vals[i2] < rsi_vals[i1]
+        if price_hl and rsi_ll:
+            price_diff = (price_window[i2] - price_window[i1]) / max(price_window[i1], 1e-9)
+            rsi_diff   = (rsi_vals[i1] - rsi_vals[i2]) / max(abs(rsi_vals[i1]) + 1, 1e-9)
+            strength   = min((price_diff * 8 + rsi_diff * 4), 0.8)
+            if strength > 0.15:
+                return "hidden_bullish", strength
+
+    # Hidden bearish divergence: price lower high + RSI higher high (trend continuation)
+    if len(price_highs_idx) >= 2:
+        i1, i2 = price_highs_idx[-2], price_highs_idx[-1]
+        price_lh = price_window[i2] < price_window[i1]
+        rsi_hh   = rsi_vals[i2] > rsi_vals[i1]
+        if price_lh and rsi_hh:
+            price_diff = (price_window[i1] - price_window[i2]) / max(price_window[i1], 1e-9)
+            rsi_diff   = (rsi_vals[i2] - rsi_vals[i1]) / max(abs(rsi_vals[i1]) + 1, 1e-9)
+            strength   = min((price_diff * 8 + rsi_diff * 4), 0.8)
+            if strength > 0.15:
+                return "hidden_bearish", strength
+
     return None
 
 
@@ -4209,16 +4304,14 @@ def _squeeze_momentum(closes: List[float], highs: List[float],
     # Squeeze: BB inside KC
     squeeze_on = (bb_up < kc_up) and (bb_lo > kc_lo)
 
-    # Momentum: linear regression of (close - midpoint of BB and KC)
+    # Momentum: linear regression of (close - midpoint)
+    # BUG FIX: use kc_mid (EMA) for both sides to eliminate SMA/EMA lag-mismatch.
+    # bb_mid is SMA, kc_mid is EMA — averaging them creates jitter during high vol.
     if n < 5:
         return squeeze_on, 0.0
     mom_vals = []
+    mid_ref = kc_mid if kc_mid is not None else (bb_mid if bb_mid is not None else c[-1])
     for i in range(-5, 0):
-        # BUG FIX: `if bb_mid and kc_mid` evaluates to False when either float
-        # is exactly 0.0, silently falling back to raw close and hiding the
-        # real midpoint.  Use `is not None` so any numeric value (including 0)
-        # is correctly treated as valid.
-        mid_ref = (bb_mid + kc_mid) / 2.0 if bb_mid is not None and kc_mid is not None else c[i]
         mom_vals.append(c[i] - mid_ref)
     momentum = mom_vals[-1] - mom_vals[0] if len(mom_vals) >= 2 else 0.0
 

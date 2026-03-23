@@ -391,6 +391,16 @@ class FXSUSDTTelegramBot:
                         self.logger.warning(f"⚠️ Telegram API: {error_desc}")
                         if "chat not found" in error_desc.lower():
                             return False
+                        if "can't parse" in error_desc.lower() and parse_mode in ("Markdown", "MarkdownV2", "HTML"):
+                            import re as _re
+                            plain = _re.sub(r'[*_`\[\]()~>#+\-=|{}.!\\]', '', text)
+                            data_plain = {"chat_id": chat_id, "text": plain, "disable_web_page_preview": True}
+                            async with session.post(url, json=data_plain, timeout=aiohttp.ClientTimeout(total=12)) as r2:
+                                if r2.status == 200:
+                                    r2j = await r2.json()
+                                    if r2j.get("ok"):
+                                        self.logger.info(f"✅ Message sent (plain fallback) to {chat_id}")
+                                        return True
                     elif response.status == 429:
                         # Rate limited by Telegram — back off and retry.
                         # BUG FIX: previously fell through to the generic
@@ -1279,7 +1289,7 @@ class FXSUSDTTelegramBot:
                 # Loss-pattern danger zones apply an additional penalty inside
                 # predict_signal_with_uncertainty().
                 _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
-                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.50:
+                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
                     try:
                         # FIX 6: MC-Dropout prediction with uncertainty
                         nn_win_prob, nn_uncertainty = (

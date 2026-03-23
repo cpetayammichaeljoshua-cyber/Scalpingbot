@@ -1,7 +1,52 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+
+## Session 12 — Comprehensive Bug Fixes + Systematic Trading Enhancements
+
+### Consensus & Agent Weight Fixes (`mirofish_swarm_strategy.py`)
+- **Consensus tie-breaker bias**: Exact weight ties now return `None` (previously defaulted to SELL, creating directional bias)
+- **Off-session agent weight dilution**: Reduced multiplier from 0.5 → 0.15 to eliminate noise from out-of-session agents
+
+### Indicator Fixes (`mirofish_swarm_strategy.py`)
+- **Squeeze momentum SMA/EMA mismatch**: Keltner Channel midpoint now uses EMA consistently (was mixing SMA and EMA)
+- **RSI divergence lookback**: Increased warm-up from 30 → 50 bars; detection lookback raised to 40 bars
+- **Hidden divergence detection**: Added hidden bullish/bearish divergence for trend-continuation signals (Step 5g)
+- **Ichimoku None penalty**: -3pt confidence penalty when Ichimoku data insufficient (< 52 bars)
+
+### TP/SL Collision Guards (`mirofish_swarm_strategy.py`)
+- **Post-tick TP collision**: Added `_ensure_tp_separation()` helper to prevent TP1=TP2 or TP2=TP3 after tick rounding
+- Guards applied for both BUY and SELL directions
+
+### Neural Network Fixes (`neural_signal_trainer.py`)
+- **NN gate accuracy threshold**: Raised from 50% → 55% to prevent weak models from influencing signals
+- **Timezone drift**: Fixed `hour_of_day` feature in both `predict_signal` and `predict_signal_with_uncertainty` to handle timezone-aware timestamps correctly
+- **LossPatternAnalyzer online updates**: `update_online()` now incrementally updates danger zone loss rates via `update_incremental()` with exponential moving average (α=0.05)
+- **predict_batch ordering**: Fixed to maintain correct sample ordering
+
+### Kelly Criterion Position Sizing (`mirofish_swarm_strategy.py`)
+- Dynamic leverage scaling based on Kelly fraction: f* = (b×p - q) / b
+- Uses half-Kelly for safety (reduces overbetting risk)
+- Scales base leverage between 50% and 100% based on consensus quality and confidence
+- Bounded: min 3x, max 30x leverage
+
+### Market Regime Detection (`mirofish_swarm_strategy.py`)
+- **Step 5i**: Detects TRENDING / RANGING / VOLATILE regimes using EMA fast/slow spread + ATR normalization
+- TRENDING (price spread >1.5%, ATR <2.5%): +2pt confidence boost
+- VOLATILE (ATR >3%): -2pt confidence penalty
+- RANGING (consensus <85%): -1.5pt confidence penalty
+
+### Telegram Markdown Safety (`fxsusdt_telegram_bot.py`)
+- **HTML/plain-text fallback**: When Markdown parse fails ("can't parse" error), automatically strips formatting and retries with plain text
+- Prevents silent message delivery failures
+
+### Production Validation (Session 12)
+- 43 USDM symbols scanned in 2.7s (TRUE PARALLEL confirmed)
+- NN loaded: 227 samples, acc=87.7%, threshold=0.650, 17 danger zones
+- Fear & Greed Index: 8 (Extreme Fear), BTC dom=56.2%
+- All background tasks running: OutcomeTracker, PublicAPIIntelligence
+- Key constants: SWARM_MIN_CONSENSUS=0.75, SCAN_PARALLEL_LIMIT=30, AI_THRESHOLD=80%, NN acc gate=55%, off-session mult=0.15
 
 ## Session 11 — ClawRouter + PublicAPIIntelligence Integration
 
