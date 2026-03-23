@@ -472,11 +472,10 @@ class TradeMemory:
             elif outcome == "SL":
                 definitive.append(1)  # loss
             elif outcome == "EXPIRED":
-                if pnl >= 0.5:
-                    definitive.append(0)  # profitable expiry = win
-                elif pnl <= -0.5:
-                    definitive.append(1)  # significant loss expiry
-                # else: neutral, skip
+                if pnl >= 0.3:
+                    definitive.append(0)
+                elif pnl <= -0.15:
+                    definitive.append(1)
             if len(definitive) >= n:
                 break
         if not definitive:
@@ -539,9 +538,9 @@ class TradeMemory:
                         elif outcome == "SL":
                             definitive.append(1)
                         elif outcome == "EXPIRED":
-                            if pnl >= 0.5:
+                            if pnl >= 0.3:
                                 definitive.append(0)
-                            elif pnl <= -0.5:
+                            elif pnl <= -0.15:
                                 definitive.append(1)
                         if len(definitive) >= 10:
                             break
@@ -859,9 +858,18 @@ class OutcomeTracker:
         action: str, entry: float, exit_price: float,
         outcome: str, sl: float, tp1: float, tp2: float, tp3: float
     ) -> float:
-        """Raw percentage P&L (not leveraged) for labelling."""
+        """Raw percentage P&L (not leveraged) for labelling.
+
+        For SL: uses worst-case of (SL target, actual exit price) to account
+        for gap-through scenarios where price overshoots the stop.
+        For TP: uses the target price (conservative — price may have gapped
+        higher but we credit only the planned target).
+        """
         if outcome == "SL":
-            ref = sl
+            if action == "BUY":
+                ref = min(sl, exit_price)
+            else:
+                ref = max(sl, exit_price)
         elif outcome == "TP3":
             ref = tp3
         elif outcome == "TP2":
@@ -869,7 +877,7 @@ class OutcomeTracker:
         elif outcome == "TP1":
             ref = tp1
         else:
-            ref = exit_price  # EXPIRED — use current price
+            ref = exit_price
 
         if entry == 0:
             return 0.0

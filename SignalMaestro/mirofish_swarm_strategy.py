@@ -1263,24 +1263,30 @@ class SentimentAgent:
             vol_30 = sum(abs(closes[i] - closes[i-1]) for i in range(-30, 0)) / 30
             vol_contracting = vol_10 < vol_30 * 0.75
 
-            # Primary signal from EMA alignment
-            if bull_score == 3:
-                base = 62.0 + min(dev_pct * 1.5, 15.0) if dev_pct > 0 else 62.0
-                if vol_contracting: base = min(base + 6, 100)
-                vote, conf = "BUY", min(base, 88.0)
+            # Contrarian overextension detection
+            _overext_buy  = bull_score == 3 and dev_pct > 3.5
+            _overext_sell = bear_score == 3 and dev_pct < -3.5
+
+            if _overext_buy:
+                vote, conf = "SELL", min(58.0 + abs(dev_pct) * 1.2, 72.0)
+            elif _overext_sell:
+                vote, conf = "BUY", min(58.0 + abs(dev_pct) * 1.2, 72.0)
+            elif bull_score == 3:
+                base = 60.0 + min(dev_pct * 1.2, 12.0) if dev_pct > 0 else 60.0
+                if vol_contracting: base = min(base + 5, 100)
+                vote, conf = "BUY", min(base, 82.0)
             elif bull_score == 2:
-                vote, conf = "BUY", 58.0 + (5 if vol_contracting else 0)
+                vote, conf = "BUY", 56.0 + (4 if vol_contracting else 0)
             elif bear_score == 3:
-                base = 62.0 + min(abs(dev_pct) * 1.5, 15.0) if dev_pct < 0 else 62.0
-                if vol_contracting: base = min(base + 6, 100)
-                vote, conf = "SELL", min(base, 88.0)
+                base = 60.0 + min(abs(dev_pct) * 1.2, 12.0) if dev_pct < 0 else 60.0
+                if vol_contracting: base = min(base + 5, 100)
+                vote, conf = "SELL", min(base, 82.0)
             elif bear_score == 2:
-                vote, conf = "SELL", 58.0 + (5 if vol_contracting else 0)
+                vote, conf = "SELL", 56.0 + (4 if vol_contracting else 0)
             else:
-                # Mixed alignment (bull=1, bear=2 or vice versa)
-                if dev_pct > 1.5:
+                if dev_pct > 2.0:
                     vote, conf = "BUY", 53.0
-                elif dev_pct < -1.5:
+                elif dev_pct < -2.0:
                     vote, conf = "SELL", 53.0
                 else:
                     vote, conf = "NEUTRAL", 50.0
@@ -1379,21 +1385,24 @@ class FundingFlowAgent:
                      price_mom: float) -> Tuple[str, float]:
         # Squeeze: extreme VWAP deviation + rising OI = squeeze imminent
         if vwap_dev > 2.0 and oi_rising:
-            return "SELL", min(60.0 + vwap_dev * 3, 84.0)  # Long squeeze
+            return "SELL", min(60.0 + vwap_dev * 2.5, 80.0)
         elif vwap_dev < -2.0 and oi_rising:
-            return "BUY", min(60.0 + abs(vwap_dev) * 3, 84.0)  # Short squeeze
+            return "BUY", min(60.0 + abs(vwap_dev) * 2.5, 80.0)
+        elif vwap_dev > 1.5 and not oi_rising and price_mom < -0.3:
+            return "SELL", min(58.0 + vwap_dev * 2, 72.0)
+        elif vwap_dev < -1.5 and not oi_rising and price_mom > 0.3:
+            return "BUY", min(58.0 + abs(vwap_dev) * 2, 72.0)
         elif vwap_dev > 0.8:
-            # Price comfortably above VWAP = bullish
-            base = 55.0 + vwap_dev * 2.5
-            if price_mom > 0: base = min(base + 4, 100)
-            return "BUY", min(base, 80.0)
+            base = 55.0 + vwap_dev * 2.0
+            if price_mom > 0: base = min(base + 3, 100)
+            return "BUY", min(base, 76.0)
         elif vwap_dev < -0.8:
-            base = 55.0 + abs(vwap_dev) * 2.5
-            if price_mom < 0: base = min(base + 4, 100)
-            return "SELL", min(base, 80.0)
-        elif vwap_dev > 0.3:
+            base = 55.0 + abs(vwap_dev) * 2.0
+            if price_mom < 0: base = min(base + 3, 100)
+            return "SELL", min(base, 76.0)
+        elif vwap_dev > 0.4:
             return "BUY", 53.0
-        elif vwap_dev < -0.3:
+        elif vwap_dev < -0.4:
             return "SELL", 53.0
         else:
             return "NEUTRAL", 50.0
@@ -2870,6 +2879,7 @@ class MiroFishSwarmStrategy:
         # ── Session state ──
         self._current_session  = "UNKNOWN"
         self._session_activity = 1.0
+        self._global_win_rate  = 0.338
 
         self.logger.info("🐟 MiroFish Swarm Strategy v5.0 initialized — USDM Futures")
         self.logger.info("   Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions+PivotSR+FLOOPPro")
@@ -3170,10 +3180,10 @@ class MiroFishSwarmStrategy:
             participation_rate = n_active / len(all_votes)
 
             if participation_rate >= 0.60:     # ≥6/10 agents active
-                participation_bonus = (participation_rate - 0.5) * 30
-                weighted_conf = min(weighted_conf + participation_bonus, 100.0)
+                participation_bonus = (participation_rate - 0.5) * 18
+                weighted_conf = min(weighted_conf + participation_bonus, 98.0)
             elif participation_rate < 0.30:    # <3/10 agents active
-                participation_penalty = (0.30 - participation_rate) * 25
+                participation_penalty = (0.30 - participation_rate) * 30
                 weighted_conf = max(weighted_conf - participation_penalty, 50.0)
 
             # Contrary agent divergence penalty
@@ -3836,7 +3846,11 @@ class MiroFishSwarmStrategy:
                 return None
 
             # ── Kelly Criterion dynamic leverage (uses actual TP1/SL distances) ──
-            _kelly_p = min(consensus, 0.95) * (confidence / 100.0)
+            # Blend historical win rate with consensus estimate for more grounded p
+            _hist_wr = getattr(self, '_global_win_rate', 0.338)
+            _consensus_p = min(consensus, 0.95) * (confidence / 100.0)
+            _kelly_p = _hist_wr * 0.6 + _consensus_p * 0.4
+            _kelly_p = max(0.05, min(_kelly_p, 0.85))
             _kelly_q = 1.0 - _kelly_p
             _kelly_b = abs(take_profit - cur_price) / max(abs(cur_price - stop_loss), 1e-10)
             if _kelly_b <= 0 or _kelly_b > 20:

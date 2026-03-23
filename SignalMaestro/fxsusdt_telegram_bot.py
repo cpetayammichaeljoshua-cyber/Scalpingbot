@@ -337,8 +337,8 @@ class FXSUSDTTelegramBot:
         self._symbol_stats_last_refresh: float = 0.0
         self.SYMBOL_STATS_REFRESH_INTERVAL: int = 3600  # refresh hourly
         # Threshold: block a symbol if recent loss rate exceeds this
-        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.70  # 70% recent losses → block
-        self.SYMBOL_BLOCK_MIN_TRADES: int  = 10    # need ≥10 resolved trades to block
+        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.80  # 80% recent losses → block
+        self.SYMBOL_BLOCK_MIN_TRADES: int  = 8     # need ≥8 resolved trades to block
 
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
@@ -593,10 +593,10 @@ class FXSUSDTTelegramBot:
 
     def _refresh_symbol_blacklist(self):
         """
-        FIX 8: Refresh per-symbol performance stats and rebuild the blacklist.
+        Refresh per-symbol performance stats and rebuild the blacklist.
 
-        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (70%)
-        over at least SYMBOL_BLOCK_MIN_TRADES (10) resolved trades are added
+        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (75%)
+        over at least SYMBOL_BLOCK_MIN_TRADES (8) resolved trades are added
         to the blacklist and skipped by can_send_signal().
 
         Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (1 hour).
@@ -629,6 +629,13 @@ class FXSUSDTTelegramBot:
             added   = new_blacklist - self._symbol_blacklist
             removed = self._symbol_blacklist - new_blacklist
             self._symbol_blacklist = new_blacklist
+
+            try:
+                _all_loss_rate = self.trade_memory.get_recent_loss_rate(n=50)
+                _wr = max(0.05, 1.0 - _all_loss_rate)
+                self.strategy._global_win_rate = round(_wr, 3)
+            except Exception:
+                pass
 
             if added:
                 self.logger.warning(
@@ -1337,19 +1344,18 @@ class FXSUSDTTelegramBot:
                         _swarm_consensus = signal.swarm_consensus        # 0..1
                         _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
                         _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
-                        _is_strong       = _swarm_consensus >= 0.83 and _participation >= (7/10)
+                        _is_strong       = _swarm_consensus >= 0.85 and _participation >= (7/10)
 
-                        if _is_unanimous and not (_high_uncertainty and nn_uncertainty > 0.30):
+                        if _is_unanimous and nn_win_prob >= 0.12 and not (_high_uncertainty and nn_uncertainty > 0.25):
+                            _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 15.0)
+                            _override_penalty = min(_override_penalty, 8.0)
+                            signal.confidence = max(60.0, signal.confidence - _override_penalty)
                             self.logger.info(
                                 f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
                                 f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
                                 f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%} "
-                                f"σ={nn_uncertainty:.2f})"
+                                f"σ={nn_uncertainty:.2f}) penalty={_override_penalty:.1f}pt"
                             )
-                            if nn_win_prob < _reject_thresh:
-                                _reduced_penalty = (_reject_thresh - nn_win_prob) * 10.0
-                                signal.confidence = max(0.0, signal.confidence - _reduced_penalty)
-                            pass
                         else:
                             # Hard reject: win_prob far below reject threshold (> 8pp gap)
                             # Soft penalty: borderline signals lose confidence instead of

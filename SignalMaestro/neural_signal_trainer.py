@@ -338,7 +338,7 @@ class LossPatternAnalyzer:
     # With 42 features × 8 bins = 336 candidate zones; cap prevents the
     # danger-zone penalty from covering ALL of feature space when the
     # base loss rate is already high (e.g. 55% → every bin exceeds 65%).
-    MAX_DANGER_ZONES = 20
+    MAX_DANGER_ZONES = 12
 
     def fit(self, X: "np.ndarray", y: "np.ndarray"):
         """
@@ -450,10 +450,12 @@ class LossPatternAnalyzer:
                     if excess <= 0:
                         continue
                     imp = min(self.feature_importance[fi], 3.0) / 3.0
-                    _zone_pen = min(excess * imp * 0.5, 0.10)
+                    _zone_pen = min(excess * imp * 0.4, 0.06)
                     penalty += _zone_pen
                     _zones_hit += 1
-            return min(max(penalty, 0.0), 0.15)
+                    if _zones_hit >= 4:
+                        break
+            return min(max(penalty, 0.0), 0.10)
         except Exception:
             return 0.0
 
@@ -735,8 +737,9 @@ class NeuralSignalTrainer:
                     best_thresh = float(t)
 
             # Derived reject / boost thresholds around optimal
-            self._reject_threshold = max(0.25, best_thresh - 0.10)
-            self._boost_threshold  = min(0.75, best_thresh + 0.10)
+            # Wider gap from optimal threshold to reduce blanket rejections
+            self._reject_threshold = max(0.20, best_thresh - 0.18)
+            self._boost_threshold  = min(0.80, best_thresh + 0.12)
             return best_thresh
         except Exception:
             return 0.50

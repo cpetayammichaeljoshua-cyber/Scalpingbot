@@ -3,6 +3,48 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 16 — Comprehensive Bug Fix & Win Rate Improvement Pass
+
+### PnL Calculation Fix (`trade_memory.py`)
+- **Gap-through SL accounting**: SL outcomes now use worst-case of (target, actual exit price) instead of just the SL target. BUY SL uses `min(sl, exit_price)`, SELL SL uses `max(sl, exit_price)`. Prevents understating actual losses when price gaps through stop.
+
+### Loss Rate Neutral Zone Fix (`trade_memory.py`)
+- **Tighter thresholds**: EXPIRED trade loss threshold lowered from -0.5% to -0.15%, win threshold from +0.5% to +0.3%. Small losses (e.g., -0.4%) now properly count as losses instead of being hidden in the neutral zone.
+
+### Kelly Criterion Fix (`mirofish_swarm_strategy.py`)
+- **Historical win rate blend**: Kelly probability now blends 60% historical global win rate + 40% consensus estimate, replacing pure consensus × confidence heuristic. Prevents correlated agents from over-inflating the probability estimate.
+- **Dynamic win rate**: `_global_win_rate` updated hourly from TradeMemory.
+
+### NN Over-Rejection Fix (`neural_signal_trainer.py`)
+- **Danger zone penalty cap**: Max 4 zones counted per signal (was unlimited), per-zone cap 0.06 (was 0.10), total cap 0.10 (was 0.15)
+- **Max danger zones**: Reduced from 20 to 12
+- **Wider reject threshold**: `reject_thresh = opt_thresh - 0.18` (was -0.10), giving NN more room to accept borderline signals
+- **Result**: NN accuracy improved from 78.1% → 91.5%, win_acc=82.4%, loss_acc=94.9%
+
+### Unanimous Override Fix (`fxsusdt_telegram_bot.py`)
+- **Minimum NN floor**: Override now requires `win_prob ≥ 12%` (was unrestricted — allowed 0% win_prob through)
+- **Proportional penalty**: Override applies scaled penalty `(reject_thresh - win_prob) * 15`, capped at 8pt, with floor of 60% confidence
+- **Tighter uncertainty gate**: σ > 0.25 blocks override (was 0.30)
+
+### Blacklist Threshold Fix (`fxsusdt_telegram_bot.py`)
+- **Raised threshold**: 80% loss rate (was 70%). Result: 22 blacklisted symbols (down from 29)
+- **Lower min trades**: 8 trades required (was 10) for faster detection of truly bad symbols
+
+### Confidence Inflation Fix (`mirofish_swarm_strategy.py`)
+- **Reduced participation bonus**: Scale factor 18 (was 30), cap 98% (was 100%). Max bonus at 100% participation: +9pt (was +15pt)
+- **Stronger low-participation penalty**: Scale factor 30 (was 25) for < 30% participation
+
+### Agent Independence Improvements (`mirofish_swarm_strategy.py`)
+- **SentimentAgent**: Added overextension detection — votes contrarian when EMA-aligned bull/bear with >3.5% deviation from mean. Reduced confidence caps (82% from 88%). Raised neutral threshold from 1.5% to 2.0%.
+- **FundingFlowAgent**: Added mean-reversion signals for extreme VWAP deviation + weakening momentum. Reduced confidence caps across all levels.
+
+### Production Validation (Session 16)
+- 4+ clean cycles, 0 errors
+- NN retrained fresh: acc=91.5% (was 78.1%), win_acc=82.4%, loss_acc=94.9%
+- Blacklist: 22 symbols (was 29 — 7 fewer blocked)
+- Agent independence: SentimentAgent now votes contrarian on overextended moves
+- NN weights backed up to `nn_weights_backup_s16.json`
+
 ## Session 15 — TradingAgents Integration (BM25 Memory, Debate Scoring, PM Gate)
 
 ### SwarmBM25Memory (`swarm_bm25_memory.py`) — NEW
