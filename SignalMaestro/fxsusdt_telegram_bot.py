@@ -10,7 +10,6 @@ import asyncio
 import copy
 import dataclasses
 import logging
-import math
 import aiohttp
 import os
 import time
@@ -116,18 +115,6 @@ class FXSUSDTTelegramBot:
         self.strategy = MiroFishSwarmStrategy()
         self.trader   = BTCUSDTTrader()
 
-        # ── Direct Binance Executor (no Cornix) ──
-        # Trades directly into Binance account + sends signals to channel
-        self.direct_executor = None
-        self._direct_trading_enabled = os.getenv("DIRECT_TRADING_ENABLED", "true").lower() == "true"
-        if self._direct_trading_enabled:
-            try:
-                from SignalMaestro.binance_direct_executor import BinanceDirectExecutor
-                self.direct_executor = BinanceDirectExecutor()
-                self.logger.info("✅ Direct Binance executor loaded — initializing async...")
-            except Exception as _de:
-                self.logger.warning(f"⚠️ Direct executor unavailable: {_de}")
-
         # ── Optional analyzers (safe init) ──
         self.market_intelligence = market_analyzer
         self.smart_sltp          = SmartDynamicSLTPSystem() if SmartDynamicSLTPSystem else None
@@ -195,7 +182,6 @@ class FXSUSDTTelegramBot:
             "/orderflow":    self.cmd_order_flow,
             "/dynamic_sl":   self.cmd_dynamic_leveraging_sl,
             "/swarm":        self.cmd_swarm_status,
-            "/trades":       self.cmd_direct_trades,
         }
 
         if self.freqtrade_commands:
@@ -279,11 +265,12 @@ class FXSUSDTTelegramBot:
         self.nn_trainer:   Optional[Any] = None
         self.outcome_tracker: Optional[Any] = None
         self._outcome_tracker_task: Optional[asyncio.Task] = None
-        self.bm25_memory: Optional[Any] = None
         if _HAS_NEURAL:
             try:
                 self.trade_memory = TradeMemory()
                 self.nn_trainer   = NeuralSignalTrainer()
+                # OutcomeTracker is created later in run_continuous_scanner
+                # (needs the live event loop)
                 self.logger.info(
                     f"🧠 Self-learning system initialized | "
                     f"{self.nn_trainer.status_summary()}"
@@ -292,18 +279,6 @@ class FXSUSDTTelegramBot:
                 self.logger.warning(f"⚠️  Self-learning init failed: {e}")
                 self.trade_memory = None
                 self.nn_trainer   = None
-        try:
-            from SignalMaestro.swarm_bm25_memory import SwarmBM25Memory
-            self.bm25_memory = SwarmBM25Memory()
-            _counts = self.bm25_memory.get_lesson_counts()
-            _total = sum(_counts.values())
-            self.logger.info(
-                f"🧠 BM25 Memory initialized | {_total} lessons "
-                f"({', '.join(f'{r}={c}' for r, c in _counts.items() if c > 0) or 'empty'})"
-            )
-        except Exception as _bm25_err:
-            self.logger.warning(f"⚠️  BM25 Memory init skipped: {_bm25_err}")
-            self.bm25_memory = None
 
         self.public_api: Optional[Any] = None
         self._public_api_task: Optional[asyncio.Task] = None
@@ -317,8 +292,6 @@ class FXSUSDTTelegramBot:
 
         # ── BB position for current scan cycle (passed to trade recorder) ──
         self._current_bb_position: float = 0.5
-
-        self._streak_lock = asyncio.Lock()
 
         # ── Adaptive confidence threshold — raised during losing streaks ────
         # Base threshold is AI_THRESHOLD_PERCENT (80%).  After N consecutive
@@ -351,8 +324,8 @@ class FXSUSDTTelegramBot:
         self._symbol_stats_last_refresh: float = 0.0
         self.SYMBOL_STATS_REFRESH_INTERVAL: int = 3600  # refresh hourly
         # Threshold: block a symbol if recent loss rate exceeds this
-        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.80  # 80% recent losses → block
-        self.SYMBOL_BLOCK_MIN_TRADES: int  = 8     # need ≥8 resolved trades to block
+        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.70  # 70% recent losses → block
+        self.SYMBOL_BLOCK_MIN_TRADES: int  = 10    # need ≥10 resolved trades to block
 
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
@@ -418,16 +391,6 @@ class FXSUSDTTelegramBot:
                         self.logger.warning(f"⚠️ Telegram API: {error_desc}")
                         if "chat not found" in error_desc.lower():
                             return False
-                        if "can't parse" in error_desc.lower() and parse_mode in ("Markdown", "MarkdownV2", "HTML"):
-                            import re as _re
-                            plain = _re.sub(r'[*_`\[\]()~>#+\-=|{}.!\\]', '', text)
-                            data_plain = {"chat_id": chat_id, "text": plain, "disable_web_page_preview": True}
-                            async with session.post(url, json=data_plain, timeout=aiohttp.ClientTimeout(total=12)) as r2:
-                                if r2.status == 200:
-                                    r2j = await r2.json()
-                                    if r2j.get("ok"):
-                                        self.logger.info(f"✅ Message sent (plain fallback) to {chat_id}")
-                                        return True
                     elif response.status == 429:
                         # Rate limited by Telegram — back off and retry.
                         # BUG FIX: previously fell through to the generic
@@ -498,11 +461,6 @@ class FXSUSDTTelegramBot:
         """Send startup notification to both signal channel and admin chat"""
         try:
             ts  = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
-            _direct_status = (
-                "ONLINE — 2% risk | Hedge | Isolated | Moving-Target trailing"
-                if getattr(self, "direct_executor", None) is not None
-                else "DISABLED (signal-only mode)"
-            )
             msg = (
                 f"🐟 MIROFISH SWARM — ALL USDM MARKETS — ONLINE\n\n"
                 f"Bot: {self.bot_username}\n"
@@ -515,10 +473,7 @@ class FXSUSDTTelegramBot:
                 f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
                 f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 10/hr\n"
-                f"Direct Execution: {_direct_status}\n"
-                f"Trade Settings: Long+Short | Stop: Market | TP: 50/30/20%\n"
-                f"Trailing Stop: Moving Target (trigger: TP1 hit)\n"
-                f"Format: Cornix-compatible (signals to channel)\n"
+                f"Format: Cornix-compatible\n"
                 f"Started: {ts}\n"
                 f"Status: ONLINE ✅"
             )
@@ -584,13 +539,6 @@ class FXSUSDTTelegramBot:
             except Exception:
                 pass
 
-        # Close direct executor cleanly
-        if getattr(self, "direct_executor", None) is not None:
-            try:
-                await self.direct_executor.aclose()
-            except Exception:
-                pass
-
         self.logger.debug("🔗 Telegram session closed")
 
     async def test_telegram_connection(self) -> bool:
@@ -622,10 +570,10 @@ class FXSUSDTTelegramBot:
 
     def _refresh_symbol_blacklist(self):
         """
-        Refresh per-symbol performance stats and rebuild the blacklist.
+        FIX 8: Refresh per-symbol performance stats and rebuild the blacklist.
 
-        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (75%)
-        over at least SYMBOL_BLOCK_MIN_TRADES (8) resolved trades are added
+        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (70%)
+        over at least SYMBOL_BLOCK_MIN_TRADES (10) resolved trades are added
         to the blacklist and skipped by can_send_signal().
 
         Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (1 hour).
@@ -658,13 +606,6 @@ class FXSUSDTTelegramBot:
             added   = new_blacklist - self._symbol_blacklist
             removed = self._symbol_blacklist - new_blacklist
             self._symbol_blacklist = new_blacklist
-
-            try:
-                _all_loss_rate = self.trade_memory.get_recent_loss_rate(n=50)
-                _wr = max(0.05, 1.0 - _all_loss_rate)
-                self.strategy._global_win_rate = round(_wr, 3)
-            except Exception:
-                pass
 
             if added:
                 self.logger.warning(
@@ -754,15 +695,20 @@ class FXSUSDTTelegramBot:
         elapsed = time.time() - last_ts
         return max(0, int(self.min_signal_interval_minutes * 60 - elapsed))
 
-    async def update_loss_streak(self, is_loss: bool):
+    def update_loss_streak(self, is_loss: bool):
         """
         Called by OutcomeTracker (or any resolver) whenever a trade resolves.
-        Protected by _streak_lock to prevent race conditions with parallel scans.
-        """
-        async with self._streak_lock:
-            self._update_loss_streak_inner(is_loss)
 
-    def _update_loss_streak_inner(self, is_loss: bool):
+        Maintains a consecutive-loss counter and adjusts _adaptive_conf_boost:
+          - Win  → reset streak to 0 and remove any extra boost.
+          - Loss → increment streak; when streak ≥ STREAK_TRIGGER_N,
+                   boost the confidence gate by STREAK_BOOST_PER_LOSS% per
+                   additional loss (capped at STREAK_MAX_BOOST_PCT).
+
+        The effect: after 3 consecutive losses the bot becomes harder to satisfy
+        (e.g. 80% → 86%) so it waits for only the strongest setups until the
+        NN adapts via online/batch learning.
+        """
         if not is_loss:
             if self.STREAK_RESET_ON_WIN and self._consecutive_losses > 0:
                 old_boost = self._adaptive_conf_boost
@@ -860,17 +806,6 @@ class FXSUSDTTelegramBot:
             else:
                 return f"{p:.8f}"
 
-        # ── Prediction Market metrics (only if computed) ──
-        _H    = getattr(signal, "shannon_entropy",    0.0)
-        _fk   = getattr(signal, "kelly_fraction",     0.0)
-        _dk   = getattr(signal, "kelly_decay_factor", 1.0)
-        _pm_line = ""
-        if _H > 0 or _fk > 0:
-            _certainty = max(0.0, 1.0 - _H) * 100   # 0=random, 100=certain
-            _pm_line = (
-                f"\nPM: Certainty {_certainty:.0f}% · Kelly {_fk:.1%} · Maturity {_dk:.0%}"
-            )
-
         msg = (
             f"{d_emoji} {sym_tag} {direction}\n"
             f"Exchange: Binance Futures\n"
@@ -888,8 +823,7 @@ class FXSUSDTTelegramBot:
             f"1) {_fmt(sl)}\n"
             f"\n"
             f"⚡{tf}{sess_tag} · {consensus_pct:.0f}%🐟 · {signal.confidence:.0f}%Conf · RSI {signal.rsi:.0f} · R:R 1:{rr:.1f}\n"
-            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC"
-            f"{_pm_line}\n"
+            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC\n"
             f"📡 @ichimokutradingsignal | MiroFish Swarm"
         )
         return msg
@@ -957,16 +891,6 @@ class FXSUSDTTelegramBot:
                     f"→ channel={self.signal_channel_id} "
                     f"(consensus={signal.swarm_consensus:.0%} conf={signal.confidence:.1f}%)"
                 )
-
-                # ── Direct Binance execution (no Cornix) ──────────────────
-                # Fire-and-forget: execute trade directly while signal has
-                # already been broadcast to the channel.
-                if self.direct_executor is not None:
-                    asyncio.create_task(
-                        self._execute_direct_trade(signal),
-                        name=f"direct_{symbol}_{signal.action}"
-                    )
-
                 return True
             else:
                 self.logger.warning(
@@ -978,64 +902,6 @@ class FXSUSDTTelegramBot:
         except Exception as e:
             self.logger.error(f"send_signal_to_channel error: {e}")
             return False
-
-    # ─────────────────────────────────────────
-    # Direct Trade Execution
-    # ─────────────────────────────────────────
-
-    async def _execute_direct_trade(self, signal: Any):
-        """
-        Execute a signal directly on Binance (no Cornix).
-        Called as a fire-and-forget task after channel broadcast.
-
-        Settings (from Cornix images):
-          • Risk: 2% per trade
-          • Mode: Hedge (Long + Short simultaneously)
-          • Margin: Isolated
-          • Stop: Market
-          • Trailing: Moving Target, Trigger #1
-        """
-        if self.direct_executor is None:
-            return
-        symbol    = getattr(signal, "symbol", "BTCUSDT")
-        direction = "LONG" if getattr(signal, "action", "BUY") in ("BUY", "LONG") else "SHORT"
-        try:
-            result = await self.direct_executor.execute_signal(signal)
-            if result.get("success"):
-                entry   = result.get("entry", 0)
-                qty     = result.get("quantity", 0)
-                lev     = result.get("leverage", 1)
-                notional = result.get("notional", 0)
-                risk    = result.get("risk_usdt", 0)
-                msg = (
-                    f"✅ DIRECT TRADE EXECUTED\n"
-                    f"{symbol} {direction} @ {entry:.4g}\n"
-                    f"Qty: {qty} | Lev: {lev}x | Notional: {notional:.2f} USDT\n"
-                    f"Risk: {risk:.2f} USDT (2%)\n"
-                    f"SL: {result.get('stop_loss', 0):.4g} | "
-                    f"TP1: {result.get('take_profit_1', 0):.4g}\n"
-                    f"Trailing: Moving Target (activates on TP1 hit)"
-                )
-                self.logger.info(f"🔥 Direct trade: {symbol} {direction} @ {entry:.4g}")
-                if self.admin_chat_id:
-                    await self.send_message(self.admin_chat_id, msg, parse_mode=None)
-            else:
-                reason = result.get("reason", "unknown")
-                self.logger.warning(f"⚠️ Direct trade skipped for {symbol}: {reason}")
-        except Exception as e:
-            self.logger.error(f"❌ Direct trade error for {symbol}: {e}", exc_info=True)
-
-    async def cmd_direct_trades(self, update, context):
-        """Show all active direct trades and trailing stop status."""
-        if self.direct_executor is None:
-            await self.send_message(
-                update.effective_chat.id,
-                "⚠️ Direct trading not initialized. Set DIRECT_TRADING_ENABLED=true",
-                parse_mode=None
-            )
-            return
-        summary = self.direct_executor.status_summary()
-        await self.send_message(update.effective_chat.id, summary, parse_mode=None)
 
     # ─────────────────────────────────────────
     # Scanner
@@ -1251,7 +1117,7 @@ class FXSUSDTTelegramBot:
         # Insider + Microstructure + AI) to push a quality signal from 72% to 84%.
         # The effective pre-boost floor is now 80 - 12 = 68%, which is still above
         # the strategy's min_confidence gate of 64%.
-        _MAX_BOOST = 8.0
+        _MAX_BOOST = 12.0
 
         # ── Pre-boost impossibility gate ─────────────────────────────────────
         # If even the maximum possible boost cannot bring this signal to the
@@ -1268,13 +1134,10 @@ class FXSUSDTTelegramBot:
         # LOCAL variable — avoids the race where another coroutine overwrites
         # self._current_bb_position between Phase 1 and Phase 2.
         _local_bb_position: float = 0.5
-        # PM Framework: klines captured in Phase 1 for use in PM computation
-        _pm_klines: list = []
 
         try:
             raw_klines = await self.trader.get_market_data(symbol, "15m", 200)
             if raw_klines and len(raw_klines) >= 50:
-                _pm_klines = raw_klines  # save for Prediction Market Framework
                 # 6-column format [ts, open, high, low, close, volume]
                 market_data_5col = [
                     [k[0], float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])]
@@ -1389,123 +1252,6 @@ class FXSUSDTTelegramBot:
                 f"🔒 Boost capped at +{_MAX_BOOST:.0f}pt → conf={signal.confidence:.1f}%"
             )
 
-        # ════════════════════════════════════════════════════════════════════
-        # PREDICTION MARKET PAPERS FRAMEWORK
-        # Ref: "The Prediction Market Papers" (Shannon Entropy + Kelly + Decay)
-        #
-        #   1. Shannon Entropy  H = -p·log₂(p) - (1-p)·log₂(1-p)
-        #      WHEN to enter: measures market certainty via swarm consensus.
-        #      Low H (< 0.70)  → clear directional edge    → confidence bonus
-        #      High H (> 0.93) → near coin-flip, no edge   → confidence penalty
-        #
-        #   2. Kelly Criterion  f = max(0, (p·b − q) / b)
-        #      HOW MUCH: optimal bet-size given edge p and reward:risk b.
-        #      f < 0   → negative expectation   → hard penalty
-        #      f > 0.3 → strong edge            → confidence bonus
-        #      (Fractional Kelly ×0.25 used; full Kelly too aggressive for crypto)
-        #
-        #   3. Reaction Decay   f_adj = f · (1 − e^(−λt))
-        #      URGENCY: λ = ln(2)/3 (half-life = 3 bars of 15m, crypto default).
-        #      t = consecutive 15m bars the price moved in signal direction.
-        #      Low t (fresh reversal)    → low maturity  → small decay penalty
-        #      High t (established trend)→ high maturity → decay bonus
-        # ════════════════════════════════════════════════════════════════════
-        _PM_LAMBDA = math.log(2) / 3.0   # half-life = 3 bars (45 min on 15m TF)
-
-        try:
-            # ── 1. Shannon Entropy from swarm consensus ───────────────────────
-            _p_sw  = max(1e-9, min(1.0 - 1e-9, float(signal.swarm_consensus)))
-            _q_sw  = 1.0 - _p_sw
-            _H     = -(_p_sw * math.log2(_p_sw) + _q_sw * math.log2(_q_sw))
-
-            # ── 2. Kelly Criterion (fractional, conservative) ─────────────────
-            _b_rr     = max(0.5, float(signal.risk_reward_ratio))
-            _p_win    = _p_sw                              # swarm consensus as win prob
-            _f_kelly  = max(0.0, (_p_win * _b_rr - (1.0 - _p_win)) / _b_rr)
-            _f_frac   = 0.25 * _f_kelly                   # quarter-Kelly for safety
-
-            # ── 3. Reaction Decay: count consecutive bars in signal direction ──
-            _t_bars = 2.0   # conservative default (1 confirmed bar)
-            if _pm_klines and len(_pm_klines) >= 8:
-                _pm_closes = [float(k[4]) for k in _pm_klines[-16:]]
-                _dir_mult  = 1 if signal.action == "BUY" else -1
-                _t_bars    = 0.0
-                for _bi in range(len(_pm_closes) - 1, 0, -1):
-                    if _dir_mult * (_pm_closes[_bi] - _pm_closes[_bi - 1]) > 0:
-                        _t_bars += 1.0
-                    else:
-                        break
-                _t_bars = max(1.0, _t_bars)
-
-            _decay    = 1.0 - math.exp(-_PM_LAMBDA * _t_bars)
-            _f_adj    = _f_kelly * _decay               # Kelly × maturity
-
-            # ── Store PM metrics on signal object ─────────────────────────────
-            signal.shannon_entropy    = round(_H, 4)
-            signal.kelly_fraction     = round(_f_kelly, 4)
-            signal.kelly_decay_factor = round(_decay, 4)
-
-            # ── Apply PM confidence adjustments ───────────────────────────────
-            _pm_adj_total = 0.0
-
-            # 1. Entropy adjustment (certainty vs uncertainty)
-            if _H > 0.95:       # near 50/50: very uncertain → hard penalty
-                _ent_adj = -7.0
-            elif _H > 0.90:     # mildly uncertain
-                _ent_adj = -3.5
-            elif _H > 0.85:     # slightly uncertain
-                _ent_adj = -1.5
-            elif _H < 0.60:     # very clear directional bias
-                _ent_adj = +4.0
-            elif _H < 0.70:     # clear directional bias
-                _ent_adj = +2.0
-            elif _H < 0.80:     # somewhat clear
-                _ent_adj = +1.0
-            else:
-                _ent_adj = 0.0
-
-            # 2. Kelly adjustment (edge quality)
-            if _f_kelly <= 0.0:         # negative expectation → penalise hard
-                _kelly_adj = -6.0
-            elif _f_kelly < 0.10:       # thin edge
-                _kelly_adj = -1.0
-            elif _f_kelly > 0.40:       # excellent edge
-                _kelly_adj = +4.0
-            elif _f_kelly > 0.25:       # good edge
-                _kelly_adj = +2.5
-            elif _f_kelly > 0.15:       # moderate edge
-                _kelly_adj = +1.0
-            else:
-                _kelly_adj = 0.0
-
-            # 3. Decay adjustment (trend maturity)
-            if _decay < 0.20:           # very fresh reversal → uncertain
-                _decay_adj = -3.0
-            elif _decay < 0.40:         # early-stage signal
-                _decay_adj = -1.0
-            elif _decay > 0.75:         # well-established trend
-                _decay_adj = +2.5
-            elif _decay > 0.55:         # moderately established
-                _decay_adj = +1.0
-            else:
-                _decay_adj = 0.0
-
-            _pm_adj_total = _ent_adj + _kelly_adj + _decay_adj
-
-            # Cap PM net adjustment to ±8 pts to avoid over-riding Phase 1 boost
-            _pm_adj_total = max(-8.0, min(8.0, _pm_adj_total))
-            signal.confidence = max(0.0, min(100.0, signal.confidence + _pm_adj_total))
-
-            self.logger.info(
-                f"📊 [{symbol}] PM: H={_H:.3f}(adj={_ent_adj:+.1f}) "
-                f"Kelly={_f_kelly:.1%}(adj={_kelly_adj:+.1f}) "
-                f"Decay={_decay:.2f}×t={_t_bars:.0f}bars(adj={_decay_adj:+.1f}) "
-                f"net_adj={_pm_adj_total:+.1f}pt → conf={signal.confidence:.1f}%"
-            )
-
-        except Exception as _pm_err:
-            self.logger.debug(f"PM framework skipped: {_pm_err}")
-
         # ── Phase 2: Atomic gate — lock held for milliseconds only ────────────
         # Two coroutines that both passed the initial pre-check cannot both send
         # for the same symbol: the loser of the lock race re-checks can_send_signal
@@ -1533,7 +1279,7 @@ class FXSUSDTTelegramBot:
                 # Loss-pattern danger zones apply an additional penalty inside
                 # predict_signal_with_uncertainty().
                 _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
-                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
+                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.50:
                     try:
                         # FIX 6: MC-Dropout prediction with uncertainty
                         nn_win_prob, nn_uncertainty = (
@@ -1543,7 +1289,7 @@ class FXSUSDTTelegramBot:
                         )
 
                         # Read data-driven thresholds (FIX 5)
-                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.08)
+                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.40)
                         _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
                         _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
 
@@ -1573,18 +1319,21 @@ class FXSUSDTTelegramBot:
                         _swarm_consensus = signal.swarm_consensus        # 0..1
                         _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
                         _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
-                        _is_strong       = _swarm_consensus >= 0.85 and _participation >= (7/10)
+                        _is_strong       = _swarm_consensus >= 0.83 and _participation >= (7/10)
 
-                        if _is_unanimous and nn_win_prob >= 0.12 and not (_high_uncertainty and nn_uncertainty > 0.25):
-                            _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 15.0)
-                            _override_penalty = min(_override_penalty, 8.0)
-                            signal.confidence = max(60.0, signal.confidence - _override_penalty)
+                        if _is_unanimous:
+                            # Fully bypass NN gate for unanimous signals — just apply tiny log
                             self.logger.info(
                                 f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
                                 f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
-                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%} "
-                                f"σ={nn_uncertainty:.2f}) penalty={_override_penalty:.1f}pt"
+                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%})"
                             )
+                            # Still apply a reduced soft penalty for danger zones
+                            if nn_win_prob < _reject_thresh:
+                                _reduced_penalty = (_reject_thresh - nn_win_prob) * 10.0  # ≤ 1pt
+                                signal.confidence = max(0.0, signal.confidence - _reduced_penalty)
+                            # Skip all further NN logic
+                            pass
                         else:
                             # Hard reject: win_prob far below reject threshold (> 8pp gap)
                             # Soft penalty: borderline signals lose confidence instead of
@@ -1635,29 +1384,6 @@ class FXSUSDTTelegramBot:
                             )
                     except Exception as _nn_err:
                         self.logger.debug(f"NN gate skipped: {_nn_err}")
-
-                if self.bm25_memory is not None:
-                    try:
-                        _sit = (
-                            f"symbol={symbol} action={signal.action} "
-                            f"rsi={getattr(signal, 'rsi', 50):.0f} "
-                            f"vol_ratio={getattr(signal, 'volume_ratio', 1.0):.2f} "
-                            f"consensus={getattr(signal, 'swarm_consensus', 0):.2f} "
-                            f"confidence={signal.confidence:.1f}"
-                        )
-                        _bm25_adj = self.bm25_memory.get_confidence_adjustment(
-                            _sit, signal.action
-                        )
-                        if abs(_bm25_adj) >= 0.3:
-                            signal.confidence = max(0, min(100,
-                                signal.confidence + _bm25_adj
-                            ))
-                            self.logger.debug(
-                                f"🧠 BM25 memory adj {_bm25_adj:+.1f}pt → "
-                                f"conf={signal.confidence:.1f}%"
-                            )
-                    except Exception as _bm25_err:
-                        self.logger.debug(f"BM25 query skipped: {_bm25_err}")
 
                 # ── Final confidence gate ──
                 if signal.confidence < confidence_threshold:
@@ -1730,39 +1456,15 @@ class FXSUSDTTelegramBot:
         self.logger.info("🚀 Starting MiroFish PARALLEL scanner — ALL USDM FUTURES...")
         self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore({self._scan_limit}))")
 
-        # ── Initialize Direct Executor (async) ──────────────────────────────
-        if self.direct_executor is not None:
-            try:
-                ok = await self.direct_executor.initialize()
-                if ok:
-                    self.logger.info("🔥 Direct Binance executor ONLINE — trading directly (no Cornix)")
-                else:
-                    self.logger.warning("⚠️ Direct executor init failed — signal-only mode")
-                    self.direct_executor = None
-            except Exception as _de:
-                self.logger.warning(f"⚠️ Direct executor init error: {_de}")
-                self.direct_executor = None
-
         await self.test_telegram_connection()
         await self._drain_pending_updates()
         await self.send_startup_test_message()
-
-        # ── Cancel stale background tasks from previous runs ────────────────
-        for _task_attr in ("_outcome_tracker_task", "_public_api_task"):
-            _old = getattr(self, _task_attr, None)
-            if _old is not None and not _old.done():
-                _old.cancel()
-                self.logger.info(f"🔄 Cancelled stale {_task_attr}")
-            setattr(self, _task_attr, None)
-        if hasattr(self, "outcome_tracker"):
-            self.outcome_tracker = None
 
         # ── Start OutcomeTracker as a live background task ────────────────────
         if _HAS_NEURAL and self.trade_memory and self.outcome_tracker is None:
             try:
                 self.outcome_tracker = OutcomeTracker(
-                    self.trade_memory, self.nn_trainer, self.trader, bot=self,
-                    bm25_memory=self.bm25_memory
+                    self.trade_memory, self.nn_trainer, self.trader, bot=self
                 )
                 self._outcome_tracker_task = asyncio.create_task(
                     self.outcome_tracker.run(),
@@ -1829,17 +1531,6 @@ class FXSUSDTTelegramBot:
 
                 # ── 1. Periodically refresh the active symbol list ────────────
                 await self._refresh_symbol_list()
-
-                if cycle_count % 100 == 0:
-                    _active_set = set(self._active_symbols)
-                    self._symbol_last_signal = {
-                        k: v for k, v in self._symbol_last_signal.items()
-                        if k in _active_set or time.time() - v < 86400
-                    }
-                    self._symbol_signal_count = {
-                        k: v for k, v in self._symbol_signal_count.items()
-                        if k in _active_set
-                    }
 
                 # ── 2. Check BTCUSDT price alerts ─────────────────────────────
                 await self.check_price_alerts()

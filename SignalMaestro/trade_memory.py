@@ -89,28 +89,25 @@ class TradeMemory:
 
     # ── Schema ────────────────────────────────────────────────────────────────
 
-    _db_lock = __import__("threading").Lock()
-
     @contextmanager
     def _db(self):
         """
-        Managed SQLite connection context manager with thread lock.
+        Managed SQLite connection context manager.
         Commits on clean exit, rolls back on exception, and always closes
         the connection — preventing file-handle leaks in long-running async bots.
         """
-        with self._db_lock:
-            conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.row_factory = sqlite3.Row
-            try:
-                yield conn
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                conn.close()
+        conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._db() as c:
@@ -161,14 +158,6 @@ class TradeMemory:
                 )
                 self.logger.info(
                     "📦 DB migrated: added 'partial_outcome' column to trades"
-                )
-
-            if "source" not in existing_cols:
-                c.execute(
-                    "ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'bot'"
-                )
-                self.logger.info(
-                    "📦 DB migrated: added 'source' column to trades"
                 )
 
             # Indexes for fast open-trade and per-symbol queries
@@ -472,10 +461,11 @@ class TradeMemory:
             elif outcome == "SL":
                 definitive.append(1)  # loss
             elif outcome == "EXPIRED":
-                if pnl >= 0.3:
-                    definitive.append(0)
-                elif pnl <= -0.15:
-                    definitive.append(1)
+                if pnl >= 0.5:
+                    definitive.append(0)  # profitable expiry = win
+                elif pnl <= -0.5:
+                    definitive.append(1)  # significant loss expiry
+                # else: neutral, skip
             if len(definitive) >= n:
                 break
         if not definitive:
@@ -538,9 +528,9 @@ class TradeMemory:
                         elif outcome == "SL":
                             definitive.append(1)
                         elif outcome == "EXPIRED":
-                            if pnl >= 0.3:
+                            if pnl >= 0.5:
                                 definitive.append(0)
-                            elif pnl <= -0.15:
+                            elif pnl <= -0.5:
                                 definitive.append(1)
                         if len(definitive) >= 10:
                             break
@@ -583,14 +573,13 @@ class OutcomeTracker:
     # Prevents infinite retrain loop when high_loss_rate gate fires every 90s.
     MIN_RETRAIN_INTERVAL = 1800   # 30 minutes minimum between retrains
 
-    def __init__(self, memory: TradeMemory, trainer, trader, bot=None,
-                 bm25_memory=None):
+    def __init__(self, memory: TradeMemory, trainer, trader, bot=None):
         self.logger  = logging.getLogger(__name__)
         self.memory  = memory
         self.trainer = trainer
         self.trader  = trader
+        # Optional bot reference for adaptive confidence threshold updates
         self.bot = bot
-        self._bm25_memory = bm25_memory
         # Per-trade best outcome seen so far (in-memory ratchet).
         # Pre-populate from the DB so a restart never downgrades a trade that
         # had already reached TP1/TP2 but hasn't been fully resolved yet.
@@ -759,9 +748,7 @@ class OutcomeTracker:
                         resolved_outcome == "EXPIRED" and pnl_pct <= -0.5
                     )
                     try:
-                        _streak_coro = self.bot.update_loss_streak(is_loss)
-                        if asyncio.iscoroutine(_streak_coro):
-                            await _streak_coro
+                        self.bot.update_loss_streak(is_loss)
                     except Exception as _se:
                         self.logger.debug(f"streak update skipped: {_se}")
 
@@ -780,45 +767,6 @@ class OutcomeTracker:
                         self.trainer.update_online(resolved_record, n_steps=5, lr_scale=0.1)
                     except Exception as _oe:
                         self.logger.debug(f"online update skipped: {_oe}")
-
-                if self._bm25_memory is not None:
-                    try:
-                        _sit_parts = [
-                            f"symbol={symbol} action={action}",
-                            f"session={trade.get('session', 'UNKNOWN')}",
-                            f"rsi={trade.get('rsi', 50):.0f}",
-                            f"vol_ratio={trade.get('volume_ratio', 1.0):.2f}",
-                            f"consensus={trade.get('swarm_consensus', 0):.2f}",
-                            f"confidence={trade.get('confidence', 0):.1f}",
-                            f"atr_ratio={trade.get('atr_ratio', 0):.4f}",
-                            f"bb_pos={trade.get('bb_position', 0.5):.2f}",
-                        ]
-                        _avj = trade.get("agent_votes_json", "{}")
-                        try:
-                            _votes = json.loads(_avj) if isinstance(_avj, str) else _avj
-                            _sit_parts.append(
-                                f"votes={' '.join(f'{k[:4]}:{v[0]}' for k, v in _votes.items())}"
-                            )
-                        except Exception:
-                            pass
-                        _situation_text = " | ".join(_sit_parts)
-                        _ind_snapshot = {
-                            "rsi": trade.get("rsi", 50),
-                            "vol_ratio": trade.get("volume_ratio", 1.0),
-                            "atr_ratio": trade.get("atr_ratio", 0),
-                            "bb_position": trade.get("bb_position", 0.5),
-                            "hour": trade.get("hour_of_day", 0),
-                        }
-                        self._bm25_memory.store_trade_reflection(
-                            symbol=symbol,
-                            action=action,
-                            outcome=resolved_outcome,
-                            pnl_pct=pnl_pct,
-                            situation_text=_situation_text,
-                            indicators=_ind_snapshot,
-                        )
-                    except Exception as _ref_err:
-                        self.logger.debug(f"BM25 reflection skipped: {_ref_err}")
 
         if newly_resolved > 0:
             self.logger.info(
@@ -858,18 +806,9 @@ class OutcomeTracker:
         action: str, entry: float, exit_price: float,
         outcome: str, sl: float, tp1: float, tp2: float, tp3: float
     ) -> float:
-        """Raw percentage P&L (not leveraged) for labelling.
-
-        For SL: uses worst-case of (SL target, actual exit price) to account
-        for gap-through scenarios where price overshoots the stop.
-        For TP: uses the target price (conservative — price may have gapped
-        higher but we credit only the planned target).
-        """
+        """Raw percentage P&L (not leveraged) for labelling."""
         if outcome == "SL":
-            if action == "BUY":
-                ref = min(sl, exit_price)
-            else:
-                ref = max(sl, exit_price)
+            ref = sl
         elif outcome == "TP3":
             ref = tp3
         elif outcome == "TP2":
@@ -877,7 +816,7 @@ class OutcomeTracker:
         elif outcome == "TP1":
             ref = tp1
         else:
-            ref = exit_price
+            ref = exit_price  # EXPIRED — use current price
 
         if entry == 0:
             return 0.0

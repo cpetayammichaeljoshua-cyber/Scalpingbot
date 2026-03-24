@@ -259,16 +259,12 @@ class PublicAPIIntelligence:
     async def _fetch_coingecko_global(self):
         data = await self._safe_get(self.COINGECKO_GLOBAL_URL)
         if data and "data" in data:
-            try:
-                gd = data["data"]
-                mcp = gd.get("market_cap_percentage")
-                self._btc_dominance = float(mcp.get("btc", 0)) if isinstance(mcp, dict) else 0.0
-                chg = gd.get("market_cap_change_percentage_24h_usd", 0)
-                self._total_market_cap_change_24h = float(chg) if chg else 0.0
-                self._active_cryptocurrencies = int(gd.get("active_cryptocurrencies", 0))
-                self._global_data_ts = time.time()
-            except (KeyError, TypeError, ValueError) as e:
-                logger.debug(f"📡 CoinGecko global parse error: {e}")
+            gd = data["data"]
+            self._btc_dominance = float(gd.get("market_cap_percentage", {}).get("btc", 0))
+            chg = gd.get("market_cap_change_percentage_24h_usd", 0)
+            self._total_market_cap_change_24h = float(chg) if chg else 0.0
+            self._active_cryptocurrencies = int(gd.get("active_cryptocurrencies", 0))
+            self._global_data_ts = time.time()
 
     async def _fetch_coingecko_trending(self):
         data = await self._safe_get(self.COINGECKO_TRENDING_URL)

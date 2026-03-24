@@ -338,7 +338,7 @@ class LossPatternAnalyzer:
     # With 42 features × 8 bins = 336 candidate zones; cap prevents the
     # danger-zone penalty from covering ALL of feature space when the
     # base loss rate is already high (e.g. 55% → every bin exceeds 65%).
-    MAX_DANGER_ZONES = 12
+    MAX_DANGER_ZONES = 20
 
     def fit(self, X: "np.ndarray", y: "np.ndarray"):
         """
@@ -442,38 +442,17 @@ class LossPatternAnalyzer:
             return 0.0
         try:
             penalty = 0.0
-            base_lr = max(self._base_loss_rate, 0.30)
-            _zones_hit = 0
+            base_lr = max(self._base_loss_rate, 0.30)  # floor at 30% for safety
             for fi, lo, hi, loss_rate in self.danger_zones:
                 if lo <= x[fi] <= hi:
-                    excess = loss_rate - base_lr
+                    excess = loss_rate - base_lr   # always ≥ 0 since zone_threshold = base + 15pp
                     if excess <= 0:
                         continue
                     imp = min(self.feature_importance[fi], 3.0) / 3.0
-                    _zone_pen = min(excess * imp * 0.4, 0.06)
-                    penalty += _zone_pen
-                    _zones_hit += 1
-                    if _zones_hit >= 4:
-                        break
-            return min(max(penalty, 0.0), 0.10)
+                    penalty += excess * imp * 0.5
+            return min(max(penalty, 0.0), 0.15)
         except Exception:
             return 0.0
-
-    def update_incremental(self, x: "np.ndarray", label: float):
-        """Incrementally update danger zone loss rates with a single new sample."""
-        if not self.is_fitted or not self.danger_zones:
-            return
-        try:
-            updated = []
-            for fi, lo, hi, loss_rate in self.danger_zones:
-                if lo <= x[fi] <= hi:
-                    alpha = 0.05
-                    is_loss = 1.0 if label == 0.0 else 0.0
-                    loss_rate = loss_rate * (1.0 - alpha) + is_loss * alpha
-                updated.append((fi, lo, hi, loss_rate))
-            self.danger_zones = updated
-        except Exception:
-            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -552,7 +531,7 @@ class NeuralSignalTrainer:
         # reject_threshold: signals below this are rejected.
         # boost_threshold:  signals above this get a confidence boost.
         self._opt_threshold    = 0.50   # default; overwritten after each training run
-        self._reject_threshold = 0.08   # lower bound (only reject truly bad signals)
+        self._reject_threshold = 0.40   # lower bound (never below this)
         self._boost_threshold  = 0.70   # upper bound (only boost above this)
 
         # Direction-aware calibration offsets.
@@ -622,19 +601,6 @@ class NeuralSignalTrainer:
         self._feat_mean  = X.mean(axis=0)
         self._feat_std   = X.std(axis=0) + 1e-8   # avoid divide-by-zero
         self._feat_fitted = True
-
-    @staticmethod
-    def _utc_hour(ts) -> int:
-        """Extract UTC hour from a timestamp, converting from any timezone."""
-        if ts is None:
-            return 12
-        try:
-            if hasattr(ts, 'utcoffset') and ts.utcoffset() is not None:
-                from datetime import timezone
-                ts = ts.astimezone(timezone.utc)
-            return ts.hour
-        except Exception:
-            return 12
 
     def _normalise(self, X: "np.ndarray") -> "np.ndarray":
         """Apply z-score normalisation.  Returns X unchanged if not yet fitted."""
@@ -737,9 +703,8 @@ class NeuralSignalTrainer:
                     best_thresh = float(t)
 
             # Derived reject / boost thresholds around optimal
-            # Wider gap from optimal threshold to reduce blanket rejections
-            self._reject_threshold = max(0.08, best_thresh - 0.42)
-            self._boost_threshold  = min(0.80, best_thresh + 0.12)
+            self._reject_threshold = max(0.25, best_thresh - 0.10)
+            self._boost_threshold  = min(0.75, best_thresh + 0.10)
             return best_thresh
         except Exception:
             return 0.50
@@ -801,25 +766,27 @@ class NeuralSignalTrainer:
                 "risk_reward_ratio":  signal.risk_reward_ratio,
                 "atr_ratio":          atr_ratio,
                 "bb_position":        bb_position,
-                "hour_of_day":        self._utc_hour(signal.timestamp),
+                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
             }
             X_raw = build_features(rec).reshape(1, -1)
-            base_prob = float(self.predict_batch(X_raw)[0])
             X_norm = self._normalise(X_raw)
+            base_prob = float(self.predict_batch(X_raw)[0])  # predict_batch normalises inside
 
+            # Direction-aware calibration: shift prediction by per-direction offset
+            # to correct for BUY-biased training data underestimating SELL win rates.
             _dir_offset = (
                 self._sell_prob_offset if rec.get("action") == "SELL"
                 else self._buy_prob_offset
             )
-            base_prob = float(np.clip(base_prob + _dir_offset, 0.05, 1.0))
+            base_prob = float(np.clip(base_prob + _dir_offset, 0.0, 1.0))
 
+            # Apply loss-pattern penalty
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                penalty *= 0.35
-                base_prob = max(0.05, base_prob - penalty)
+                base_prob = max(0.0, base_prob - penalty)
 
             return base_prob
         except Exception as e:
@@ -855,7 +822,7 @@ class NeuralSignalTrainer:
                 "risk_reward_ratio":  signal.risk_reward_ratio,
                 "atr_ratio":          atr_ratio,
                 "bb_position":        bb_position,
-                "hour_of_day":        self._utc_hour(signal.timestamp),
+                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
@@ -866,16 +833,18 @@ class NeuralSignalTrainer:
             mean_p = float(mean_arr[0])
             std_p  = float(std_arr[0])
 
+            # Direction-aware calibration: shift prediction by per-direction offset
+            # to correct for BUY-biased training data underestimating SELL win rates.
             _dir_offset = (
                 self._sell_prob_offset if rec.get("action") == "SELL"
                 else self._buy_prob_offset
             )
-            mean_p = float(np.clip(mean_p + _dir_offset, 0.05, 1.0))
+            mean_p = float(np.clip(mean_p + _dir_offset, 0.0, 1.0))
 
+            # Apply loss-pattern penalty to mean prediction
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                penalty *= 0.35
-                mean_p = max(0.05, mean_p - penalty)
+                mean_p = max(0.0, mean_p - penalty)
 
             return mean_p, std_p
         except Exception as e:
@@ -1125,17 +1094,14 @@ class NeuralSignalTrainer:
                 _sel_mask  = ~_buy_mask
                 _probs_cal = A4_all.flatten()
                 _actuals   = y_all.flatten()
-                _raw_buy = (
+                self._buy_prob_offset = (
                     float(np.mean(_actuals[_buy_mask]) - np.mean(_probs_cal[_buy_mask]))
                     if _buy_mask.any() else 0.0
                 )
-                _raw_sell = (
+                self._sell_prob_offset = (
                     float(np.mean(_actuals[_sel_mask]) - np.mean(_probs_cal[_sel_mask]))
                     if _sel_mask.any() else 0.0
                 )
-                _MAX_DIR_OFFSET = 0.05
-                self._buy_prob_offset = float(np.clip(_raw_buy, -_MAX_DIR_OFFSET, _MAX_DIR_OFFSET))
-                self._sell_prob_offset = float(np.clip(_raw_sell, -_MAX_DIR_OFFSET, _MAX_DIR_OFFSET))
                 if abs(self._sell_prob_offset) > 0.005 or abs(self._buy_prob_offset) > 0.005:
                     self.logger.info(
                         f"🎯 Direction calibration: "
@@ -1358,7 +1324,7 @@ class NeuralSignalTrainer:
 
             # FIX 5: Restore optimal thresholds
             self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
-            self._reject_threshold = float(d.get("_reject_threshold", 0.08))
+            self._reject_threshold = float(d.get("_reject_threshold", 0.40))
             self._boost_threshold  = float(d.get("_boost_threshold",  0.70))
 
             # Restore direction-aware calibration offsets
@@ -1513,13 +1479,6 @@ class NeuralSignalTrainer:
                 self._adam_step([dW1, db1, dW2, db2, dW3, db3, dW4, db4])
 
             self.lr = orig_lr
-
-            if self.loss_analyzer and self.loss_analyzer.is_fitted:
-                try:
-                    self.loss_analyzer.update_incremental(X_norm[0], label)
-                except Exception:
-                    pass
-
             outcome_label = "WIN" if label == 1.0 else "LOSS"
             self.logger.debug(
                 f"🧠 Online update: {trade.get('symbol','?')} {trade.get('action','?')} "
