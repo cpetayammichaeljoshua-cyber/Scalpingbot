@@ -3,6 +3,42 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 12 — Comprehensive Subsystem Improvement
+
+### Prediction Market Papers Framework (RESTORED from commit 92bb5f3)
+**`SignalMaestro/fxsusdt_telegram_bot.py`** — restored full PM framework in `process_signals`:
+- **Shannon Entropy** `H = -p·log₂(p) - (1-p)·log₂(1-p)`: measures certainty of the swarm's directional consensus. Low H (<0.70) = clear edge (+4pt); High H (>0.95) = coin-flip (-7pt).
+- **Kelly Criterion** `f = max(0, (p·b - q) / b)`: optimal edge sizing using swarm consensus as win probability and R:R as b. Negative Kelly = negative expectation (-6pt hard penalty). Strong Kelly >0.40 = +4pt.
+- **Reaction Decay** `f_adj = f × (1 - e^(-λt))`: λ = ln(2)/3 (half-life = 3 bars). Counts consecutive 15m bars price moved in signal direction. Fresh reversal (low t) = -3pt; established trend (high t) = +2.5pt.
+- Net PM adjustment capped at ±8pt to avoid overriding Phase 1 boost.
+- PM metrics (Certainty, Kelly, Maturity) added to every Telegram signal message.
+- New fields added to `SwarmSignal`: `shannon_entropy`, `kelly_fraction`, `kelly_decay_factor`.
+
+### SwarmBM25Memory (NEW — `SignalMaestro/swarm_bm25_memory.py`)
+- BM25-based episodic memory (Okapi BM25, k1=1.5, b=0.75) storing past signal episodes as text documents.
+- 500-document ring buffer with auto-eviction of oldest episodes.
+- Contextual retrieval: given current signal context (symbol, action, session, RSI, volume, confidence), retrieves most semantically similar past signals.
+- **Historical win rate adjustment**: when ≥3 resolved similar episodes exist — WR≥70% → +2pt, WR≤30% → -3pt confidence adjustment.
+- Integrated into `send_signal_to_channel` (records every signal) and `process_signals` (context retrieval adjustment).
+- Heartbeat logs include BM25 memory status.
+
+### FLOOP Agent Enhancement (v5 → v5.1)
+**`SignalMaestro/mirofish_swarm_strategy.py`** — FLOOPAgent improvements:
+- **RSI Divergence Detection** (±2 pts): Uses existing O(n) `_rsi_divergence` helper. Bullish divergence confirms bullish score; bearish divergence confirms bearish score. Cross-confirmation only (divergence must agree with EMA60/200 direction).
+- **RSI Overbought/Oversold Filter** (±1.5 pts): RSI>75 weakens bullish signals (-1.5pt); RSI<25 weakens bearish signals (+1.5pt). Fresh momentum room (RSI<40 bullish, RSI>60 bearish) gets +0.5pt.
+- Scoring thresholds updated to reflect expanded range (max ~17.5 pts vs previous 14 pts).
+- Max confidence cap raised from 90.0% to 91.0%.
+
+### Other Improvements
+- Added `import math` to `fxsusdt_telegram_bot.py` (required for PM framework calculations).
+- BM25 memory import with graceful fallback: `_HAS_BM25` flag mirrors `_HAS_NEURAL` pattern.
+- All three modified files pass `ast.parse()` syntax validation.
+
+### Production Validation (Session 12)
+- Bot restarts clean: 47 USDM symbols, Cycle #1 complete in 3.9s
+- All new components initializing: SwarmBM25Memory ✅, PM framework ✅, FLOOP v5.1 ✅
+- AI agents in rule-based fallback (Claude billing paused, OpenAI 401) — 9/10 deterministic agents fully operational
+
 ## Session 11 — ClawRouter + PublicAPIIntelligence Integration
 
 ### `SignalMaestro/smart_llm_router.py` — NEW: ClawRouter-Inspired Smart LLM Router

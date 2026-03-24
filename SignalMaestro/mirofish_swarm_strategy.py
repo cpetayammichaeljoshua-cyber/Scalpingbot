@@ -156,6 +156,10 @@ class SwarmSignal:
     graph_insight: str = ""
     react_reasoning: str = ""
     participation_rate: float = 0.0  # fraction of agents that voted non-NEUTRAL
+    # Prediction Market Papers framework metrics (set in fxsusdt_telegram_bot.py)
+    shannon_entropy: float = 0.0
+    kelly_fraction: float = 0.0
+    kelly_decay_factor: float = 1.0
 
     def __post_init__(self):
         if self.take_profit_1 == 0.0:
@@ -2692,33 +2696,69 @@ class FLOOPAgent:
                 if htf_ema200 is not None:
                     score += 1.0 if htf_closes[-1] > htf_ema200 else -1.0
 
+            # ── 6. RSI Divergence — bullish/bearish divergence confirmation ──
+            # Uses the O(n) single-pass _rsi_divergence helper (no extra cost).
+            # Bullish divergence (lower price, higher RSI) → +2 pts when score > 0
+            # Bearish divergence (higher price, lower RSI) → -2 pts when score < 0
+            # Cross-confirmation only: divergence must agree with EMA direction.
+            rsi_div_score = 0.0
+            try:
+                _div_result = _rsi_divergence(closes, period=14, lookback=30)
+                if _div_result is not None:
+                    _div_type, _div_strength = _div_result
+                    if _div_type == "bullish" and score > 0:
+                        rsi_div_score = +2.0 * _div_strength
+                        score += rsi_div_score
+                    elif _div_type == "bearish" and score < 0:
+                        rsi_div_score = -2.0 * _div_strength
+                        score += rsi_div_score
+            except Exception:
+                pass
+
+            # ── 7. RSI overbought/oversold filter — avoid fade-signals ────────
+            # When RSI is extreme, penalise counter-direction signals.
+            # e.g. score is bullish but RSI > 75 → likely overbought, -1 pt.
+            rsi_now = _rsi(closes, 14)
+            if rsi_now is not None:
+                if score > 0 and rsi_now > 75:
+                    score -= 1.5    # overbought → weaken bullish score
+                elif score < 0 and rsi_now < 25:
+                    score += 1.5    # oversold   → weaken bearish score
+                elif score > 0 and rsi_now < 40:
+                    score += 0.5    # fresh momentum room → small bullish boost
+                elif score < 0 and rsi_now > 60:
+                    score -= 0.5    # fresh downside room → small bearish boost
+
             # ── Convert score to vote ─────────────────────────────────────────
-            # Max possible: 4+4+2+3+1 = 14; min: -14
+            # Max possible: 4+4+2+3+1+2+1.5 ≈ 17.5; min: -17.5
             abs_s = abs(score)
-            if score >= 7.0:
+            if score >= 8.0:
                 vote = "BUY"
-                conf = min(62.0 + abs_s * 2.2, 90.0)
-            elif score >= 4.0:
+                conf = min(63.0 + abs_s * 1.9, 91.0)
+            elif score >= 4.5:
                 vote = "BUY"
-                conf = min(53.0 + abs_s * 1.8, 78.0)
-            elif score <= -7.0:
+                conf = min(54.0 + abs_s * 1.6, 79.0)
+            elif score <= -8.0:
                 vote = "SELL"
-                conf = min(62.0 + abs_s * 2.2, 90.0)
-            elif score <= -4.0:
+                conf = min(63.0 + abs_s * 1.9, 91.0)
+            elif score <= -4.5:
                 vote = "SELL"
-                conf = min(53.0 + abs_s * 1.8, 78.0)
+                conf = min(54.0 + abs_s * 1.6, 79.0)
             else:
                 vote = "NEUTRAL"
                 conf = 50.0
 
+            _rsi_str = f"{rsi_now:.1f}" if rsi_now is not None else "N/A"
             graph.add_node(
                 MarketEntityType.INDICATOR_STATE, "FLOOP_State",
                 (f"FLOOP score={score:.1f} ema_bull={ema_bull} "
-                 f"rf={rf_votes} atr_norm={atr_norm:.4f}"),
+                 f"rf={rf_votes} atr_norm={atr_norm:.4f} "
+                 f"rsi_div={rsi_div_score:+.1f} rsi={_rsi_str}"),
                 {"floop_score": score, "ema_bull": ema_bull,
-                 "rf_votes": rf_votes, "atr_norm": round(atr_norm, 5)}
+                 "rf_votes": rf_votes, "atr_norm": round(atr_norm, 5),
+                 "rsi_div": rsi_div_score}
             )
-            return vote, min(conf, 90.0)
+            return vote, min(conf, 91.0)
 
         except Exception:
             return "NEUTRAL", 50.0

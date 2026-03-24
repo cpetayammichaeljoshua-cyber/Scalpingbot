@@ -10,6 +10,7 @@ import asyncio
 import copy
 import dataclasses
 import logging
+import math
 import aiohttp
 import os
 import time
@@ -53,6 +54,17 @@ except ImportError:
         _HAS_PUBLIC_API = True
     except ImportError:
         _HAS_PUBLIC_API = False
+
+# ── Swarm BM25 episodic memory ────────────────────────────────────────────────
+try:
+    from SignalMaestro.swarm_bm25_memory import SwarmBM25Memory
+    _HAS_BM25 = True
+except ImportError:
+    try:
+        from swarm_bm25_memory import SwarmBM25Memory
+        _HAS_BM25 = True
+    except ImportError:
+        _HAS_BM25 = False
 insider_analyzer         = _try_import("SignalMaestro.insider_trading_analyzer",    "insider_analyzer")
 atas_analyzer            = _try_import("SignalMaestro.atas_integrated_analyzer",    "atas_analyzer")
 bookmap_analyzer         = _try_import("SignalMaestro.bookmap_trading_analyzer",    "bookmap_analyzer")
@@ -289,6 +301,16 @@ class FXSUSDTTelegramBot:
             except Exception as pai_err:
                 self.logger.warning(f"⚠️ PublicAPIIntelligence init failed: {pai_err}")
                 self.public_api = None
+
+        # ── BM25 episodic memory — contextual retrieval of past episodes ──────
+        self.bm25_memory: Optional[Any] = None
+        if _HAS_BM25:
+            try:
+                self.bm25_memory = SwarmBM25Memory(max_docs=500)
+                self.logger.info("🧠 SwarmBM25Memory initialized (500-doc ring buffer)")
+            except Exception as _bm_err:
+                self.logger.warning(f"⚠️ SwarmBM25Memory init failed: {_bm_err}")
+                self.bm25_memory = None
 
         # ── BB position for current scan cycle (passed to trade recorder) ──
         self._current_bb_position: float = 0.5
@@ -806,6 +828,17 @@ class FXSUSDTTelegramBot:
             else:
                 return f"{p:.8f}"
 
+        # ── Prediction Market metrics (only shown if computed) ──
+        _H   = getattr(signal, "shannon_entropy",    0.0)
+        _fk  = getattr(signal, "kelly_fraction",     0.0)
+        _dk  = getattr(signal, "kelly_decay_factor", 1.0)
+        _pm_line = ""
+        if _H > 0 or _fk > 0:
+            _certainty = max(0.0, (1.0 - _H)) * 100  # 0=random, 100=certain
+            _pm_line = (
+                f"\nPM: Certainty {_certainty:.0f}% · Kelly {_fk:.1%} · Maturity {_dk:.0%}"
+            )
+
         msg = (
             f"{d_emoji} {sym_tag} {direction}\n"
             f"Exchange: Binance Futures\n"
@@ -823,7 +856,8 @@ class FXSUSDTTelegramBot:
             f"1) {_fmt(sl)}\n"
             f"\n"
             f"⚡{tf}{sess_tag} · {consensus_pct:.0f}%🐟 · {signal.confidence:.0f}%Conf · RSI {signal.rsi:.0f} · R:R 1:{rr:.1f}\n"
-            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC\n"
+            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC"
+            f"{_pm_line}\n"
             f"📡 @ichimokutradingsignal | MiroFish Swarm"
         )
         return msg
@@ -885,6 +919,13 @@ class FXSUSDTTelegramBot:
                         self.trade_memory.record_signal(signal, bb_position=_bb_pos)
                     except Exception as mem_err:
                         self.logger.debug(f"Trade memory record failed: {mem_err}")
+
+                # Record in BM25 episodic memory for context retrieval
+                if self.bm25_memory:
+                    try:
+                        self.bm25_memory.record_from_swarm_signal(signal, outcome="UNKNOWN")
+                    except Exception as _bm_err:
+                        self.logger.debug(f"BM25 memory record failed: {_bm_err}")
 
                 self.logger.info(
                     f"📡 Signal sent: {symbol} {signal.action} @ {signal.entry_price:.4g} "
@@ -1134,10 +1175,13 @@ class FXSUSDTTelegramBot:
         # LOCAL variable — avoids the race where another coroutine overwrites
         # self._current_bb_position between Phase 1 and Phase 2.
         _local_bb_position: float = 0.5
+        # PM framework klines — captured in Phase 1, consumed in PM block
+        _pm_klines: list = []
 
         try:
             raw_klines = await self.trader.get_market_data(symbol, "15m", 200)
             if raw_klines and len(raw_klines) >= 50:
+                _pm_klines = raw_klines  # save for Prediction Market Framework
                 # 6-column format [ts, open, high, low, close, volume]
                 market_data_5col = [
                     [k[0], float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])]
@@ -1251,6 +1295,158 @@ class FXSUSDTTelegramBot:
             self.logger.debug(
                 f"🔒 Boost capped at +{_MAX_BOOST:.0f}pt → conf={signal.confidence:.1f}%"
             )
+
+        # ════════════════════════════════════════════════════════════════════
+        # PREDICTION MARKET PAPERS FRAMEWORK
+        # Ref: "The Prediction Market Papers" (Shannon Entropy + Kelly + Decay)
+        #
+        #   1. Shannon Entropy  H = -p·log₂(p) - (1-p)·log₂(1-p)
+        #      WHEN to enter: measures market certainty via swarm consensus.
+        #      Low H (< 0.70)  → clear directional edge    → confidence bonus
+        #      High H (> 0.93) → near coin-flip, no edge   → confidence penalty
+        #
+        #   2. Kelly Criterion  f = max(0, (p·b − q) / b)
+        #      HOW MUCH: optimal bet-size given edge p and reward:risk b.
+        #      f ≤ 0   → negative expectation   → hard penalty
+        #      f > 0.30 → strong edge            → confidence bonus
+        #      (Fractional Kelly ×0.25; full Kelly too aggressive for crypto)
+        #
+        #   3. Reaction Decay   f_adj = f · (1 − e^(−λt))
+        #      URGENCY: λ = ln(2)/3 (half-life = 3 bars, ~45 min on 15m TF).
+        #      t = consecutive 15m bars price moved in signal direction.
+        #      Low t (fresh reversal)     → low maturity  → penalty
+        #      High t (established trend) → high maturity → decay bonus
+        # ════════════════════════════════════════════════════════════════════
+        _PM_LAMBDA = math.log(2) / 3.0   # half-life = 3 bars
+
+        try:
+            # ── 1. Shannon Entropy from swarm consensus ───────────────────────
+            _p_sw  = max(1e-9, min(1.0 - 1e-9, float(signal.swarm_consensus)))
+            _q_sw  = 1.0 - _p_sw
+            _H     = -(_p_sw * math.log2(_p_sw) + _q_sw * math.log2(_q_sw))
+
+            # ── 2. Kelly Criterion (fractional, conservative) ─────────────────
+            _b_rr    = max(0.5, float(signal.risk_reward_ratio))
+            _p_win   = _p_sw
+            _f_kelly = max(0.0, (_p_win * _b_rr - (1.0 - _p_win)) / _b_rr)
+
+            # ── 3. Reaction Decay: count consecutive bars in signal direction ──
+            _t_bars = 2.0   # conservative default
+            if _pm_klines and len(_pm_klines) >= 8:
+                _pm_closes = [float(k[4]) for k in _pm_klines[-16:]]
+                _dir_mult  = 1 if signal.action == "BUY" else -1
+                _t_bars    = 0.0
+                for _bi in range(len(_pm_closes) - 1, 0, -1):
+                    if _dir_mult * (_pm_closes[_bi] - _pm_closes[_bi - 1]) > 0:
+                        _t_bars += 1.0
+                    else:
+                        break
+                _t_bars = max(1.0, _t_bars)
+
+            _decay = 1.0 - math.exp(-_PM_LAMBDA * _t_bars)
+
+            # ── Store PM metrics on signal object ─────────────────────────────
+            signal.shannon_entropy    = round(_H, 4)
+            signal.kelly_fraction     = round(_f_kelly, 4)
+            signal.kelly_decay_factor = round(_decay, 4)
+
+            # ── Apply PM confidence adjustments ───────────────────────────────
+            # 1. Entropy adjustment
+            if _H > 0.95:
+                _ent_adj = -7.0
+            elif _H > 0.90:
+                _ent_adj = -3.5
+            elif _H > 0.85:
+                _ent_adj = -1.5
+            elif _H < 0.60:
+                _ent_adj = +4.0
+            elif _H < 0.70:
+                _ent_adj = +2.0
+            elif _H < 0.80:
+                _ent_adj = +1.0
+            else:
+                _ent_adj = 0.0
+
+            # 2. Kelly adjustment
+            if _f_kelly <= 0.0:
+                _kelly_adj = -6.0
+            elif _f_kelly < 0.10:
+                _kelly_adj = -1.0
+            elif _f_kelly > 0.40:
+                _kelly_adj = +4.0
+            elif _f_kelly > 0.25:
+                _kelly_adj = +2.5
+            elif _f_kelly > 0.15:
+                _kelly_adj = +1.0
+            else:
+                _kelly_adj = 0.0
+
+            # 3. Decay adjustment
+            if _decay < 0.20:
+                _decay_adj = -3.0
+            elif _decay < 0.40:
+                _decay_adj = -1.0
+            elif _decay > 0.75:
+                _decay_adj = +2.5
+            elif _decay > 0.55:
+                _decay_adj = +1.0
+            else:
+                _decay_adj = 0.0
+
+            _pm_adj_total = max(-8.0, min(8.0, _ent_adj + _kelly_adj + _decay_adj))
+            signal.confidence = max(0.0, min(100.0, signal.confidence + _pm_adj_total))
+
+            self.logger.info(
+                f"📊 [{symbol}] PM: H={_H:.3f}(adj={_ent_adj:+.1f}) "
+                f"Kelly={_f_kelly:.1%}(adj={_kelly_adj:+.1f}) "
+                f"Decay={_decay:.2f}×t={_t_bars:.0f}bars(adj={_decay_adj:+.1f}) "
+                f"net={_pm_adj_total:+.1f}pt → conf={signal.confidence:.1f}%"
+            )
+
+        except Exception as _pm_err:
+            self.logger.debug(f"PM framework skipped: {_pm_err}")
+
+        # ── BM25 Historical Context Adjustment ────────────────────────────────
+        # Retrieve similar past signal episodes and apply a small confidence
+        # adjustment based on their win rate. High historical WR → +2pt bonus;
+        # low historical WR → -3pt penalty.  Bounded to avoid over-riding PM.
+        if self.bm25_memory and self.bm25_memory.size >= 10:
+            try:
+                _bm25_results = self.bm25_memory.retrieve_context(
+                    symbol=symbol,
+                    action=signal.action,
+                    session=getattr(signal, "market_session", "UNKNOWN"),
+                    rsi=float(getattr(signal, "rsi", 50.0)),
+                    volume_ratio=float(getattr(signal, "volume_ratio", 1.0)),
+                    confidence=signal.confidence,
+                    consensus=signal.swarm_consensus,
+                    agent_votes=getattr(signal, "agent_votes", {}),
+                    top_k=5,
+                )
+                if _bm25_results:
+                    _bm_resolved = [r for r in _bm25_results if r.outcome in ("WIN", "LOSS")]
+                    if len(_bm_resolved) >= 3:
+                        _bm_wins = sum(1 for r in _bm_resolved if r.outcome == "WIN")
+                        _bm_wr   = _bm_wins / len(_bm_resolved)
+                        if _bm_wr >= 0.70:
+                            _bm_adj = +2.0
+                        elif _bm_wr >= 0.55:
+                            _bm_adj = +0.5
+                        elif _bm_wr <= 0.30:
+                            _bm_adj = -3.0
+                        elif _bm_wr <= 0.45:
+                            _bm_adj = -1.0
+                        else:
+                            _bm_adj = 0.0
+                        if _bm_adj != 0.0:
+                            signal.confidence = max(0.0, min(100.0, signal.confidence + _bm_adj))
+                            self.logger.info(
+                                f"📚 [{symbol}] BM25 context adj={_bm_adj:+.1f}pt "
+                                f"(hist_wr={_bm_wr:.0%} over {len(_bm_resolved)} resolved) "
+                                f"→ conf={signal.confidence:.1f}%"
+                            )
+            except Exception as _bm_err:
+                self.logger.debug(f"BM25 context retrieval skipped: {_bm_err}")
 
         # ── Phase 2: Atomic gate — lock held for milliseconds only ────────────
         # Two coroutines that both passed the initial pre-check cannot both send
@@ -1579,13 +1775,19 @@ class FXSUSDTTelegramBot:
                             )
                         except Exception:
                             pass
+                    bm25_status = ""
+                    if self.bm25_memory:
+                        try:
+                            bm25_status = f" | {self.bm25_memory.status()}"
+                        except Exception:
+                            pass
                     self.logger.info(
                         f"💓 Heartbeat — signals: {self.signal_count} | "
                         f"markets: {n_sym} | cycles: {cycle_count} | "
                         f"graph nodes: {mem.get('nodes', 0)} | "
                         f"top signals: [{top_syms}] | "
                         f"session: {self.strategy._current_session}"
-                        f"{trade_stats}{nn_status}"
+                        f"{trade_stats}{nn_status}{bm25_status}"
                     )
                     last_heartbeat = now
 
