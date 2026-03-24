@@ -29,7 +29,7 @@ TRADE_EXPIRY_SECONDS = 21_600
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
-    "FundingFlowAgent", "AIOrchestrationAgent",
+    "FundingFlowAgent", "PivotSRAgent", "FLOOPAgent", "AIOrchestrationAgent",
 ]
 
 
@@ -89,25 +89,28 @@ class TradeMemory:
 
     # ── Schema ────────────────────────────────────────────────────────────────
 
+    _db_lock = __import__("threading").Lock()
+
     @contextmanager
     def _db(self):
         """
-        Managed SQLite connection context manager.
+        Managed SQLite connection context manager with thread lock.
         Commits on clean exit, rolls back on exception, and always closes
         the connection — preventing file-handle leaks in long-running async bots.
         """
-        conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        with self._db_lock:
+            conn = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     def _init_db(self):
         with self._db() as c:
@@ -125,7 +128,7 @@ class TradeMemory:
                     confidence        REAL    NOT NULL,
                     swarm_consensus   REAL    NOT NULL,
                     signal_strength   REAL    NOT NULL,
-                    participation_rate REAL   NOT NULL DEFAULT 0.875,
+                    participation_rate REAL   NOT NULL DEFAULT 0.700,
                     rsi               REAL    NOT NULL DEFAULT 50.0,
                     volume_ratio      REAL    NOT NULL DEFAULT 1.0,
                     risk_reward_ratio REAL    NOT NULL DEFAULT 1.5,
@@ -160,6 +163,14 @@ class TradeMemory:
                     "📦 DB migrated: added 'partial_outcome' column to trades"
                 )
 
+            if "source" not in existing_cols:
+                c.execute(
+                    "ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'bot'"
+                )
+                self.logger.info(
+                    "📦 DB migrated: added 'source' column to trades"
+                )
+
             # Indexes for fast open-trade and per-symbol queries
             c.execute("""
                 CREATE INDEX IF NOT EXISTS idx_outcome
@@ -169,7 +180,6 @@ class TradeMemory:
                 CREATE INDEX IF NOT EXISTS idx_symbol_outcome
                 ON trades (symbol, outcome, timestamp)
             """)
-            c.commit()
 
     # ── Writes ────────────────────────────────────────────────────────────────
 
@@ -212,7 +222,7 @@ class TradeMemory:
                 signal.confidence,
                 signal.swarm_consensus,
                 signal.signal_strength,
-                getattr(signal, "participation_rate", 0.875),
+                getattr(signal, "participation_rate", 0.700),
                 signal.rsi,
                 signal.volume_ratio,
                 signal.risk_reward_ratio,
@@ -223,7 +233,6 @@ class TradeMemory:
                 bb_position,
                 datetime.fromtimestamp(ts, tz=timezone.utc).hour,
             ))
-            c.commit()
             trade_id = cur.lastrowid
 
         def _pfmt(p: float) -> str:
@@ -257,7 +266,6 @@ class TradeMemory:
                     "UPDATE trades SET partial_outcome=? WHERE id=? AND outcome IS NULL",
                     (partial, trade_id),
                 )
-                c.commit()
         except Exception as e:
             self.logger.debug(f"write_partial_outcome #{trade_id}: {e}")
 
@@ -276,7 +284,6 @@ class TradeMemory:
                     partial_outcome=NULL
                 WHERE id=? AND outcome IS NULL
             """, (outcome, outcome_price, time.time(), pnl_pct, trade_id))
-            c.commit()
         self.logger.info(
             f"✅ Trade #{trade_id} resolved: {outcome} @ "
             f"${outcome_price:.6g} | PnL: {pnl_pct:+.2f}%"
@@ -318,25 +325,56 @@ class TradeMemory:
             return c.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
 
     def get_stats(self) -> Dict[str, Any]:
-        """Summary statistics for /stats command and heartbeat."""
-        with self._db() as c:
-            total    = c.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
-            labeled  = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL").fetchone()[0]
-            wins     = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL AND pnl_pct > 0").fetchone()[0]
-            losses   = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL AND pnl_pct <= 0").fetchone()[0]
-            avg_pnl  = c.execute("SELECT AVG(pnl_pct) FROM trades WHERE pnl_pct IS NOT NULL").fetchone()[0]
-            tp1_hits = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='TP1'").fetchone()[0]
-            tp2_hits = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='TP2'").fetchone()[0]
-            tp3_hits = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='TP3'").fetchone()[0]
-            sl_hits  = c.execute("SELECT COUNT(*) FROM trades WHERE outcome='SL'").fetchone()[0]
+        """
+        Summary statistics for /stats command and heartbeat.
 
-        win_rate = (wins / labeled * 100) if labeled > 0 else 0.0
+        BUG FIX: Previously used pnl_pct > 0 for wins and pnl_pct <= 0 for losses.
+        This miscounted neutral EXPIRED trades (pnl ~0%) as confirmed losses, inflating
+        the reported loss rate and misrepresenting bot performance.
+
+        Fix: use the unambiguous outcome field:
+          wins   = outcome IN ('TP1','TP2','TP3')  — price reached take-profit
+          losses = outcome = 'SL'                  — stop-loss hit
+          EXPIRED trades are reported separately (not counted as win or loss).
+
+        Also reduced from 8 separate SQL calls to 2 for lower DB overhead.
+        """
+        with self._db() as c:
+            total   = c.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+            labeled = c.execute("SELECT COUNT(*) FROM trades WHERE outcome IS NOT NULL").fetchone()[0]
+
+            row = c.execute("""
+                SELECT
+                    COUNT(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 END) AS wins,
+                    COUNT(CASE WHEN outcome = 'SL'                 THEN 1 END) AS losses,
+                    COUNT(CASE WHEN outcome = 'TP1'                THEN 1 END) AS tp1_hits,
+                    COUNT(CASE WHEN outcome = 'TP2'                THEN 1 END) AS tp2_hits,
+                    COUNT(CASE WHEN outcome = 'TP3'                THEN 1 END) AS tp3_hits,
+                    COUNT(CASE WHEN outcome = 'SL'                 THEN 1 END) AS sl_hits,
+                    COUNT(CASE WHEN outcome = 'EXPIRED'            THEN 1 END) AS expired_count,
+                    AVG(pnl_pct)                                               AS avg_pnl
+                FROM trades
+                WHERE outcome IS NOT NULL
+            """).fetchone()
+
+        wins         = row[0] or 0
+        losses       = row[1] or 0
+        tp1_hits     = row[2] or 0
+        tp2_hits     = row[3] or 0
+        tp3_hits     = row[4] or 0
+        sl_hits      = row[5] or 0
+        expired_count = row[6] or 0
+        avg_pnl      = row[7]
+
+        resolved     = wins + losses  # definitive outcomes only (excludes EXPIRED)
+        win_rate     = (wins / resolved * 100) if resolved > 0 else 0.0
         return {
             "total_signals":  total,
             "labeled":        labeled,
             "open":           total - labeled,
             "wins":           wins,
             "losses":         losses,
+            "expired":        expired_count,
             "win_rate":       round(win_rate, 1),
             "avg_pnl_pct":    round(avg_pnl or 0, 3),
             "tp1_hits":       tp1_hits,
@@ -369,24 +407,35 @@ class TradeMemory:
         return [dict(r) for r in rows]
 
     def get_stats_by_session(self) -> Dict[str, Dict]:
-        """Win rate broken down by trading session."""
+        """
+        Win rate broken down by trading session.
+
+        BUG FIX: Previously used pnl_pct > 0 for wins, which miscounted neutral
+        EXPIRED trades (pnl ~0%) as losses, identical to the bug fixed in get_stats().
+        Now uses the unambiguous outcome field consistent with all other stat methods:
+          wins   = outcome IN ('TP1','TP2','TP3')
+          losses = outcome = 'SL'
+          EXPIRED trades are excluded from both win and loss counts.
+        """
         with self._db() as c:
             rows = c.execute("""
                 SELECT session,
                        COUNT(*) as total,
-                       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) as wins
+                       SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) as wins,
+                       SUM(CASE WHEN outcome = 'SL'                 THEN 1 ELSE 0 END) as losses
                 FROM trades
                 WHERE outcome IS NOT NULL
                 GROUP BY session
             """).fetchall()
         result = {}
         for row in rows:
-            sess, total, wins = row[0], row[1], row[2]
+            sess, total, wins, losses = row[0], row[1], row[2] or 0, row[3] or 0
+            resolved = wins + losses
             result[sess] = {
                 "total":    total,
                 "wins":     wins,
-                "losses":   total - wins,
-                "win_rate": round(wins / total * 100, 1) if total > 0 else 0.0,
+                "losses":   losses,
+                "win_rate": round(wins / resolved * 100, 1) if resolved > 0 else 0.0,
             }
         return result
 
@@ -423,11 +472,10 @@ class TradeMemory:
             elif outcome == "SL":
                 definitive.append(1)  # loss
             elif outcome == "EXPIRED":
-                if pnl >= 0.5:
-                    definitive.append(0)  # profitable expiry = win
-                elif pnl <= -0.5:
-                    definitive.append(1)  # significant loss expiry
-                # else: neutral, skip
+                if pnl >= 0.3:
+                    definitive.append(0)
+                elif pnl <= -0.15:
+                    definitive.append(1)
             if len(definitive) >= n:
                 break
         if not definitive:
@@ -450,8 +498,8 @@ class TradeMemory:
             rows = c.execute("""
                 SELECT symbol,
                        COUNT(*) AS total,
-                       SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) AS wins,
-                       SUM(CASE WHEN pnl_pct <= 0 THEN 1 ELSE 0 END) AS losses
+                       SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) AS wins,
+                       SUM(CASE WHEN outcome = 'SL'                 THEN 1 ELSE 0 END) AS losses
                 FROM trades
                 WHERE outcome IS NOT NULL
                 GROUP BY symbol
@@ -460,11 +508,12 @@ class TradeMemory:
         result: Dict[str, Dict] = {}
         for row in rows:
             sym, total, wins, sym_losses = row[0], row[1], row[2] or 0, row[3] or 0
+            resolved = wins + sym_losses
             result[sym] = {
                 "total":    total,
                 "wins":     wins,
                 "losses":   sym_losses,
-                "win_rate": round(wins / total, 4) if total > 0 else 0.0,
+                "win_rate": round(wins / resolved, 4) if resolved > 0 else 0.0,
             }
 
         # Also compute recent_loss_rate (last 10 definitive) per symbol.
@@ -489,9 +538,9 @@ class TradeMemory:
                         elif outcome == "SL":
                             definitive.append(1)
                         elif outcome == "EXPIRED":
-                            if pnl >= 0.5:
+                            if pnl >= 0.3:
                                 definitive.append(0)
-                            elif pnl <= -0.5:
+                            elif pnl <= -0.15:
                                 definitive.append(1)
                         if len(definitive) >= 10:
                             break
@@ -534,13 +583,14 @@ class OutcomeTracker:
     # Prevents infinite retrain loop when high_loss_rate gate fires every 90s.
     MIN_RETRAIN_INTERVAL = 1800   # 30 minutes minimum between retrains
 
-    def __init__(self, memory: TradeMemory, trainer, trader, bot=None):
+    def __init__(self, memory: TradeMemory, trainer, trader, bot=None,
+                 bm25_memory=None):
         self.logger  = logging.getLogger(__name__)
         self.memory  = memory
         self.trainer = trainer
         self.trader  = trader
-        # Optional bot reference for adaptive confidence threshold updates
         self.bot = bot
+        self._bm25_memory = bm25_memory
         # Per-trade best outcome seen so far (in-memory ratchet).
         # Pre-populate from the DB so a restart never downgrades a trade that
         # had already reached TP1/TP2 but hasn't been fully resolved yet.
@@ -588,6 +638,26 @@ class OutcomeTracker:
     async def run(self):
         """Main loop — run as asyncio.create_task()."""
         self.logger.info("🔎 OutcomeTracker started (multi-symbol)")
+
+        # ── Startup training on historical data ────────────────────────────────
+        # If the NN has not been trained yet and labeled trades already exist in
+        # the DB (e.g. from a previous session), train immediately so the NN gate
+        # is active from the first scan cycle.  Without this, the bot waits for
+        # the first new resolution event (which can take hours), leaving 200+
+        # historical labeled trades unused on restart.
+        try:
+            await asyncio.sleep(5)  # Brief delay to let bot fully initialise
+            if self.trainer is not None and not getattr(self.trainer, "trained", False):
+                labeled = self.memory.get_labeled_trades()
+                if len(labeled) >= self.MIN_TRAIN_SAMPLES:
+                    self.logger.info(
+                        f"🧠 Startup: training NN on {len(labeled)} existing labeled "
+                        f"trades (trainer was untrained after restart)"
+                    )
+                    await self._maybe_retrain()
+        except Exception as _startup_err:
+            self.logger.warning(f"Startup NN training skipped: {_startup_err}")
+
         while True:
             try:
                 await asyncio.sleep(self.CHECK_INTERVAL)
@@ -689,7 +759,9 @@ class OutcomeTracker:
                         resolved_outcome == "EXPIRED" and pnl_pct <= -0.5
                     )
                     try:
-                        self.bot.update_loss_streak(is_loss)
+                        _streak_coro = self.bot.update_loss_streak(is_loss)
+                        if asyncio.iscoroutine(_streak_coro):
+                            await _streak_coro
                     except Exception as _se:
                         self.logger.debug(f"streak update skipped: {_se}")
 
@@ -708,6 +780,45 @@ class OutcomeTracker:
                         self.trainer.update_online(resolved_record, n_steps=5, lr_scale=0.1)
                     except Exception as _oe:
                         self.logger.debug(f"online update skipped: {_oe}")
+
+                if self._bm25_memory is not None:
+                    try:
+                        _sit_parts = [
+                            f"symbol={symbol} action={action}",
+                            f"session={trade.get('session', 'UNKNOWN')}",
+                            f"rsi={trade.get('rsi', 50):.0f}",
+                            f"vol_ratio={trade.get('volume_ratio', 1.0):.2f}",
+                            f"consensus={trade.get('swarm_consensus', 0):.2f}",
+                            f"confidence={trade.get('confidence', 0):.1f}",
+                            f"atr_ratio={trade.get('atr_ratio', 0):.4f}",
+                            f"bb_pos={trade.get('bb_position', 0.5):.2f}",
+                        ]
+                        _avj = trade.get("agent_votes_json", "{}")
+                        try:
+                            _votes = json.loads(_avj) if isinstance(_avj, str) else _avj
+                            _sit_parts.append(
+                                f"votes={' '.join(f'{k[:4]}:{v[0]}' for k, v in _votes.items())}"
+                            )
+                        except Exception:
+                            pass
+                        _situation_text = " | ".join(_sit_parts)
+                        _ind_snapshot = {
+                            "rsi": trade.get("rsi", 50),
+                            "vol_ratio": trade.get("volume_ratio", 1.0),
+                            "atr_ratio": trade.get("atr_ratio", 0),
+                            "bb_position": trade.get("bb_position", 0.5),
+                            "hour": trade.get("hour_of_day", 0),
+                        }
+                        self._bm25_memory.store_trade_reflection(
+                            symbol=symbol,
+                            action=action,
+                            outcome=resolved_outcome,
+                            pnl_pct=pnl_pct,
+                            situation_text=_situation_text,
+                            indicators=_ind_snapshot,
+                        )
+                    except Exception as _ref_err:
+                        self.logger.debug(f"BM25 reflection skipped: {_ref_err}")
 
         if newly_resolved > 0:
             self.logger.info(
@@ -747,9 +858,18 @@ class OutcomeTracker:
         action: str, entry: float, exit_price: float,
         outcome: str, sl: float, tp1: float, tp2: float, tp3: float
     ) -> float:
-        """Raw percentage P&L (not leveraged) for labelling."""
+        """Raw percentage P&L (not leveraged) for labelling.
+
+        For SL: uses worst-case of (SL target, actual exit price) to account
+        for gap-through scenarios where price overshoots the stop.
+        For TP: uses the target price (conservative — price may have gapped
+        higher but we credit only the planned target).
+        """
         if outcome == "SL":
-            ref = sl
+            if action == "BUY":
+                ref = min(sl, exit_price)
+            else:
+                ref = max(sl, exit_price)
         elif outcome == "TP3":
             ref = tp3
         elif outcome == "TP2":
@@ -757,7 +877,7 @@ class OutcomeTracker:
         elif outcome == "TP1":
             ref = tp1
         else:
-            ref = exit_price  # EXPIRED — use current price
+            ref = exit_price
 
         if entry == 0:
             return 0.0

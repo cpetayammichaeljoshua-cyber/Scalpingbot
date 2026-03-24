@@ -12,7 +12,31 @@ import asyncio
 import warnings
 import logging
 import time
+import unicodedata
 from pathlib import Path
+
+
+def _sanitize_env_key(name: str) -> None:
+    """Strip invisible Unicode formatting characters (e.g. U+200E) from env var."""
+    raw = os.environ.get(name, "")
+    if not raw:
+        return
+    clean = "".join(
+        ch for ch in raw
+        if unicodedata.category(ch) not in ("Cf", "Cc", "Cs", "Co", "Cn")
+        and ch.isprintable()
+    ).strip()
+    if clean != raw:
+        os.environ[name] = clean
+
+
+# Sanitize all API keys before any imports or use — critical for LLM/Binance calls
+for _key_name in (
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LLM_API_KEY",
+    "BINANCE_API_KEY", "BINANCE_API_SECRET",
+    "TELEGRAM_BOT_TOKEN",
+):
+    _sanitize_env_key(_key_name)
 
 # ─────────────────────────────────────────────
 # Configuration Constants
@@ -29,12 +53,13 @@ CYCLE_SLEEP_MAX = 60   # seconds between full parallel scan cycles (maximum)
 assert CYCLE_SLEEP_MIN <= CYCLE_SLEEP_MAX, "CYCLE_SLEEP_MIN must be <= CYCLE_SLEEP_MAX"
 
 # Maximum concurrent symbol scans within a single parallel cycle (Semaphore limit)
-SCAN_PARALLEL_LIMIT = 20   # 20 concurrent Binance REST requests (well within rate limits)
+# Binance USDM rate limit: 1200 req/min. 80 symbols × ~3 req = 240 req/cycle — safe at 30.
+SCAN_PARALLEL_LIMIT = 30   # 30 concurrent Binance REST requests (well within rate limits)
 
-SIGNAL_INTERVAL_MIN = 120  # 120s minimum between signals on 15m timeframe
+SIGNAL_INTERVAL_MIN = 300  # 300s (5 min) per-symbol cooldown — prevents same-symbol spam on 15M
 
-SIGNALS_PER_HOUR_MIN = 5   # Strict global hourly floor (5/5)
-SIGNALS_PER_HOUR_MAX = 5   # Strict global hourly cap  (5/5)
+SIGNALS_PER_HOUR_MIN = 5   # Global hourly floor — always emit at least 5/hour when setups exist
+SIGNALS_PER_HOUR_MAX = 10  # Global hourly cap — allow up to 10 for diverse multi-market coverage
 assert SIGNALS_PER_HOUR_MIN <= SIGNALS_PER_HOUR_MAX, "SIGNALS_PER_HOUR_MIN must be <= SIGNALS_PER_HOUR_MAX"
 
 AI_THRESHOLD_PERCENT = 80  # Minimum confidence % required to send a signal (post-boost)
@@ -56,7 +81,7 @@ assert MIN_LEVERAGE <= MAX_LEVERAGE, f"MIN_LEVERAGE ({MIN_LEVERAGE}) must be <= 
 STOP_LOSS_PERCENT   = 0.65  # BTC 15M base SL %
 TAKE_PROFIT_PERCENT = 1.10  # BTC 15M TP1 % (TP2=2.00%, TP3=3.10%)
 
-SWARM_MIN_CONSENSUS = 0.72  # Minimum agent agreement (72%) to generate a signal
+SWARM_MIN_CONSENSUS = 0.75  # Minimum agent agreement (75%) to generate a signal
 
 DEFAULT_MAX_RESTARTS     = 100
 DEFAULT_RESTART_DELAY_BASE = 30
@@ -112,6 +137,30 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
+# Suppress noisy HTTP client INFO logs (every request appears at INFO by default).
+# httpx logs every outgoing request at INFO — including all 401s from invalid API
+# keys — polluting logs with hundreds of irrelevant lines per minute.
+# Setting these to WARNING ensures only genuine problems (retries, errors) surface.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
+
+# Suppress openai SDK internal retry INFO messages.
+# The openai._base_client emits an INFO log "Retrying request to /chat/completions
+# in Xs" for every SDK-internal retry attempt (default max_retries=2).
+# On a 401/invalid-key these fire twice per call BEFORE the circuit breaker can
+# detect the permanent failure, flooding logs with hundreds of lines per minute
+# when many symbols are scanned in parallel.  Raising to WARNING so only
+# genuine problems (rate limits, server errors) remain visible.
+logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+logging.getLogger("openai.resources").setLevel(logging.WARNING)
+
+# Suppress Anthropic SDK internal retry messages (same issue as openai above).
+logging.getLogger("anthropic").setLevel(logging.WARNING)
+logging.getLogger("anthropic._base_client").setLevel(logging.WARNING)
+
 
 # ─────────────────────────────────────────────
 # Main Async Bot Runner
@@ -130,7 +179,7 @@ async def main():
     os.environ.setdefault("CYCLE_SLEEP_MIN",         str(CYCLE_SLEEP_MIN))
     os.environ.setdefault("CYCLE_SLEEP_MAX",         str(CYCLE_SLEEP_MAX))
     os.environ.setdefault("SCAN_PARALLEL_LIMIT",     str(SCAN_PARALLEL_LIMIT))
-    # Hourly signal cap — strictly 5/5 (propagated to bot __init__)
+    # Hourly signal cap — 5–10 per hour (propagated to bot __init__)
     os.environ["SIGNALS_PER_HOUR_MAX"] = str(SIGNALS_PER_HOUR_MAX)
     os.environ["SIGNALS_PER_HOUR_MIN"] = str(SIGNALS_PER_HOUR_MIN)
     # Heartbeat interval — propagate launcher constant so scanner reads it
@@ -153,7 +202,7 @@ async def main():
 
     # ── Startup Banner ──
     logger.info("=" * 90)
-    logger.info("🐟 MIROFISH SWARM TRADING BOT v4 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
+    logger.info("🐟 MIROFISH SWARM TRADING BOT v5.0 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
     logger.info("=" * 90)
     logger.info("📊 Markets:    ALL Binance USDM Perpetual Futures (up to 80, $50M+ 24h vol)")
     logger.info("🐟 Strategy:   MiroFish Multi-Agent Swarm Intelligence")
@@ -162,8 +211,9 @@ async def main():
     logger.info("📢 Channel:    @ichimokutradingsignal | InsiderTactics")
     logger.info("📋 Format:     Cornix-compatible signal format")
     logger.info(f"🔄 Scanner:    TRUE PARALLEL — {SCAN_PARALLEL_LIMIT} concurrent streams (asyncio.gather + Semaphore)")
+    logger.info(f"📡 Hourly Cap: {SIGNALS_PER_HOUR_MIN}–{SIGNALS_PER_HOUR_MAX} signals/hour | Interval: ≥{SIGNAL_INTERVAL_MIN}s between signals")
     logger.info("")
-    logger.info("✅ MIROFISH SWARM AGENTS (8 agents, 15M-tuned) — 100% MiroFish Architecture:")
+    logger.info("✅ MIROFISH SWARM AGENTS (10 agents, 15M-tuned) — 100% MiroFish Architecture:")
     logger.info("   🐟 TrendAgent        — EMA 9/21 crossover + EMA200 + graph TrendState node    (22% w)")
     logger.info("   ⚡ MomentumAgent      — RSI + MACD + IndicatorState node → graph              (20% w)")
     logger.info("   📊 VolumeAgent       — OBV + vol surge + Catalyst node on 2x spike            (18% w)")
@@ -171,7 +221,9 @@ async def main():
     logger.info("   🕯️  OrderFlowAgent    — Candle patterns + Pattern graph nodes                 (15% w)")
     logger.info("   😱 SentimentAgent     — Fear/greed proxy + vol contraction regime             ( 5% w)")
     logger.info("   💹 FundingFlowAgent   — VWAP deviation + OI proxy + squeeze detection        ( 5% w)")
-    logger.info("   🤖 AIOrchestration   — Claude 3.5 Haiku (primary) + GPT-4o-mini (fallback)   ( 5% w)")
+    logger.info("   📐 PivotSRAgent      — Institutional S/R pivot levels + POC analysis         ( 8% w)")
+    logger.info("   🔄 FLOOPAgent        — FLOOP Pro ML-optimized range filter + ROC momentum    (10% w)")
+    logger.info("   🤖 AIOrchestration   — Claude Sonnet 4.6 (primary) + GPT-4o-mini (fallback)    ( 5% w)")
     logger.info("                          ReACT: Reason → Act → Reflect → Conclude")
     logger.info("")
     logger.info("✅ MIROFISH ARCHITECTURE (github.com/666ghj/MiroFish):")
@@ -204,7 +256,7 @@ async def main():
     logger.info(f"   • Full scan time:     ~20-40s for all 80 symbols")
     logger.info(f"   • Cycle sleep:        {CYCLE_SLEEP_MIN}–{CYCLE_SLEEP_MAX}s between full parallel rounds")
     logger.info(f"   • Signal Interval:    {SIGNAL_INTERVAL_MIN}s minimum per-symbol cooldown")
-    logger.info(f"   • Est. Signals/Hour:  {SIGNALS_PER_HOUR_MIN} (strict 5/5 hourly cap)")
+    logger.info(f"   • Est. Signals/Hour:  {SIGNALS_PER_HOUR_MIN}–{SIGNALS_PER_HOUR_MAX} (hourly cap)")
     logger.info("=" * 90)
 
     # ── Initialize Bot ──
@@ -328,8 +380,8 @@ def main_launcher():
     except (ValueError, TypeError):
         restart_delay_base = DEFAULT_RESTART_DELAY_BASE
 
-    logger.info("🐟 MiroFish Swarm Bot Launcher v4 — Production Ready")
-    logger.info(f"📊 Markets: ALL Binance USDM Perpetual Futures (PARALLEL, up to 80 symbols, Semaphore={SCAN_PARALLEL_LIMIT})")
+    logger.info("🐟 MiroFish Swarm Bot Launcher v5 — Production Ready")
+    logger.info(f"📊 Markets: ALL Binance USDM Perpetual Futures (PARALLEL, up to 80 symbols, Semaphore={SCAN_PARALLEL_LIMIT}) | 10 agents")
     logger.info("🌐 Starting with auto-restart protection...")
     logger.info(f"📋 Config: max_restarts={max_restarts}, base_delay={restart_delay_base}s")
 
@@ -392,6 +444,14 @@ def main_launcher():
             if not success:
                 restart_count       += 1
                 consecutive_failures += 1
+
+                if elapsed < 5.0 and consecutive_failures >= 3:
+                    logger.error(
+                        "❌ Bot fails within 5s for 3 consecutive attempts — "
+                        "likely a configuration error. Stopping to prevent "
+                        "infinite restart loop."
+                    )
+                    break
 
                 if consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
                     logger.error(f"🔴 Circuit breaker tripped: {consecutive_failures} consecutive failures")

@@ -1,1 +1,1 @@
-worker: python main.py
+worker: python start_ultimate_bot.py

@@ -5,6 +5,7 @@ Comprehensive technical indicator analysis compatible with ATAS platform
 Analyzes all major trading indicators for signal generation
 """
 
+import asyncio
 import logging
 import numpy as np
 import pandas as pd
@@ -51,39 +52,51 @@ class ATASIntegratedAnalyzer:
         self.min_bars = 100
     
     async def analyze_all_indicators(self, ohlcv_data) -> Dict[str, Any]:
-        """Analyze all ATAS indicators in parallel"""
+        """Analyze all ATAS indicators concurrently via asyncio.gather for true parallelism."""
         try:
             df = _normalize_ohlcv(ohlcv_data)
             if df is None or len(df) < self.min_bars:
                 return {'error': 'Insufficient data'}
-            
-            results = {
-                'timestamp': pd.Timestamp.now().isoformat(),
-                'indicators': {}
+
+            _INDICATOR_KEYS = [
+                'moving_averages', 'rsi', 'macd', 'bollinger_bands', 'stochastic',
+                'atr', 'adx', 'vpt', 'obv', 'accumulation_distribution',
+                'keltner_channel', 'pivot_points', 'supertrend', 'vwap', 'ichimoku',
+            ]
+            _INDICATOR_COROS = [
+                self.analyze_moving_averages(df),
+                self.analyze_rsi(df),
+                self.analyze_macd(df),
+                self.analyze_bollinger_bands(df),
+                self.analyze_stochastic(df),
+                self.analyze_atr(df),
+                self.analyze_adx(df),
+                self.analyze_volume_price_trend(df),
+                self.analyze_obv(df),
+                self.analyze_accumulation_distribution(df),
+                self.analyze_keltner_channel(df),
+                self.analyze_pivot_points(df),
+                self.analyze_supertrend(df),
+                self.analyze_vwap(df),
+                self.analyze_ichimoku_extended(df),
+            ]
+
+            indicator_results = await asyncio.gather(*_INDICATOR_COROS, return_exceptions=True)
+
+            indicators: Dict[str, Any] = {}
+            for key, val in zip(_INDICATOR_KEYS, indicator_results):
+                if isinstance(val, Exception):
+                    self.logger.debug(f"ATAS indicator '{key}' error: {val}")
+                    indicators[key] = {'signal': 'NEUTRAL', 'strength': 0}
+                else:
+                    indicators[key] = val
+
+            return {
+                'timestamp':        pd.Timestamp.now().isoformat(),
+                'indicators':       indicators,
+                'composite_signal': self._calculate_composite_signal(indicators),
+                'overall_strength': self._calculate_overall_strength(indicators),
             }
-            
-            # Analyze all indicators
-            results['indicators']['moving_averages'] = await self.analyze_moving_averages(df)
-            results['indicators']['rsi'] = await self.analyze_rsi(df)
-            results['indicators']['macd'] = await self.analyze_macd(df)
-            results['indicators']['bollinger_bands'] = await self.analyze_bollinger_bands(df)
-            results['indicators']['stochastic'] = await self.analyze_stochastic(df)
-            results['indicators']['atr'] = await self.analyze_atr(df)
-            results['indicators']['adx'] = await self.analyze_adx(df)
-            results['indicators']['vpt'] = await self.analyze_volume_price_trend(df)
-            results['indicators']['obv'] = await self.analyze_obv(df)
-            results['indicators']['accumulation_distribution'] = await self.analyze_accumulation_distribution(df)
-            results['indicators']['keltner_channel'] = await self.analyze_keltner_channel(df)
-            results['indicators']['pivot_points'] = await self.analyze_pivot_points(df)
-            results['indicators']['supertrend'] = await self.analyze_supertrend(df)
-            results['indicators']['vwap'] = await self.analyze_vwap(df)
-            results['indicators']['ichimoku'] = await self.analyze_ichimoku_extended(df)
-            
-            # Calculate composite signal
-            results['composite_signal'] = self._calculate_composite_signal(results['indicators'])
-            results['overall_strength'] = self._calculate_overall_strength(results['indicators'])
-            
-            return results
         except Exception as e:
             self.logger.error(f"ATAS analysis error: {e}")
             return {'error': str(e)}

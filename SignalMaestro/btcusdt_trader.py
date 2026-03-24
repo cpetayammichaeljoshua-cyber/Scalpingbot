@@ -11,6 +11,7 @@ import asyncio
 import logging
 import aiohttp
 import os
+from collections import OrderedDict
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 import hmac
@@ -53,8 +54,11 @@ class BTCUSDTTrader:
         # Short-lived klines cache — keyed by (symbol, interval, limit).
         # TTL of 90 s avoids duplicate Binance fetches when process_signals
         # re-requests the same klines that the strategy just fetched.
-        self._klines_cache: Dict[Tuple, Tuple[list, float]] = {}
+        # OrderedDict enables O(1) LRU eviction (move_to_end + popitem) instead
+        # of O(n) min() scan over all keys that the plain dict used before.
+        self._klines_cache: OrderedDict = OrderedDict()
         self._klines_cache_ttl = 90.0  # seconds
+        self._klines_cache_max = 300    # evict oldest entry when this cap is exceeded
 
         # Perpetual-symbol whitelist — refreshed every 60 minutes via exchangeInfo.
         # Prevents SETTLING / BREAK symbols leaking into the scan universe.
@@ -113,31 +117,43 @@ class BTCUSDTTrader:
         return {"X-MBX-APIKEY": self.api_key}
 
     def _signed_params(self, params: dict) -> dict:
-        params["timestamp"] = int(time.time() * 1000)
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        params["signature"] = self._sign(query)
-        return params
+        """
+        Return a NEW dict with timestamp + HMAC-SHA256 signature appended.
+        Never mutates the caller's dict — the same base params dict may be
+        reused across retries or parallel calls without corruption.
+        """
+        p = dict(params)                          # defensive copy
+        p["timestamp"] = int(time.time() * 1000)
+        query = "&".join(f"{k}={v}" for k, v in p.items())
+        p["signature"] = self._sign(query)
+        return p
 
     # ─────────────────────────────────────────
     # Market Data — Public (no auth)
     # ─────────────────────────────────────────
 
-    async def get_current_price(self) -> Optional[float]:
-        """Get current BTCUSDT mark price"""
+    async def get_current_price(self, symbol: Optional[str] = None) -> Optional[float]:
+        """
+        Get current mark price for any USDM symbol (defaults to self.symbol = BTCUSDT).
+        Accepts an optional symbol so callers outside the BTC context can reuse this
+        method without creating a separate trader instance.
+        """
+        sym = symbol or self.symbol
         try:
             url = f"{self.base_url}/fapi/v1/ticker/price"
             s = await self._get_session()
-            async with s.get(url, params={"symbol": self.symbol}) as r:
+            async with s.get(url, params={"symbol": sym}) as r:
                 if r.status == 200:
                     data = await r.json()
                     price = float(data["price"])
-                    self.logger.debug(f"💰 BTCUSDT price: ${price:,.2f}")
+                    self.logger.debug(f"💰 {sym} price: ${price:,.4g}")
                     return price
-                self.logger.error(f"Price fetch error: HTTP {r.status}")
+                body = await r.text()
+                self.logger.error(f"Price fetch error [{sym}]: HTTP {r.status}: {body[:200]}")
         except asyncio.TimeoutError:
-            self.logger.warning("⏱ Timeout fetching BTC price")
+            self.logger.warning(f"⏱ Timeout fetching price [{sym}]")
         except Exception as e:
-            self.logger.error(f"get_current_price error: {e}")
+            self.logger.error(f"get_current_price({sym}) error: {e}")
         return None
 
     async def get_market_data(self, symbol: str, timeframe: str, limit: int = 500) -> Optional[List]:
@@ -162,33 +178,71 @@ class BTCUSDTTrader:
         if cached is not None:
             data, fetched_at = cached
             if now - fetched_at < self._klines_cache_ttl:
+                self._klines_cache.move_to_end(cache_key)  # LRU: mark as recently used
                 return data
 
-        # Check if a larger cached result can satisfy this request
-        for (c_sym, c_interval, c_limit), (c_data, c_time) in self._klines_cache.items():
+        # Check if a larger cached result can satisfy this request (serves smaller
+        # limit requests from an existing larger fetch without a new API call).
+        for (c_sym, c_interval, c_limit), (c_data, c_time) in list(self._klines_cache.items()):
             if (c_sym == sym and c_interval == interval and
                     c_limit >= limit and now - c_time < self._klines_cache_ttl):
+                # Mark this entry as recently-used (LRU refresh on read-hit)
+                self._klines_cache.move_to_end((c_sym, c_interval, c_limit))
                 return c_data[-limit:] if len(c_data) >= limit else c_data
 
-        try:
-            url = f"{self.base_url}/fapi/v1/klines"
-            params = {"symbol": sym, "interval": interval, "limit": limit}
-            s = await self._get_session()
-            async with s.get(url, params=params) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    # Evict cache entries beyond a reasonable size (max 200 symbols)
-                    if len(self._klines_cache) > 200:
-                        oldest_key = min(self._klines_cache, key=lambda k: self._klines_cache[k][1])
-                        self._klines_cache.pop(oldest_key, None)
-                    self._klines_cache[cache_key] = (data, now)
-                    return data
-                body = await r.text()
-                self.logger.error(f"Klines error {r.status}: {body[:200]}")
-        except asyncio.TimeoutError:
-            self.logger.warning(f"⏱ Timeout fetching klines {interval}")
-        except Exception as e:
-            self.logger.error(f"get_klines error: {e}")
+        # Retry loop — handles Binance 429 (rate-limited) with Retry-After backoff.
+        # Other 4xx errors are treated as permanent and break out immediately.
+        _max_attempts = 3
+        for _attempt in range(_max_attempts):
+            try:
+                url = f"{self.base_url}/fapi/v1/klines"
+                params = {"symbol": sym, "interval": interval, "limit": limit}
+                s = await self._get_session()
+                async with s.get(url, params=params) as r:
+                    if r.status == 200:
+                        data = await r.json()
+                        # LRU eviction using OrderedDict: O(1) popitem(last=False) removes
+                        # the oldest entry instead of the previous O(n) min() scan.
+                        if cache_key in self._klines_cache:
+                            self._klines_cache.move_to_end(cache_key)
+                        self._klines_cache[cache_key] = (data, now)
+                        while len(self._klines_cache) > self._klines_cache_max:
+                            self._klines_cache.popitem(last=False)  # O(1): remove oldest
+                        return data
+
+                    if r.status == 429:
+                        _raw_retry = r.headers.get("Retry-After", "5")
+                        try:
+                            _retry_after = int(_raw_retry)
+                        except (ValueError, TypeError):
+                            _retry_after = 5
+                        _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
+                        self.logger.warning(
+                            f"⏳ Binance 429 klines [{sym}|{interval}] "
+                            f"(attempt {_attempt+1}/{_max_attempts}) "
+                            f"— backing off {_retry_after}s"
+                        )
+                        await asyncio.sleep(_retry_after)
+                        continue  # retry
+
+                    body = await r.text()
+                    # Use 500-char limit so multi-field error bodies
+                    # (e.g. Binance code + msg + serverTime) are fully captured.
+                    self.logger.error(
+                        f"Klines error [{sym}|{interval}] HTTP {r.status}: {body[:500]}"
+                    )
+                    break  # Other 4xx/5xx — no retry
+
+            except asyncio.TimeoutError:
+                self.logger.warning(
+                    f"⏱ Timeout fetching klines {interval} "
+                    f"(attempt {_attempt+1}/{_max_attempts})"
+                )
+                if _attempt < _max_attempts - 1:
+                    await asyncio.sleep(2 ** _attempt)
+            except Exception as e:
+                self.logger.error(f"get_klines error: {e}")
+                break  # Unexpected error — no retry
         return None
 
     async def get_24hr_ticker_stats(self, symbol: Optional[str] = None) -> Optional[Dict]:
@@ -395,20 +449,56 @@ class BTCUSDTTrader:
     # Multi-Market Discovery
     # ─────────────────────────────────────────
 
-    async def _fetch_all_tickers(self) -> Optional[List[Dict]]:
-        """Fetch all /fapi/v1/ticker/24hr entries (no-symbol form)."""
-        try:
-            url = f"{self.base_url}/fapi/v1/ticker/24hr"
-            s = await self._get_session()
-            async with s.get(url) as r:
-                if r.status != 200:
-                    self.logger.error(f"24hr ticker (all) HTTP {r.status}")
-                    return None
-                return await r.json()
-        except asyncio.TimeoutError:
-            self.logger.warning("⏱ Timeout fetching 24hr ticker list")
-        except Exception as e:
-            self.logger.error(f"_fetch_all_tickers error: {e}")
+    async def _fetch_all_tickers(self, retries: int = 3) -> Optional[List[Dict]]:
+        """
+        Fetch all /fapi/v1/ticker/24hr entries (no-symbol form).
+        Retries up to `retries` times with exponential backoff on transient errors.
+        Previously had no retry, meaning a single network hiccup would leave the bot
+        holding the old symbol list for up to an hour before the next refresh attempt.
+        """
+        url = f"{self.base_url}/fapi/v1/ticker/24hr"
+        for attempt in range(retries):
+            try:
+                s = await self._get_session()
+                async with s.get(url) as r:
+                    if r.status == 200:
+                        return await r.json()
+
+                    if r.status == 429:
+                        # Rate-limited by Binance — honour Retry-After before retrying.
+                        # Previously lumped with all 4xx and returned None immediately,
+                        # causing the symbol list to fall back to ["BTCUSDT"] for the
+                        # next hour even after the rate-limit window had already passed.
+                        _retry_after = int(r.headers.get("Retry-After", "5"))
+                        _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
+                        self.logger.warning(
+                            f"⏳ Binance 429 24hr ticker "
+                            f"(attempt {attempt+1}/{retries}) "
+                            f"— backing off {_retry_after}s"
+                        )
+                        await asyncio.sleep(_retry_after)
+                        continue  # retry
+
+                    body = await r.text()
+                    self.logger.error(
+                        f"24hr ticker (all) HTTP {r.status} "
+                        f"(attempt {attempt+1}/{retries}): {body[:200]}"
+                    )
+                    # Other 4xx errors are permanent — no retry
+                    if 400 <= r.status < 500:
+                        return None
+
+            except asyncio.TimeoutError:
+                self.logger.warning(
+                    f"⏱ Timeout fetching 24hr ticker list "
+                    f"(attempt {attempt+1}/{retries})"
+                )
+            except Exception as e:
+                self.logger.error(
+                    f"_fetch_all_tickers error (attempt {attempt+1}/{retries}): {e}"
+                )
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)  # 1s, 2s backoff
         return None
 
     async def _get_perpetual_trading_set(self) -> frozenset:
@@ -495,7 +585,28 @@ class BTCUSDTTrader:
                 qualifying.append((quote_vol, sym))
 
         qualifying.sort(reverse=True)
-        symbols = [sym for _, sym in qualifying[:cap]]
+
+        # ── USDC deduplication ─────────────────────────────────────────────────
+        # BTCUSDC/ETHUSDC/SOLUSDC/XRPUSDC are the same underlying market as
+        # their USDT counterparts.  Including both wastes scan slots and the
+        # hourly signal cap, and can send near-identical signals back-to-back.
+        # Strategy: build the full qualifying symbol set, then when iterating
+        # to fill up to `cap`, skip any XYZUSDC whose XYZUSDT sibling also
+        # qualifies (prefer USDT; keep USDC only when no USDT sibling exists).
+        all_qualifying_syms = {sym for _, sym in qualifying}
+        deduplicated: List[str] = []
+        n_usdc_dropped = 0
+        for _, sym in qualifying:
+            if sym.endswith("USDC"):
+                usdt_sibling = sym[:-4] + "USDT"
+                if usdt_sibling in all_qualifying_syms:
+                    n_usdc_dropped += 1
+                    continue  # Drop USDC variant — USDT version preferred
+            deduplicated.append(sym)
+            if len(deduplicated) >= cap:
+                break
+
+        symbols = deduplicated
 
         if "BTCUSDT" not in symbols:
             symbols.insert(0, "BTCUSDT")
@@ -503,9 +614,10 @@ class BTCUSDTTrader:
             symbols.remove("BTCUSDT")
             symbols.insert(0, "BTCUSDT")
 
+        dedup_note = f", dropped {n_usdc_dropped} USDC dupes" if n_usdc_dropped else ""
         self.logger.info(
             f"🌐 Discovered {len(symbols)} USDM symbols "
-            f"(min_vol=${min_vol/1e6:.0f}M, cap={cap}) — "
+            f"(min_vol=${min_vol/1e6:.0f}M, cap={cap}{dedup_note}) — "
             f"top 5: {symbols[:5]}"
         )
         return symbols

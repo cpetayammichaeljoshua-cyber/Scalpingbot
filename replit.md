@@ -1,19 +1,399 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
-## Primary Workflow: mirofish_strategy_bot.py
-`mirofish_strategy_bot.py` is the **production entrypoint** for the MiroFish Swarm Bot.
-It is a fully self-contained launcher based on `start_ultimate_bot.py` with comprehensive
-enhancements: structured logging, graceful SIGTERM/SIGINT shutdown, stateful CircuitBreaker
-class, BotMetrics tracker, fresh event loop per run (avoids "loop is closed" residue),
-interruptible sleep between restarts, 3-level bot import fallback chain, and full async
-cleanup of all aiohttp/Telegram/Claude/OpenAI connection pools.
-
-Configured workflow: **"mirofish_strategy_bot.py"** → `python3 mirofish_strategy_bot.py`
-
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in parallel** on the **15-minute timeframe** using 8 specialized AI agents. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
-## Bug Fixes & Enhancements (Session 7 — Current)
+## Session 18 — Contrarian Agent Correctness Overhaul
+
+### BUG: `FundingFlowAgent._vwap_signal` was trend-following not contrarian (`mirofish_swarm_strategy.py`)
+- **Root cause**: Branches for `vwap_dev > 0.8` returned BUY (price above VWAP) and `vwap_dev < -0.8` returned SELL — exact opposite of what a contrarian mean-reversion agent should do
+- **Fix**: All small-deviation branches reversed — price above VWAP → SELL (overextended), price below VWAP → BUY (oversold)
+- **Extreme squeezes** boosted: `vwap_dev > 2.0 and oi_rising` → SELL confidence cap raised to 84% (was 80%), multiplier 3.0 (was 2.5)
+- **Momentum condition** corrected: extra +3pt if price_mom is turning in reversal direction (not trending direction)
+
+### BUG: `SentimentAgent` overextension threshold too conservative (`mirofish_swarm_strategy.py`)
+- **Threshold lowered**: `dev_pct > 3.5` → `dev_pct > 2.0` (triggers much earlier on typical crypto deviations)
+- **Condition relaxed**: `bull_score == 3` → `bull_score >= 2` (fires when ≥2 of 3 EMAs are aligned, not only all 3)
+- **Confidence cap raised**: 72% → 80% (contrarian signal now carries meaningful weight)
+- **Confidence multiplier boosted**: 1.2× → 2.5× (steeper scaling with overextension magnitude)
+
+### BUG: `InsiderTactics` asymmetric BUY bias removed (`mirofish_swarm_strategy.py`)
+- **Removed**: `if action == "BUY": confidence += 1.5 / elif action == "SELL": confidence -= 1.0`
+- **Impact**: Eliminated systematic bias that boosted every BUY signal by +1.5pt while penalizing every SELL by -1pt, which was skewing the bot toward long-only signals in all market conditions
+
+### BUG: `/swarm` command showed 9 agents, missing FLOOPAgent (`fxsusdt_telegram_bot.py`)
+- **Added**: `FLOOPAgent` entry to agent table with correct description and 10% weight
+- **Fixed**: Header updated from "Active Agents (9)" → "Active Agents (10)"
+- **Fixed**: Version tag updated from v4 → v5 in swarm status message
+- **Fixed**: Consensus rules updated from incorrect 72% → correct 75% with additional quorum/contrarian info
+
+### MAINTENANCE: Stale `_MAX_BOOST` comment corrected (`fxsusdt_telegram_bot.py`)
+- **Removed**: Inaccurate comment claiming boost was "Raised from 8.0 → 12.0"
+- **Replaced**: Accurate description of 8.0pt cap and its floor/ceiling math
+
+### Production Validation (Session 18)
+- Syntax clean on both `mirofish_swarm_strategy.py` and `fxsusdt_telegram_bot.py`
+- Bot restarted cleanly: 44 symbols, 10 agents, 3.6s scan cycle, 0 errors
+- Logs confirm: "Agents: 10 | Quorum: 5 | Consensus gate: 75%"
+
+## Session 17 — Comprehensive Production Perfection Pass
+
+### NN Direction Calibration Fix (`neural_signal_trainer.py`)
+- **Direction offset cap**: ±0.05 (was unbounded, -0.134 for BUY from loss-dominated training data)
+- **Danger penalty scaling**: Always ×0.35 (was accuracy-gated), floor raised to 0.05
+- **Reject threshold widened**: `max(0.08, opt_thresh - 0.42)` = 0.155 (was `max(0.20, opt_thresh - 0.18)` = 0.320)
+- **Result**: NN retrained 91.4% accuracy (win_acc=86.0%, loss_acc=93.4%), signals now pass through
+
+### Confidence Inflation Fix (`fxsusdt_telegram_bot.py`)
+- **_MAX_BOOST**: 12→8 (PublicAPI sentiment/directional boosts)
+- **Consensus cap**: 95% (was 100%)
+- **Signal strength cap**: 96% (was 100%)
+- **Session bonus**: 3pt max (was 6pt)
+- **Result**: Live signals show varied confidence 70-98% (was always 100%)
+
+### Symbol Filtering Relaxation (`mirofish_swarm_strategy.py`)
+- **BB width threshold**: 0.50%→0.25% (more symbols pass chop filter)
+- **Volume filter**: Session-aware — 0.45 Asian / 0.55 US+EU (was flat 0.80)
+- **NameError fix**: `_session` → `getattr(self, "_current_session", "US")`
+- **Result**: 12+ symbols generating swarm signals per cycle (was 2-3)
+
+### Agent Vote Diversity (`mirofish_swarm_strategy.py`)
+- **TrendAgent/MomentumAgent/VolumeAgent/OrderFlowAgent**: Confidence caps reduced to 88-92 (was 100)
+- **OrderFlowAgent**: Requires score ≥ 12 for directional conviction (was lower)
+- **Unanimous bonus**: +2pt (was +4pt)
+- **All strategy-level caps**: 95.0 (was 100.0)
+- **Result**: 2-4 agents regularly dissent on typical signals
+
+### Production Validation (Session 17)
+- 7+ clean cycles, 0 errors, 0 crashes
+- NN: 1000 samples, acc=91.4%, opt_thresh=0.575, reject_thresh=0.155, 8 danger zones
+- Signals sent: PAXGUSDT SELL, WLFIUSDT BUY, TRIAUSDT BUY (3 signals across restarts)
+- Confidence variation: 70-98% (not always 100%)
+- Agent diversity: S/N/B variations visible across all 10 agents
+- Fear & Greed: 8 (Extreme Fear), BTC dom=56.2%
+- Key thresholds: reject<0.155, boost>0.695, direction offset ±0.05, danger penalty ×0.35
+
+## Session 16 — Comprehensive Bug Fix & Win Rate Improvement Pass
+
+### PnL Calculation Fix (`trade_memory.py`)
+- **Gap-through SL accounting**: SL outcomes now use worst-case of (target, actual exit price) instead of just the SL target. BUY SL uses `min(sl, exit_price)`, SELL SL uses `max(sl, exit_price)`. Prevents understating actual losses when price gaps through stop.
+
+### Loss Rate Neutral Zone Fix (`trade_memory.py`)
+- **Tighter thresholds**: EXPIRED trade loss threshold lowered from -0.5% to -0.15%, win threshold from +0.5% to +0.3%. Small losses (e.g., -0.4%) now properly count as losses instead of being hidden in the neutral zone.
+
+### Kelly Criterion Fix (`mirofish_swarm_strategy.py`)
+- **Historical win rate blend**: Kelly probability now blends 60% historical global win rate + 40% consensus estimate, replacing pure consensus × confidence heuristic. Prevents correlated agents from over-inflating the probability estimate.
+- **Dynamic win rate**: `_global_win_rate` updated hourly from TradeMemory.
+
+### NN Over-Rejection Fix (`neural_signal_trainer.py`)
+- **Danger zone penalty cap**: Max 4 zones counted per signal (was unlimited), per-zone cap 0.06 (was 0.10), total cap 0.10 (was 0.15)
+- **Max danger zones**: Reduced from 20 to 12
+- **Wider reject threshold**: `reject_thresh = opt_thresh - 0.18` (was -0.10), giving NN more room to accept borderline signals
+- **Result**: NN accuracy improved from 78.1% → 91.5%, win_acc=82.4%, loss_acc=94.9%
+
+### Unanimous Override Fix (`fxsusdt_telegram_bot.py`)
+- **Minimum NN floor**: Override now requires `win_prob ≥ 12%` (was unrestricted — allowed 0% win_prob through)
+- **Proportional penalty**: Override applies scaled penalty `(reject_thresh - win_prob) * 15`, capped at 8pt, with floor of 60% confidence
+- **Tighter uncertainty gate**: σ > 0.25 blocks override (was 0.30)
+
+### Blacklist Threshold Fix (`fxsusdt_telegram_bot.py`)
+- **Raised threshold**: 80% loss rate (was 70%). Result: 22 blacklisted symbols (down from 29)
+- **Lower min trades**: 8 trades required (was 10) for faster detection of truly bad symbols
+
+### Confidence Inflation Fix (`mirofish_swarm_strategy.py`)
+- **Reduced participation bonus**: Scale factor 18 (was 30), cap 98% (was 100%). Max bonus at 100% participation: +9pt (was +15pt)
+- **Stronger low-participation penalty**: Scale factor 30 (was 25) for < 30% participation
+
+### Agent Independence Improvements (`mirofish_swarm_strategy.py`)
+- **SentimentAgent**: Added overextension detection — votes contrarian when EMA-aligned bull/bear with >3.5% deviation from mean. Reduced confidence caps (82% from 88%). Raised neutral threshold from 1.5% to 2.0%.
+- **FundingFlowAgent**: Added mean-reversion signals for extreme VWAP deviation + weakening momentum. Reduced confidence caps across all levels.
+
+### Production Validation (Session 16)
+- 4+ clean cycles, 0 errors
+- NN retrained fresh: acc=91.5% (was 78.1%), win_acc=82.4%, loss_acc=94.9%
+- Blacklist: 22 symbols (was 29 — 7 fewer blocked)
+- Agent independence: SentimentAgent now votes contrarian on overextended moves
+- NN weights backed up to `nn_weights_backup_s16.json`
+
+## Session 15 — TradingAgents Integration (BM25 Memory, Debate Scoring, PM Gate)
+
+### SwarmBM25Memory (`swarm_bm25_memory.py`) — NEW
+- **BM25Okapi-based offline memory**: 6 role banks (bull, bear, risk_agg, risk_con, risk_neu, portfolio_mgr)
+- **SQLite persistence**: Lessons survive restarts, stored in `SignalMaestro/swarm_memory.db`
+- **Confidence adjustment API**: `get_confidence_adjustment()` queries portfolio_mgr bank, returns ±5pt based on similar past trade outcomes
+- **`store_trade_reflection()`**: Stores structured lesson dicts after each trade resolution
+
+### Reflection System (`trade_memory.py`)
+- **Wired into OutcomeTracker**: After each trade resolution (TP1/TP2/TP3/SL/EXPIRED), a structured situation text + indicator snapshot is stored via `store_trade_reflection()`
+- **Situation text includes**: symbol, action, session, RSI, vol_ratio, consensus, confidence, ATR ratio, BB position, agent votes
+- **Indicators snapshot**: rsi, vol_ratio, atr_ratio, bb_position, hour_of_day
+
+### Bull/Bear Debate Scoring (`mirofish_swarm_strategy.py`)
+- **AIOrchestrationAgent._rule_based_analysis()**: Structured bull/bear evidence scoring using RSI, MACD, momentum, BB position
+- **Debate margin**: Large bull margin → confidence bonus up to +6pt for aligned signals
+
+### Risk Debate — Step 5.5 (`mirofish_swarm_strategy.py`)
+- **3 perspectives**: Aggressive (momentum/breakout boost), Conservative (drawdown/overextension penalty), Neutral (balanced)
+- **`_risk_adj`**: Max ±4pt applied to confidence after consensus, before HTF filter
+- **Pipeline position**: After Step 5 consensus, before Step 5b HTF
+
+### 5-Tier Portfolio Manager Gate — Step 5m (`mirofish_swarm_strategy.py`)
+- **PM score mapping**: BUY(+3)/OVERWEIGHT(+1.5)/HOLD(0)/UNDERWEIGHT(-1.5)/SELL(-3) confidence adjustment
+- **Inputs**: Consensus, participation, contrary agents, regime alignment
+- **Pipeline position**: After Step 5k InsiderTactics, before Step 6 InsightForge
+
+### BM25 Memory Wiring (`fxsusdt_telegram_bot.py`)
+- **Initialization**: `SwarmBM25Memory` instantiated in bot `__init__`, passed to OutcomeTracker
+- **Signal pipeline**: BM25 confidence adjustment applied after NN gate, before final confidence gate
+- **Threshold**: Only adjustments ≥ ±0.3pt are applied (filters noise from empty/sparse memory)
+
+### Updated Signal Pipeline Order
+- Step 5 consensus → **Step 5.5 Risk Debate** → Step 5b HTF → 5c Supertrend → 5d SAR → 5e Ichimoku → 5f ATR/BB/vol → 5g RSI div → 5h squeeze → 5i v3 regime → 5j systematic → 5k InsiderTactics → **Step 5m PM gate** → Step 6 InsightForge → Step 7 SL/TP → Kelly → NN gate → **BM25 memory adj** → final confidence gate → send
+
+### Production Validation (Session 15)
+- 42 USDM symbols scanned, 0 errors across 3+ cycles
+- NN: 987 samples, acc=78.1%, threshold=0.525
+- BM25 Memory: initialized (empty, will populate as trades resolve)
+- All new components active: Risk Debate, PM Gate, Bull/Bear debate, BM25 memory
+- TradeMemory: 2,026 historical trades
+
+## Session 14 — InsiderTactics + Moss-Trade-Bot Integration
+
+### InsiderTactics Data-Driven Filters (`mirofish_swarm_strategy.py`)
+- **Step 5k: InsiderTactics filters**: New step added after Step 5j, based on analysis of 4,326 trades from two InsiderTactics CSV datasets
+- **UTC hour filter**: Best hours boost +2pt confidence (H00 42.2%, H02 39.1%, H03 35.8%, H11 36.3%, H12 52.7%, H19 37.2%, H23 35.0%); worst hours penalize -3pt (H01 14.8%, H05 19.0%, H08 19.6%, H16 17.3%)
+- **LONG directional bias**: BUY signals get +1.5pt confidence (33.1% WR), SELL gets -1.0pt (26.0% WR)
+- **Symbol blacklist**: 10 symbols with 0% win rate auto-rejected (TRUMPUSDT, STOUSDT, APRUSDT, PUMPUSDT, COSUSDT, ASTERUSDT, MANAUSDT, GMTUSDT, XMRUSDT, KAVAUSDT)
+- **Symbol confidence boost/penalty**: High-WR symbols (SIRENUSDT +3, BARDUSDT +4, ANIMEUSDT +3.5, etc.); low-WR symbols (ADAUSDT -2, ETHUSDT -1, SOLUSDT -1.5, RIVERUSDT -3, ZECUSDT -3)
+
+### Moss-Trade-Bot V3 Regime Detection Upgrade (`mirofish_swarm_strategy.py`)
+- **Step 5i upgraded**: Replaced simple EMA/ATR regime check with multi-indicator v3 voting from moss-trade-bot regime.py
+- **4-factor voting**: EMA20/50 crossover, ADX+DI directional strength (via new `_compute_adx_proxy()`), ATR-rank compression, 48-period momentum
+- **Regime-directional confidence**: BULL regime +2.5pt for BUY/-2.0pt for SELL; BEAR regime +2.5pt for SELL/-2.0pt for BUY; RANGING -1.5pt if consensus < 90%
+- **New helper**: `_compute_adx_proxy()` — pure-Python ADX/+DI/-DI calculator using Wilder's smoothing
+
+### Kelly Criterion Fix (`mirofish_swarm_strategy.py`)
+- **Moved Kelly to after Step 7**: Now uses actual TP1/SL distances for R:R ratio instead of hardcoded 2.54/1.5 ATR estimate
+- **Formula**: `_kelly_b = |TP1 - entry| / |entry - SL|` with fallback to 1.693 if invalid
+- **Half-Kelly safety**: `f* × 0.5` bounded leverage 3x–30x
+
+### InsiderTactics Training Data Import (`trade_memory.py`, `import_insidertactics.py`)
+- **4,326 historical trades imported** into SQLite training database with proper outcome labels (TP1/TP2/TP3/SL)
+- **New `source` column**: Auto-migration adds `source TEXT DEFAULT 'bot'` to trades table; InsiderTactics trades marked as `source='insidertactics'`
+- **Import script**: `import_insidertactics.py` — idempotent, handles both CSV files, extracts TP levels, leverage, UTC hour, PnL
+
+### Production Validation (Session 14)
+- 42 USDM symbols scanned, 0 errors across 4+ cycles
+- NN: 233 samples, acc=89.7%, threshold=0.500 (retrained with InsiderTactics data)
+- TradeMemory: 2,025 historical trades (315 bot + 1,708 InsiderTactics)
+- All new filters active: UTC hour, LONG bias, symbol blacklist/boost, v3 regime, Kelly post-Step-7
+- InsiderTactics training data: 1,708 executed trades (569 wins, 1,139 losses = 33.3% WR), 1,070 cancelled trades excluded
+- Symbol blacklist expanded to 29 symbols (InsiderTactics 0% WR + bot ≥70% loss rate)
+- Signal pipeline: pre-boost → 5f ATR/BB/vol → 5g RSI div → 5h squeeze → 5i v3 regime → 5j systematic → 5k InsiderTactics → NN gate → Kelly → send
+
+## Session 13 — Comprehensive 23-Bug Fix Pass (All 8 Core Files)
+
+### Consensus Normalization Fix (`mirofish_swarm_strategy.py`)
+- **Ghost consensus bug**: Consensus was dividing by `total_eff` (all agents including NEUTRAL), diluting signal strength. Now divides by `total_signal_weight` (sum of aligned+contrary weights only). Prevents NEUTRAL agents from lowering consensus ratio.
+
+### Kelly Criterion Fix (`mirofish_swarm_strategy.py`)
+- **NameError crash**: `_kelly_b` referenced `sl`/`tp1` variables ~240 lines before they were defined (Step 6). Bot crashed every scan cycle with `NameError: name 'sl' is not defined`.
+- **Fix**: R:R now estimated from ATR multiplier ratio (TP1=2.54×ATR / SL=1.5×ATR = 1.693) instead of forward-referencing undefined variables.
+
+### Regime Detection Fix (`mirofish_swarm_strategy.py`)
+- **Ranging threshold raised**: Skip threshold from `consensus < 0.85` → `< 0.90` for stricter ranging regime filtering.
+- **ADX safety check**: Added length guard to prevent index errors on short kline data.
+
+### Race Condition Fixes (`fxsusdt_telegram_bot.py`)
+- **Async streak lock**: `update_loss_streak` is now `async` with `_streak_lock` (`asyncio.Lock`) protecting `_consecutive_losses` / `_adaptive_conf_boost`.
+- **NN uncertainty bypass guard**: Unanimous bypass now checks NN uncertainty before allowing signal through.
+- **Task leak fix**: Old background tasks cancelled before creating new ones on restart.
+- **Symbol dict cleanup**: `_symbol_last_signal` / `_symbol_signal_count` periodically purged to prevent unbounded memory growth.
+
+### NN Online Learning Fixes (`neural_signal_trainer.py`)
+- **Danger zone cap**: Each danger zone penalty capped at `-0.10` (was uncapped, causing over-suppression).
+
+### SQLite Thread Safety (`trade_memory.py`)
+- **Threading lock**: All SQLite writes now protected by `threading.Lock()` in `TradeMemory._db_lock`.
+- **Async streak update**: `update_loss_streak` properly awaited.
+
+### API Resilience Fixes
+- **Retry-After ValueError** (`btcusdt_trader.py`): Guard against non-numeric `Retry-After` headers from Binance.
+- **PublicAPI KeyError guards** (`public_api_intelligence.py`): CoinGecko/CoinCap parsers handle missing keys gracefully.
+- **SmartLLMRouter fallback** (`smart_llm_router.py`): Tier cascade returns rule-based fallback when no model is available.
+- **Fast-crash detection** (`start_ultimate_bot.py`): Don't retry on config errors (e.g., missing API keys).
+
+### Production Validation (Session 13)
+- 42 USDM symbols scanned in 2.0s (Cycle #1), 0.6s subsequent cycles
+- **0 errors** across 3+ cycles, no crashes, no NameErrors
+- NN: 230 samples, acc=79.6%, threshold=0.550, 14 danger zones
+- Fear & Greed: 8 (Extreme Fear), BTC dom=56.2%
+- Kelly R:R = 1.693 (ATR-based estimate, no forward reference)
+- All background tasks running: OutcomeTracker, PublicAPIIntelligence
+- Key constants: SWARM_MIN_CONSENSUS=0.75, SCAN_PARALLEL_LIMIT=30, NN acc gate=55%, off-session mult=0.15
+
+## Session 12 — Comprehensive Bug Fixes + Systematic Trading Enhancements
+
+### Consensus & Agent Weight Fixes (`mirofish_swarm_strategy.py`)
+- **Consensus tie-breaker bias**: Exact weight ties now return `None` (previously defaulted to SELL, creating directional bias)
+- **Off-session agent weight dilution**: Reduced multiplier from 0.5 → 0.15 to eliminate noise from out-of-session agents
+
+### Indicator Fixes (`mirofish_swarm_strategy.py`)
+- **Squeeze momentum SMA/EMA mismatch**: Keltner Channel midpoint now uses EMA consistently (was mixing SMA and EMA)
+- **RSI divergence lookback**: Increased warm-up from 30 → 50 bars; detection lookback raised to 40 bars
+- **Hidden divergence detection**: Added hidden bullish/bearish divergence for trend-continuation signals (Step 5g)
+- **Ichimoku None penalty**: -3pt confidence penalty when Ichimoku data insufficient (< 52 bars)
+
+### TP/SL Collision Guards (`mirofish_swarm_strategy.py`)
+- **Post-tick TP collision**: Added `_ensure_tp_separation()` helper to prevent TP1=TP2 or TP2=TP3 after tick rounding
+- Guards applied for both BUY and SELL directions
+
+### Neural Network Fixes (`neural_signal_trainer.py`)
+- **NN gate accuracy threshold**: Raised from 50% → 55% to prevent weak models from influencing signals
+- **Timezone drift**: Fixed `hour_of_day` feature in both `predict_signal` and `predict_signal_with_uncertainty` to handle timezone-aware timestamps correctly
+- **LossPatternAnalyzer online updates**: `update_online()` now incrementally updates danger zone loss rates via `update_incremental()` with exponential moving average (α=0.05)
+- **predict_batch ordering**: Fixed to maintain correct sample ordering
+
+### Kelly Criterion Position Sizing (`mirofish_swarm_strategy.py`)
+- Dynamic leverage scaling based on Kelly fraction: f* = (b×p - q) / b
+- Uses half-Kelly for safety (reduces overbetting risk)
+- Scales base leverage between 50% and 100% based on consensus quality and confidence
+- Bounded: min 3x, max 30x leverage
+
+### Market Regime Detection (`mirofish_swarm_strategy.py`)
+- **Step 5i**: Detects TRENDING / RANGING / VOLATILE regimes using EMA fast/slow spread + ATR normalization
+- TRENDING (price spread >1.5%, ATR <2.5%): +2pt confidence boost
+- VOLATILE (ATR >3%): -2pt confidence penalty
+- RANGING (consensus <85%): -1.5pt confidence penalty
+
+### Systematic Trading Factors — Step 5j (`mirofish_swarm_strategy.py`)
+Integrates 4 academic research-backed factors from awesome-systematic-trading:
+1. **Time-Series Momentum** (Moskowitz et al 2012, Sharpe 0.576): 12-period lookback excess return with volatility-inverse confidence scaling. Aligned momentum +3pt max; contra-momentum -4pt max.
+2. **Overnight Seasonality** (Dyhrberg et al 2022, Sharpe 0.892): BTC/ETH show statistically significant positive returns 21:00–00:59 UTC. BUY +1.5pt during window; SELL -1pt.
+3. **Short-Term Reversal** (Jegadeesh 1990, Sharpe 0.816): Assets with >8% 5-bar returns tend to reverse. Contra-extreme +2pt boost; with-extreme -3pt penalty.
+4. **Volatility Persistence** (Mandelbrot vol clustering): Recent-vs-older range ratio expansion (>1.8x) tightens confidence -1.5pt; contraction (<0.5x) boosts breakouts +1.5pt.
+
+### Telegram Markdown Safety (`fxsusdt_telegram_bot.py`)
+- **HTML/plain-text fallback**: When Markdown parse fails ("can't parse" error), automatically strips formatting and retries with plain text
+- Prevents silent message delivery failures
+
+### Production Validation (Session 12, final)
+- 43 USDM symbols scanned in 4.8s (TRUE PARALLEL confirmed, Cycle #1)
+- NN loaded: 230 samples, acc=79.6%, threshold=0.550, 14 danger zones
+- Fear & Greed Index: 8 (Extreme Fear), BTC dom=56.2%
+- SIGNUSDT BUY sent: 10/10 unanimous, 96.4% confidence
+- All background tasks running: OutcomeTracker, PublicAPIIntelligence
+- Key constants: SWARM_MIN_CONSENSUS=0.75, SCAN_PARALLEL_LIMIT=30, AI_THRESHOLD=80%, NN acc gate=55%, off-session mult=0.15
+- Step 5j systematic factors active: Time-Series Momentum, Overnight Seasonality, Short-Term Reversal, Volatility Persistence
+- Signal pipeline: pre-boost gate → 5f ATR/BB/vol → 5g RSI div → 5h squeeze → 5i regime → 5j systematic → NN gate → confidence gate → send
+
+## Session 11 — ClawRouter + PublicAPIIntelligence Integration
+
+### `SignalMaestro/smart_llm_router.py` — NEW: ClawRouter-Inspired Smart LLM Router
+- Multi-dimensional request scoring adapted from ClawRouter's 14-dimension rules system (compressed to 8 Python dimensions: token count, technical complexity, reasoning markers, structured output, domain specificity, multi-step, question complexity, simple indicators)
+- Tier-based model selection: SIMPLE / MEDIUM / COMPLEX / REASONING with configurable thresholds
+- Model health tracking: success rate, average latency, consecutive failures per model
+- Cost estimation and savings calculation vs always using the most expensive model
+- Wired into AIOrchestrationAgent: routes prompts before Claude/OpenAI calls, records outcomes (success/failure/latency) after each call for continuous learning
+
+### `SignalMaestro/public_api_intelligence.py` — NEW: Free Market Intelligence Feeds
+- Fear & Greed Index from alternative.me (no API key, 30-min cache TTL)
+- CoinGecko global data: BTC dominance, total market cap Δ24h (5-min TTL)
+- CoinGecko trending coins list (15-min TTL)
+- CoinCap BTC 24h price change (5-min TTL)
+- Background async refresh loop with failure tracking and backoff
+- `get_sentiment_adjustment()`: returns confidence adjustment (-6pt to +1pt based on Fear & Greed level)
+- `get_directional_bias()`: returns per-direction (BUY/SELL) adjustments based on market conditions
+
+### Wiring into Existing Strategy
+- **AIOrchestrationAgent** (`mirofish_swarm_strategy.py`): SmartLLMRouter instantiated in `__init__`, route decisions logged before Claude calls, outcomes recorded after each successful/failed call
+- **FXSUSDTTelegramBot** (`fxsusdt_telegram_bot.py`): PublicAPIIntelligence instantiated in `__init__`, background refresh task started alongside OutcomeTracker, sentiment adjustment applied in `process_signals` before Phase 1 boost analysis (Fear & Greed + directional bias modify signal confidence)
+- Graceful shutdown: PublicAPIIntelligence task cancelled in `close_tg_session`
+
+### Production Validation (Session 11)
+- 38 USDM symbols scanned in 4.5s (parallel mode confirmed)
+- SmartLLMRouter initialized with 10 models
+- PublicAPI fetched: Fear & Greed=12 (Extreme Fear), BTC dom=56.4%, Mkt cap Δ24h=-0.4%
+- NN: 224 samples, acc=97.3%, threshold=0.550
+- Symbol blacklist: RIVERUSDT, TRUMPUSDT, ZECUSDT (recent_loss_rate ≥ 70%)
+- First signal: ETHUSDT SELL — 8/10 agents, consensus=80%, conf=85.2%
+
+## Bug Fixes & Enhancements (Session 10)
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Filter Ordering Optimization (performance + win rate)
+- **ROOT CAUSE**: Cheap rejection filters (ATR extreme >3%, BB width <0.5%, volume ratio <0.80) ran AFTER the expensive TP/SL distance computation block (ATR scaling, tick rounding, R:R calculation). Every rejected signal wasted CPU cycles computing price levels that were immediately discarded.
+- **FIX — Step 5f moved before TP/SL**: All three cheap filters (ATR extreme volatility, Bollinger Band width chop, volume ratio) now execute immediately after the confidence/signal-strength gate and before InsightForge + TP/SL computation. Variables `cur_price`, `rsi_val`, `vol_ratio`, and `leverage` are computed once at this stage and reused downstream — eliminating the old redundant re-computation after TP/SL.
+- **EFFECT**: Signals rejected by cheap filters no longer trigger 50+ lines of TP/SL math, tick rounding, and R:R calculation. Saves ~30-40% CPU per rejected signal.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — RSI Divergence Confirmation Wired (win rate)
+- **ROOT CAUSE**: `_rsi_divergence()` helper was fully implemented (line 4012) but never called in the signal pipeline. RSI divergence is one of the strongest reversal/continuation signals in technical analysis.
+- **FIX — Step 5g**: RSI divergence is now evaluated after cheap filters. Bullish divergence aligned with BUY (or bearish with SELL) at strength >0.3 boosts confidence +3pt and signal strength +2pt. Counter-trend divergence at strength >0.5 penalizes confidence -5pt.
+- **EFFECT**: Signals confirmed by RSI divergence get a meaningful boost; counter-trend signals against strong divergence are penalized, reducing false entries.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Squeeze Momentum Confirmation Wired (win rate)
+- **ROOT CAUSE**: `_squeeze_momentum()` helper was fully implemented (line 4117) but never called. Bollinger Band squeeze breakouts are high-probability setups when momentum direction is confirmed.
+- **FIX — Step 5h**: Squeeze momentum is now evaluated after RSI divergence. When squeeze is active (BB inside Keltner), aligned momentum direction boosts confidence +2pt; contrary momentum penalizes -3pt.
+- **EFFECT**: Squeeze breakout setups with aligned momentum are rewarded; counter-momentum entries during squeezes are penalized.
+
+### Production Validation (Session 10)
+- 35 USDM symbols scanned in **4.6s** (parallel mode confirmed)
+- Cheap rejection filters confirmed operational before TP/SL computation
+- First signal: TAOUSDT BUY — 9/10 agents, consensus=91%, conf=80.7%
+- Symbol blacklist: RIVERUSDT, TRUMPUSDT, ZECUSDT auto-blocked (recent_loss_rate ≥ 70%)
+- NN loaded with 208 samples, acc=90.4%, threshold=0.575
+- OutcomeTracker background task running cleanly
+
+## Bug Fixes & Enhancements (Session 9)
+
+### `SignalMaestro/fxsusdt_telegram_bot.py` — Duplicate `close_tg_session` (CRITICAL)
+- **ROOT CAUSE**: Two definitions of `close_tg_session` existed (lines 475–509 and 528–534). Python's class body executes sequentially — the second shorter definition at line 528 overwrote the first full version, stripping out:
+  - `telegram_app` updater/shutdown (leaked PTB Application)
+  - `_outcome_tracker_task` cancellation (leaked OutcomeTracker background coroutine)
+- **FIX**: Removed the second, shorter duplicate definition (lines 528–534). The first full version (lines 475–509) is the canonical `close_tg_session`.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Claude Model Cascade Expanded (7 models)
+- **ROOT CAUSE**: All 3 original cascade models returned 404 (account plan doesn't have access to those specific versioned Claude model IDs). The cascade was exhausted immediately, permanently disabling Claude on every run.
+- **FIX**: Expanded `_CLAUDE_MODELS` from 3 → 7 models in order: `claude-3-7-sonnet-20250219` (Feb 2025 release), `claude-3-5-haiku-20241022`, `claude-3-5-sonnet-20241022`, `claude-3-5-sonnet-20240620`, `claude-3-haiku-20240307`, `claude-3-sonnet-20240229`, `claude-3-opus-20240229`. Any plan tier should find at least one accessible model.
+- **FIX**: Added periodic 30-minute retry mechanism (`_CLAUDE_MODEL_RETRY_INTERVAL = 1800.0`). When `_claude_perm_disabled=True`, the check expires every 30 min, clears `_claude_failed_models`, and re-tests the full cascade — enabling automatic recovery after an account upgrade without a bot restart.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Rule-Based AI Fallback Overhauled (win rate)
+- **ROOT CAUSE**: The old `_rule_based_analysis` used only agent vote counts with a simple confidence formula. When both Claude and OpenAI are unavailable (current state), every signal went through this path — making it the primary AI signal for all production signals.
+- **FIX — Multi-layer technical confirmation**: RSI overbought/oversold, MACD histogram direction, and Bollinger band position now independently confirm or veto the rule-based vote. RSI overbought into a BUY (or oversold into a SELL) hard-vetoes the signal to prevent buying tops/selling bottoms.
+- **FIX — Stricter quorum raised 3 → 4**: Requires 4 agents to agree (vs 3) before going directional.
+- **FIX — Dominant-side margin gate**: Winning side must score ≥60% of total agent score (vs no gate). Thin-margin setups return NEUTRAL instead of marginal direction.
+- **FIX — Confidence cap raised 82 → 88**: Allows genuine high-conviction setups (5+ aligned agents, RSI confirms, MACD confirms) to reach the 80% confidence gate more reliably.
+- **FIX — Momentum uses 5-bar + 8-bar dual slope**: More robust than single 4-bar slope; both must confirm direction for a bonus.
+- **FIX — 1H change scaled by magnitude**: Tail-wind bonus now `+6pt` for >1.5% move (vs flat `+4pt`) and `+3pt` for >0.5%; head-wind applies `-4pt` penalty.
+- **FIX — Unanimity bonus for ≥5 aligned, 0 contrary**: `+4pt` bonus applied to unanimous large-quorum setups.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — Signal Quality Gate Tightening (win rate)
+- **FIX — `min_swarm_consensus` raised 0.72 → 0.75**: Requires 75% weighted consensus (vs 72%) before a signal is emitted. Reduces marginal-consensus signals.
+- **FIX — `min_rr_ratio` raised 1.50 → 1.55**: Rejects signals with R:R below 1.55:1 (using TP2 as reward target).
+- **FIX — Extreme volatility filter tightened 4% → 3%**: ATR > 3% of price now rejects the signal (was 4%), avoiding erratic alt-coin high-volatility signals.
+- **FIX — Bollinger Band width chop filter added**: New pre-signal filter: when BB width < 0.5% of price (extreme compression/chop), direction is unknowable and signal is rejected. This prevents entering positions ahead of unpredictable breakouts.
+
+### Production Validation (Session 9)
+- 47 USDM symbols scanned in **4.6s** (parallel mode confirmed)
+- Consensus gate confirmed: **75%** in logs
+- First signal: UAIUSDT SELL — 9/9 agents unanimous, consensus=100%, conf=84.8%
+- Symbol blacklist: RIVERUSDT, TRUMPUSDT, ZECUSDT auto-blocked (recent_loss_rate ≥ 70%)
+- OutcomeTracker background task started cleanly (duplicate-bug fix verified)
+
+## Bug Fixes & Enhancements (Session 8)
+
+### `SignalMaestro/neural_signal_trainer.py` — `_save_weights` float32 serialization (critical)
+- **ROOT CAUSE**: `danger_zones` tuples contain NumPy float32 bin-edge values from ndarray slicing (`lo`, `hi`); `feature_importance` is a plain Python `list()` of NumPy float32 scalars from `abs(win_mean - loss_mean) / ...`; several scalar fields (`class_weight_loss`, `_w_win`, `_w_loss`, etc.) may be float32 from NumPy arithmetic. `json.dump` raises `TypeError: Object of type float32 is not JSON serializable` on all of these.
+- **FIX**: All fields in the `data` dict now use explicit Python-native casts:
+  - `danger_zones`: list comprehension `[int(fi), float(lo), float(hi), float(lr)]`
+  - `feature_importance`: `[float(x) for x in ...]`
+  - All scalar fields (`n_samples_trained`, `last_train_time`, `last_accuracy`, `last_val_loss`, `last_win_rate`, `last_loss_rate`, `_t`, `_base_lr`, `class_weight_loss`, `_w_win`, `_w_loss`, `_opt_threshold`, `_reject_threshold`, `_boost_threshold`, `_buy_prob_offset`, `_sell_prob_offset`): wrapped with `int()`, `float()`, or `bool()` as appropriate.
+- **EFFECT**: NN weights now persist to `SignalMaestro/nn_weights.json` after every training cycle. The bot no longer loses all training (acc=75.1%, 240 samples, 20 danger zones) on restart.
+- **LOAD COMPATIBILITY**: `_load_weights` already converts each `danger_zones` entry via `tuple(z)`, so list-of-lists format from the fixed save is fully compatible.
+
+### `SignalMaestro/mirofish_swarm_strategy.py` — `AIOrchestrationAgent.analyze` or-pattern
+- **FIX**: Replaced falsy `or` pattern (`_rsi() or 50.0`, `_stochastic() or 50.0`, `_atr_close() or fallback`) with explicit `None` checks in `AIOrchestrationAgent.analyze`. A valid RSI=0 (perfectly falling market) or Stochastic=0 (at period low) would previously be replaced with the default.
+
+## Bug Fixes & Enhancements (Session 7)
 
 ### `SignalMaestro/neural_signal_trainer.py` (5 bugs fixed)
 - **FIX 1 — Cosine LR uses `_base_lr`**: `_cosine_lr()` previously computed from `self.lr` which was being overwritten every epoch. Added `_base_lr = lr` snapshot on init; scheduler now reads `_base_lr` throughout all 400 epochs.
@@ -88,6 +468,17 @@ A production-grade Binance USDM Perpetual Futures signal bot powered by the **Mi
 ### `SignalMaestro/btcusdt_trader.py`
 - **FIX — klines cache key collision** (strategy 250 bars vs boost 200 bars): Added cross-key cache lookup — if a cached result with the same `(symbol, interval)` has `limit >= requested_limit` and is still fresh, it returns a slice instead of making a duplicate API call. Eliminates ~50% of duplicate Binance klines fetches.
 
+## Bug Fixes (Session 5)
+All fixes verified with zero compile-time errors across all modified files.
+
+### `SignalMaestro/fxsusdt_telegram_bot.py`
+- **FIX — `_MAX_SIGNALS_PER_HOUR` capped to 5 regardless of `SIGNALS_PER_HOUR_MAX` env var**: `__init__` used `min(5, max(1, _sph_requested))` which silently discarded the launcher's `SIGNALS_PER_HOUR_MAX=8` setting, leaving the hourly cap always at 5. Changed to `min(20, max(1, _sph_requested))` so the env var is honoured. The class-level default attribute comment was also corrected.
+- **FIX — `can_send_signal` log message hardcoded "5/5"**: The hourly cap log line read `({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR} — 5/5)` with a literal "5/5" suffix that was always wrong when the cap was not 5. Removed the hardcoded suffix; count is now shown dynamically as `{len}/{cap}`.
+
+### `SignalMaestro/trade_memory.py`
+- **FIX — `get_stats_by_session()` used `pnl_pct > 0` for win counting**: Inconsistent with the already-fixed `get_stats()`. EXPIRED trades with ~0% PnL were miscounted as losses, inflating per-session loss rates. Fixed to `outcome IN ('TP1','TP2','TP3')` for wins and `outcome = 'SL'` for losses, matching every other stat method. Win-rate denominator now uses `resolved` (wins+losses) instead of `total`, excluding EXPIRED from the rate.
+- **FIX — `get_symbol_stats()` aggregate query used `pnl_pct > 0 / <= 0`**: The bulk per-symbol query for overall `win_rate` and `losses` had the same `pnl_pct` bug. Fixed to `outcome IN ('TP1','TP2','TP3')` for wins and `outcome = 'SL'` for losses. Win-rate denominator uses `resolved` instead of `total`. The per-symbol `recent_loss_rate` sub-loop was already correct and left unchanged.
+
 ## Bug Fixes (Session 4 — Historical)
 - **CRITICAL FIX — `openai.py` shadowing the real `openai` package**: Root-level `openai.py` was intercepting every `from openai import AsyncOpenAI` call in `mirofish_swarm_strategy.py`, `ai_enhanced_signal_processor.py`, `ai_sentiment_analyzer.py`, and `ai_capability_checker.py`, causing `ImportError: cannot import name 'AsyncOpenAI'`. This completely disabled the AIOrchestrationAgent's GPT-4o-mini ReACT mode. Fixed by renaming `openai.py` → `openai_handler.py`. Real openai v2.9.0 is now resolved correctly. Confirmed at runtime: `✅ AIOrchestrationAgent: OpenAI GPT-4o-mini ready (async ReACT mode)`.
 - **FIX — `dynamic_signal_integrator.py` and `bot_health_check.py` broken imports**: Both used `from openai import get_openai_status` — a function that lives in the local `openai_handler.py`, not the real openai package. After the rename both were updated to `from openai_handler import get_openai_status`.
@@ -122,17 +513,17 @@ All fixes verified with zero compile-time errors across all modified files.
 | Scan interval | 5–15s |
 | Signal interval | 120s minimum |
 | Signals/hour | 3–10 (cap 10/h) |
-| Quorum | ≥5 of 8 agents must vote non-NEUTRAL |
-| Consensus gate | ≥72% weighted (was 62%) |
-| Pre-boost confidence | ≥64% (was 52%) |
-| Post-boost confidence | ≥80% (was 74%) |
-| Boost cap | +8pt max (was +12pt) |
+| Quorum | ≥5 of 10 agents must vote non-NEUTRAL |
+| Consensus gate | ≥75% weighted (was 72%) |
+| Pre-boost confidence | ≥64% |
+| Post-boost confidence | ≥80% |
+| Boost cap | +12pt max |
 | Min signal strength | ≥62% (was 52%) |
 | Stop Loss | 0.65% base (ATR×1.5 scaled) |
 | TP1 | 1.10% base (ATR×2.54 scaled, min 1.0%) |
 | TP2 | 2.00% base (ATR×4.62 scaled, min 1.8%, always > TP1) |
 | TP3 | 3.10% base (ATR×7.15 scaled, min 2.8%, always > TP2) |
-| Min R:R | 1.50:1 (was 1.30, signals below rejected) |
+| Min R:R | 1.55:1 (signals below rejected) |
 | TP allocation | 45% / 35% / 20% |
 | Global gap | 90s between signals (was 30s) |
 | Micro-price filter | Skip symbols priced < $0.0001 |
@@ -140,9 +531,9 @@ All fixes verified with zero compile-time errors across all modified files.
 ## Architecture
 
 ### Core Strategy Engine
-- **`SignalMaestro/mirofish_swarm_strategy.py`** — MiroFish Swarm Intelligence strategy (v3.1)
-  - 8 specialized swarm agents with independent market analysis personas
-  - Weighted consensus voting (≥72% agreement, quorum ≥5 of 8 agents)
+- **`SignalMaestro/mirofish_swarm_strategy.py`** — MiroFish Swarm Intelligence strategy (v5.0)
+  - 10 specialized swarm agents with independent market analysis personas
+  - Weighted consensus voting (≥75% agreement, quorum ≥5 of 10 agents)
   - Graph-state memory (500 nodes / 1000 edges, MarketEntityType ontology)
   - InsightForge sub-query decomposition + graph retrieval
   - ReACT pattern for AI orchestration (Reason→Act→Reflect→Conclude)
@@ -150,29 +541,32 @@ All fixes verified with zero compile-time errors across all modified files.
   - ATR-scaled SL/TP with guaranteed TP1<TP2<TP3 ordering
   - $0.10 tick size rounding for all price levels
 
-### Swarm Agents & Weights (MiroFish Architecture)
+### Swarm Agents & Weights (MiroFish Architecture v5.0)
 | Agent | Focus | Weight |
 |-------|-------|--------|
-| TrendAgent | EMA 9/21 crossover + EMA200 + graph TrendState | 20% |
-| MomentumAgent | RSI + MACD + IndicatorState graph node | 22% |
+| TrendAgent | EMA 9/21 crossover + EMA200 + graph TrendState | 22% |
+| MomentumAgent | RSI + MACD + IndicatorState graph node | 20% |
 | VolumeAgent | OBV + volume surge + Catalyst node on 2x spike | 18% |
 | VolatilityAgent | Bollinger Bands + ATR + PriceLevel nodes | 15% |
 | OrderFlowAgent | Candle patterns + Pattern graph nodes | 15% |
 | SentimentAgent | Fear/greed proxy + vol contraction regime | 5% |
 | FundingFlowAgent | VWAP deviation + OI proxy + squeeze detection | 5% |
-| AIOrchestrationAgent | GPT-4o-mini ReACT overlay | 5% |
+| PivotSRAgent | Institutional S/R pivot levels + POC analysis | 8% |
+| FLOOPAgent | FLOOP Pro ML-optimized range filter + ROC momentum | 10% |
+| AIOrchestrationAgent | Claude Sonnet 4.6 (primary) + GPT-4o-mini (fallback) ReACT | 5% |
 
 ### Market Connector
 - **`SignalMaestro/btcusdt_trader.py`** — Binance USDM Futures REST API wrapper
-  - Symbol: BTCUSDT Perpetual (fapi.binance.com)
-  - Handles klines, pricing, account balance, positions, leverage, funding rate, OI
+  - ALL USDM Perpetual markets (fapi.binance.com), up to 80 symbols
+  - Handles klines, pricing, multi-symbol batch prices, funding rate, OI
+  - LRU klines cache (300 entries, 90s TTL), USDC deduplication
 
 ### Telegram Bot
 - **`SignalMaestro/fxsusdt_telegram_bot.py`** — Signal bot and command handler
   - Class: `FXSUSDTTelegramBot`
   - Compact Cornix-compatible signal format (15 lines max)
   - Instance-level poll offset (no shared class-state bug)
-  - Boost cap: +8pt maximum from optional analyzers (hard cap, was +12pt)
+  - Boost cap: +12pt maximum from optional analyzers
   - Signal deduplication: 120s cooldown
   - 30+ Telegram commands (/price, /scan, /swarm, /balance, /position, etc.)
 

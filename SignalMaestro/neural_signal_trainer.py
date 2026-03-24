@@ -2,7 +2,7 @@
 """
 NeuralSignalTrainer — Self-learning signal quality filter for MiroFish Swarm.
 
-Architecture  : 40-feature input → Dense(128, ReLU) → Dense(64, ReLU)
+Architecture  : 42-feature input → Dense(128, ReLU) → Dense(64, ReLU)
                 → Dense(32, ReLU) → Dense(1, Sigmoid)
 Optimizer     : Adam with L2 regularisation + dropout (training only)
 Loss          : Focal BCE with dynamic class-weighting (adapts to actual W/L ratio)
@@ -10,8 +10,8 @@ Persistence   : Weights saved as JSON — survives bot restarts with full warm-s
 Training data : Labeled trades from TradeMemory (TP1/TP2/TP3 = win, SL = loss)
 Output        : win_probability ∈ [0, 1] for any SwarmSignal
 
-Architecture v2 (40-feature, 4-layer):
-  • Expanded from 30 → 40 features: 10 new non-linear interaction & regime terms
+Architecture v2 (42-feature, 4-layer):
+  • Expanded from 30 → 42 features: 12 new non-linear interaction & regime terms
   • Wider hidden layers (64/32/16 → 128/64/32) for greater model capacity
   • New features capture: RSI-direction alignment, BB-direction alignment,
     confidence×consensus interaction, quadratic R:R, log volume, cubic consensus,
@@ -54,64 +54,109 @@ except ImportError:
 WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
 MIN_TRAIN_SAMPLES = 20   # minimum labeled trades before NN activates
-INPUT_DIM        = 40    # v2 expanded: +10 interaction/regime features over v1 30-feature set
+INPUT_DIM        = 42    # v4: +1 for FLOOPAgent vote (was 41); 10 agents now fully captured
 
-# Agent order — all 8 votes used as features
+# Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
+# IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
+# _load_weights() detects the shape mismatch and re-initialises cleanly (no crash).
 AGENT_ORDER = [
     "TrendAgent", "MomentumAgent", "VolumeAgent",
     "VolatilityAgent", "OrderFlowAgent", "SentimentAgent",
-    "FundingFlowAgent", "AIOrchestrationAgent",
+    "FundingFlowAgent", "PivotSRAgent", "FLOOPAgent", "AIOrchestrationAgent",
 ]
 _SESSION = {"ASIAN": 0.0, "EU": 0.33, "US": 1.0, "TRANSITION": 0.17}
 _VOTE    = {"BUY": 1.0, "SELL": -1.0, "NEUTRAL": 0.0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature engineering  (40 features — v2)
+# Helper: safe float conversion for legacy SQLite BLOB fields
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """
+    Convert `value` to float, handling legacy SQLite REAL columns that were
+    accidentally stored as raw binary blobs (struct-packed IEEE 754 float32).
+
+    SQLite's Python driver returns bytes when a REAL column contains a raw
+    blob (e.g. from an older code version using struct.pack).  Attempting
+    `float(b'\\x0c\\x19\\xb8B')` raises ValueError; we unpack it instead.
+
+    Falls back to `default` on any conversion error.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, bytes):
+        import struct
+        # 4-byte IEEE 754 little-endian float32 (SQLite REAL stored as BLOB)
+        if len(value) == 4:
+            try:
+                return float(struct.unpack('<f', value)[0])
+            except Exception:
+                pass
+        # 8-byte IEEE 754 little-endian float64
+        if len(value) == 8:
+            try:
+                return float(struct.unpack('<d', value)[0])
+            except Exception:
+                pass
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature engineering  (42 features — v4: FLOOPAgent added, INPUT_DIM 41→42)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    40-feature normalised vector from a trade record dict (v2 — expanded from 30).
+    42-feature normalised vector from a trade record dict (v4 — FLOOPAgent added).
+
+    v4 change: FLOOPAgent vote added as feature 26 (between PivotSRAgent and AIOrchestrationAgent).
+    All features after 25 shift up by 1. INPUT_DIM: 41 → 42.
 
     Features 1-12:  scalar signal quality indicators
     Features 13-16: time / leverage encoding
-    Features 17-24: all 8 agent votes [-1, 0, +1]
-    Features 25-26: derived consensus metrics (agreement fraction, purity)
-    Features 27-28: RSI regime flags (overbought / oversold binary)
-    Features 29-30: Bollinger Band extreme zone flags (upper / lower extreme)
-    Features 31-40: v2 non-linear interaction & regime terms
-      31 — RSI strength aligned to direction  (punishes counter-RSI signals)
-      32 — BB position aligned to direction   (punishes counter-BB signals)
-      33 — confidence × consensus product     (joint quality gate interaction)
-      34 — R:R quadratic scaling              (super-linear reward for high R:R)
-      35 — participation rate squared         (super-linear reward for quorum)
-      36 — consensus cubed                    (strongly amplifies near-unanimous)
-      37 — log-normalised volume ratio        (handles vol spikes non-linearly)
-      38 — ATR ratio quadratic                (super-linear for high volatility)
-      39 — sub-day cosine cycle               (captures intra-session 6h rhythm)
-      40 — RSI trap risk aligned to direction (warns of exhaustion in direction)
+    Features 17-26: all 10 agent votes [-1, 0, +1]   ← +1 for FLOOPAgent
+    Features 27-28: derived consensus metrics (agreement fraction, purity)
+    Features 29-30: RSI regime flags (overbought / oversold binary)
+    Features 31-32: Bollinger Band extreme zone flags (upper / lower extreme)
+    Features 33-42: v2 non-linear interaction & regime terms
+      33 — RSI strength aligned to direction  (punishes counter-RSI signals)
+      34 — BB position aligned to direction   (punishes counter-BB signals)
+      35 — confidence × consensus product     (joint quality gate interaction)
+      36 — R:R quadratic scaling              (super-linear reward for high R:R)
+      37 — participation rate squared         (super-linear reward for quorum)
+      38 — consensus cubed                    (strongly amplifies near-unanimous)
+      39 — log-normalised volume ratio        (handles vol spikes non-linearly)
+      40 — ATR ratio quadratic                (super-linear for high volatility)
+      41 — sub-day cosine cycle               (captures intra-session 6h rhythm)
+      42 — RSI trap risk aligned to direction (warns of exhaustion in direction)
     """
     if not _HAS_NUMPY:
         raise ImportError("numpy required for neural signal trainer")
 
     votes = json.loads(trade.get("agent_votes_json", "{}"))
-    # All 8 agent votes (FundingFlow + AI now included, not just first 6)
+    # All 10 agent votes (FLOOPAgent added in v5.0 — auto-generated from AGENT_ORDER)
     agent_feats = [_VOTE.get(votes.get(a, "NEUTRAL"), 0.0) for a in AGENT_ORDER]
 
     direction = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
     session   = _SESSION.get((trade.get("session") or "US").upper(), 1.0)
 
-    rsi        = float(trade.get("rsi", 50.0))
-    hour       = float(trade.get("hour_of_day", 12))
-    leverage   = float(trade.get("leverage", 10))
-    bb_pos     = float(trade.get("bb_position", 0.5))
-    confidence = float(trade.get("confidence", 70.0)) / 100.0
-    consensus  = float(trade.get("swarm_consensus", 0.75))
-    vol_ratio  = float(trade.get("volume_ratio", 1.0))
-    rr         = float(trade.get("risk_reward_ratio", 1.5))
-    atr_ratio  = float(trade.get("atr_ratio", 0.003))
-    part_rate  = float(trade.get("participation_rate", 0.625))
+    rsi        = _safe_float(trade.get("rsi"),              50.0)
+    hour       = _safe_float(trade.get("hour_of_day"),     12.0)
+    leverage   = _safe_float(trade.get("leverage"),        10.0)
+    bb_pos     = _safe_float(trade.get("bb_position"),      0.5)
+    confidence = _safe_float(trade.get("confidence"),      70.0) / 100.0
+    consensus  = _safe_float(trade.get("swarm_consensus"), 0.75)
+    vol_ratio  = _safe_float(trade.get("volume_ratio"),     1.0)
+    rr         = _safe_float(trade.get("risk_reward_ratio"), 1.5)
+    atr_ratio  = _safe_float(trade.get("atr_ratio"),       0.003)
+    part_rate  = _safe_float(trade.get("participation_rate"), 0.700)
 
     # Derived consensus metrics
     all_votes = [votes.get(a, "NEUTRAL") for a in AGENT_ORDER]
@@ -185,7 +230,7 @@ def build_features(trade: Dict) -> "np.ndarray":
         # ── Signal quality (1-12) ─────────────────────────────────────────────
         confidence,                                                       # 1
         consensus,                                                        # 2
-        float(trade.get("signal_strength",     65.0)) / 100.0,          # 3
+        _safe_float(trade.get("signal_strength", 65.0), 65.0) / 100.0,   # 3
         part_rate,                                                        # 4
         (rsi - 50.0) / 50.0,                                             # 5  rsi bias [-1,+1]
         min(vol_ratio / 3.0, 1.0),                                       # 6
@@ -201,31 +246,31 @@ def build_features(trade: Dict) -> "np.ndarray":
         (rsi - 50.0) ** 2 / 2500.0,                                      # 14 rsi extremity [0,1]
         math.sin(2.0 * math.pi * hour / 24.0),                           # 15 hour_sin
         math.cos(2.0 * math.pi * hour / 24.0),                           # 16 hour_cos
-    ] + agent_feats + [                                                   # 17-24 all 8 agent votes
+    ] + agent_feats + [                                                   # 17-26 all 10 agent votes (FLOOPAgent added)
 
-        # ── Derived consensus metrics (25-26) ────────────────────────────────
-        agreement_frac,                                                   # 25 direction agreement [0,1]
-        consensus_purity,                                                 # 26 dominant-side purity [0,1]
+        # ── Derived consensus metrics (27-28) ────────────────────────────────
+        agreement_frac,                                                   # 27 direction agreement [0,1]
+        consensus_purity,                                                 # 28 dominant-side purity [0,1]
 
-        # ── RSI regime flags (27-28) ─────────────────────────────────────────
-        rsi_overbought,                                                   # 27 1 if RSI>70 (OB trap risk)
-        rsi_oversold,                                                     # 28 1 if RSI<30 (OS trap risk)
+        # ── RSI regime flags (29-30) ─────────────────────────────────────────
+        rsi_overbought,                                                   # 29 1 if RSI>70 (OB trap risk)
+        rsi_oversold,                                                     # 30 1 if RSI<30 (OS trap risk)
 
-        # ── Bollinger Band extreme zone flags (29-30) ────────────────────────
-        bb_upper_extreme,                                                 # 29 1 if price near upper BB
-        bb_lower_extreme,                                                 # 30 1 if price near lower BB
+        # ── Bollinger Band extreme zone flags (31-32) ────────────────────────
+        bb_upper_extreme,                                                 # 31 1 if price near upper BB
+        bb_lower_extreme,                                                 # 32 1 if price near lower BB
 
-        # ── v2 Non-linear interaction & regime features (31-40) ──────────────
-        rsi_aligned,                                                      # 31 RSI aligned to direction
-        bb_aligned,                                                       # 32 BB pos aligned to direction
-        conf_x_consensus,                                                 # 33 confidence × consensus
-        rr_quadratic,                                                     # 34 R:R quadratic
-        part_sq,                                                          # 35 participation squared
-        consensus_cubed,                                                  # 36 consensus cubed
-        vol_log,                                                          # 37 log vol ratio
-        atr_quad,                                                         # 38 ATR quadratic
-        hour_cos2,                                                        # 39 sub-day cosine (6h)
-        rsi_trap,                                                         # 40 RSI trap risk aligned
+        # ── v2 Non-linear interaction & regime features (33-42) ──────────────
+        rsi_aligned,                                                      # 33 RSI aligned to direction
+        bb_aligned,                                                       # 34 BB pos aligned to direction
+        conf_x_consensus,                                                 # 35 confidence × consensus
+        rr_quadratic,                                                     # 36 R:R quadratic
+        part_sq,                                                          # 37 participation squared
+        consensus_cubed,                                                  # 38 consensus cubed
+        vol_log,                                                          # 39 log vol ratio
+        atr_quad,                                                         # 40 ATR quadratic
+        hour_cos2,                                                        # 41 sub-day cosine (6h)
+        rsi_trap,                                                         # 42 RSI trap risk aligned
     ]
 
     arr = np.array(f, dtype=np.float32)
@@ -255,7 +300,7 @@ def build_label(trade: Dict) -> float:
     if outcome == "SL":
         return 0.0
     # EXPIRED: require a meaningful P&L to generate a reliable label
-    pnl = float(trade.get("pnl_pct") or 0.0)
+    pnl = _safe_float(trade.get("pnl_pct"), 0.0)
     if pnl >= 0.5:
         return 1.0
     if pnl <= -0.5:
@@ -284,12 +329,16 @@ class LossPatternAnalyzer:
         self.win_means: Optional["np.ndarray"]  = None
         self.loss_means: Optional["np.ndarray"] = None
         self.is_fitted = False
+        # Base loss rate from training data — stored so danger_penalty uses a relative
+        # threshold rather than the hardcoded 0.65 that caused negative penalties when
+        # the base rate was below 65% (e.g. zones with loss_rate 0.63 gave penalty < 0).
+        self._base_loss_rate: float = 0.50
 
     # Maximum number of danger zones kept in memory.
-    # With 40 features × 10 bins = 400 candidate zones; cap prevents the
+    # With 42 features × 8 bins = 336 candidate zones; cap prevents the
     # danger-zone penalty from covering ALL of feature space when the
     # base loss rate is already high (e.g. 55% → every bin exceeds 65%).
-    MAX_DANGER_ZONES = 20
+    MAX_DANGER_ZONES = 12
 
     def fit(self, X: "np.ndarray", y: "np.ndarray"):
         """
@@ -336,6 +385,7 @@ class LossPatternAnalyzer:
 
             # Base loss rate for this training batch
             base_loss_rate = float(1.0 - y.mean())
+            self._base_loss_rate = base_loss_rate  # stored for use in danger_penalty()
 
             # Danger zones: zones where loss_rate meaningfully exceeds base rate.
             # Threshold = base_rate + 15pp (e.g. 48% base → 63% threshold).
@@ -377,19 +427,53 @@ class LossPatternAnalyzer:
         """
         Return a penalty [0, 0.15] to subtract from win_probability for signals
         that fall inside known danger zones.  Higher = more dangerous pattern.
+
+        BUG FIX: Previously used hardcoded 0.65 as the penalty base. After the
+        relative threshold fix in fit() (base_rate + 15pp), zones with loss_rate
+        between base_rate+15pp and 0.65 produced NEGATIVE penalties, boosting
+        the confidence of bad signals instead of penalising them.
+
+        Fix: use self._base_loss_rate as the reference so penalty is always
+        proportional to how much the zone exceeds the base rate (always ≥ 0).
+        Penalty = (loss_rate - base_rate) × importance × scaling_factor
+        Capped at 0.15 to prevent over-rejection.
         """
         if not self.is_fitted or not self.danger_zones:
             return 0.0
         try:
             penalty = 0.0
+            base_lr = max(self._base_loss_rate, 0.30)
+            _zones_hit = 0
             for fi, lo, hi, loss_rate in self.danger_zones:
                 if lo <= x[fi] <= hi:
-                    # Weight by feature importance
+                    excess = loss_rate - base_lr
+                    if excess <= 0:
+                        continue
                     imp = min(self.feature_importance[fi], 3.0) / 3.0
-                    penalty += (loss_rate - 0.65) * imp * 0.5
-            return min(penalty, 0.15)
+                    _zone_pen = min(excess * imp * 0.4, 0.06)
+                    penalty += _zone_pen
+                    _zones_hit += 1
+                    if _zones_hit >= 4:
+                        break
+            return min(max(penalty, 0.0), 0.10)
         except Exception:
             return 0.0
+
+    def update_incremental(self, x: "np.ndarray", label: float):
+        """Incrementally update danger zone loss rates with a single new sample."""
+        if not self.is_fitted or not self.danger_zones:
+            return
+        try:
+            updated = []
+            for fi, lo, hi, loss_rate in self.danger_zones:
+                if lo <= x[fi] <= hi:
+                    alpha = 0.05
+                    is_loss = 1.0 if label == 0.0 else 0.0
+                    loss_rate = loss_rate * (1.0 - alpha) + is_loss * alpha
+                updated.append((fi, lo, hi, loss_rate))
+            self.danger_zones = updated
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -400,13 +484,13 @@ class NeuralSignalTrainer:
     """
     Three-hidden-layer MLP (v2 wider) trained with mini-batch Adam + focal BCE loss.
 
-    Forward:  X(N,40) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
+    Forward:  X(N,42) → Z1=X·W1+b1 → A1=ReLU(Z1) → [dropout]
                       → Z2=A1·W2+b2 → A2=ReLU(Z2) → [dropout]
                       → Z3=A2·W3+b3 → A3=ReLU(Z3)
                       → Z4=A3·W4+b4 → out=σ(Z4)  (N,1)
 
-    Architecture v2: 40→128→64→32→1
-      • 40 input features (v1 had 30; +10 non-linear interaction & regime terms)
+    Architecture v2: 42→128→64→32→1
+      • 42 input features (v1 had 30; +12 non-linear interaction & regime terms)
       • Wider hidden layers: 128/64/32 (v1: 64/32/16) for greater capacity
       • Same 4 parameters groups (W1/b1 through W4/b4)
 
@@ -468,7 +552,7 @@ class NeuralSignalTrainer:
         # reject_threshold: signals below this are rejected.
         # boost_threshold:  signals above this get a confidence boost.
         self._opt_threshold    = 0.50   # default; overwritten after each training run
-        self._reject_threshold = 0.40   # lower bound (never below this)
+        self._reject_threshold = 0.08   # lower bound (only reject truly bad signals)
         self._boost_threshold  = 0.70   # upper bound (only boost above this)
 
         # Direction-aware calibration offsets.
@@ -506,7 +590,7 @@ class NeuralSignalTrainer:
             s = np.sqrt(2.0 / fan_in)
             return rng.normal(0, s, (fan_in, fan_out)).astype(np.float32)
 
-        # v2 architecture: 40 → 128 → 64 → 32 → 1  (wider + deeper capacity)
+        # v2 architecture: 42 → 128 → 64 → 32 → 1  (wider + deeper capacity)
         self.W1 = _w(INPUT_DIM, 128); self.b1 = np.zeros((1, 128), np.float32)
         self.W2 = _w(128, 64);        self.b2 = np.zeros((1, 64),  np.float32)
         self.W3 = _w(64, 32);         self.b3 = np.zeros((1, 32),  np.float32)
@@ -538,6 +622,19 @@ class NeuralSignalTrainer:
         self._feat_mean  = X.mean(axis=0)
         self._feat_std   = X.std(axis=0) + 1e-8   # avoid divide-by-zero
         self._feat_fitted = True
+
+    @staticmethod
+    def _utc_hour(ts) -> int:
+        """Extract UTC hour from a timestamp, converting from any timezone."""
+        if ts is None:
+            return 12
+        try:
+            if hasattr(ts, 'utcoffset') and ts.utcoffset() is not None:
+                from datetime import timezone
+                ts = ts.astimezone(timezone.utc)
+            return ts.hour
+        except Exception:
+            return 12
 
     def _normalise(self, X: "np.ndarray") -> "np.ndarray":
         """Apply z-score normalisation.  Returns X unchanged if not yet fitted."""
@@ -640,8 +737,9 @@ class NeuralSignalTrainer:
                     best_thresh = float(t)
 
             # Derived reject / boost thresholds around optimal
-            self._reject_threshold = max(0.25, best_thresh - 0.10)
-            self._boost_threshold  = min(0.75, best_thresh + 0.10)
+            # Wider gap from optimal threshold to reduce blanket rejections
+            self._reject_threshold = max(0.08, best_thresh - 0.42)
+            self._boost_threshold  = min(0.80, best_thresh + 0.12)
             return best_thresh
         except Exception:
             return 0.50
@@ -697,33 +795,31 @@ class NeuralSignalTrainer:
                 "confidence":         signal.confidence,
                 "swarm_consensus":    signal.swarm_consensus,
                 "signal_strength":    signal.signal_strength,
-                "participation_rate": getattr(signal, "participation_rate", 0.875),
+                "participation_rate": getattr(signal, "participation_rate", 0.700),
                 "rsi":                signal.rsi,
                 "volume_ratio":       signal.volume_ratio,
                 "risk_reward_ratio":  signal.risk_reward_ratio,
                 "atr_ratio":          atr_ratio,
                 "bb_position":        bb_position,
-                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
+                "hour_of_day":        self._utc_hour(signal.timestamp),
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
             }
             X_raw = build_features(rec).reshape(1, -1)
+            base_prob = float(self.predict_batch(X_raw)[0])
             X_norm = self._normalise(X_raw)
-            base_prob = float(self.predict_batch(X_raw)[0])  # predict_batch normalises inside
 
-            # Direction-aware calibration: shift prediction by per-direction offset
-            # to correct for BUY-biased training data underestimating SELL win rates.
             _dir_offset = (
                 self._sell_prob_offset if rec.get("action") == "SELL"
                 else self._buy_prob_offset
             )
-            base_prob = float(np.clip(base_prob + _dir_offset, 0.0, 1.0))
+            base_prob = float(np.clip(base_prob + _dir_offset, 0.05, 1.0))
 
-            # Apply loss-pattern penalty
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                base_prob = max(0.0, base_prob - penalty)
+                penalty *= 0.35
+                base_prob = max(0.05, base_prob - penalty)
 
             return base_prob
         except Exception as e:
@@ -753,13 +849,13 @@ class NeuralSignalTrainer:
                 "confidence":         signal.confidence,
                 "swarm_consensus":    signal.swarm_consensus,
                 "signal_strength":    signal.signal_strength,
-                "participation_rate": getattr(signal, "participation_rate", 0.875),
+                "participation_rate": getattr(signal, "participation_rate", 0.700),
                 "rsi":                signal.rsi,
                 "volume_ratio":       signal.volume_ratio,
                 "risk_reward_ratio":  signal.risk_reward_ratio,
                 "atr_ratio":          atr_ratio,
                 "bb_position":        bb_position,
-                "hour_of_day":        signal.timestamp.hour if signal.timestamp else 12,
+                "hour_of_day":        self._utc_hour(signal.timestamp),
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
@@ -770,18 +866,16 @@ class NeuralSignalTrainer:
             mean_p = float(mean_arr[0])
             std_p  = float(std_arr[0])
 
-            # Direction-aware calibration: shift prediction by per-direction offset
-            # to correct for BUY-biased training data underestimating SELL win rates.
             _dir_offset = (
                 self._sell_prob_offset if rec.get("action") == "SELL"
                 else self._buy_prob_offset
             )
-            mean_p = float(np.clip(mean_p + _dir_offset, 0.0, 1.0))
+            mean_p = float(np.clip(mean_p + _dir_offset, 0.05, 1.0))
 
-            # Apply loss-pattern penalty to mean prediction
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                mean_p = max(0.0, mean_p - penalty)
+                penalty *= 0.35
+                mean_p = max(0.05, mean_p - penalty)
 
             return mean_p, std_p
         except Exception as e:
@@ -947,13 +1041,13 @@ class NeuralSignalTrainer:
                     p    = np.clip(A4, _eps, 1.0 - _eps)
                     p_t  = np.where(yb == 1, p, 1.0 - p)
                     wt   = np.where(yb == 1, self._w_win, self._w_loss)
-                    focal_w = (1.0 - p_t) ** γ
+                    focal_w = (1.0 - p_t) ** γ  # precomputed — reused below to avoid redundant pow
 
                     # d(focal_BCE)/d(A4): chain rule through focal weight
                     d_pt_dp = np.where(yb == 1, 1.0, -1.0)
                     grad_p = wt * (
                         γ * (1.0 - p_t) ** (γ - 1) * np.log(p_t + _eps)
-                        - (1.0 - p_t) ** γ / (p_t + _eps)
+                        - focal_w / (p_t + _eps)          # BUG FIX: was re-computing (1-p_t)^γ inline
                     ) * d_pt_dp
                     # Through sigmoid: dA4/dZ4 = A4*(1-A4)
                     dZ4 = grad_p * A4 * (1.0 - A4) / m
@@ -1031,14 +1125,17 @@ class NeuralSignalTrainer:
                 _sel_mask  = ~_buy_mask
                 _probs_cal = A4_all.flatten()
                 _actuals   = y_all.flatten()
-                self._buy_prob_offset = (
+                _raw_buy = (
                     float(np.mean(_actuals[_buy_mask]) - np.mean(_probs_cal[_buy_mask]))
                     if _buy_mask.any() else 0.0
                 )
-                self._sell_prob_offset = (
+                _raw_sell = (
                     float(np.mean(_actuals[_sel_mask]) - np.mean(_probs_cal[_sel_mask]))
                     if _sel_mask.any() else 0.0
                 )
+                _MAX_DIR_OFFSET = 0.05
+                self._buy_prob_offset = float(np.clip(_raw_buy, -_MAX_DIR_OFFSET, _MAX_DIR_OFFSET))
+                self._sell_prob_offset = float(np.clip(_raw_sell, -_MAX_DIR_OFFSET, _MAX_DIR_OFFSET))
                 if abs(self._sell_prob_offset) > 0.005 or abs(self._buy_prob_offset) > 0.005:
                     self.logger.info(
                         f"🎯 Direction calibration: "
@@ -1144,35 +1241,46 @@ class NeuralSignalTrainer:
         if not _HAS_NUMPY:
             return
         try:
+            # BUG FIX: danger_zones tuples and feature_importance contain NumPy
+            # float32 values (from ndarray bin-edge slicing and abs-diff operations).
+            # json.dump raises TypeError on numpy scalar types.  Explicitly convert
+            # every value to Python-native float/int before serialising.
             data = {
                 "W1": self.W1.tolist(), "b1": self.b1.tolist(),
                 "W2": self.W2.tolist(), "b2": self.b2.tolist(),
                 "W3": self.W3.tolist(), "b3": self.b3.tolist(),
                 "W4": self.W4.tolist(), "b4": self.b4.tolist(),
-                "n_samples_trained":   self.n_samples_trained,
-                "last_train_time":     self.last_train_time,
-                "last_accuracy":       self.last_accuracy,
-                "last_val_loss":       self.last_val_loss,
-                "last_win_rate":       self.last_win_rate,
-                "last_loss_rate":      self.last_loss_rate,
-                "_t":                  self._t,
-                "_base_lr":            self._base_lr,
-                "trained":             self.trained,
-                "class_weight_loss":   self.class_weight_loss,
-                "_w_win":              self._w_win,
-                "_w_loss":             self._w_loss,
-                "_opt_threshold":      self._opt_threshold,
-                "_reject_threshold":   self._reject_threshold,
-                "_boost_threshold":    self._boost_threshold,
-                "_buy_prob_offset":    self._buy_prob_offset,
-                "_sell_prob_offset":   self._sell_prob_offset,
+                "n_samples_trained":   int(self.n_samples_trained),
+                "last_train_time":     float(self.last_train_time),
+                "last_accuracy":       float(self.last_accuracy),
+                "last_val_loss":       float(self.last_val_loss),
+                "last_win_rate":       float(self.last_win_rate),
+                "last_loss_rate":      float(self.last_loss_rate),
+                "_t":                  int(self._t),
+                "_base_lr":            float(self._base_lr),
+                "trained":             bool(self.trained),
+                "class_weight_loss":   float(self.class_weight_loss),
+                "_w_win":              float(self._w_win),
+                "_w_loss":             float(self._w_loss),
+                "_opt_threshold":      float(self._opt_threshold),
+                "_reject_threshold":   float(self._reject_threshold),
+                "_boost_threshold":    float(self._boost_threshold),
+                "_buy_prob_offset":    float(self._buy_prob_offset),
+                "_sell_prob_offset":   float(self._sell_prob_offset),
                 "_feat_mean":  self._feat_mean.tolist()  if self._feat_mean  is not None else None,
                 "_feat_std":   self._feat_std.tolist()   if self._feat_std   is not None else None,
-                "_feat_fitted": self._feat_fitted,
-                "danger_zones":        self.loss_analyzer.danger_zones,
-                "feature_importance":  self.loss_analyzer.feature_importance,
+                "_feat_fitted": bool(self._feat_fitted),
+                # danger_zones: (feature_idx, lo, hi, loss_rate) — lo/hi are np.float32
+                "danger_zones": [
+                    [int(fi), float(lo), float(hi), float(lr)]
+                    for fi, lo, hi, lr in self.loss_analyzer.danger_zones
+                ],
+                # feature_importance is a list of np.float32 from ndarray operations
+                "feature_importance": [float(x) for x in self.loss_analyzer.feature_importance],
                 "win_means":  self.loss_analyzer.win_means.tolist()  if self.loss_analyzer.win_means  is not None else None,
                 "loss_means": self.loss_analyzer.loss_means.tolist() if self.loss_analyzer.loss_means is not None else None,
+                "lpa_base_loss_rate": float(self.loss_analyzer._base_loss_rate),
+                "input_dim": INPUT_DIM,  # stored to detect architecture upgrades on load
             }
             # Atomic write: dump to temp file, then rename (POSIX atomic)
             tmp_path = WEIGHTS_PATH + ".tmp"
@@ -1189,6 +1297,15 @@ class NeuralSignalTrainer:
         try:
             with open(WEIGHTS_PATH) as f:
                 d = json.load(f)
+
+            # Early exit if saved weights used a different INPUT_DIM (architecture upgrade)
+            saved_input_dim = d.get("input_dim")
+            if saved_input_dim is not None and int(saved_input_dim) != INPUT_DIM:
+                self.logger.info(
+                    f"ℹ️  NN architecture upgraded (input_dim {saved_input_dim}→{INPUT_DIM}) — "
+                    f"discarding old weights, starting fresh"
+                )
+                return
 
             w1 = np.array(d["W1"], dtype=np.float32)
             b1 = np.array(d["b1"], dtype=np.float32)
@@ -1241,7 +1358,7 @@ class NeuralSignalTrainer:
 
             # FIX 5: Restore optimal thresholds
             self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
-            self._reject_threshold = float(d.get("_reject_threshold", 0.40))
+            self._reject_threshold = float(d.get("_reject_threshold", 0.08))
             self._boost_threshold  = float(d.get("_boost_threshold",  0.70))
 
             # Restore direction-aware calibration offsets
@@ -1271,6 +1388,10 @@ class NeuralSignalTrainer:
                     self.loss_analyzer.win_means  = np.array(d["win_means"],  np.float32)
                 if d.get("loss_means"):
                     self.loss_analyzer.loss_means = np.array(d["loss_means"], np.float32)
+                # Restore stored base loss rate (avoids negative penalties on reload)
+                self.loss_analyzer._base_loss_rate = float(
+                    d.get("lpa_base_loss_rate", 0.50)
+                )
                 self.loss_analyzer.is_fitted = True
 
             # Restore the quality-gated trained flag.
@@ -1358,11 +1479,11 @@ class NeuralSignalTrainer:
                 p = np.clip(A4, _eps, 1.0 - _eps)
                 p_t = np.where(y == 1, p, 1.0 - p)
                 wt = np.where(y == 1, self._w_win, self._w_loss)
-                focal_w = (1.0 - p_t) ** γ
+                focal_w = (1.0 - p_t) ** γ  # precomputed — reused below to avoid redundant pow
                 d_pt_dp = np.where(y == 1, 1.0, -1.0)
                 grad_p = wt * (
                     γ * (1.0 - p_t) ** (γ - 1) * np.log(p_t + _eps)
-                    - (1.0 - p_t) ** γ / (p_t + _eps)
+                    - focal_w / (p_t + _eps)              # BUG FIX: was re-computing (1-p_t)^γ inline
                 ) * d_pt_dp
                 # m=1 for single sample — no /m needed since dZ4 carries 1/1
                 dZ4 = grad_p * A4 * (1.0 - A4)
@@ -1392,6 +1513,13 @@ class NeuralSignalTrainer:
                 self._adam_step([dW1, db1, dW2, db2, dW3, db3, dW4, db4])
 
             self.lr = orig_lr
+
+            if self.loss_analyzer and self.loss_analyzer.is_fitted:
+                try:
+                    self.loss_analyzer.update_incremental(X_norm[0], label)
+                except Exception:
+                    pass
+
             outcome_label = "WIN" if label == 1.0 else "LOSS"
             self.logger.debug(
                 f"🧠 Online update: {trade.get('symbol','?')} {trade.get('action','?')} "

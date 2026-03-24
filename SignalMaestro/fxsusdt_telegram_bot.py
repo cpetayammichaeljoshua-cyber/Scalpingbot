@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-BTCUSDT Perpetual Futures Telegram Signal Bot
+ALL USDM Perpetual Futures Telegram Signal Bot — MiroFish Swarm v5.0
 Powered by MiroFish Swarm Intelligence Strategy (github.com/666ghj/MiroFish)
-Multi-agent consensus trading signals for @ichimokutradingsignal
-Enhanced with comprehensive error handling, AI agents, and market analysis
+10-agent consensus trading signals for @ichimokutradingsignal
+TRUE parallel scanning of up to 80 USDM symbols with asyncio.gather + Semaphore
 """
 
 import asyncio
+import copy
+import dataclasses
 import logging
 import aiohttp
 import os
@@ -41,6 +43,16 @@ def _try_import(module_path: str, attr: str, default=None):
 DynamicPositionManager   = _try_import("SignalMaestro.dynamic_position_manager",   "DynamicPositionManager")
 market_analyzer          = _try_import("SignalMaestro.market_intelligence_analyzer", "market_analyzer")
 SmartDynamicSLTPSystem   = _try_import("SignalMaestro.smart_dynamic_sltp_system",   "SmartDynamicSLTPSystem")
+
+try:
+    from SignalMaestro.public_api_intelligence import PublicAPIIntelligence
+    _HAS_PUBLIC_API = True
+except ImportError:
+    try:
+        from public_api_intelligence import PublicAPIIntelligence
+        _HAS_PUBLIC_API = True
+    except ImportError:
+        _HAS_PUBLIC_API = False
 insider_analyzer         = _try_import("SignalMaestro.insider_trading_analyzer",    "insider_analyzer")
 atas_analyzer            = _try_import("SignalMaestro.atas_integrated_analyzer",    "atas_analyzer")
 bookmap_analyzer         = _try_import("SignalMaestro.bookmap_trading_analyzer",    "bookmap_analyzer")
@@ -58,7 +70,7 @@ except ImportError:
 
 class FXSUSDTTelegramBot:
     """
-    BTCUSDT Futures Telegram Signal Bot — MiroFish Swarm Edition
+    ALL USDM Futures Telegram Signal Bot — MiroFish Swarm v5.0 Edition
     (Class name kept for backward compatibility with start_ultimate_bot.py)
     """
 
@@ -190,12 +202,13 @@ class FXSUSDTTelegramBot:
         # ── Rate limiting — 15M timeframe: minimum 120s between signals ──
         _interval_sec = max(60, int(os.getenv("SIGNAL_INTERVAL_SECONDS", "120")))
         self.min_signal_interval_minutes = _interval_sec / 60.0
-        # Strictly enforce 5/5 hourly cap.
-        # Env var may reduce it further but NEVER exceeds 5 — overrides old
-        # calculated value (int(3600/120)=30) that was incorrectly used before.
+        # Honour SIGNALS_PER_HOUR_MAX from the environment (launcher sets 8).
+        # The hard ceiling of 20 prevents misconfiguration; default is 5 when
+        # the env var is absent.  The old min(5, ...) silently discarded the
+        # launcher's SIGNALS_PER_HOUR_MAX=8 setting.
         _sph_env = os.getenv("SIGNALS_PER_HOUR_MAX", "").strip()
         _sph_requested = int(_sph_env) if _sph_env.isdigit() else 5
-        self._MAX_SIGNALS_PER_HOUR = min(5, max(1, _sph_requested))
+        self._MAX_SIGNALS_PER_HOUR = min(20, max(1, _sph_requested))
         # Global minimum gap between any two signals (across all symbols).
         # Matches the class attribute default of 90s documented in can_send_signal.
         _gap_env = os.getenv("GLOBAL_MIN_GAP_SECONDS", "").strip()
@@ -204,14 +217,33 @@ class FXSUSDTTelegramBot:
         )
         self.signal_timestamps: List[datetime] = []
 
+        # ── AI confidence threshold — cached at init so process_signals never
+        # calls os.getenv() for every signal from 20 parallel coroutines.
+        # Mutable at runtime: update self._ai_threshold_pct if the env var is
+        # changed while the bot is running (e.g. via /settings command).
+        _ai_thresh_env = os.getenv("AI_THRESHOLD_PERCENT", "80").strip()
+        self._ai_threshold_pct: float = (
+            float(_ai_thresh_env)
+            if _ai_thresh_env.replace(".", "", 1).isdigit()
+            else 80.0
+        )
+
         # ── Polling offset (instance, not class-level to avoid shared state) ──
         self._poll_offset: int = 0
 
         # ── Concurrency safety for parallel scanning ──────────────────────────
         # Prevents race conditions when 20 coroutines simultaneously pass the
         # can_send_signal() check before any signal is recorded.
-        # asyncio.Lock() is created lazily (must be in async context).
-        self._signal_gate_lock: Optional[asyncio.Lock] = None
+        # asyncio.Lock() is safe to create in __init__ (Python 3.10+; also
+        # works on 3.8/3.9 when not bound to a specific event loop at creation).
+        self._signal_gate_lock: asyncio.Lock = asyncio.Lock()
+
+        # ── Pre-built scan semaphore — avoids allocating a new asyncio.Semaphore
+        # object on every scan_all_parallel() call (every 30-60s cycle).
+        # The env var is read once at startup; restart the bot to apply changes.
+        _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "30")))
+        self._scan_limit: int = _scan_limit        # stored so log/diagnostics can read the live value
+        self._scan_semaphore: asyncio.Semaphore = asyncio.Semaphore(_scan_limit)
 
         # Telegram send throttle: limits to 1 message every _TG_SEND_MIN_GAP_SEC
         # to avoid HTTP 429 (Telegram rate limit: ~20 msgs/min to channels).
@@ -219,7 +251,7 @@ class FXSUSDTTelegramBot:
         # cannot simultaneously pass the gap check and flood the channel.
         self._tg_last_send_time: float = 0.0
         self._TG_SEND_MIN_GAP_SEC: float = float(os.getenv("TG_SEND_MIN_GAP_SEC", "2.0"))
-        self._tg_send_lock: Optional[asyncio.Lock] = None
+        self._tg_send_lock: asyncio.Lock = asyncio.Lock()
         # Persistent Telegram HTTP session — avoids creating a new TCP connection
         # for every message/poll (mirrors BTCUSDTTrader's shared-session pattern).
         self._tg_session:   Optional[aiohttp.ClientSession] = None
@@ -232,12 +264,12 @@ class FXSUSDTTelegramBot:
         self.trade_memory: Optional[Any] = None
         self.nn_trainer:   Optional[Any] = None
         self.outcome_tracker: Optional[Any] = None
+        self._outcome_tracker_task: Optional[asyncio.Task] = None
+        self.bm25_memory: Optional[Any] = None
         if _HAS_NEURAL:
             try:
                 self.trade_memory = TradeMemory()
                 self.nn_trainer   = NeuralSignalTrainer()
-                # OutcomeTracker is created later in run_continuous_scanner
-                # (needs the live event loop)
                 self.logger.info(
                     f"🧠 Self-learning system initialized | "
                     f"{self.nn_trainer.status_summary()}"
@@ -246,9 +278,33 @@ class FXSUSDTTelegramBot:
                 self.logger.warning(f"⚠️  Self-learning init failed: {e}")
                 self.trade_memory = None
                 self.nn_trainer   = None
+        try:
+            from SignalMaestro.swarm_bm25_memory import SwarmBM25Memory
+            self.bm25_memory = SwarmBM25Memory()
+            _counts = self.bm25_memory.get_lesson_counts()
+            _total = sum(_counts.values())
+            self.logger.info(
+                f"🧠 BM25 Memory initialized | {_total} lessons "
+                f"({', '.join(f'{r}={c}' for r, c in _counts.items() if c > 0) or 'empty'})"
+            )
+        except Exception as _bm25_err:
+            self.logger.warning(f"⚠️  BM25 Memory init skipped: {_bm25_err}")
+            self.bm25_memory = None
+
+        self.public_api: Optional[Any] = None
+        self._public_api_task: Optional[asyncio.Task] = None
+        if _HAS_PUBLIC_API:
+            try:
+                self.public_api = PublicAPIIntelligence()
+                self.logger.info("🌐 PublicAPIIntelligence initialized (Fear&Greed, CoinGecko, CoinCap)")
+            except Exception as pai_err:
+                self.logger.warning(f"⚠️ PublicAPIIntelligence init failed: {pai_err}")
+                self.public_api = None
 
         # ── BB position for current scan cycle (passed to trade recorder) ──
         self._current_bb_position: float = 0.5
+
+        self._streak_lock = asyncio.Lock()
 
         # ── Adaptive confidence threshold — raised during losing streaks ────
         # Base threshold is AI_THRESHOLD_PERCENT (80%).  After N consecutive
@@ -281,8 +337,8 @@ class FXSUSDTTelegramBot:
         self._symbol_stats_last_refresh: float = 0.0
         self.SYMBOL_STATS_REFRESH_INTERVAL: int = 3600  # refresh hourly
         # Threshold: block a symbol if recent loss rate exceeds this
-        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.70  # 70% recent losses → block
-        self.SYMBOL_BLOCK_MIN_TRADES: int  = 10    # need ≥10 resolved trades to block
+        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.80  # 80% recent losses → block
+        self.SYMBOL_BLOCK_MIN_TRADES: int  = 8     # need ≥8 resolved trades to block
 
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
@@ -318,10 +374,8 @@ class FXSUSDTTelegramBot:
         chat_id = str(chat_id)
 
         # ── Telegram send throttle: enforce minimum gap between messages ──────
-        # Use a lock so parallel coroutines cannot both pass the gap check at the
-        # same instant and send back-to-back messages that trigger HTTP 429.
-        if self._tg_send_lock is None:
-            self._tg_send_lock = asyncio.Lock()
+        # _tg_send_lock is initialized in __init__ (not lazily) so multiple
+        # concurrent coroutines never race to create the lock object.
         async with self._tg_send_lock:
             now = time.time()
             gap = now - self._tg_last_send_time
@@ -350,6 +404,16 @@ class FXSUSDTTelegramBot:
                         self.logger.warning(f"⚠️ Telegram API: {error_desc}")
                         if "chat not found" in error_desc.lower():
                             return False
+                        if "can't parse" in error_desc.lower() and parse_mode in ("Markdown", "MarkdownV2", "HTML"):
+                            import re as _re
+                            plain = _re.sub(r'[*_`\[\]()~>#+\-=|{}.!\\]', '', text)
+                            data_plain = {"chat_id": chat_id, "text": plain, "disable_web_page_preview": True}
+                            async with session.post(url, json=data_plain, timeout=aiohttp.ClientTimeout(total=12)) as r2:
+                                if r2.status == 200:
+                                    r2j = await r2.json()
+                                    if r2j.get("ok"):
+                                        self.logger.info(f"✅ Message sent (plain fallback) to {chat_id}")
+                                        return True
                     elif response.status == 429:
                         # Rate limited by Telegram — back off and retry.
                         # BUG FIX: previously fell through to the generic
@@ -424,14 +488,14 @@ class FXSUSDTTelegramBot:
                 f"🐟 MIROFISH SWARM — ALL USDM MARKETS — ONLINE\n\n"
                 f"Bot: {self.bot_username}\n"
                 f"Signal Channel: @ichimokutradingsignal ({self.signal_channel_id})\n"
-                f"Strategy: MiroFish Multi-Agent Swarm v3.2 (Graph+ReACT+Claude)\n"
+                f"Strategy: MiroFish Multi-Agent Swarm v5.0 (Graph+ReACT+Claude)\n"
                 f"Source: github.com/666ghj/MiroFish\n"
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
-                f"Agents: 8 swarm agents | Consensus: ≥72% | Quorum: 5/8\n"
-                f"AI: Claude 3.5 Haiku (primary) → GPT-4o-mini → Rule-based\n"
+                f"Agents: 10 swarm agents | Consensus: ≥75% | Quorum: 5/10\n"
+                f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
-                f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 5/hr\n"
+                f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 10/hr\n"
                 f"Format: Cornix-compatible\n"
                 f"Started: {ts}\n"
                 f"Status: ONLINE ✅"
@@ -451,6 +515,55 @@ class FXSUSDTTelegramBot:
             self.logger.warning(f"⚠️ Startup message exception: {e}")
             return False
 
+    async def close_tg_session(self):
+        """
+        Gracefully close the shared persistent Telegram HTTP session and connector.
+        Called by the launcher's finally block on clean shutdown and by the standalone
+        main() entry point.  Safe to call even if the session was never opened.
+        """
+        if self._tg_session and not self._tg_session.closed:
+            try:
+                await self._tg_session.close()
+            except Exception:
+                pass
+        self._tg_session   = None
+        self._tg_connector = None
+
+        # Also stop the telegram Application updater if polling was started
+        _app = getattr(self, "telegram_app", None)
+        if _app is not None:
+            try:
+                if _app.updater and _app.updater.running:
+                    await _app.updater.stop()
+                await _app.stop()
+                await _app.shutdown()
+            except Exception:
+                pass
+
+        # Cancel the OutcomeTracker background task if running
+        _task = getattr(self, "_outcome_tracker_task", None)
+        if _task is not None and not _task.done():
+            _task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_task), timeout=2.0)
+            except Exception:
+                pass
+
+        _pai_task = getattr(self, "_public_api_task", None)
+        if _pai_task is not None and not _pai_task.done():
+            _pai_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_pai_task), timeout=2.0)
+            except Exception:
+                pass
+        if self.public_api is not None:
+            try:
+                await self.public_api.close()
+            except Exception:
+                pass
+
+        self.logger.debug("🔗 Telegram session closed")
+
     async def test_telegram_connection(self) -> bool:
         try:
             session = await self._get_tg_session()
@@ -468,28 +581,22 @@ class FXSUSDTTelegramBot:
             self.logger.error(f"❌ Telegram connection test failed: {e}")
         return False
 
-    async def close_tg_session(self):
-        """Gracefully close the shared Telegram HTTP session (call on shutdown)."""
-        if self._tg_session and not self._tg_session.closed:
-            await self._tg_session.close()
-        self._tg_session   = None
-        self._tg_connector = None
-        self.logger.debug("🔗 Telegram session closed")
-
     # ─────────────────────────────────────────
     # Rate Limiting
     # ─────────────────────────────────────────
 
     # ── Rate-limiting constants — quality over quantity ─────────────────────
-    _GLOBAL_MIN_GAP_SECONDS = 90   # minimum seconds between ANY two signals (all symbols)
-    _MAX_SIGNALS_PER_HOUR   = 5    # global cap: strict 5/5 signals per hour
+    # NOTE: _GLOBAL_MIN_GAP_SECONDS and _MAX_SIGNALS_PER_HOUR are now set as
+    # instance attributes in __init__ (from env vars) and never as class-level
+    # attributes — the class-level defaults previously here were always shadowed
+    # by the __init__ instance assignments and served only to confuse readers.
 
     def _refresh_symbol_blacklist(self):
         """
-        FIX 8: Refresh per-symbol performance stats and rebuild the blacklist.
+        Refresh per-symbol performance stats and rebuild the blacklist.
 
-        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (70%)
-        over at least SYMBOL_BLOCK_MIN_TRADES (10) resolved trades are added
+        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (75%)
+        over at least SYMBOL_BLOCK_MIN_TRADES (8) resolved trades are added
         to the blacklist and skipped by can_send_signal().
 
         Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (1 hour).
@@ -522,6 +629,13 @@ class FXSUSDTTelegramBot:
             added   = new_blacklist - self._symbol_blacklist
             removed = self._symbol_blacklist - new_blacklist
             self._symbol_blacklist = new_blacklist
+
+            try:
+                _all_loss_rate = self.trade_memory.get_recent_loss_rate(n=50)
+                _wr = max(0.05, 1.0 - _all_loss_rate)
+                self.strategy._global_win_rate = round(_wr, 3)
+            except Exception:
+                pass
 
             if added:
                 self.logger.warning(
@@ -599,7 +713,7 @@ class FXSUSDTTelegramBot:
         recent_1h = [ts for ts in self.signal_timestamps if ts > cutoff_1h]
         if len(recent_1h) >= self._MAX_SIGNALS_PER_HOUR:
             self.logger.info(
-                f"🚦 [global] Strict hourly cap reached ({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR} — 5/5) "
+                f"🚦 [global] Hourly cap reached ({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR}) "
                 f"— pausing [{symbol}]"
             )
             return False
@@ -611,20 +725,15 @@ class FXSUSDTTelegramBot:
         elapsed = time.time() - last_ts
         return max(0, int(self.min_signal_interval_minutes * 60 - elapsed))
 
-    def update_loss_streak(self, is_loss: bool):
+    async def update_loss_streak(self, is_loss: bool):
         """
         Called by OutcomeTracker (or any resolver) whenever a trade resolves.
-
-        Maintains a consecutive-loss counter and adjusts _adaptive_conf_boost:
-          - Win  → reset streak to 0 and remove any extra boost.
-          - Loss → increment streak; when streak ≥ STREAK_TRIGGER_N,
-                   boost the confidence gate by STREAK_BOOST_PER_LOSS% per
-                   additional loss (capped at STREAK_MAX_BOOST_PCT).
-
-        The effect: after 3 consecutive losses the bot becomes harder to satisfy
-        (e.g. 80% → 86%) so it waits for only the strongest setups until the
-        NN adapts via online/batch learning.
+        Protected by _streak_lock to prevent race conditions with parallel scans.
         """
+        async with self._streak_lock:
+            self._update_loss_streak_inner(is_loss)
+
+    def _update_loss_streak_inner(self, is_loss: bool):
         if not is_loss:
             if self.STREAK_RESET_ON_WIN and self._consecutive_losses > 0:
                 old_boost = self._adaptive_conf_boost
@@ -695,7 +804,7 @@ class FXSUSDTTelegramBot:
             "TrendAgent": "Tr", "MomentumAgent": "Mo", "VolumeAgent": "Vo",
             "VolatilityAgent": "Vl", "OrderFlowAgent": "OF",
             "SentimentAgent": "Se", "FundingFlowAgent": "Fn",
-            "AIOrchestrationAgent": "AI",
+            "PivotSRAgent": "Pi", "FLOOPAgent": "FL", "AIOrchestrationAgent": "AI",
         }
         _sym = {"BUY": "B", "SELL": "S", "NEUTRAL": "N"}
         votes_str = " ".join(
@@ -745,17 +854,26 @@ class FXSUSDTTelegramBot:
         return msg
 
     async def send_signal_to_channel(self, signal: SwarmSignal,
-                                     bb_position: float = None) -> bool:
+                                     bb_position: float = None,
+                                     _skip_rate_check: bool = False) -> bool:
         """
         Send formatted Cornix-compatible swarm signal.
         Uses per-symbol rate limiting so each market has its own cooldown.
         Broadcasts to signal_channel_id (@ichimokutradingsignal).
         Also pings admin_chat_id if configured and different from channel.
+
+        Args:
+            _skip_rate_check: Internal flag — set True when called from
+                process_signals() while the _signal_gate_lock is already
+                held and can_send_signal() has already been checked.
+                Avoids the otherwise redundant 3rd rate-limit check.
         """
         try:
             symbol = getattr(signal, "symbol", "BTCUSDT") or "BTCUSDT"
 
-            if not self.can_send_signal(symbol):
+            # Only re-check rate limiting when called directly (not via the
+            # locked path in process_signals which already verified the gates).
+            if not _skip_rate_check and not self.can_send_signal(symbol):
                 return False
 
             formatted = self.format_swarm_signal(signal)
@@ -886,8 +1004,9 @@ class FXSUSDTTelegramBot:
         with 5-15s delays, causing a full-cycle lag of 6-20 minutes for 80 symbols.
         Now: all 80 symbols complete in ~20-40 seconds (network-bound).
 
-        A Semaphore(20) limits concurrent in-flight requests to Binance to prevent
-        rate-limit errors (HTTP 429) while still achieving ~4× parallel throughput.
+        A configurable Semaphore (default 20, set via SCAN_PARALLEL_LIMIT env var) limits
+        concurrent in-flight requests to Binance to prevent rate-limit errors (HTTP 429)
+        while still achieving ~4× parallel throughput.
 
         Args:
             symbols: list of USDM symbols to scan
@@ -898,12 +1017,10 @@ class FXSUSDTTelegramBot:
         if not symbols:
             return 0
 
-        # Max 20 concurrent scan coroutines — respects Binance REST rate limits
-        _PARALLEL_LIMIT = int(os.getenv("SCAN_PARALLEL_LIMIT", "20"))
-        sem = asyncio.Semaphore(max(1, _PARALLEL_LIMIT))
-
+        # Reuse the pre-built self._scan_semaphore (created in __init__) to
+        # avoid allocating a new asyncio.Semaphore object every 30-60s scan cycle.
         async def _scan_one(symbol: str) -> bool:
-            async with sem:
+            async with self._scan_semaphore:
                 try:
                     return await self.scan_and_signal(symbol)
                 except Exception as exc:
@@ -941,19 +1058,20 @@ class FXSUSDTTelegramBot:
         if not signals:
             return False
 
-        # ── Lazy-initialize locks (must be created in async context) ──
-        if self._signal_gate_lock is None:
-            self._signal_gate_lock = asyncio.Lock()
-
         # Base confidence threshold + adaptive loss-streak boost.
         # After STREAK_TRIGGER_N consecutive losses the gate rises by
         # STREAK_BOOST_PER_LOSS% per additional loss (capped at STREAK_MAX_BOOST_PCT)
         # so the bot becomes more selective until the NN re-learns from the mistakes.
-        confidence_threshold = (
-            float(os.getenv("AI_THRESHOLD_PERCENT", "80"))
-            + self._adaptive_conf_boost
-        )
-        signal = signals[0]  # Best-ranked signal
+        # _ai_threshold_pct is cached at __init__ to avoid per-signal env reads
+        # from 20 parallel coroutines every scan cycle.
+        confidence_threshold = self._ai_threshold_pct + self._adaptive_conf_boost
+
+        # Work on a COPY of the signal so confidence mutations in Phase 1 (boost
+        # analysis) never modify the original object that the strategy may still
+        # reference.  dataclasses.replace() performs a shallow copy which is safe
+        # here because all SwarmSignal fields are scalars / immutables (dict is
+        # only read, not mutated during boost).
+        signal = dataclasses.replace(signals[0])
         symbol = getattr(signal, "symbol", "BTCUSDT") or "BTCUSDT"
 
         # ── Fast pre-check before any network I/O ──
@@ -967,11 +1085,77 @@ class FXSUSDTTelegramBot:
             f"Swarm={signal.swarm_consensus:.0%}"
         )
 
+        # ── Per-symbol loss-streak penalty (applied before Phase 1 boost) ────
+        # If a symbol has lost >65% of its last 10 definitive trades, apply a
+        # pre-boost confidence penalty so historically unreliable symbols face a
+        # harder gate.  This does NOT affect the per-symbol blacklist — it's a
+        # soft quality control that still allows great signals through.
+        #
+        # OPTIMISATION: reuse self._symbol_stats (populated hourly by
+        # _refresh_symbol_blacklist) instead of issuing a fresh SQLite query for
+        # every signal from the 20 parallel scan coroutines.  Falls back to a
+        # live DB query only when the cache is empty (first cycle or after error).
+        if self.trade_memory:
+            try:
+                if self._symbol_stats:
+                    _sym_stats = self._symbol_stats
+                else:
+                    _sym_stats = self.trade_memory.get_symbol_stats(min_trades=5)
+                _sym_perf  = _sym_stats.get(symbol, {})
+                _sym_rlr   = float(_sym_perf.get("recent_loss_rate", 0.0))
+                if _sym_rlr > 0.65:
+                    _sym_penalty = min((_sym_rlr - 0.65) * 50.0, 8.0)  # max -8pt
+                    signal.confidence = max(0.0, signal.confidence - _sym_penalty)
+                    self.logger.debug(
+                        f"📉 [{symbol}] Recent loss rate {_sym_rlr:.0%} > 65% — "
+                        f"pre-boost penalty -{_sym_penalty:.1f}pt "
+                        f"→ conf={signal.confidence:.1f}%"
+                    )
+            except Exception:
+                pass
+
+        if self.public_api is not None:
+            try:
+                _fg_adj = self.public_api.get_sentiment_adjustment()
+                _dir_bias = self.public_api.get_directional_bias()
+                _total_api_adj = _fg_adj
+                if signal.action == "BUY":
+                    _total_api_adj += _dir_bias.get("buy_adj", 0.0)
+                elif signal.action == "SELL":
+                    _total_api_adj += _dir_bias.get("sell_adj", 0.0)
+                if _total_api_adj != 0.0:
+                    signal.confidence = max(0.0, signal.confidence + _total_api_adj)
+                    self.logger.debug(
+                        f"🌐 [{symbol}] F&G adj={_fg_adj:+.1f}pt, "
+                        f"dir_bias={_dir_bias}, total={_total_api_adj:+.1f}pt, "
+                        f"conf→{signal.confidence:.1f}%"
+                    )
+            except Exception:
+                pass
+
         # ── Phase 1: Boost analysis — ALL network I/O runs outside the lock ──
-        # With Semaphore(20), up to 20 coroutines run boost analysis concurrently.
-        # Holding the lock here would serialize them into a single-file queue.
+        # With the configured semaphore (SCAN_PARALLEL_LIMIT), multiple coroutines run
+        # boost analysis concurrently.  Holding the lock here would serialize them into
+        # a single-file queue, eliminating the parallelism benefit.
         _pre_boost_conf = signal.confidence
+        # Max boost: 8.0 pts total — allows multi-source agreement (ATAS + Market Intel +
+        # Insider + Microstructure + AI) to push a quality signal from 72% to 80%.
+        # The effective pre-boost floor is 80 - 8 = 72%, above the strategy's
+        # min_confidence gate of 64%.  All individual boosts are capped to this total.
         _MAX_BOOST = 8.0
+
+        # ── Pre-boost impossibility gate ─────────────────────────────────────
+        # If even the maximum possible boost cannot bring this signal to the
+        # confidence threshold, skip ALL Phase 1 network I/O (klines fetch +
+        # ATAS + MarketIntel + Insider + Microstructure + AI) immediately.
+        # Example: conf=67.7% + max_boost=12pt = 79.7% < 80% threshold → skip.
+        if _pre_boost_conf + _MAX_BOOST < confidence_threshold:
+            self.logger.debug(
+                f"⛔ [{symbol}] Pre-skip: conf={_pre_boost_conf:.1f}%"
+                f" + max_boost={_MAX_BOOST:.0f}pt < threshold={confidence_threshold:.0f}%"
+            )
+            return False
+
         # LOCAL variable — avoids the race where another coroutine overwrites
         # self._current_bb_position between Phase 1 and Phase 2.
         _local_bb_position: float = 0.5
@@ -1057,6 +1241,32 @@ class FXSUSDTTelegramBot:
                     except Exception as e:
                         self.logger.debug(f"Microstructure skipped: {e}")
 
+                if self.ai_processor:
+                    try:
+                        from ai_enhanced_signal_processor import analyze_trading_signal
+                        _ai_signal_text = (
+                            f"{signal.action} {symbol} @ {signal.entry_price:.6g} "
+                            f"RSI={signal.rsi:.1f} Vol={signal.volume_ratio:.2f}x "
+                            f"Conf={signal.confidence:.1f}% Swarm={signal.swarm_consensus:.0%}"
+                        )
+                        _ai_result = await analyze_trading_signal(_ai_signal_text)
+                        _ai_conf = float(_ai_result.get("confidence", 0.0))
+                        _ai_sentiment = _ai_result.get("market_sentiment", "neutral").lower()
+                        _direction_aligned = (
+                            (sig_dir == "BUY"  and _ai_sentiment in ("bullish", "positive")) or
+                            (sig_dir == "SELL" and _ai_sentiment in ("bearish", "negative"))
+                        )
+                        if _direction_aligned and _ai_conf >= 0.75:
+                            _ai_boost = 4 if _ai_conf >= 0.85 else 2
+                            signal.confidence = min(100, signal.confidence + _ai_boost)
+                            signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
+                            self.logger.info(
+                                f"🤖 AI boost +{_ai_boost}% "
+                                f"(sentiment={_ai_sentiment} conf={_ai_conf:.2f})"
+                            )
+                    except Exception as e:
+                        self.logger.debug(f"AI processor skipped: {e}")
+
         except Exception as e:
             self.logger.debug(f"Boost analysis skipped: {e}")
 
@@ -1094,7 +1304,7 @@ class FXSUSDTTelegramBot:
                 # Loss-pattern danger zones apply an additional penalty inside
                 # predict_signal_with_uncertainty().
                 _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
-                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.50:
+                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
                     try:
                         # FIX 6: MC-Dropout prediction with uncertainty
                         nn_win_prob, nn_uncertainty = (
@@ -1104,7 +1314,7 @@ class FXSUSDTTelegramBot:
                         )
 
                         # Read data-driven thresholds (FIX 5)
-                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.40)
+                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.08)
                         _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
                         _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
 
@@ -1119,22 +1329,56 @@ class FXSUSDTTelegramBot:
                             "danger_zones", []
                         ))
 
-                        # Hard reject: win_prob far below reject threshold (> 8pp gap)
-                        # Soft penalty: borderline signals lose confidence instead of
-                        # being dropped, so high-consensus swarm signals still pass.
-                        _far_below = nn_win_prob < (_reject_thresh - 0.08)
-                        if _far_below or (_high_uncertainty and _borderline):
-                            reject_reason = (
-                                f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
-                                if (_high_uncertainty and _borderline)
-                                else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
-                            )
+                        # ── CONSENSUS OVERRIDE (FIX 7) ─────────────────────────────────
+                        # When ALL (or nearly all) swarm agents unanimously agree, the
+                        # collective intelligence of 10 independent agents outweighs the
+                        # NN gate — which was trained on limited historical data (200
+                        # samples, 54.5% win-rate split).  A 10/10 unanimous swarm with
+                        # ≥90% weighted consensus is the highest-quality signal the bot
+                        # can generate.  NN still applies soft penalty/boost, but the
+                        # hard-reject is bypassed.
+                        #
+                        # Thresholds:
+                        #   consensus ≥ 0.90 AND participation ≥ 7/10 → bypass hard-reject
+                        #   consensus ≥ 0.95 AND participation = 10/10 → bypass all NN filters
+                        _swarm_consensus = signal.swarm_consensus        # 0..1
+                        _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
+                        _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
+                        _is_strong       = _swarm_consensus >= 0.85 and _participation >= (7/10)
+
+                        if _is_unanimous and nn_win_prob >= 0.12 and not (_high_uncertainty and nn_uncertainty > 0.25):
+                            _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 15.0)
+                            _override_penalty = min(_override_penalty, 8.0)
+                            signal.confidence = max(60.0, signal.confidence - _override_penalty)
                             self.logger.info(
-                                f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
-                                f"{reject_reason} | danger_zones={n_danger}"
+                                f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
+                                f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
+                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%} "
+                                f"σ={nn_uncertainty:.2f}) penalty={_override_penalty:.1f}pt"
                             )
-                            return False
-                        elif nn_win_prob < _reject_thresh:
+                        else:
+                            # Hard reject: win_prob far below reject threshold (> 8pp gap)
+                            # Soft penalty: borderline signals lose confidence instead of
+                            # being dropped, so high-consensus swarm signals still pass.
+                            _far_below = nn_win_prob < (_reject_thresh - 0.08)
+
+                            # For strong (but not unanimous) signals, relax far-below gap
+                            if _is_strong:
+                                _far_below = nn_win_prob < (_reject_thresh - 0.15)
+
+                            if _far_below or (_high_uncertainty and _borderline and not _is_strong):
+                                reject_reason = (
+                                    f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
+                                    if (_high_uncertainty and _borderline)
+                                    else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
+                                )
+                                self.logger.info(
+                                    f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
+                                    f"{reject_reason} | danger_zones={n_danger}"
+                                )
+                                return False
+
+                        if not _is_unanimous and nn_win_prob < _reject_thresh:
                             # Borderline — apply a confidence penalty instead of hard-rejecting.
                             # Penalty is proportional to how far below threshold the signal is.
                             penalty = (_reject_thresh - nn_win_prob) * 50.0  # up to 4pt
@@ -1163,6 +1407,29 @@ class FXSUSDTTelegramBot:
                     except Exception as _nn_err:
                         self.logger.debug(f"NN gate skipped: {_nn_err}")
 
+                if self.bm25_memory is not None:
+                    try:
+                        _sit = (
+                            f"symbol={symbol} action={signal.action} "
+                            f"rsi={getattr(signal, 'rsi', 50):.0f} "
+                            f"vol_ratio={getattr(signal, 'volume_ratio', 1.0):.2f} "
+                            f"consensus={getattr(signal, 'swarm_consensus', 0):.2f} "
+                            f"confidence={signal.confidence:.1f}"
+                        )
+                        _bm25_adj = self.bm25_memory.get_confidence_adjustment(
+                            _sit, signal.action
+                        )
+                        if abs(_bm25_adj) >= 0.3:
+                            signal.confidence = max(0, min(100,
+                                signal.confidence + _bm25_adj
+                            ))
+                            self.logger.debug(
+                                f"🧠 BM25 memory adj {_bm25_adj:+.1f}pt → "
+                                f"conf={signal.confidence:.1f}%"
+                            )
+                    except Exception as _bm25_err:
+                        self.logger.debug(f"BM25 query skipped: {_bm25_err}")
+
                 # ── Final confidence gate ──
                 if signal.confidence < confidence_threshold:
                     self.logger.info(
@@ -1171,7 +1438,15 @@ class FXSUSDTTelegramBot:
                     return False
 
                 # ── Send to @ichimokutradingsignal ──
-                return await self.send_signal_to_channel(signal, bb_position=_local_bb_position)
+                # _skip_rate_check=True: rate gates were already verified twice
+                # (pre-lock at line ~965 and inside lock above).  Skipping the
+                # third redundant check inside send_signal_to_channel saves one
+                # synchronous iteration through signal_timestamps per signal.
+                return await self.send_signal_to_channel(
+                    signal,
+                    bb_position=_local_bb_position,
+                    _skip_rate_check=True,
+                )
 
             except Exception as e:
                 self.logger.error(f"process_signals error: {e}")
@@ -1212,33 +1487,81 @@ class FXSUSDTTelegramBot:
         Main continuous scanner — TRUE PARALLEL scan of ALL USDM markets simultaneously.
 
         Architecture change from legacy round-robin (one symbol every 5-15s → 6-20 min
-        per full cycle of 80 symbols) to asyncio.gather parallel batches (semaphore=20)
-        completing a full pass of all 80 symbols in ~20-40 seconds.
+        per full cycle of 80 symbols) to asyncio.gather parallel batches (semaphore
+        configured via SCAN_PARALLEL_LIMIT) completing a full pass in ~20-40 seconds.
 
         Cycle:
           1. Refresh symbol list (hourly)
           2. Check price alerts
-          3. Parallel-scan ALL active symbols (asyncio.gather + Semaphore(20))
+          3. Parallel-scan ALL active symbols (asyncio.gather + Semaphore(SCAN_PARALLEL_LIMIT))
           4. Heartbeat log every 5 min
           5. Poll Telegram for commands
           6. Sleep CYCLE_SLEEP_SECONDS between full parallel-scan cycles
         """
         self.logger.info("🚀 Starting MiroFish PARALLEL scanner — ALL USDM FUTURES...")
-        self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore(20))")
+        self.logger.info(f"   Mode: TRUE PARALLEL (asyncio.gather + Semaphore({self._scan_limit}))")
 
         await self.test_telegram_connection()
+        await self._drain_pending_updates()
         await self.send_startup_test_message()
+
+        # ── Cancel stale background tasks from previous runs ────────────────
+        for _task_attr in ("_outcome_tracker_task", "_public_api_task"):
+            _old = getattr(self, _task_attr, None)
+            if _old is not None and not _old.done():
+                _old.cancel()
+                self.logger.info(f"🔄 Cancelled stale {_task_attr}")
+            setattr(self, _task_attr, None)
+        if hasattr(self, "outcome_tracker"):
+            self.outcome_tracker = None
 
         # ── Start OutcomeTracker as a live background task ────────────────────
         if _HAS_NEURAL and self.trade_memory and self.outcome_tracker is None:
             try:
                 self.outcome_tracker = OutcomeTracker(
-                    self.trade_memory, self.nn_trainer, self.trader, bot=self
+                    self.trade_memory, self.nn_trainer, self.trader, bot=self,
+                    bm25_memory=self.bm25_memory
                 )
-                asyncio.create_task(self.outcome_tracker.run())
+                self._outcome_tracker_task = asyncio.create_task(
+                    self.outcome_tracker.run(),
+                    name="OutcomeTracker",
+                )
+
+                def _ot_done_cb(t: asyncio.Task):
+                    if t.cancelled():
+                        return
+                    exc = t.exception()
+                    if exc is not None:
+                        self.logger.error(
+                            "❌ OutcomeTracker task exited with exception — "
+                            "outcome tracking halted until next restart",
+                            exc_info=exc,
+                        )
+
+                self._outcome_tracker_task.add_done_callback(_ot_done_cb)
                 self.logger.info("🧠 OutcomeTracker background task started")
             except Exception as ot_err:
                 self.logger.warning(f"⚠️ OutcomeTracker init failed: {ot_err}")
+
+        if self.public_api is not None and self._public_api_task is None:
+            try:
+                self._public_api_task = asyncio.create_task(
+                    self.public_api.run(),
+                    name="PublicAPIIntelligence",
+                )
+                def _pai_done_cb(t: asyncio.Task):
+                    if t.cancelled():
+                        return
+                    exc = t.exception()
+                    if exc is not None:
+                        self.logger.error(
+                            "❌ PublicAPIIntelligence task exited with exception",
+                            exc_info=exc,
+                        )
+                self._public_api_task.add_done_callback(_pai_done_cb)
+                self.logger.info("🌐 PublicAPIIntelligence background refresh started")
+            except Exception as pai_err:
+                self.logger.warning(f"⚠️ PublicAPIIntelligence background start failed: {pai_err}")
 
         # ── Initial symbol list refresh ───────────────────────────────────────
         await self._refresh_symbol_list()
@@ -1264,6 +1587,17 @@ class FXSUSDTTelegramBot:
 
                 # ── 1. Periodically refresh the active symbol list ────────────
                 await self._refresh_symbol_list()
+
+                if cycle_count % 100 == 0:
+                    _active_set = set(self._active_symbols)
+                    self._symbol_last_signal = {
+                        k: v for k, v in self._symbol_last_signal.items()
+                        if k in _active_set or time.time() - v < 86400
+                    }
+                    self._symbol_signal_count = {
+                        k: v for k, v in self._symbol_signal_count.items()
+                        if k in _active_set
+                    }
 
                 # ── 2. Check BTCUSDT price alerts ─────────────────────────────
                 await self.check_price_alerts()
@@ -1346,6 +1680,43 @@ class FXSUSDTTelegramBot:
     # ─────────────────────────────────────────
     # Telegram Polling (minimal get_updates)
     # ─────────────────────────────────────────
+
+    async def _drain_pending_updates(self):
+        """
+        Acknowledge all Telegram updates that arrived before this bot session started.
+
+        Without this, every restart replays the entire unprocessed update queue
+        from update_id=1 — commands typed by users while the bot was offline would
+        be re-executed immediately on startup (e.g. /force_signal, /status firing
+        multiple times).
+
+        Strategy: request offset=-1 (Telegram returns the single most-recent pending
+        update), then advance _poll_offset to its update_id.  The next normal poll
+        sends offset=_poll_offset+1, which acknowledges everything up to that point
+        and only delivers genuinely new updates.
+        """
+        try:
+            url     = f"{self.base_url}/getUpdates"
+            params  = {"offset": -1, "timeout": 0, "limit": 1}
+            session = await self._get_tg_session()
+            async with session.get(
+                url, params=params,
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as response:
+                if response.status != 200:
+                    return
+                data = await response.json()
+                updates = data.get("result", [])
+                if updates:
+                    last_id = max(u.get("update_id", 0) for u in updates)
+                    self._poll_offset = last_id
+                    self.logger.info(
+                        f"📬 Drained pending Telegram updates — "
+                        f"offset advanced to {last_id} "
+                        f"({len(updates)} update(s) skipped)"
+                    )
+        except Exception as e:
+            self.logger.debug(f"_drain_pending_updates: {e}")
 
     async def _poll_telegram_updates(self):
         """
@@ -1451,13 +1822,13 @@ class FXSUSDTTelegramBot:
         chat_id = str(update.effective_chat.id)
         msg = """🐟 **BTCUSDT MiroFish Swarm Bot**
 
-Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy.
+Welcome! This bot delivers high-confidence USDM Futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy scanning ALL active Binance USDM Perpetual markets.
 
 **🚀 How It Works:**
-• 8 specialized AI agents analyze BTC independently
+• 10 specialized AI agents analyze markets independently
 • Each agent has a unique market perspective
 • Swarm consensus determines signal direction
-• Only signals with ≥72% agent agreement are sent
+• Only signals with ≥75% agent agreement are sent
 
 **📋 Key Commands:**
 • `/price` — Current BTCUSDT price
@@ -1469,7 +1840,7 @@ Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals pow
 • `/help` — Full command list
 
 **📡 Signals Channel:** @ichimokutradingsignal
-**⚡ Strategy:** MiroFish Swarm v1 (BTCUSDT USDM Perp)"""
+**⚡ Strategy:** MiroFish Swarm v5.0 (ALL USDM Perp Futures)"""
         await self.send_message(chat_id, msg)
         self.commands_used[chat_id] = self.commands_used.get(chat_id, 0) + 1
 
@@ -1576,9 +1947,11 @@ Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals pow
                 "VolumeAgent":          "📊 OBV + surge + Catalyst node on 2× spike      (18%)",
                 "VolatilityAgent":      "🌊 BB + ATR + PriceLevel BB_Upper/Lower nodes   (15%)",
                 "OrderFlowAgent":       "🕯️ Candle patterns + Pattern graph nodes         (15%)",
-                "SentimentAgent":       "😱 Price deviation + vol contraction regime      ( 5%)",
-                "FundingFlowAgent":     "💹 VWAP dev + OI proxy + squeeze detect          ( 5%)",
-                "AIOrchestrationAgent": "🤖 GPT-4o-mini ReACT Reason→Act→Reflect          ( 5%)",
+                "SentimentAgent":       "😱 EMA dev contrarian + overextension fade       ( 5%)",
+                "FundingFlowAgent":     "💹 Contrarian VWAP mean-revert + funding squeeze ( 5%)",
+                "PivotSRAgent":         "🎯 Pivot points + Volume POC + S/R proximity     ( 8%)",
+                "FLOOPAgent":           "🔁 ML range filter + HTF EMA60/200 + ROC trend  (10%)",
+                "AIOrchestrationAgent": "🤖 Claude/GPT-4o-mini ReACT Reason→Act→Reflect  ( 5%)",
             }
 
             agent_lines = "\n".join(
@@ -1589,12 +1962,12 @@ Welcome! This bot delivers high-confidence BTCUSDT perpetual futures signals pow
             from SignalMaestro.mirofish_swarm_strategy import get_current_market_session
             session, activity = get_current_market_session()
 
-            msg = f"""🐟 **MiroFish Swarm — v3 Graph+ReACT**
+            msg = f"""🐟 **MiroFish Swarm — v5 Graph+ReACT**
 Strategy: github.com/666ghj/MiroFish
 
 **🌐 Market Session:** `{session}` (activity={activity:.2f}×)
 
-**🤖 Active Agents (8):**
+**🤖 Active Agents (10):**
 {agent_lines}
 
 **🗄️ Graph-State Memory:**
@@ -1605,10 +1978,12 @@ Strategy: github.com/666ghj/MiroFish
 • **Recent Signals:** `{mem.get('recent_signals', 0)}`
 
 **⚙️ Consensus Rules:**
-• Min swarm agreement: `72%`
+• Min swarm agreement: `75%` (weighted)
+• Min quorum: `5/10` agents non-NEUTRAL
 • Pre-boost strength gate: `62%`
-• Final confidence gate: `{os.getenv('AI_THRESHOLD_PERCENT', '80')}%`
+• Final confidence gate: `{self._ai_threshold_pct:.0f}%`
 • Session-aware agent weights: Active
+• Contrarian agents: SentimentAgent + FundingFlowAgent
 
 **🏆 MiroFish Architecture:**
 • Agent Profiles (persona, stance, influence_weight)
@@ -2996,6 +3371,8 @@ async def main():
     except Exception as e:
         bot.logger.error(f"Critical error: {e}")
         raise
+    finally:
+        await bot.close_tg_session()
 
 
 if __name__ == "__main__":
