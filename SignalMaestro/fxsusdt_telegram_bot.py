@@ -216,6 +216,9 @@ class FXSUSDTTelegramBot:
             float(_gap_env) if _gap_env.replace(".", "", 1).isdigit() else 90.0
         )
         self.signal_timestamps: List[datetime] = []
+        # Daily signal counter (resets at UTC midnight)
+        self._daily_signal_date: Optional[str] = None
+        self._daily_signal_count: int = 0
 
         # ── AI confidence threshold — cached at init so process_signals never
         # calls os.getenv() for every signal from 20 parallel coroutines.
@@ -767,26 +770,34 @@ class FXSUSDTTelegramBot:
 
     def format_swarm_signal(self, signal: SwarmSignal) -> str:
         """
-        Compact Cornix-compatible MiroFish signal.
-        Cornix strictly parses: direction / exchange / leverage / entry / TPs / SL.
-        Numbers must NOT contain commas. Analytics tail is 2 lines only.
+        IRONS AI comprehensive signal format — full indicator panel, MTF, Market,
+        Consensus, Chart Patterns, and daily counter.
         """
-        direction    = "LONG" if signal.action == "BUY" else "SHORT"
-        d_emoji      = "🟢" if signal.action == "BUY" else "🔴"
-        entry        = signal.entry_price
-        sl           = signal.stop_loss
-        tp1          = signal.take_profit_1
-        tp2          = signal.take_profit_2
-        tp3          = signal.take_profit_3
-        lev          = signal.leverage
-        rr           = signal.risk_reward_ratio
-        tf           = (getattr(signal, "timeframe", "15m") or "15m").upper()
-        session      = (getattr(signal, "market_session", "") or "").upper()
-        consensus_pct = signal.swarm_consensus * 100
+        act       = signal.action
+        direction = "LONG" if act == "BUY" else "SHORT"
+        d_arrow   = "▲" if act == "BUY" else "▼"
+        entry     = signal.entry_price
+        sl        = signal.stop_loss
+        tp1       = signal.take_profit_1
+        tp2       = signal.take_profit_2
+        tp3       = signal.take_profit_3
+        lev       = signal.leverage
+        rr        = signal.risk_reward_ratio
+        sym       = signal.symbol or "BTCUSDT"
+        score     = getattr(signal, "signal_score", 50)
+        regime    = getattr(signal, "regime", "RANGING")
+        daily_cnt = getattr(signal, "daily_count", 1)
 
-        # Percentage deltas — guard against zero-division
+        def _fmt(p: float) -> str:
+            if p == 0: return "0"
+            if p >= 1000: return f"{p:.2f}"
+            elif p >= 10:  return f"{p:.4f}"
+            elif p >= 0.1: return f"{p:.5f}"
+            else:          return f"{p:.8f}"
+
+        # % deltas
         if entry and abs(entry) > 0:
-            if signal.action == "BUY":
+            if act == "BUY":
                 sl_pct  = (entry - sl)  / entry * 100
                 tp1_pct = (tp1 - entry) / entry * 100
                 tp2_pct = (tp2 - entry) / entry * 100
@@ -799,59 +810,380 @@ class FXSUSDTTelegramBot:
         else:
             sl_pct = tp1_pct = tp2_pct = tp3_pct = 0.0
 
-        # Compact agent vote summary: B=BUY S=SELL N=NEUTRAL
-        _short = {
-            "TrendAgent": "Tr", "MomentumAgent": "Mo", "VolumeAgent": "Vo",
-            "VolatilityAgent": "Vl", "OrderFlowAgent": "OF",
-            "SentimentAgent": "Se", "FundingFlowAgent": "Fn",
-            "PivotSRAgent": "Pi", "FLOOPAgent": "FL", "AIOrchestrationAgent": "AI",
-        }
-        _sym = {"BUY": "B", "SELL": "S", "NEUTRAL": "N"}
-        votes_str = " ".join(
-            f"{_short.get(n, n[:2])}:{_sym.get(v, v[0])}"
-            for n, v in (signal.agent_votes or {}).items()
-        )
+        # Score label
+        if score >= 80:
+            score_label = "STRONG — high confidence"
+        elif score >= 65:
+            score_label = "MODERATE — good setup"
+        elif score >= 50:
+            score_label = "RISKY — weak confirmations"
+        else:
+            score_label = "VERY RISKY — avoid"
+        score_warn = "⚠️" if score < 65 else ("✅" if score >= 80 else "⚠️")
 
-        # Timestamp (HH:MM UTC)
-        ts = signal.timestamp.strftime("%H:%M") if signal.timestamp else "—"
-
-        # Session tag (compact)
-        sess_tag = f" {session[:2]}" if session else ""
-
-        sym_tag = f"#{signal.symbol}" if signal.symbol else "#BTCUSDT"
-
-        def _fmt(p: float) -> str:
-            """Format price with appropriate precision regardless of magnitude."""
-            if p >= 1000:
-                return f"{p:.2f}"
-            elif p >= 10:
-                return f"{p:.4f}"
-            elif p >= 0.1:
-                return f"{p:.5f}"
+        # Indicator helper: emoji + score%
+        def _em(bull_cond: bool, bear_cond: bool) -> str:
+            if act == "BUY":
+                return "✅" if bull_cond else ("🔴" if bear_cond else "⚪")
             else:
-                return f"{p:.8f}"
+                return "✅" if bear_cond else ("🔴" if bull_cond else "⚪")
 
-        msg = (
-            f"{d_emoji} {sym_tag} {direction}\n"
-            f"Exchange: Binance Futures\n"
-            f"Leverage: Cross {lev}x\n"
-            f"\n"
-            f"Entry Targets:\n"
-            f"1) {_fmt(entry)}\n"
-            f"\n"
-            f"Take-Profit Targets:\n"
-            f"1) {_fmt(tp1)}\n"
-            f"2) {_fmt(tp2)}\n"
-            f"3) {_fmt(tp3)}\n"
-            f"\n"
-            f"Stop Targets:\n"
-            f"1) {_fmt(sl)}\n"
-            f"\n"
-            f"⚡{tf}{sess_tag} · {consensus_pct:.0f}%🐟 · {signal.confidence:.0f}%Conf · RSI {signal.rsi:.0f} · R:R 1:{rr:.1f}\n"
-            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC\n"
-            f"📡 @ichimokutradingsignal | MiroFish Swarm"
+        def _sc(bull_val: int, bear_val: int, neutral_val: int,
+                bull_cond: bool, bear_cond: bool) -> int:
+            if act == "BUY":
+                return bull_val if bull_cond else (bear_val if bear_cond else neutral_val)
+            else:
+                return bull_val if bear_cond else (bear_val if bull_cond else neutral_val)
+
+        cur = entry
+
+        # ── Momentum ──────────────────────────────────────────────────────────
+        rsi = signal.rsi
+        rsi_ob = rsi > 70
+        rsi_os = rsi < 30
+        rsi_em = _em(30 < rsi < 65, rsi_ob)
+        rsi_sc = _sc(70, 20, 50, 30 < rsi < 65, rsi_ob)
+        rsi_desc = f"RSI {rsi:.1f} — {'overbought, risky for...' if rsi_ob else 'oversold, risky' if rsi_os else 'neutral zone'}"
+
+        stk = getattr(signal, "stoch_k", 50.0)
+        std = getattr(signal, "stoch_d", 50.0)
+        stoch_em = _em(20 < stk < 80, stk > 85 or stk < 15)
+        stoch_sc = _sc(70, 30, 50, 20 < stk < 80, stk > 85 or stk < 15)
+        stoch_desc = f"Stoch K={stk:.1f} D={std:.1f}"
+
+        wr = getattr(signal, "williams_r_val", -50.0)
+        wr_em = _em(wr < -80, wr > -20)
+        wr_sc = _sc(80, 20, 50, wr < -80, wr > -20)
+        wr_desc = f"%R={wr:.1f} {'overbought' if wr > -20 else 'oversold' if wr < -80 else 'neutral'}"
+
+        cci = getattr(signal, "cci_val", 0.0)
+        cci_em = _em(-100 < cci < 100, cci > 150 or cci < -150)
+        cci_sc = _sc(70, 20, 50, -100 < cci < 100, cci > 200)
+        cci_desc = f"CCI={cci:.1f} {'overbought' if cci > 100 else 'oversold' if cci < -100 else 'neutral'}"
+
+        mfi = getattr(signal, "mfi_val", 50.0)
+        mfi_em = _em(mfi < 40, mfi > 80)
+        mfi_sc = _sc(70, 30, 50, mfi < 40, mfi > 80)
+        mfi_desc = f"MFI={mfi:.1f} {'high — smart money buying' if mfi > 60 else 'low — growth potential' if mfi < 40 else 'neutral'}"
+
+        roc_v = getattr(signal, "roc_val", 0.0)
+        roc_em = _em(roc_v > 0.5, roc_v < -0.5)
+        roc_sc = _sc(83, 30, 55, roc_v > 1.0, roc_v < -1.0)
+        roc_desc = f"ROC={roc_v:.2f}% {'positive momentum' if roc_v > 0 else 'negative momentum'}"
+
+        uo = getattr(signal, "uo_val", 50.0)
+        uo_em = _em(uo > 55, uo < 45)
+        uo_sc = _sc(70, 40, 60, uo > 55, uo < 45)
+        uo_desc = f"UO={uo:.1f} {'above 50' if uo > 50 else 'below 50'}"
+
+        ao = getattr(signal, "ao_val", 0.0)
+        ao_em = _em(ao > 0, ao < 0)
+        ao_sc = _sc(80, 30, 50, ao > 0, ao < 0)
+        ao_desc = f"AO={ao:.4f} {'positive and rising' if ao > 0 else 'negative'}"
+
+        tsi_v = getattr(signal, "tsi_val", 0.0)
+        tsi_em = _em(tsi_v > 0, tsi_v < 0)
+        tsi_sc = _sc(70, 30, 50, tsi_v > 0, tsi_v < 0)
+        tsi_desc = f"TSI={tsi_v:.2f} {'positive momentum' if tsi_v > 0 else 'negative momentum'}"
+
+        # ── Trend ─────────────────────────────────────────────────────────────
+        macd_v = getattr(signal, "macd_val", 0.0)
+        macd_sig = getattr(signal, "macd_signal_val", 0.0)
+        macd_hist = macd_v - macd_sig
+        macd_em = _em(macd_hist > 0, macd_hist < 0)
+        macd_sc = _sc(80, 30, 50, macd_hist > 0, macd_hist < 0)
+        macd_desc = f"MACD histogram {macd_hist:.4f} {'positive' if macd_hist > 0 else 'negative'}"
+
+        ema_f = getattr(signal, "ema_fast_val", 0.0)
+        ema_s = getattr(signal, "ema_slow_val", 0.0)
+        ema_bull = ema_f > ema_s if (ema_f and ema_s) else False
+        ema_em = _em(ema_bull, not ema_bull)
+        ema_sc = _sc(90, 20, 50, ema_bull, not ema_bull)
+        ema_arrow = ">" if ema_bull else "<"
+        ema_bias  = "bullish" if ema_bull else "bearish"
+        ema_desc  = f"EMA12 {_fmt(ema_f)} {ema_arrow} EMA26 {_fmt(ema_s)} — {ema_bias} | {'aligned ✓' if (act=='BUY' and ema_bull) or (act=='SELL' and not ema_bull) else 'counter'}"
+
+        adx_v = getattr(signal, "adx_val", 20.0)
+        pdi_v = getattr(signal, "pdi_val", 25.0)
+        mdi_v = getattr(signal, "mdi_val", 25.0)
+        adx_em = "✅" if adx_v > 25 else ("⚪" if adx_v > 15 else "🔴")
+        adx_sc = 80 if adx_v > 30 else (40 if adx_v < 15 else 55)
+        adx_desc = f"ADX={adx_v:.1f} {'strong trend' if adx_v > 30 else 'weak trend (ranging)' if adx_v < 20 else 'moderate trend'}"
+
+        ich_pos = getattr(signal, "ich_cloud_pos", "inside")
+        ich_tk  = getattr(signal, "ich_tk_bull", False)
+        ich_em = _em(ich_pos == "above", ich_pos == "below")
+        ich_above = ich_pos == "above"
+        ich_below = ich_pos == "below"
+        ich_sc = _sc(90, 20, 50, ich_above and ich_tk == (act == "BUY"), ich_below and ich_tk != (act == "BUY"))
+        ich_tk_str = " + bullish TK crossover" if (ich_tk and act == "BUY") else (" + bearish TK cross" if (not ich_tk and act == "SELL") else "")
+        ich_desc = f"Price {ich_pos} cloud{ich_tk_str}"
+
+        st_dir = getattr(signal, "supertrend_dir_val", 0)
+        st_val = getattr(signal, "supertrend_price", 0.0)
+        st_bull = st_dir == 1
+        st_em = _em(st_bull, not st_bull)
+        st_sc = _sc(80, 30, 50, st_bull, not st_bull)
+        st_desc = f"SuperTrend {_fmt(st_val)} {'aligns with' if (act=='BUY' and st_bull) or (act=='SELL' and not st_bull) else 'against'} {direction}"
+
+        ar_up = getattr(signal, "aroon_up", 50.0)
+        ar_dn = getattr(signal, "aroon_down", 50.0)
+        ar_bull = ar_up > 70 and ar_dn < 30
+        ar_bear = ar_dn > 70 and ar_up < 30
+        ar_em = _em(ar_bull, ar_bear)
+        ar_sc = _sc(80, 30, 50, ar_bull, ar_bear)
+        ar_label = "strong bullish" if ar_bull else ("strong bearish" if ar_bear else "neutral")
+        ar_desc = f"Aroon Up={ar_up:.0f} Down={ar_dn:.0f} — {ar_label}"
+
+        # ── Volatility ────────────────────────────────────────────────────────
+        bb_pct = getattr(signal, "bb_pct_b", 0.5)
+        bb_up  = getattr(signal, "bb_upper_val", 0.0)
+        bb_lo  = getattr(signal, "bb_lower_val", 0.0)
+        bb_ob  = bb_pct > 0.95 or cur > bb_up > 0
+        bb_os  = bb_pct < 0.05 or (bb_lo > 0 and cur < bb_lo)
+        bb_em  = _em(0.2 < bb_pct < 0.75, bb_ob)
+        bb_sc  = _sc(70, 20, 50, 0.2 < bb_pct < 0.75, bb_ob)
+        bb_ref = bb_up if bb_up > 0 else cur
+        bb_where = "above upper BB" if bb_ob else ("below lower BB" if bb_os else "middle zone")
+        bb_desc = f"Price {_fmt(cur)} {bb_where} {_fmt(bb_ref)}"
+
+        kc_pos = getattr(signal, "kc_pos", "inside")
+        kc_up  = getattr(signal, "kc_upper_val", 0.0)
+        kc_ob  = kc_pos == "above"
+        kc_ok  = kc_pos == "inside"
+        kc_em  = _em(kc_ok, kc_ob)
+        kc_sc  = _sc(70, 30, 55, kc_ok, kc_ob)
+        kc_desc = f"Price {'above upper KC' if kc_ob else 'below lower KC' if kc_pos=='below' else 'inside KC'} {_fmt(kc_up)}"
+
+        atr_pct  = getattr(signal, "atr_pct", 0.0)
+        sl_atr   = getattr(signal, "sl_atr_ratio", 0.0)
+        atr_good = sl_atr < 2.0
+        atr_bad  = sl_atr > 4.0
+        atr_em   = "✅" if atr_good else ("🔴" if atr_bad else "⚪")
+        atr_sc   = 80 if atr_good else (30 if atr_bad else 55)
+        atr_desc = f"SL/ATR {sl_atr:.2f} — {'too wide' if atr_bad else 'acceptable' if atr_good else 'moderate'}"
+
+        fib_l  = getattr(signal, "fib_level", 0.618)
+        fib_d  = getattr(signal, "fib_dist_pct", 5.0)
+        fib_em = "✅" if fib_d < 1.5 else ("⚪" if fib_d < 3.0 else "🔴")
+        fib_sc = 90 if fib_d < 0.5 else (70 if fib_d < 1.5 else (40 if fib_d < 3.0 else 20))
+        _FIB_NAMES = {0.0: "0%", 0.236: "0.236", 0.382: "0.382",
+                      0.5: "0.5", 0.618: "0.618", 0.786: "0.786", 1.0: "100%"}
+        _fn = min(_FIB_NAMES.keys(), key=lambda x: abs(x - fib_l))
+        fib_desc = f"Entry near Fib level {_FIB_NAMES.get(_fn, f'{fib_l:.3f}')} ({fib_d:.1f}%)"
+
+        piv_pos = getattr(signal, "pivot_pos", "neutral")
+        piv_r1  = getattr(signal, "pivot_r1", 0.0)
+        piv_s1  = getattr(signal, "pivot_s1", 0.0)
+        piv_p   = getattr(signal, "pivot_p", 0.0)
+        piv_bull = "above" in piv_pos
+        piv_em = _em(piv_bull, not piv_bull)
+        piv_sc = _sc(65, 40, 50, piv_bull, not piv_bull)
+        piv_ref = piv_r1 if act == "BUY" else piv_s1
+        piv_where = "between Pivot and R1" if act == "BUY" else "between S1 and Pivot"
+        piv_desc = f"Entry {piv_where}={_fmt(piv_ref)}"
+
+        # ── Volume ────────────────────────────────────────────────────────────
+        vol_r = getattr(signal, "vol_avg_ratio", signal.volume_ratio)
+        vol_em = "✅" if vol_r > 1.2 else ("🔴" if vol_r < 0.3 else "⚪")
+        vol_sc = 80 if vol_r > 1.5 else (20 if vol_r < 0.2 else int(50 + vol_r * 20))
+        raw_vol = vol_r * (signal.atr_value or 0) * 1e6 if signal.atr_value else 0
+        vol_desc = f"Volume {raw_vol:.0f} = {vol_r:.1f}x average — {'strong' if vol_r > 1.5 else 'weak' if vol_r < 0.5 else 'normal'}"
+
+        vwap_v  = getattr(signal, "vwap_val", cur)
+        vwap_ab = getattr(signal, "vwap_above", True)
+        vwap_em = _em(vwap_ab, not vwap_ab)
+        vwap_sc = _sc(80, 30, 50, vwap_ab, not vwap_ab)
+        vwap_desc = f"Price {_fmt(cur)} {'above' if vwap_ab else 'below'} VWAP {_fmt(vwap_v)}"
+
+        obv_r   = getattr(signal, "obv_rising", True)
+        obv_em  = _em(obv_r, not obv_r)
+        obv_sc  = _sc(80, 30, 50, obv_r, not obv_r)
+        obv_desc = "OBV rising — confirms buying" if obv_r else "OBV falling — confirms selling"
+
+        cmf_v  = getattr(signal, "cmf_val", 0.0)
+        cmf_em = _em(cmf_v > 0.05, cmf_v < -0.05)
+        cmf_sc = _sc(80, 30, 50, cmf_v > 0.05, cmf_v < -0.05)
+        cmf_desc = f"CMF={cmf_v:.4f} {'bullish' if cmf_v > 0.05 else 'bearish' if cmf_v < -0.05 else 'neutral'}"
+
+        ad_r   = getattr(signal, "ad_rising", True)
+        ad_em  = _em(ad_r, not ad_r)
+        ad_sc  = _sc(80, 30, 50, ad_r, not ad_r)
+        ad_desc = "A/D line rising — accumulation" if ad_r else "A/D line falling — distribution"
+
+        sq_on  = getattr(signal, "squeeze_on", False)
+        sq_mom = getattr(signal, "squeeze_mom", 0.0)
+        if sq_on:
+            sq_aligned = (act == "BUY" and sq_mom > 0) or (act == "SELL" and sq_mom < 0)
+            sq_line = f"│ 🔥 Squeeze: FIRE — {'bullish' if sq_aligned else 'bearish'} breakout!"
+        else:
+            sq_line = "│ ⚪ Squeeze: OFF — no squeeze"
+
+        div_line = "│ Divergences: None"
+
+        # ── MTF ───────────────────────────────────────────────────────────────
+        mtf_4h  = getattr(signal, "mtf_4h", "NEUTRAL")
+        mtf_1h  = getattr(signal, "mtf_1h", "NEUTRAL")
+        mtf_15m = getattr(signal, "mtf_15m", "NEUTRAL")
+
+        def _mtf_em(s: str) -> str:
+            return "✅" if s == "BULL" else ("🔴" if s == "BEAR" else "⚪")
+
+        mtf_aligned = sum(
+            1 for s in [mtf_4h, mtf_1h, mtf_15m]
+            if (act == "BUY" and s == "BULL") or (act == "SELL" and s == "BEAR")
         )
-        return msg
+        mtf_pct = int(mtf_aligned / 3 * 100)
+
+        # ── Market Context ─────────────────────────────────────────────────────
+        fg = 50
+        btc_d = 0.0
+        funding = getattr(signal, "atr_pct", 0.0)  # reuse field as proxy if no funding
+        ls_ratio = 1.0
+        btc_corr = 0.5
+        btc_trend = "neutral"
+        try:
+            if hasattr(self, "public_api") and self.public_api is not None:
+                fg    = int(getattr(self.public_api, "fear_greed_index", 50) or 50)
+                btc_d = float(getattr(self.public_api, "btc_dominance", 0.0) or 0.0)
+        except Exception:
+            pass
+
+        if fg >= 75:   fg_label = "😈 (Extreme Greed)"
+        elif fg >= 55: fg_label = "😀 (Greed)"
+        elif fg >= 45: fg_label = "😐 (Neutral)"
+        elif fg >= 25: fg_label = "😰 (Fear)"
+        else:          fg_label = "😱 (Extreme Fear)"
+
+        btc_st = "🟢 bullish" if btc_trend in ("bull", "bullish") else ("🔴 bearish" if btc_trend in ("bear", "bearish") else "🟡 neutral")
+        btc_confirms = (
+            "BTC confirms LONG ✅" if act == "BUY" else "BTC confirms SHORT ✅"
+        )
+
+        # ── Consensus (12 traders) ────────────────────────────────────────────
+        agent_votes  = signal.agent_votes or {}
+        _TRADER_MAP  = {
+            "TrendAgent":            ("TrendFollower",  75),
+            "MomentumAgent":         ("MomentumTrader", 75),
+            "VolumeAgent":           ("VolumeTrader",   95),
+            "VolatilityAgent":       ("VolatilityTrader", 70),
+            "OrderFlowAgent":        ("ScalpTrader",    70),
+            "SentimentAgent":        ("SentimentTrader",65),
+            "FundingFlowAgent":      ("FundingTrader",  75),
+            "PivotSRAgent":          ("SwingTrader",    60),
+            "FLOOPAgent":            ("RangeTrader",    65),
+            "AIOrchestrationAgent":  ("AlgoTrader",     80),
+        }
+        n_aligned  = sum(1 for v in agent_votes.values() if v == act)
+        n_against  = sum(1 for v in agent_votes.values() if v not in (act, "NEUTRAL"))
+        n_neutral  = sum(1 for v in agent_votes.values() if v == "NEUTRAL")
+        n_strong   = sum(
+            1 for k, v in agent_votes.items()
+            if v == act and _TRADER_MAP.get(k, ("", 0))[1] >= 90
+        )
+        aligned_trd = [
+            f"{_TRADER_MAP.get(k, (k, 70))[0]} {_TRADER_MAP.get(k, (k, 70))[1]}%"
+            for k, v in agent_votes.items() if v == act
+        ]
+        against_trd = [
+            f"{_TRADER_MAP.get(k, (k, 70))[0]} {_TRADER_MAP.get(k, (k, 70))[1]}%"
+            for k, v in agent_votes.items() if v not in (act, "NEUTRAL")
+        ]
+        top_trader = ""
+        top_desc   = ""
+        if agent_votes.get("VolumeAgent") == act:
+            top_trader = "VolumeTrader 95%"
+            top_desc   = f"OBV {'rising' if obv_r else 'falling'}, CMF {cmf_v:+.2f}, {'Above' if vwap_ab else 'Below'} VWAP, A/D {'up' if ad_r else 'dn'}"
+        elif aligned_trd:
+            top_trader = aligned_trd[0]
+            top_desc   = "Strong signal alignment"
+
+        # ── Chart Patterns ────────────────────────────────────────────────────
+        patterns = getattr(signal, "patterns", [])
+        _PAT_EM = {
+            "Double Top": "🔴", "Double Bottom": "🟢",
+            "Head & Shoulders": "🔴", "Inverse H&S": "🟢",
+            "Ascending Triangle": "🟢", "Descending Triangle": "🔴",
+            "Symmetrical Triangle": "⚪",
+        }
+
+        # ── Build message ─────────────────────────────────────────────────────
+        DIVIDER = "▬" * 27
+        lines = [
+            DIVIDER,
+            f"🤖 IRONS AI | Score: {score}/100",
+            f"{score_warn} {score_label}",
+            f"🔎 {sym} {direction} {d_arrow} | {lev}x | {regime}",
+            DIVIDER,
+            f"📍 Entry: {_fmt(entry)} → 🛑 Stop Loss: {_fmt(sl)} (-{sl_pct:.1f}%)",
+            (f"🎯 Take Profit: {_fmt(tp1)} (+{tp1_pct:.1f}%) · "
+             f"{_fmt(tp2)} (+{tp2_pct:.1f}%) · "
+             f"{_fmt(tp3)} (+{tp3_pct:.1f}%)"),
+            f"┌─ Indicators [{score}/100] ──────────",
+            "│ ─ Momentum:",
+            f"│ {rsi_em} RSI(14) {rsi_sc}% {rsi_desc}",
+            f"│ {stoch_em} Stochastic {stoch_sc}% {stoch_desc}",
+            f"│ {wr_em} Williams %R {wr_sc}% {wr_desc}",
+            f"│ {cci_em} CCI(20) {cci_sc}% {cci_desc}",
+            f"│ {mfi_em} MFI(14) {mfi_sc}% {mfi_desc}",
+            f"│ {roc_em} ROC(12) {roc_sc}% {roc_desc}",
+            f"│ {uo_em} Ultimate Osc {uo_sc}% {uo_desc}",
+            f"│ {ao_em} Awesome Osc {ao_sc}% {ao_desc}",
+            f"│ {tsi_em} TSI {tsi_sc}% {tsi_desc}",
+            "│ ─ Trend:",
+            f"│ {macd_em} MACD(12,26,9) {macd_sc}% {macd_desc}",
+            f"│ {ema_em} EMA {ema_sc}% {ema_desc}",
+            f"│ {adx_em} ADX(14) {adx_sc}% {adx_desc}",
+            f"│ {ich_em} Ichimoku {ich_sc}% {ich_desc}",
+            f"│ {st_em} SuperTrend {st_sc}% {st_desc}",
+            f"│ {ar_em} Aroon(25) {ar_sc}% {ar_desc}",
+            "│ ─ Volatility:",
+            f"│ {bb_em} Bollinger {bb_sc}% {bb_desc}",
+            f"│ {kc_em} Keltner Ch {kc_sc}% {kc_desc}",
+            f"│ {atr_em} ATR SL {atr_sc}% {atr_desc}",
+            f"│ {fib_em} Fibonacci {fib_sc}% {fib_desc}",
+            f"│ {piv_em} Pivot {piv_sc}% {piv_desc}",
+            "│ ─ Volume:",
+            f"│ {vol_em} Volume {vol_sc}% {vol_desc}",
+            f"│ {vwap_em} VWAP {vwap_sc}% {vwap_desc}",
+            f"│ {obv_em} OBV {obv_sc}% {obv_desc}",
+            f"│ {cmf_em} CMF(20) {cmf_sc}% {cmf_desc}",
+            f"│ {ad_em} A/D Line {ad_sc}% {ad_desc}",
+            sq_line,
+            div_line,
+            "└──────────────────────────",
+            f"┌─ MTF (Multi-Timeframe) [{mtf_pct}%] ──",
+            f"│ 4H {_mtf_em(mtf_4h)} 1H {_mtf_em(mtf_1h)} 15M {_mtf_em(mtf_15m)}",
+            "└──────────────────────────",
+            "┌─ Market ─────────────────",
+            f"│ F&G: {fg} {fg_label} | BTC.d: {btc_d:.1f}%",
+            f"│ Funding: {funding:+.3f}% L/S: {ls_ratio:.1f}",
+            f"│ BTC: {btc_st} corr: {btc_corr:.2f}",
+            f"│ {btc_confirms}",
+            "└──────────────────────────",
+            "┌─ Consensus [12 traders]",
+            f"│ 💪{n_strong} ✅{n_aligned} 😐{n_neutral} ❌{n_against}",
+        ]
+        if top_trader:
+            lines.append(f"│ 🏆 {top_trader} — {top_desc}")
+        if aligned_trd:
+            lines.append(f"│ ✅ {' · '.join(aligned_trd[:2])}")
+        if against_trd:
+            lines.append(f"│ ❌ {' · '.join(against_trd[:2])} — No opposing signals" if not against_trd[0] else f"│ ❌ {' · '.join(against_trd[:2])}")
+        lines.append("└──────────────────────────")
+
+        for pat in patterns:
+            lines.append(f"📐 {pat.upper()} {_PAT_EM.get(pat, '📐')}")
+
+        vol_usd = abs(entry) * vol_r * 1_000_000 * 0.01 if entry else 0
+        trend_quality = "Strong" if adx_v > 25 else "Weak"
+        lines.append(
+            f"⚠ Risk/Reward Ratio: RR={rr:.2f} · Liquidity: vol=${vol_usd:,.0f} · {trend_quality} trend"
+        )
+        lines.append(DIVIDER)
+        lines.append(f"📋 Check #{daily_cnt}/100 for today")
+
+        return "\n".join(lines)
 
     async def send_signal_to_channel(self, signal: SwarmSignal,
                                      bb_position: float = None,
@@ -875,6 +1207,17 @@ class FXSUSDTTelegramBot:
             # locked path in process_signals which already verified the gates).
             if not _skip_rate_check and not self.can_send_signal(symbol):
                 return False
+
+            # ── Daily signal counter (resets at UTC midnight) ──
+            _today_utc = datetime.utcnow().strftime("%Y-%m-%d")
+            if self._daily_signal_date != _today_utc:
+                self._daily_signal_date  = _today_utc
+                self._daily_signal_count = 0
+            self._daily_signal_count += 1
+            try:
+                signal.daily_count = self._daily_signal_count
+            except Exception:
+                pass
 
             formatted = self.format_swarm_signal(signal)
 

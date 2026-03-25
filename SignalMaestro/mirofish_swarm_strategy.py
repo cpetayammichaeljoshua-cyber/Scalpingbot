@@ -157,6 +157,65 @@ class SwarmSignal:
     react_reasoning: str = ""
     participation_rate: float = 0.0  # fraction of agents that voted non-NEUTRAL
 
+    # ── Extended IRONS AI display fields ──────────────────────────────────────
+    # Momentum
+    stoch_k: float = 50.0
+    stoch_d: float = 50.0
+    williams_r_val: float = -50.0
+    cci_val: float = 0.0
+    mfi_val: float = 50.0
+    roc_val: float = 0.0
+    uo_val: float = 50.0
+    ao_val: float = 0.0
+    tsi_val: float = 0.0
+    # Trend
+    adx_val: float = 20.0
+    pdi_val: float = 25.0
+    mdi_val: float = 25.0
+    aroon_up: float = 50.0
+    aroon_down: float = 50.0
+    macd_val: float = 0.0
+    macd_signal_val: float = 0.0
+    ema_fast_val: float = 0.0
+    ema_slow_val: float = 0.0
+    ich_cloud_pos: str = "inside"
+    ich_tk_bull: bool = False
+    supertrend_dir_val: int = 0
+    supertrend_price: float = 0.0
+    # Volatility
+    bb_pct_b: float = 0.5
+    bb_upper_val: float = 0.0
+    bb_lower_val: float = 0.0
+    kc_pos: str = "inside"
+    kc_upper_val: float = 0.0
+    squeeze_on: bool = False
+    squeeze_mom: float = 0.0
+    atr_pct: float = 0.0
+    sl_atr_ratio: float = 0.0
+    fib_level: float = 0.618
+    fib_dist_pct: float = 5.0
+    pivot_pos: str = "neutral"
+    pivot_p: float = 0.0
+    pivot_r1: float = 0.0
+    pivot_s1: float = 0.0
+    # Volume
+    vol_avg_ratio: float = 1.0
+    vwap_val: float = 0.0
+    vwap_above: bool = True
+    obv_rising: bool = True
+    cmf_val: float = 0.0
+    ad_rising: bool = True
+    # Patterns & MTF
+    patterns: List[str] = field(default_factory=list)
+    mtf_4h: str = "NEUTRAL"
+    mtf_1h: str = "NEUTRAL"
+    mtf_15m: str = "NEUTRAL"
+    # Signal score & regime
+    signal_score: int = 50
+    regime: str = "RANGING"
+    # Daily counter
+    daily_count: int = 0
+
     def __post_init__(self):
         if self.take_profit_1 == 0.0:
             self.take_profit_1 = self.take_profit
@@ -2950,27 +3009,29 @@ class MiroFishSwarmStrategy:
         sym_graph = self._symbol_graphs[symbol]
 
         # ── HTF 1H klines prefetch for trend filter ────────────────────────────
-        # BUG FIX: _htf_cache / _htf_cache_ttl were defined in __init__ but the
-        # 1H klines were never actually fetched or passed to _analyze_timeframe.
-        # This populates the cache once per symbol per 5-minute TTL window and
-        # supplies htf_closes to every timeframe's analysis pipeline.
         htf_closes_1h: Optional[List[float]] = None
-        _skip_htf = any(tf == "1h" for tf in self.timeframes)  # avoid double-fetch on 1H scans
+        htf_highs_1h: Optional[List[float]] = None
+        htf_lows_1h: Optional[List[float]] = None
+        _skip_htf = any(tf == "1h" for tf in self.timeframes)
         if not _skip_htf:
             try:
                 _now_ts = time.time()
-                _cached  = self._htf_cache.get(symbol)
+                _cached = self._htf_cache.get(symbol)
                 if _cached and (_now_ts - _cached[1]) < self._htf_cache_ttl:
-                    htf_closes_1h = _cached[0]
+                    htf_closes_1h, htf_highs_1h, htf_lows_1h = (
+                        _cached[0], _cached[2] if len(_cached) > 2 else None,
+                        _cached[3] if len(_cached) > 3 else None
+                    )
                     self.logger.debug(f"[{symbol}] HTF 1H cache hit ({len(htf_closes_1h)} bars)")
                 else:
                     _htf_raw = await asyncio.wait_for(
-                        trader.get_market_data(symbol, "1h", 55), timeout=5.0
+                        trader.get_market_data(symbol, "1h", 100), timeout=5.0
                     )
                     if _htf_raw and len(_htf_raw) >= 25:
                         htf_closes_1h = [float(k[4]) for k in _htf_raw]
-                        self._htf_cache[symbol] = (htf_closes_1h, _now_ts)
-                        # Cap cache size to 120 entries (same logic as _symbol_graphs)
+                        htf_highs_1h  = [float(k[2]) for k in _htf_raw]
+                        htf_lows_1h   = [float(k[3]) for k in _htf_raw]
+                        self._htf_cache[symbol] = (htf_closes_1h, _now_ts, htf_highs_1h, htf_lows_1h)
                         if len(self._htf_cache) > 120:
                             for _ev in list(self._htf_cache.keys()):
                                 if _ev != "BTCUSDT":
@@ -2981,6 +3042,41 @@ class MiroFishSwarmStrategy:
                         )
             except Exception as _htf_err:
                 self.logger.debug(f"[{symbol}] HTF 1H fetch skipped: {_htf_err}")
+
+        # ── HTF 4H klines prefetch for MTF 4H panel ────────────────────────────
+        htf_closes_4h: Optional[List[float]] = None
+        htf_highs_4h: Optional[List[float]] = None
+        htf_lows_4h: Optional[List[float]] = None
+        if not any(tf == "4h" for tf in self.timeframes):
+            try:
+                _now_ts_4h = time.time()
+                _key_4h    = f"{symbol}_4h"
+                _cached_4h = self._htf_cache.get(_key_4h)
+                if _cached_4h and (_now_ts_4h - _cached_4h[1]) < self._htf_cache_ttl * 4:
+                    htf_closes_4h, htf_highs_4h, htf_lows_4h = (
+                        _cached_4h[0], _cached_4h[2] if len(_cached_4h) > 2 else None,
+                        _cached_4h[3] if len(_cached_4h) > 3 else None
+                    )
+                    self.logger.debug(f"[{symbol}] HTF 4H cache hit ({len(htf_closes_4h)} bars)")
+                else:
+                    _htf_raw_4h = await asyncio.wait_for(
+                        trader.get_market_data(symbol, "4h", 100), timeout=5.0
+                    )
+                    if _htf_raw_4h and len(_htf_raw_4h) >= 20:
+                        htf_closes_4h = [float(k[4]) for k in _htf_raw_4h]
+                        htf_highs_4h  = [float(k[2]) for k in _htf_raw_4h]
+                        htf_lows_4h   = [float(k[3]) for k in _htf_raw_4h]
+                        self._htf_cache[_key_4h] = (htf_closes_4h, _now_ts_4h, htf_highs_4h, htf_lows_4h)
+                        if len(self._htf_cache) > 240:
+                            for _ev in list(self._htf_cache.keys()):
+                                if _ev not in ("BTCUSDT", "BTCUSDT_4h"):
+                                    del self._htf_cache[_ev]
+                                    break
+                        self.logger.debug(
+                            f"[{symbol}] HTF 4H fetched — {len(htf_closes_4h)} bars cached"
+                        )
+            except Exception as _htf4h_err:
+                self.logger.debug(f"[{symbol}] HTF 4H fetch skipped: {_htf4h_err}")
 
         for tf in self.timeframes:
             try:
@@ -2997,7 +3093,10 @@ class MiroFishSwarmStrategy:
 
                 signal = await self._analyze_timeframe(
                     klines, tf, params, funding_rate, symbol, sym_graph,
-                    htf_closes=htf_closes_1h
+                    htf_closes=htf_closes_1h,
+                    htf_closes_4h=htf_closes_4h,
+                    htf_highs_4h=htf_highs_4h,
+                    htf_lows_4h=htf_lows_4h,
                 )
                 if signal:
                     signals.append(signal)
@@ -3017,7 +3116,10 @@ class MiroFishSwarmStrategy:
                                   funding_rate: float = None,
                                   symbol: str = "BTCUSDT",
                                   graph: "MarketGraphMemory" = None,
-                                  htf_closes: Optional[List[float]] = None) -> Optional[SwarmSignal]:
+                                  htf_closes: Optional[List[float]] = None,
+                                  htf_closes_4h: Optional[List[float]] = None,
+                                  htf_highs_4h: Optional[List[float]] = None,
+                                  htf_lows_4h: Optional[List[float]] = None) -> Optional[SwarmSignal]:
         if graph is None:
             # Fallback: create a temporary graph (should not normally happen)
             graph = MarketGraphMemory(max_nodes=100, max_edges=200)
@@ -3880,12 +3982,228 @@ class MiroFishSwarmStrategy:
                     f"TrendState confirms {action} @ {cur_price:.6g}"
                 )
 
+            # ── Step 9: Compute IRONS AI full indicator panel ──────────────────
+            _i_stoch_k, _i_stoch_d = 50.0, 50.0
+            _i_wr = -50.0
+            _i_cci = 0.0
+            _i_mfi = 50.0
+            _i_roc = 0.0
+            _i_uo = 50.0
+            _i_ao = 0.0
+            _i_tsi = 0.0
+            _i_adx, _i_pdi, _i_mdi = 20.0, 25.0, 25.0
+            _i_aroon_up, _i_aroon_down = 50.0, 50.0
+            _i_macd_val, _i_macd_sig = 0.0, 0.0
+            _i_ema_fast, _i_ema_slow = 0.0, 0.0
+            _i_ich_pos = "inside"
+            _i_ich_tk_bull = False
+            _i_st_dir, _i_st_price = 0, 0.0
+            _i_bb_pct, _i_bb_upper, _i_bb_lower = 0.5, 0.0, 0.0
+            _i_kc_pos, _i_kc_upper = "inside", 0.0
+            _i_sq_on, _i_sq_mom = False, 0.0
+            _i_atr_pct, _i_sl_atr = 0.0, 0.0
+            _i_fib_level, _i_fib_dist = 0.618, 5.0
+            _i_piv_pos, _i_piv_p, _i_piv_r1, _i_piv_s1 = "neutral", 0.0, 0.0, 0.0
+            _i_vol_ratio = vol_ratio
+            _i_vwap, _i_vwap_above = cur_price, True
+            _i_obv_rising = True
+            _i_cmf = 0.0
+            _i_ad_rising = True
+            _i_patterns: List[str] = []
+            _i_mtf_4h = "NEUTRAL"
+            _i_mtf_1h = "NEUTRAL"
+            _i_mtf_15m = "NEUTRAL"
+
+            try:
+                n_data = len(closes)
+                # Stochastic
+                _sk, _sd = _stoch_kd(closes, highs, lows)
+                _i_stoch_k, _i_stoch_d = _sk, _sd
+                # Williams %R
+                _wr = _williams_r(closes)
+                if _wr is not None: _i_wr = _wr
+                # CCI
+                _cci_v = _cci(closes, highs, lows)
+                if _cci_v is not None: _i_cci = _cci_v
+                # MFI
+                _mfi_v = _mfi(closes, highs, lows, volumes)
+                if _mfi_v is not None: _i_mfi = _mfi_v
+                # ROC
+                _roc_v = _roc(closes, 12)
+                if _roc_v is not None: _i_roc = _roc_v
+                # Ultimate Oscillator
+                _uo_v = _ultimate_oscillator(highs, lows, closes)
+                if _uo_v is not None: _i_uo = _uo_v
+                # Awesome Oscillator
+                _ao_v = _awesome_oscillator(highs, lows)
+                if _ao_v is not None: _i_ao = _ao_v
+                # TSI
+                _tsi_v = _tsi(closes)
+                if _tsi_v is not None: _i_tsi = _tsi_v
+                # ADX + DI lines (using existing proxy with full DI support)
+                _adx_proxy = _compute_adx_proxy(closes, highs, lows, 14) if n_data >= 20 else None
+                if _adx_proxy is not None:
+                    _i_adx, _i_pdi, _i_mdi = _adx_proxy
+                # Aroon
+                _ar_up, _ar_dn = _aroon(highs, lows)
+                _i_aroon_up, _i_aroon_down = _ar_up, _ar_dn
+                # MACD
+                _ml, _ms = _macd(closes)
+                if _ml is not None: _i_macd_val = _ml
+                if _ms is not None: _i_macd_sig = _ms
+                # EMA fast/slow
+                _fast_p = params.get("ema_fast", 12)
+                _slow_p = params.get("ema_slow", 26)
+                _ef = _ema(closes, _fast_p)
+                _es = _ema(closes, _slow_p)
+                if _ef is not None: _i_ema_fast = _ef
+                if _es is not None: _i_ema_slow = _es
+                # Ichimoku cloud position
+                if n_data >= 52:
+                    _ich_data = _ich_cloud(highs, lows, closes)
+                    if _ich_data and _ich_data.get("cloud_top") and _ich_data.get("cloud_bot"):
+                        _ct = _ich_data["cloud_top"]
+                        _cb = _ich_data["cloud_bot"]
+                        if cur_price > _ct:
+                            _i_ich_pos = "above"
+                        elif cur_price < _cb:
+                            _i_ich_pos = "below"
+                        else:
+                            _i_ich_pos = "inside"
+                        _ten = _ich_data.get("tenkan")
+                        _kij = _ich_data.get("kijun")
+                        if _ten is not None and _kij is not None:
+                            _i_ich_tk_bull = _ten > _kij
+                # Supertrend
+                if n_data >= 15:
+                    _st_res = _supertrend(closes, highs, lows, 10, 3.0)
+                    if _st_res is not None:
+                        _i_st_price, _i_st_dir = _st_res
+                # Bollinger Bands %B
+                _bbu, _bbm, _bbl = _bollinger(closes, 20)
+                if _bbu is not None and _bbl is not None and _bbu != _bbl:
+                    _i_bb_upper, _i_bb_lower = _bbu, _bbl
+                    _i_bb_pct = (cur_price - _bbl) / (_bbu - _bbl)
+                # Keltner Channel
+                _kc_res = _keltner_channel(closes, highs, lows, 20, 10, 2.0) if n_data >= 30 else None
+                if _kc_res is not None:
+                    _ku, _km, _kl = _kc_res
+                    _i_kc_upper = _ku
+                    if cur_price > _ku:
+                        _i_kc_pos = "above"
+                    elif cur_price < _kl:
+                        _i_kc_pos = "below"
+                    else:
+                        _i_kc_pos = "inside"
+                # Squeeze momentum
+                _sq_res = _squeeze_momentum(closes, highs, lows) if n_data >= 25 else None
+                if _sq_res is not None:
+                    _i_sq_on, _i_sq_mom = _sq_res
+                # ATR % and SL/ATR ratio
+                if atr and atr > 0 and cur_price > 0:
+                    _i_atr_pct = atr / cur_price * 100.0
+                    _sl_dist = abs(cur_price - stop_loss)
+                    _i_sl_atr = _sl_dist / atr if atr > 0 else 0.0
+                # Fibonacci levels
+                _fl, _fd = _fibonacci_nearest(closes, highs, lows, 50)
+                _i_fib_level, _i_fib_dist = _fl, _fd
+                # Pivot Points
+                if n_data >= 22:
+                    _piv = _pivot_points(highs, lows, closes)
+                    if _piv:
+                        _i_piv_p  = _piv["P"]
+                        _i_piv_r1 = _piv["R1"]
+                        _i_piv_s1 = _piv["S1"]
+                        if cur_price > _piv["R1"]:
+                            _i_piv_pos = "above_r1"
+                        elif cur_price > _piv["P"]:
+                            _i_piv_pos = "above_p"
+                        elif cur_price > _piv["S1"]:
+                            _i_piv_pos = "above_s1"
+                        else:
+                            _i_piv_pos = "below_s1"
+                # VWAP
+                _vwap_v = _vwap_current(closes, highs, lows, volumes)
+                if _vwap_v is not None:
+                    _i_vwap = _vwap_v
+                    _i_vwap_above = cur_price >= _vwap_v
+                # OBV rising
+                if n_data >= 10:
+                    _obv_series = _obv(closes, volumes)
+                    if len(_obv_series) >= 6:
+                        _i_obv_rising = _obv_series[-1] > _obv_series[-6]
+                # CMF
+                _cmf_v = _cmf(closes, volumes, 14, highs, lows)
+                if _cmf_v is not None: _i_cmf = _cmf_v
+                # A/D Line rising
+                _i_ad_rising = _ad_line_rising(closes, highs, lows, volumes)
+                # Chart patterns
+                if n_data >= 20:
+                    _i_patterns = _detect_chart_patterns(highs, lows, closes, 50)
+                # MTF 4H
+                if htf_closes_4h and len(htf_closes_4h) >= 10:
+                    _i_mtf_4h = _compute_mtf_bias(htf_closes_4h, htf_highs_4h, htf_lows_4h)
+                elif tf == "4h":
+                    _i_mtf_4h = "BULL" if action == "BUY" else "BEAR"
+                # MTF 1H
+                if htf_closes and len(htf_closes) >= 10:
+                    _i_mtf_1h = _compute_mtf_bias(htf_closes)
+                elif tf == "1h":
+                    _i_mtf_1h = "BULL" if action == "BUY" else "BEAR"
+                # MTF 15M — check 15m data from current closes if on shorter tf
+                if tf in ("1m", "3m", "5m") and n_data >= 15:
+                    _i_mtf_15m = _compute_mtf_bias(closes[-30:]) if n_data >= 30 else (
+                        "BULL" if action == "BUY" else "BEAR"
+                    )
+                elif tf == "15m":
+                    _i_mtf_15m = "BULL" if action == "BUY" else "BEAR"
+                else:
+                    _i_mtf_15m = _compute_mtf_bias(closes[-20:]) if n_data >= 20 else "NEUTRAL"
+            except Exception as _ind_err:
+                self.logger.debug(f"[{symbol}|{tf}] Indicator panel error (non-fatal): {_ind_err}")
+
+            # Compute IRONS AI signal score
+            _i_score = _compute_signal_score(action, {
+                "rsi": rsi_val,
+                "stoch_k": _i_stoch_k,
+                "williams_r": _i_wr,
+                "cci": _i_cci,
+                "mfi": _i_mfi,
+                "roc": _i_roc,
+                "uo": _i_uo,
+                "ao": _i_ao,
+                "tsi": _i_tsi,
+                "macd_hist": _i_macd_val - _i_macd_sig,
+                "ema_bull": _i_ema_fast > _i_ema_slow if (_i_ema_fast and _i_ema_slow) else False,
+                "adx": _i_adx,
+                "pdi": _i_pdi,
+                "mdi": _i_mdi,
+                "ich_above": _i_ich_pos == "above",
+                "ich_below": _i_ich_pos == "below",
+                "ich_tk_bull": _i_ich_tk_bull,
+                "supertrend_dir": _i_st_dir,
+                "aroon_up": _i_aroon_up,
+                "aroon_down": _i_aroon_down,
+                "bb_pct": _i_bb_pct,
+                "kc_pos": _i_kc_pos,
+                "sl_atr_ratio": _i_sl_atr,
+                "fib_dist_pct": _i_fib_dist,
+                "pivot_above_p": "above" in _i_piv_pos,
+                "vol_ratio": _i_vol_ratio,
+                "vwap_above": _i_vwap_above,
+                "obv_rising": _i_obv_rising,
+                "cmf": _i_cmf,
+                "ad_rising": _i_ad_rising,
+                "squeeze_on": _i_sq_on,
+                "squeeze_mom": _i_sq_mom,
+            })
+
             agent_summary_str = " ".join(
                 n[:4] + ":" + d["vote"][:1] for n, d in all_votes.items()
             )
             self.logger.info(
                 f"🐟 [{symbol}|{tf}|{session}] Swarm: {action} @ ${cur_price:,.4g} | "
-                f"Consensus={consensus:.0%} Conf={confidence:.1f}% Str={signal_strength:.1f}% "
+                f"Score={_i_score}/100 Consensus={consensus:.0%} Conf={confidence:.1f}% Str={signal_strength:.1f}% "
                 f"Part={n_active}/{len(all_votes)} | Agents: {agent_summary_str}"
             )
 
@@ -3918,6 +4236,56 @@ class MiroFishSwarmStrategy:
                     all_votes.get("TrendAgent", {}).get("vote") == action and
                     trend_conf >= 65.0
                 ),
+                # ── IRONS AI Extended Indicators ──
+                stoch_k=_i_stoch_k,
+                stoch_d=_i_stoch_d,
+                williams_r_val=_i_wr,
+                cci_val=_i_cci,
+                mfi_val=_i_mfi,
+                roc_val=_i_roc,
+                uo_val=_i_uo,
+                ao_val=_i_ao,
+                tsi_val=_i_tsi,
+                adx_val=_i_adx,
+                pdi_val=_i_pdi,
+                mdi_val=_i_mdi,
+                aroon_up=_i_aroon_up,
+                aroon_down=_i_aroon_down,
+                macd_val=_i_macd_val,
+                macd_signal_val=_i_macd_sig,
+                ema_fast_val=_i_ema_fast,
+                ema_slow_val=_i_ema_slow,
+                ich_cloud_pos=_i_ich_pos,
+                ich_tk_bull=_i_ich_tk_bull,
+                supertrend_dir_val=_i_st_dir,
+                supertrend_price=_i_st_price,
+                bb_pct_b=_i_bb_pct,
+                bb_upper_val=_i_bb_upper,
+                bb_lower_val=_i_bb_lower,
+                kc_pos=_i_kc_pos,
+                kc_upper_val=_i_kc_upper,
+                squeeze_on=_i_sq_on,
+                squeeze_mom=_i_sq_mom,
+                atr_pct=_i_atr_pct,
+                sl_atr_ratio=_i_sl_atr,
+                fib_level=_i_fib_level,
+                fib_dist_pct=_i_fib_dist,
+                pivot_pos=_i_piv_pos,
+                pivot_p=_i_piv_p,
+                pivot_r1=_i_piv_r1,
+                pivot_s1=_i_piv_s1,
+                vol_avg_ratio=_i_vol_ratio,
+                vwap_val=_i_vwap,
+                vwap_above=_i_vwap_above,
+                obv_rising=_i_obv_rising,
+                cmf_val=_i_cmf,
+                ad_rising=_i_ad_rising,
+                patterns=_i_patterns,
+                mtf_4h=_i_mtf_4h,
+                mtf_1h=_i_mtf_1h,
+                mtf_15m=_i_mtf_15m,
+                signal_score=_i_score,
+                regime=_regime,
             )
 
         except Exception as e:
@@ -4672,3 +5040,427 @@ def _squeeze_momentum(closes: List[float], highs: List[float],
     momentum = mom_vals[-1] - mom_vals[0] if len(mom_vals) >= 2 else 0.0
 
     return squeeze_on, momentum
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IRONS AI Extended Indicator Helpers — v5 Swarm Edition
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _stoch_kd(closes: List[float], highs: List[float], lows: List[float],
+              k_period: int = 14, d_period: int = 3) -> Tuple[float, float]:
+    """Proper Stochastic %K/%D using true OHLC high/low."""
+    n = min(len(closes), len(highs), len(lows))
+    if n < k_period + d_period:
+        return 50.0, 50.0
+    c, h, l = closes[-n:], highs[-n:], lows[-n:]
+    k_vals: List[float] = []
+    for i in range(k_period - 1, n):
+        hh = max(h[i - k_period + 1:i + 1])
+        ll = min(l[i - k_period + 1:i + 1])
+        k_vals.append((c[i] - ll) / (hh - ll) * 100.0 if hh != ll else 50.0)
+    if not k_vals:
+        return 50.0, 50.0
+    k = k_vals[-1]
+    d = sum(k_vals[-d_period:]) / min(d_period, len(k_vals))
+    return k, d
+
+
+def _cci(closes: List[float], highs: List[float], lows: List[float],
+         period: int = 20) -> Optional[float]:
+    """Commodity Channel Index — deviations from mean typical price."""
+    n = min(len(closes), len(highs), len(lows))
+    if n < period:
+        return None
+    c, h, l = closes[-n:], highs[-n:], lows[-n:]
+    tp = [(h[i] + l[i] + c[i]) / 3.0 for i in range(n)]
+    tp_window = tp[-period:]
+    tp_mean = sum(tp_window) / period
+    md = sum(abs(x - tp_mean) for x in tp_window) / period
+    if md == 0:
+        return 0.0
+    return (tp[-1] - tp_mean) / (0.015 * md)
+
+
+def _mfi(closes: List[float], highs: List[float], lows: List[float],
+         volumes: List[float], period: int = 14) -> Optional[float]:
+    """Money Flow Index — volume-weighted RSI using typical price."""
+    n = min(len(closes), len(highs), len(lows), len(volumes))
+    if n < period + 1:
+        return None
+    c, h, l, v = closes[-n:], highs[-n:], lows[-n:], volumes[-n:]
+    pos_mf = neg_mf = 0.0
+    for i in range(n - period, n):
+        tp = (h[i] + l[i] + c[i]) / 3.0
+        tp_prev = (h[i - 1] + l[i - 1] + c[i - 1]) / 3.0 if i > 0 else tp
+        mf = tp * v[i]
+        if tp > tp_prev:
+            pos_mf += mf
+        elif tp < tp_prev:
+            neg_mf += mf
+    if neg_mf == 0:
+        return 100.0
+    return 100.0 - (100.0 / (1.0 + pos_mf / neg_mf))
+
+
+def _ultimate_oscillator(highs: List[float], lows: List[float], closes: List[float],
+                          p1: int = 7, p2: int = 14, p3: int = 28) -> Optional[float]:
+    """Ultimate Oscillator — 3-period weighted buying pressure / true range ratio."""
+    n = min(len(closes), len(highs), len(lows))
+    if n < p3 + 1:
+        return None
+    c, h, l = closes[-n:], highs[-n:], lows[-n:]
+    bp_list: List[float] = []
+    tr_list: List[float] = []
+    for i in range(1, n):
+        pc = c[i - 1]
+        tr_val = max(h[i], pc) - min(l[i], pc)
+        bp_list.append(c[i] - min(l[i], pc))
+        tr_list.append(tr_val)
+    end = len(bp_list)
+    if end < p3:
+        return None
+    def _avg(bp: List[float], tr: List[float], p: int, e: int) -> float:
+        s = e - p
+        if s < 0:
+            return 0.0
+        b = sum(bp[s:e])
+        t = sum(tr[s:e])
+        return b / t if t > 0 else 0.0
+    a1 = _avg(bp_list, tr_list, p1, end)
+    a2 = _avg(bp_list, tr_list, p2, end)
+    a3 = _avg(bp_list, tr_list, p3, end)
+    return 100.0 * (4.0 * a1 + 2.0 * a2 + a3) / 7.0
+
+
+def _awesome_oscillator(highs: List[float], lows: List[float],
+                         fast: int = 5, slow: int = 34) -> Optional[float]:
+    """Awesome Oscillator — difference of fast and slow midpoint SMAs."""
+    n = min(len(highs), len(lows))
+    if n < slow:
+        return None
+    h, l = highs[-n:], lows[-n:]
+    midpoints = [(h[i] + l[i]) / 2.0 for i in range(n)]
+    sma_fast = sum(midpoints[-fast:]) / fast
+    sma_slow = sum(midpoints[-slow:]) / slow
+    return sma_fast - sma_slow
+
+
+def _tsi(closes: List[float], r: int = 25, s: int = 13) -> Optional[float]:
+    """True Strength Index — double-smoothed momentum oscillator."""
+    if len(closes) < r + s + 2:
+        return None
+    mom = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+    abs_mom = [abs(m) for m in mom]
+    ds_mom = _ema_series(_ema_series(mom, r) or [], s)
+    ds_abs = _ema_series(_ema_series(abs_mom, r) or [], s)
+    if not ds_mom or not ds_abs or not ds_abs[-1]:
+        return None
+    return 100.0 * ds_mom[-1] / ds_abs[-1]
+
+
+def _aroon(highs: List[float], lows: List[float],
+           period: int = 25) -> Tuple[float, float]:
+    """Aroon Up/Down — measures time since highest high / lowest low in period."""
+    n = min(len(highs), len(lows))
+    if n < period + 1:
+        return 50.0, 50.0
+    h, l = highs[-n:], lows[-n:]
+    window_h = h[-(period + 1):]
+    window_l = l[-(period + 1):]
+    highest_idx = window_h.index(max(window_h))
+    lowest_idx  = window_l.index(min(window_l))
+    aroon_up   = (highest_idx / period) * 100.0
+    aroon_down = (lowest_idx  / period) * 100.0
+    return aroon_up, aroon_down
+
+
+def _fibonacci_nearest(closes: List[float], highs: List[float], lows: List[float],
+                        lookback: int = 50) -> Tuple[float, float]:
+    """
+    Find the nearest Fibonacci retracement level to current price.
+    Returns (fib_ratio, distance_pct_from_current_price).
+    """
+    n = min(len(closes), len(highs), len(lows))
+    lb = min(lookback, n)
+    if lb < 5 or closes[-1] <= 0:
+        return 0.618, 5.0
+    h = max(highs[-lb:])
+    l = min(lows[-lb:])
+    cur = closes[-1]
+    if h <= l:
+        return 0.618, 0.0
+    rng = h - l
+    FIB_RATIOS = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
+    fib_levels = [l + r * rng for r in FIB_RATIOS]
+    nearest = min(fib_levels, key=lambda f: abs(cur - f))
+    nearest_ratio = FIB_RATIOS[fib_levels.index(nearest)]
+    dist_pct = abs(cur - nearest) / cur * 100.0
+    return nearest_ratio, dist_pct
+
+
+def _vwap_current(closes: List[float], highs: List[float], lows: List[float],
+                   volumes: List[float]) -> Optional[float]:
+    """
+    Session VWAP — cumulative (TP × Vol) / cumulative Vol.
+    Uses last min(n, 96) bars to approximate a session (96 × 15m ≈ 24H).
+    """
+    n = min(len(closes), len(highs), len(lows), len(volumes))
+    if n < 2:
+        return None
+    window = min(n, 96)
+    c, h, l, v = closes[-window:], highs[-window:], lows[-window:], volumes[-window:]
+    cum_tpv = sum((h[i] + l[i] + c[i]) / 3.0 * v[i] for i in range(window))
+    cum_vol  = sum(v)
+    return cum_tpv / cum_vol if cum_vol > 0 else c[-1]
+
+
+def _ad_line_rising(closes: List[float], highs: List[float], lows: List[float],
+                    volumes: List[float], lookback: int = 20) -> bool:
+    """
+    A/D Line direction — True if accumulation/distribution trending up over lookback.
+    Uses Chaikin's Money Flow Multiplier: ((C-L)-(H-C))/(H-L) × Volume.
+    """
+    n = min(len(closes), len(highs), len(lows), len(volumes))
+    if n < lookback:
+        return True
+    c, h, l, v = closes[-n:], highs[-n:], lows[-n:], volumes[-n:]
+    ad = 0.0
+    ad_series: List[float] = []
+    for i in range(n):
+        rng = h[i] - l[i]
+        mfm = ((c[i] - l[i]) - (h[i] - c[i])) / rng if rng > 0 else 0.0
+        ad += mfm * v[i]
+        ad_series.append(ad)
+    if len(ad_series) < 2:
+        return True
+    mid = max(0, len(ad_series) - lookback // 2)
+    return ad_series[-1] > ad_series[mid]
+
+
+def _detect_chart_patterns(highs: List[float], lows: List[float], closes: List[float],
+                            lookback: int = 50) -> List[str]:
+    """
+    Detect common chart patterns using 5-bar swing high/low logic.
+    Detects: Double Top, Double Bottom, Head & Shoulders, Inverse H&S,
+             Ascending Triangle, Descending Triangle, Symmetrical Triangle.
+    """
+    n = min(len(highs), len(lows), len(closes))
+    if n < 20:
+        return []
+    lb = min(lookback, n)
+    h, l, c = highs[-lb:], lows[-lb:], closes[-lb:]
+    patterns: List[str] = []
+
+    def find_swings(data: List[float], swing_type: str = "high") -> List[Tuple[int, float]]:
+        result = []
+        for i in range(2, len(data) - 2):
+            if swing_type == "high":
+                if (data[i] >= data[i - 1] and data[i] >= data[i - 2]
+                        and data[i] >= data[i + 1] and data[i] >= data[i + 2]):
+                    result.append((i, data[i]))
+            else:
+                if (data[i] <= data[i - 1] and data[i] <= data[i - 2]
+                        and data[i] <= data[i + 1] and data[i] <= data[i + 2]):
+                    result.append((i, data[i]))
+        return result
+
+    swing_highs = find_swings(h, "high")
+    swing_lows  = find_swings(l, "low")
+    tol = 0.03  # 3% tolerance for "equal" levels
+
+    # Double Top
+    if len(swing_highs) >= 2:
+        h1_idx, h1_val = swing_highs[-2]
+        h2_idx, h2_val = swing_highs[-1]
+        if h2_idx > h1_idx and abs(h1_val - h2_val) / max(h1_val, 1e-9) < tol:
+            patterns.append("Double Top")
+
+    # Double Bottom
+    if len(swing_lows) >= 2:
+        l1_idx, l1_val = swing_lows[-2]
+        l2_idx, l2_val = swing_lows[-1]
+        if l2_idx > l1_idx and abs(l1_val - l2_val) / max(l1_val, 1e-9) < tol:
+            patterns.append("Double Bottom")
+
+    # Head & Shoulders
+    if len(swing_highs) >= 3:
+        ls_idx, ls_val = swing_highs[-3]
+        hd_idx, hd_val = swing_highs[-2]
+        rs_idx, rs_val = swing_highs[-1]
+        if (hd_idx > ls_idx and rs_idx > hd_idx
+                and hd_val > ls_val and hd_val > rs_val
+                and abs(ls_val - rs_val) / max(ls_val, 1e-9) < tol * 1.5):
+            patterns.append("Head & Shoulders")
+
+    # Inverse Head & Shoulders
+    if len(swing_lows) >= 3:
+        ls_idx, ls_val = swing_lows[-3]
+        hd_idx, hd_val = swing_lows[-2]
+        rs_idx, rs_val = swing_lows[-1]
+        if (hd_idx > ls_idx and rs_idx > hd_idx
+                and hd_val < ls_val and hd_val < rs_val
+                and abs(ls_val - rs_val) / max(ls_val, 1e-9) < tol * 1.5):
+            patterns.append("Inverse H&S")
+
+    # Ascending Triangle (rising lows, flat highs)
+    if len(swing_highs) >= 2 and len(swing_lows) >= 2:
+        h_flat    = abs(swing_highs[-1][1] - swing_highs[-2][1]) / max(swing_highs[-1][1], 1e-9) < tol
+        l_rising  = swing_lows[-1][1] > swing_lows[-2][1]
+        if h_flat and l_rising:
+            patterns.append("Ascending Triangle")
+
+    # Descending Triangle (falling highs, flat lows)
+    if len(swing_highs) >= 2 and len(swing_lows) >= 2:
+        h_falling = swing_highs[-1][1] < swing_highs[-2][1]
+        l_flat    = abs(swing_lows[-1][1] - swing_lows[-2][1]) / max(swing_lows[-1][1], 1e-9) < tol
+        if h_falling and l_flat:
+            patterns.append("Descending Triangle")
+
+    return patterns[:4]
+
+
+def _compute_mtf_bias(closes: List[float],
+                      highs: Optional[List[float]] = None,
+                      lows: Optional[List[float]] = None) -> str:
+    """
+    Compute BULL / BEAR / NEUTRAL bias from EMA9/21 + SuperTrend (when OHLC available).
+    Used for multi-timeframe panel labels.
+    """
+    if not closes or len(closes) < 10:
+        return "NEUTRAL"
+    try:
+        ema9  = _ema(closes, 9)
+        ema21 = _ema(closes, min(21, len(closes) - 1))
+        if ema9 is None or ema21 is None:
+            return "NEUTRAL"
+        ema_bull = ema9 > ema21
+        # Supertrend bonus (when OHLC present)
+        st_dir = 0
+        if highs and lows and len(highs) >= 12 and len(lows) >= 12:
+            _st = _supertrend(closes, highs, lows, 10, 3.0)
+            if _st is not None:
+                st_dir = _st[1]
+        if ema_bull and st_dir >= 0:
+            return "BULL"
+        elif not ema_bull and st_dir <= 0:
+            return "BEAR"
+        elif ema_bull:
+            return "BULL"
+        else:
+            return "BEAR"
+    except Exception:
+        return "NEUTRAL"
+
+
+def _compute_signal_score(action: str, ind: dict) -> int:
+    """
+    Compute a 0-100 IRONS AI signal score from indicator values.
+    Weighted across Momentum / Trend / Volatility / Volume groups.
+    """
+    score = 0
+    max_s = 0
+
+    def _add(w: int, bull: bool, bear: bool) -> None:
+        nonlocal score, max_s
+        max_s += w
+        if action == "BUY":
+            score += w if bull else (0 if bear else w // 2)
+        else:
+            score += w if bear else (0 if bull else w // 2)
+
+    # ── Momentum ──────────────────────────────────────────────────────────────
+    rsi = ind.get("rsi", 50.0)
+    _add(8, 30 < rsi < 65, 70 < rsi or rsi < 25)
+
+    stk = ind.get("stoch_k", 50.0)
+    _add(5, 20 < stk < 75, stk > 80 or stk < 20)
+
+    wr = ind.get("williams_r", -50.0)
+    _add(5, wr < -80, wr > -20)
+
+    cci = ind.get("cci", 0.0)
+    _add(5, -50 < cci < 100, cci > 150 or cci < -150)
+
+    mfi = ind.get("mfi", 50.0)
+    _add(6, mfi < 40, mfi > 80)
+
+    roc = ind.get("roc", 0.0)
+    _add(6, roc > 0.5, roc < -0.5)
+
+    uo = ind.get("uo", 50.0)
+    _add(4, uo > 55, uo < 45)
+
+    ao = ind.get("ao", 0.0)
+    _add(6, ao > 0, ao < 0)
+
+    tsi = ind.get("tsi", 0.0)
+    _add(5, tsi > 0, tsi < 0)
+
+    # ── Trend ─────────────────────────────────────────────────────────────────
+    mh = ind.get("macd_hist", 0.0)
+    _add(8, mh > 0, mh < 0)
+
+    eb = ind.get("ema_bull", False)
+    _add(8, eb, not eb)
+
+    adx = ind.get("adx", 20.0)
+    pdi = ind.get("pdi", 25.0)
+    mdi = ind.get("mdi", 25.0)
+    max_s += 5
+    if adx > 25:
+        score += 5 if (action == "BUY" and pdi > mdi) or (action == "SELL" and mdi > pdi) else 2
+    elif adx > 15:
+        score += 2
+
+    ia = ind.get("ich_above", False)
+    ib = ind.get("ich_below", False)
+    _add(7, ia, ib)
+
+    sd = ind.get("supertrend_dir", 0)
+    _add(6, sd == 1, sd == -1)
+
+    ar_up = ind.get("aroon_up", 50.0)
+    ar_dn = ind.get("aroon_down", 50.0)
+    _add(5, ar_up > 70 and ar_dn < 30, ar_dn > 70 and ar_up < 30)
+
+    # ── Volatility ────────────────────────────────────────────────────────────
+    bpct = ind.get("bb_pct", 0.5)
+    _add(5, 0.2 < bpct < 0.75, bpct > 0.95 or bpct < 0.05)
+
+    kp = ind.get("kc_pos", "inside")
+    _add(4, kp == "inside", (kp == "above" and action == "BUY") or (kp == "below" and action == "SELL"))
+
+    sl_atr = ind.get("sl_atr_ratio", 2.0)
+    max_s += 4
+    score += 4 if sl_atr < 2.0 else (2 if sl_atr < 3.5 else 0)
+
+    fd = ind.get("fib_dist_pct", 5.0)
+    max_s += 5
+    score += 5 if fd < 0.5 else (4 if fd < 1.0 else (3 if fd < 2.0 else 1))
+
+    pp = ind.get("pivot_above_p", True)
+    _add(3, pp, not pp)
+
+    sq_on  = ind.get("squeeze_on", False)
+    sq_mom = ind.get("squeeze_mom", 0.0)
+    if sq_on:
+        _add(4, sq_mom > 0, sq_mom < 0)
+
+    # ── Volume ────────────────────────────────────────────────────────────────
+    vr = ind.get("vol_ratio", 1.0)
+    max_s += 6
+    score += min(6, int(6 * min(vr / 1.5, 1.0))) if vr >= 0.5 else 0
+
+    va = ind.get("vwap_above", True)
+    _add(6, va, not va)
+
+    ob = ind.get("obv_rising", True)
+    _add(5, ob, not ob)
+
+    cmf = ind.get("cmf", 0.0)
+    _add(4, cmf > 0.05, cmf < -0.05)
+
+    adr = ind.get("ad_rising", True)
+    _add(4, adr, not adr)
+
+    return int(score / max_s * 100) if max_s > 0 else 50
