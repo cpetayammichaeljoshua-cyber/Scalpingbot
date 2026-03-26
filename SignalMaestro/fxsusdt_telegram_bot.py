@@ -768,39 +768,87 @@ class FXSUSDTTelegramBot:
 
     def format_swarm_signal(self, signal: SwarmSignal) -> str:
         """
-        Compact Cornix-compatible MiroFish signal.
+        IRONS AI-style Cornix-compatible MiroFish signal.
         Cornix strictly parses: direction / exchange / leverage / entry / TPs / SL.
-        Numbers must NOT contain commas. Analytics tail is 2 lines only.
+        IRONS AI analytics panel appended below for human traders.
         """
-        direction    = "LONG" if signal.action == "BUY" else "SHORT"
-        d_emoji      = "🟢" if signal.action == "BUY" else "🔴"
-        entry        = signal.entry_price
-        sl           = signal.stop_loss
-        tp1          = signal.take_profit_1
-        tp2          = signal.take_profit_2
-        tp3          = signal.take_profit_3
-        lev          = signal.leverage
-        rr           = signal.risk_reward_ratio
-        tf           = (getattr(signal, "timeframe", "15m") or "15m").upper()
-        session      = (getattr(signal, "market_session", "") or "").upper()
+        # ── Prediction Market line (only if computed) ──
+        _H   = getattr(signal, "shannon_entropy",    0.0)
+        _fk  = getattr(signal, "kelly_fraction",     0.0)
+        _dk  = getattr(signal, "kelly_decay_factor", 1.0)
+        _pm_line = ""
+        if _H > 0 or _fk > 0:
+            _certainty = max(0.0, 1.0 - _H) * 100
+            _pm_line = f"PM: Certainty {_certainty:.0f}% · Kelly {_fk:.1%} · Maturity {_dk:.0%}"
+
+        # ── Build IRONS AI panel via formatter ──
+        try:
+            from SignalMaestro.irons_ai_scorer import format_irons_panel
+            msg = format_irons_panel(
+                signal_symbol=signal.symbol or "BTCUSDT",
+                signal_action=signal.action,
+                signal_leverage=signal.leverage,
+                signal_entry=signal.entry_price,
+                signal_sl=signal.stop_loss,
+                signal_tp1=signal.take_profit_1 or signal.take_profit,
+                signal_tp2=signal.take_profit_2,
+                signal_tp3=signal.take_profit_3,
+                signal_tp4=getattr(signal, "take_profit_4", 0.0),
+                signal_rr=signal.risk_reward_ratio,
+                signal_tf=getattr(signal, "timeframe", "15m"),
+                signal_session=getattr(signal, "market_session", ""),
+                irons={
+                    "score":       getattr(signal, "irons_score", 0),
+                    "risk_label":  getattr(signal, "irons_risk", ""),
+                    "indicators":  getattr(signal, "irons_indicators", {}),
+                    "categories":  getattr(signal, "irons_categories", {}),
+                    "patterns":    getattr(signal, "irons_patterns", []),
+                    "mtf": {
+                        "4H":  getattr(signal, "mtf_4h", "NEUTRAL"),
+                        "1H":  getattr(signal, "mtf_1h", "NEUTRAL"),
+                        "15M": signal.action,
+                    },
+                    "squeeze_on":  getattr(signal, "irons_squeeze", False),
+                },
+                swarm_consensus=signal.swarm_consensus,
+                confidence=signal.confidence,
+                agent_votes=signal.agent_votes or {},
+                pm_line=_pm_line,
+                ai_narrative=getattr(signal, "ai_narrative", ""),
+            )
+            return msg
+        except Exception as _e:
+            self.logger.warning(f"IRONS panel error, falling back: {_e}")
+
+        # ── Fallback: compact Cornix-only format ──
+        direction = "LONG" if signal.action == "BUY" else "SHORT"
+        d_emoji   = "🟢" if signal.action == "BUY" else "🔴"
+        entry = signal.entry_price; sl = signal.stop_loss
+        tp1 = signal.take_profit_1 or signal.take_profit
+        tp2 = signal.take_profit_2; tp3 = signal.take_profit_3
+        tp4 = getattr(signal, "take_profit_4", 0.0)
+        lev = signal.leverage; rr = signal.risk_reward_ratio
+        tf  = (getattr(signal, "timeframe", "15m") or "15m").upper()
+        session = (getattr(signal, "market_session", "") or "").upper()
         consensus_pct = signal.swarm_consensus * 100
+        sym_tag = f"#{signal.symbol}" if signal.symbol else "#BTCUSDT"
 
-        # Percentage deltas — guard against zero-division
-        if entry and abs(entry) > 0:
-            if signal.action == "BUY":
-                sl_pct  = (entry - sl)  / entry * 100
-                tp1_pct = (tp1 - entry) / entry * 100
-                tp2_pct = (tp2 - entry) / entry * 100
-                tp3_pct = (tp3 - entry) / entry * 100
-            else:
-                sl_pct  = (sl  - entry) / entry * 100
-                tp1_pct = (entry - tp1) / entry * 100
-                tp2_pct = (entry - tp2) / entry * 100
-                tp3_pct = (entry - tp3) / entry * 100
-        else:
-            sl_pct = tp1_pct = tp2_pct = tp3_pct = 0.0
+        def _fmt(p: float) -> str:
+            if p >= 1000:    return f"{p:.2f}"
+            elif p >= 10:    return f"{p:.4f}"
+            elif p >= 0.1:   return f"{p:.5f}"
+            else:            return f"{p:.8f}"
 
-        # Compact agent vote summary: B=BUY S=SELL N=NEUTRAL
+        is_buy = signal.action == "BUY"
+        def _pct(ref, val, up):
+            if not ref: return 0.0
+            return (val-ref)/ref*100 if up else (ref-val)/ref*100
+        sl_pct  = _pct(entry, sl,  not is_buy)
+        tp1_pct = _pct(entry, tp1, is_buy)
+        tp2_pct = _pct(entry, tp2, is_buy)
+        tp3_pct = _pct(entry, tp3, is_buy)
+        tp4_pct = _pct(entry, tp4, is_buy) if tp4 else 0.0
+
         _short = {
             "TrendAgent": "Tr", "MomentumAgent": "Mo", "VolumeAgent": "Vo",
             "VolatilityAgent": "Vl", "OrderFlowAgent": "OF",
@@ -812,59 +860,27 @@ class FXSUSDTTelegramBot:
             f"{_short.get(n, n[:2])}:{_sym.get(v, v[0])}"
             for n, v in (signal.agent_votes or {}).items()
         )
-
-        # Timestamp (HH:MM UTC)
         ts = signal.timestamp.strftime("%H:%M") if signal.timestamp else "—"
-
-        # Session tag (compact)
         sess_tag = f" {session[:2]}" if session else ""
+        pm_section = f"\n{_pm_line}" if _pm_line else ""
 
-        sym_tag = f"#{signal.symbol}" if signal.symbol else "#BTCUSDT"
+        tp4_line = f"4) {_fmt(tp4)}\n" if tp4 else ""
+        tp4_pct_str = f"/+{tp4_pct:.1f}%" if tp4 else ""
 
-        def _fmt(p: float) -> str:
-            """Format price with appropriate precision regardless of magnitude."""
-            if p >= 1000:
-                return f"{p:.2f}"
-            elif p >= 10:
-                return f"{p:.4f}"
-            elif p >= 0.1:
-                return f"{p:.5f}"
-            else:
-                return f"{p:.8f}"
-
-        # ── Prediction Market metrics (only if computed) ──
-        _H    = getattr(signal, "shannon_entropy",    0.0)
-        _fk   = getattr(signal, "kelly_fraction",     0.0)
-        _dk   = getattr(signal, "kelly_decay_factor", 1.0)
-        _pm_line = ""
-        if _H > 0 or _fk > 0:
-            _certainty = max(0.0, 1.0 - _H) * 100   # 0=random, 100=certain
-            _pm_line = (
-                f"\nPM: Certainty {_certainty:.0f}% · Kelly {_fk:.1%} · Maturity {_dk:.0%}"
-            )
-
-        msg = (
+        return (
             f"{d_emoji} {sym_tag} {direction}\n"
             f"Exchange: Binance Futures\n"
-            f"Leverage: Cross {lev}x\n"
-            f"\n"
-            f"Entry Targets:\n"
-            f"1) {_fmt(entry)}\n"
-            f"\n"
+            f"Leverage: Cross {lev}x\n\n"
+            f"Entry Targets:\n1) {_fmt(entry)}\n\n"
             f"Take-Profit Targets:\n"
-            f"1) {_fmt(tp1)}\n"
-            f"2) {_fmt(tp2)}\n"
-            f"3) {_fmt(tp3)}\n"
-            f"\n"
-            f"Stop Targets:\n"
-            f"1) {_fmt(sl)}\n"
-            f"\n"
-            f"⚡{tf}{sess_tag} · {consensus_pct:.0f}%🐟 · {signal.confidence:.0f}%Conf · RSI {signal.rsi:.0f} · R:R 1:{rr:.1f}\n"
-            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}% · SL -{sl_pct:.1f}% · {votes_str} · {ts} UTC"
-            f"{_pm_line}\n"
-            f"📡 @ichimokutradingsignal | MiroFish Swarm"
+            f"1) {_fmt(tp1)}\n2) {_fmt(tp2)}\n3) {_fmt(tp3)}\n{tp4_line}\n"
+            f"Stop Targets:\n1) {_fmt(sl)}\n\n"
+            f"⚡{tf}{sess_tag} · {consensus_pct:.0f}%🐟 · {signal.confidence:.0f}%Conf · "
+            f"RSI {signal.rsi:.0f} · R:R 1:{rr:.1f}\n"
+            f"TP +{tp1_pct:.1f}%/+{tp2_pct:.1f}%/+{tp3_pct:.1f}%{tp4_pct_str} · SL -{sl_pct:.1f}% · "
+            f"{votes_str} · {ts} UTC{pm_section}\n"
+            f"📡 @ichimokutradingsignal | MiroFish Swarm × IRONS AI"
         )
-        return msg
 
     async def send_signal_to_channel(self, signal: SwarmSignal,
                                      bb_position: float = None,

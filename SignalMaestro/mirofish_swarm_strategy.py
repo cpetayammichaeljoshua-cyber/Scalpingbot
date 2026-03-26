@@ -145,6 +145,7 @@ class SwarmSignal:
     take_profit_1: float = 0.0
     take_profit_2: float = 0.0
     take_profit_3: float = 0.0
+    take_profit_4: float = 0.0
     leverage: int = 15
     rsi: float = 50.0
     volume_ratio: float = 1.0
@@ -158,12 +159,19 @@ class SwarmSignal:
     participation_rate: float = 0.0  # fraction of agents that voted non-NEUTRAL
 
     # ── Prediction Market Papers (Shannon / Kelly / Decay) ──────────────────
-    # shannon_entropy: H = -p·log₂(p) - (1-p)·log₂(1-p)  → 0=certain, 1=random
-    # kelly_fraction:  f = max(0, (p·b - q) / b)           → optimal edge fraction
-    # kelly_decay_factor: 1 - e^(-λt), λ=ln(2)/3          → trend-maturity 0→1
     shannon_entropy: float = 0.0
     kelly_fraction: float = 0.0
     kelly_decay_factor: float = 1.0
+
+    # ── IRONS AI Score & Indicator Panel ──────────────────────────────────
+    irons_score: int = 0
+    irons_risk: str = ""
+    irons_categories: dict = field(default_factory=dict)
+    irons_indicators: dict = field(default_factory=dict)
+    irons_patterns: list = field(default_factory=list)
+    irons_squeeze: bool = False
+    mtf_4h: str = "NEUTRAL"
+    mtf_1h: str = "NEUTRAL"
 
     def __post_init__(self):
         if self.take_profit_1 == 0.0:
@@ -178,6 +186,11 @@ class SwarmSignal:
                 self.take_profit_3 = self.entry_price + (self.take_profit - self.entry_price) * 2.8
             else:
                 self.take_profit_3 = self.entry_price - (self.entry_price - self.take_profit) * 2.8
+        if self.take_profit_4 == 0.0:
+            if self.action == "BUY":
+                self.take_profit_4 = self.entry_price + (self.take_profit - self.entry_price) * 3.8
+            else:
+                self.take_profit_4 = self.entry_price - (self.entry_price - self.take_profit) * 3.8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3032,6 +3045,7 @@ class MiroFishSwarmStrategy:
             # ── Micro-price filter: skip coins priced below $0.0001 ──
             # These generate precision noise and unmeaningful TP/SL distances
             cur_price_check = closes[-1]
+            cur_price = closes[-1]   # BUG FIX: define early so Step 5.5 risk debate can use it
             if cur_price_check < 0.0001:
                 self.logger.debug(
                     f"⚠️ [{symbol}|{tf}] Price ${cur_price_check:.8f} < $0.0001 "
@@ -3835,6 +3849,18 @@ class MiroFishSwarmStrategy:
                 if tp3 >= tp2:
                     tp3 = _tick(tp2 - min_tp_gap)
 
+            # ── TP4: additional 3.8× target (deep runner level) ──
+            tp4_dist = max(tp3_dist + min_tp_gap * 2.0, cur_price * 0.040)
+            tp4_dist = min(tp4_dist, cur_price * 0.20)   # cap at 20% from entry
+            if action == "BUY":
+                tp4 = _tick(cur_price + tp4_dist)
+                if tp4 <= tp3:
+                    tp4 = _tick(tp3 + min_tp_gap)
+            else:
+                tp4 = _tick(cur_price - tp4_dist)
+                if tp4 >= tp3:
+                    tp4 = _tick(tp3 - min_tp_gap)
+
             # R:R uses TP2 as the effective reward target (realistic for a partial-exit
             # strategy where Cornix closes 50% at TP1 and 35% at TP2).  TP1-only R:R
             # underestimates the true risk/reward of the trade plan.
@@ -3852,7 +3878,6 @@ class MiroFishSwarmStrategy:
                 return None
 
             # ── Kelly Criterion dynamic leverage (uses actual TP1/SL distances) ──
-            # Blend historical win rate with consensus estimate for more grounded p
             _hist_wr = getattr(self, '_global_win_rate', 0.338)
             _consensus_p = min(consensus, 0.95) * (confidence / 100.0)
             _kelly_p = _hist_wr * 0.6 + _consensus_p * 0.4
@@ -3892,6 +3917,34 @@ class MiroFishSwarmStrategy:
                 f"Part={n_active}/{len(all_votes)} | Agents: {agent_summary_str}"
             )
 
+            # ── Step 9: IRONS AI comprehensive scoring ──
+            _irons_result = {}
+            _htf_1h = "NEUTRAL"; _htf_4h = "NEUTRAL"
+            try:
+                if htf_closes and len(htf_closes) >= 10:
+                    _htf_ema9  = sum(htf_closes[-9:]) / 9
+                    _htf_ema21 = sum(htf_closes[-21:]) / 21 if len(htf_closes) >= 21 else _htf_ema9
+                    if _htf_ema9 > _htf_ema21:
+                        _htf_1h = "BUY"
+                    elif _htf_ema9 < _htf_ema21:
+                        _htf_1h = "SELL"
+            except Exception:
+                pass
+
+            try:
+                from SignalMaestro.irons_ai_scorer import IRONSScorer
+                _macd_l, _macd_s = _macd(closes)
+                _irons_result = IRONSScorer.score(
+                    closes=closes, highs=highs, lows=lows, volumes=volumes,
+                    action=action, atr=atr, rsi=rsi_val,
+                    macd_line=_macd_l, macd_sig=_macd_s,
+                    swarm_consensus=consensus, confidence=confidence,
+                    vol_ratio=vol_ratio, regime=_regime,
+                    htf_1h=_htf_1h, htf_4h=_htf_4h,
+                )
+            except Exception as _e:
+                self.logger.debug(f"IRONSScorer error: {_e}")
+
             return SwarmSignal(
                 symbol=symbol,
                 action=action,
@@ -3901,6 +3954,7 @@ class MiroFishSwarmStrategy:
                 take_profit_1=take_profit,
                 take_profit_2=tp2,
                 take_profit_3=tp3,
+                take_profit_4=tp4,
                 signal_strength=signal_strength,
                 confidence=confidence,
                 risk_reward_ratio=rr,
@@ -3921,6 +3975,14 @@ class MiroFishSwarmStrategy:
                     all_votes.get("TrendAgent", {}).get("vote") == action and
                     trend_conf >= 65.0
                 ),
+                irons_score=_irons_result.get("score", 0),
+                irons_risk=_irons_result.get("risk_label", ""),
+                irons_categories=_irons_result.get("categories", {}),
+                irons_indicators=_irons_result.get("indicators", {}),
+                irons_patterns=_irons_result.get("patterns", []),
+                irons_squeeze=_irons_result.get("squeeze_on", False),
+                mtf_1h=_htf_1h,
+                mtf_4h=_htf_4h,
             )
 
         except Exception as e:
