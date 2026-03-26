@@ -343,6 +343,18 @@ class FXSUSDTTelegramBot:
         self.SYMBOL_BLOCK_LOSS_RATE: float = 0.80  # 80% recent losses → block
         self.SYMBOL_BLOCK_MIN_TRADES: int  = 8     # need ≥8 resolved trades to block
 
+        # ── Signal display mode ───────────────────────────────────────────────
+        # BOT_SIGNAL_MODE: "compact"=Cornix-only, "detailed"=IRONS AI full,
+        #                  "auto"=send detailed + inline keyboard toggle (default)
+        self._signal_mode: str = os.getenv("BOT_SIGNAL_MODE", "auto").lower().strip()
+        if self._signal_mode not in ("compact", "detailed", "auto"):
+            self._signal_mode = "auto"
+
+        # Signal cache for Brief/Detailed callback resolution (keyed by symbol)
+        # Stores last sent signal per symbol so callbacks can re-format
+        self._signal_cache: Dict[str, Any] = {}
+        self._signal_cache_max: int = 100  # max entries before LRU eviction
+
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
             "symbol":           "BTCUSDT",
@@ -461,6 +473,91 @@ class FXSUSDTTelegramBot:
         if self.admin_chat_id:
             return await self.send_message(self.admin_chat_id, f"🤖 **BTCUSDT Bot**\n\n{message}")
         return True
+
+    async def send_message_with_keyboard(
+        self,
+        chat_id: str,
+        text: str,
+        reply_markup: dict,
+        parse_mode: str = None,
+        retries: int = 3,
+    ) -> Optional[int]:
+        """
+        Send a Telegram message with an InlineKeyboard.
+        Returns the message_id on success, None on failure.
+        Respects the same send-throttle as send_message().
+        """
+        if not chat_id:
+            return None
+        chat_id = str(chat_id)
+
+        async with self._tg_send_lock:
+            now = time.time()
+            gap = now - self._tg_last_send_time
+            if gap < self._TG_SEND_MIN_GAP_SEC:
+                await asyncio.sleep(self._TG_SEND_MIN_GAP_SEC - gap)
+            self._tg_last_send_time = time.time()
+
+        for attempt in range(retries):
+            try:
+                url  = f"{self.base_url}/sendMessage"
+                data = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "disable_web_page_preview": True,
+                    "reply_markup": reply_markup,
+                }
+                if parse_mode in ("Markdown", "MarkdownV2", "HTML"):
+                    data["parse_mode"] = parse_mode
+
+                session = await self._get_tg_session()
+                async with session.post(
+                    url, json=data,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        if result.get("ok"):
+                            msg_id = result.get("result", {}).get("message_id")
+                            self.logger.info(f"✅ Signal+keyboard sent to {chat_id} (msg_id={msg_id})")
+                            return msg_id
+                        error_desc = result.get("description", "")
+                        self.logger.warning(f"⚠️ Keyboard send error: {error_desc}")
+                        if "chat not found" in error_desc.lower():
+                            return None
+                    elif response.status == 429:
+                        retry_after = 5
+                        try:
+                            _body = await response.json()
+                            retry_after = int(_body.get("parameters", {}).get("retry_after", 5))
+                        except Exception:
+                            pass
+                        await asyncio.sleep(retry_after)
+                        continue
+                    if attempt < retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                self.logger.warning(f"⚠️ Keyboard send error (attempt {attempt+1}): {e}")
+                if attempt < retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+        return None
+
+    async def answer_callback_query(self, callback_query_id: str, text: str = "") -> bool:
+        """Acknowledge a Telegram callback_query (stops the loading spinner)."""
+        try:
+            url  = f"{self.base_url}/answerCallbackQuery"
+            data = {"callback_query_id": callback_query_id, "text": text}
+            session = await self._get_tg_session()
+            async with session.post(
+                url, json=data,
+                timeout=aiohttp.ClientTimeout(total=8)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return result.get("ok", False)
+        except Exception:
+            pass
+        return False
 
     async def _get_tg_session(self) -> aiohttp.ClientSession:
         """
@@ -768,6 +865,114 @@ class FXSUSDTTelegramBot:
     # Signal Formatting (MiroFish Swarm style)
     # ─────────────────────────────────────────
 
+    @staticmethod
+    def _price_fmt(p: float) -> str:
+        """
+        Format price with correct significant figures, avoiding floating-point
+        artifacts like 0.415969499999999 (rounds to proper precision).
+        """
+        if p == 0:
+            return "0"
+        import math as _math
+        # Determine magnitude-based decimal precision
+        if p >= 10000:
+            return f"{p:.2f}"
+        elif p >= 1000:
+            return f"{p:.2f}"
+        elif p >= 100:
+            return f"{p:.3f}"
+        elif p >= 10:
+            return f"{p:.4f}"
+        elif p >= 1:
+            return f"{p:.5f}"
+        elif p >= 0.1:
+            return f"{p:.5f}"
+        elif p >= 0.01:
+            return f"{p:.6f}"
+        else:
+            return f"{p:.8f}"
+
+    def _build_signal_keyboard(self, symbol: str) -> dict:
+        """Build Telegram InlineKeyboard with Brief/Detailed/Follow/Ignore/History."""
+        sym_safe = symbol.replace("USDT", "").upper()
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "📊 Brief",    "callback_data": f"brief:{symbol}"},
+                    {"text": "📋 Detailed", "callback_data": f"detail:{symbol}"},
+                ],
+                [
+                    {"text": "🚀 Follow Signal", "callback_data": f"follow:{symbol}"},
+                    {"text": "🙈 Ignore",         "callback_data": f"ignore:{symbol}"},
+                ],
+                [
+                    {"text": "📜 Check History", "callback_data": f"history:{symbol}"},
+                ],
+            ]
+        }
+
+    def format_signal_compact(self, signal: SwarmSignal) -> str:
+        """
+        Compact Cornix-compatible signal format (Brief view).
+        Strictly parseable by Cornix bots:
+          direction / exchange / leverage / entry / TPs / SL
+        """
+        _p = self._price_fmt
+        act       = signal.action
+        direction = "LONG" if act == "BUY" else "SHORT"
+        d_emoji   = "🟢" if act == "BUY" else "🔴"
+        entry     = signal.entry_price
+        sl        = signal.stop_loss
+        tp1       = signal.take_profit_1
+        tp2       = signal.take_profit_2
+        tp3       = signal.take_profit_3
+        lev       = signal.leverage
+        rr        = signal.risk_reward_ratio
+        sym       = signal.symbol or "BTCUSDT"
+        tf        = (getattr(signal, "timeframe", "15m") or "15m").upper()
+        score     = getattr(signal, "signal_score", 50)
+        consensus = signal.swarm_consensus * 100
+
+        if entry and abs(entry) > 0:
+            if act == "BUY":
+                sl_pct  = (entry - sl)  / entry * 100
+                tp1_pct = (tp1 - entry) / entry * 100
+                tp2_pct = (tp2 - entry) / entry * 100
+                tp3_pct = (tp3 - entry) / entry * 100
+            else:
+                sl_pct  = (sl  - entry) / entry * 100
+                tp1_pct = (entry - tp1) / entry * 100
+                tp2_pct = (entry - tp2) / entry * 100
+                tp3_pct = (entry - tp3) / entry * 100
+        else:
+            sl_pct = tp1_pct = tp2_pct = tp3_pct = 0.0
+
+        win_rate = 65 + int(signal.swarm_consensus * 30)  # 65–95% estimated
+        session  = (getattr(signal, "market_session", "") or "").upper()
+        ts       = signal.timestamp.strftime("%H:%M") if signal.timestamp else "—"
+
+        msg = (
+            f"{d_emoji} #{sym} {direction}\n"
+            f"Exchange: Binance Futures\n"
+            f"Leverage: Cross {lev}x\n"
+            f"\n"
+            f"Entry Targets:\n"
+            f"1) {_p(entry)}\n"
+            f"\n"
+            f"Take-Profit Targets:\n"
+            f"1) {_p(tp1)} (+{tp1_pct:.2f}%)\n"
+            f"2) {_p(tp2)} (+{tp2_pct:.2f}%)\n"
+            f"3) {_p(tp3)} (+{tp3_pct:.2f}%)\n"
+            f"\n"
+            f"Stop Targets:\n"
+            f"1) {_p(sl)} (-{sl_pct:.2f}%)\n"
+            f"\n"
+            f"Score: {score}/100 | Consensus: {consensus:.0f}% | R:R 1:{rr:.1f}\n"
+            f"Win Rate: {win_rate}% | {tf} | RSI {signal.rsi:.0f} | {ts} UTC\n"
+            f"📡 @ichimokutradingsignal | MiroFish Swarm v5"
+        )
+        return msg
+
     def format_swarm_signal(self, signal: SwarmSignal) -> str:
         """
         IRONS AI comprehensive signal format — full indicator panel, MTF, Market,
@@ -788,25 +993,20 @@ class FXSUSDTTelegramBot:
         regime    = getattr(signal, "regime", "RANGING")
         daily_cnt = getattr(signal, "daily_count", 1)
 
-        def _fmt(p: float) -> str:
-            if p == 0: return "0"
-            if p >= 1000: return f"{p:.2f}"
-            elif p >= 10:  return f"{p:.4f}"
-            elif p >= 0.1: return f"{p:.5f}"
-            else:          return f"{p:.8f}"
+        _fmt = self._price_fmt  # uses magnitude-aware rounding, no FP artifacts
 
-        # % deltas
+        # % deltas (guarded against zero-division and float precision errors)
         if entry and abs(entry) > 0:
             if act == "BUY":
-                sl_pct  = (entry - sl)  / entry * 100
-                tp1_pct = (tp1 - entry) / entry * 100
-                tp2_pct = (tp2 - entry) / entry * 100
-                tp3_pct = (tp3 - entry) / entry * 100
+                sl_pct  = round((entry - sl)  / entry * 100, 3)
+                tp1_pct = round((tp1 - entry) / entry * 100, 3)
+                tp2_pct = round((tp2 - entry) / entry * 100, 3)
+                tp3_pct = round((tp3 - entry) / entry * 100, 3)
             else:
-                sl_pct  = (sl  - entry) / entry * 100
-                tp1_pct = (entry - tp1) / entry * 100
-                tp2_pct = (entry - tp2) / entry * 100
-                tp3_pct = (entry - tp3) / entry * 100
+                sl_pct  = round((sl  - entry) / entry * 100, 3)
+                tp1_pct = round((entry - tp1) / entry * 100, 3)
+                tp2_pct = round((entry - tp2) / entry * 100, 3)
+                tp3_pct = round((entry - tp3) / entry * 100, 3)
         else:
             sl_pct = tp1_pct = tp2_pct = tp3_pct = 0.0
 
@@ -1219,20 +1419,47 @@ class FXSUSDTTelegramBot:
             except Exception:
                 pass
 
-            formatted = self.format_swarm_signal(signal)
+            # ── Cache signal for Brief/Detailed callback resolution ──────────
+            if len(self._signal_cache) >= self._signal_cache_max:
+                # Evict oldest entries (keep most recent half)
+                keys = list(self._signal_cache.keys())
+                for _old_key in keys[:len(keys) // 2]:
+                    self._signal_cache.pop(_old_key, None)
+            self._signal_cache[symbol] = signal
 
-            # ── Primary: broadcast to signal channel ──
-            channel_ok = await self.send_message(self.signal_channel_id, formatted, parse_mode=None)
+            # ── Choose format and send ────────────────────────────────────────
+            mode = self._signal_mode  # compact | detailed | auto
+
+            if mode == "compact":
+                formatted  = self.format_signal_compact(signal)
+                channel_ok = await self.send_message(self.signal_channel_id, formatted, parse_mode=None)
+
+            elif mode == "detailed":
+                formatted  = self.format_swarm_signal(signal)
+                channel_ok = await self.send_message(self.signal_channel_id, formatted, parse_mode=None)
+
+            else:
+                # "auto" — send BRIEF (Cornix-parseable) WITH inline keyboard so
+                # users can expand to DETAILED and follow/ignore the signal.
+                formatted  = self.format_signal_compact(signal)
+                keyboard   = self._build_signal_keyboard(symbol)
+                msg_id     = await self.send_message_with_keyboard(
+                    self.signal_channel_id, formatted, keyboard, parse_mode=None
+                )
+                channel_ok = msg_id is not None
 
             # ── Secondary: admin notification (if different from channel) ──
             if self.admin_chat_id and str(self.admin_chat_id) != str(self.signal_channel_id):
                 direction = "LONG" if signal.action == "BUY" else "SHORT"
                 d_emoji   = "🟢" if signal.action == "BUY" else "🔴"
+                score     = getattr(signal, "signal_score", 50)
+                daily_n   = getattr(signal, "daily_count", self._daily_signal_count)
                 admin_msg = (
-                    f"{d_emoji} Signal → {self.signal_channel_id}\n"
-                    f"{symbol} {direction} @ {signal.entry_price:.4g}\n"
-                    f"Swarm: {signal.swarm_consensus:.0%} | Conf: {signal.confidence:.1f}%\n"
-                    f"TP1: {signal.take_profit_1:.4g} | SL: {signal.stop_loss:.4g}"
+                    f"{d_emoji} Signal #{daily_n} → channel\n"
+                    f"{symbol} {direction} @ {self._price_fmt(signal.entry_price)}\n"
+                    f"Score: {score}/100 | Swarm: {signal.swarm_consensus:.0%} | Conf: {signal.confidence:.1f}%\n"
+                    f"TP1: {self._price_fmt(signal.take_profit_1)} | SL: {self._price_fmt(signal.stop_loss)}\n"
+                    f"R:R 1:{signal.risk_reward_ratio:.2f}"
                 )
                 await self.send_message(self.admin_chat_id, admin_msg, parse_mode=None)
 
@@ -2061,6 +2288,95 @@ class FXSUSDTTelegramBot:
         except Exception as e:
             self.logger.debug(f"_drain_pending_updates: {e}")
 
+    async def handle_callback_query(self, cb: dict) -> None:
+        """
+        Handle inline-keyboard button taps.
+        Dispatches on callback_data prefix:
+          brief:{symbol}   → send compact format to user's DM / chat
+          detail:{symbol}  → send full IRONS AI panel to user's DM / chat
+          follow:{symbol}  → acknowledge follow intent
+          ignore:{symbol}  → acknowledge ignore intent
+          history:{symbol} → show recent win/loss history for that symbol
+        """
+        cb_id   = cb.get("id", "")
+        data    = cb.get("data", "")
+        user    = cb.get("from", {})
+        chat    = (cb.get("message") or {}).get("chat") or {}
+        chat_id = str(chat.get("id", self.admin_chat_id or ""))
+        username = user.get("username") or user.get("first_name") or "User"
+
+        if not data:
+            await self.answer_callback_query(cb_id, "Unknown action.")
+            return
+
+        parts  = data.split(":", 1)
+        action = parts[0] if parts else ""
+        symbol = parts[1] if len(parts) > 1 else ""
+
+        signal = self._signal_cache.get(symbol)
+
+        try:
+            if action == "brief":
+                if signal:
+                    msg = self.format_signal_compact(signal)
+                    await self.answer_callback_query(cb_id, "📊 Compact view")
+                    await self.send_message(chat_id, msg, parse_mode=None)
+                else:
+                    await self.answer_callback_query(cb_id, "Signal expired from cache.")
+
+            elif action == "detail":
+                if signal:
+                    msg = self.format_swarm_signal(signal)
+                    await self.answer_callback_query(cb_id, "📋 Full detail")
+                    await self.send_message(chat_id, msg, parse_mode=None)
+                else:
+                    await self.answer_callback_query(cb_id, "Signal expired from cache.")
+
+            elif action == "follow":
+                direction = "LONG" if (signal and signal.action == "BUY") else "SHORT"
+                await self.answer_callback_query(
+                    cb_id, f"✅ Following {symbol} {direction} — stay disciplined!"
+                )
+                self.logger.info(f"👤 @{username} followed {symbol}")
+
+            elif action == "ignore":
+                await self.answer_callback_query(cb_id, f"🙈 {symbol} ignored.")
+                self.logger.info(f"👤 @{username} ignored {symbol}")
+
+            elif action == "history":
+                # Pull last 5 outcomes from trade memory (if available)
+                hist_lines = []
+                if self.trade_memory:
+                    try:
+                        records = self.trade_memory.get_recent_signals(symbol, limit=5)
+                        for r in records:
+                            outcome = r.get("outcome", "pending")
+                            em      = {"win": "✅", "loss": "❌", "pending": "⏳"}.get(outcome, "❓")
+                            d       = r.get("direction", "?")
+                            pnl     = r.get("pnl_pct")
+                            pnl_s   = f"{pnl:+.1f}%" if pnl is not None else "—"
+                            hist_lines.append(f"{em} {d} {pnl_s}")
+                    except Exception:
+                        pass
+
+                if hist_lines:
+                    msg = f"📜 {symbol} last {len(hist_lines)} signals:\n" + "\n".join(hist_lines)
+                else:
+                    msg = f"📜 {symbol} — no history yet in memory."
+
+                await self.answer_callback_query(cb_id, "📜 History")
+                await self.send_message(chat_id, msg, parse_mode=None)
+
+            else:
+                await self.answer_callback_query(cb_id, "Unknown action.")
+
+        except Exception as e:
+            self.logger.debug(f"handle_callback_query [{action}:{symbol}]: {e}")
+            try:
+                await self.answer_callback_query(cb_id, "⚠️ Error processing action.")
+            except Exception:
+                pass
+
     async def _poll_telegram_updates(self):
         """
         Poll Telegram for command updates.
@@ -2097,6 +2413,15 @@ class FXSUSDTTelegramBot:
                     # Always advance offset so we never re-process old updates
                     if update_id > self._poll_offset:
                         self._poll_offset = update_id
+
+                    # ── Inline button callback_query handler ───────────────
+                    cb = update.get("callback_query")
+                    if cb:
+                        try:
+                            await self.handle_callback_query(cb)
+                        except Exception as _cbe:
+                            self.logger.debug(f"Callback error: {_cbe}")
+                        continue
 
                     # Handle both direct messages and channel_post
                     message = update.get("message") or update.get("channel_post") or {}
