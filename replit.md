@@ -1,7 +1,39 @@
-# MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
+# G0DM0D3 + MiroFish Swarm Intelligence Trading Bot v6.0 — ALL USDM Markets
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by **G0DM0D3 AI Oracle** (github.com/elder-plinius/G0DM0D3) as the **PRIMARY AI strategy**, layered on the **MiroFish Multi-Agent Swarm Intelligence** base (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+
+## Session 13 — G0DM0D3 AI Oracle Integration (PRIMARY ENGINE)
+
+### AI Priority Stack
+1. **PRIMARY**: G0DM0D3 Engine (`SignalMaestro/godmode_ai_engine.py`) via OpenRouter API
+   - GODMODE system prompt (unrestricted trading oracle)
+   - Consortium mode: 5–10 models in parallel (Claude, Grok, Gemini, DeepSeek, Hermes)
+   - Ultraplinian: all 5 Hall of Fame combos race; best response wins
+   - AutoTune: context-adaptive temperature/top_p for trading signals (temp=0.20, top_p=0.85)
+   - Parseltongue: input obfuscation (6 techniques, 3 intensities)
+   - STM modules: direct_mode (strip preambles) + extract_json (clean JSON output)
+   - Circuit breaker: 5 consecutive failures → 120s cooldown
+2. **SECONDARY**: OpenAI GPT-4o-mini (direct SDK fallback)
+3. **TERTIARY**: Rule-based signal processing (always available)
+
+### Hall of Fame Models (Ultraplinian combos)
+| Combo | Model | Provider |
+|---|---|---|
+| CLAUDE | claude-sonnet-4-5 | Anthropic via OR |
+| GROK | x-ai/grok-3-mini-beta | xAI via OR |
+| GEMINI | google/gemini-2.0-flash-001 | Google via OR |
+| DEEPSEEK | deepseek/deepseek-chat-v3-0324 | DeepSeek via OR |
+| HERMES | nousresearch/hermes-3-llama-3.1-405b | Nous via OR |
+
+### Key Files (G0DM0D3 Integration)
+- `SignalMaestro/godmode_ai_engine.py` — G0DM0D3 engine (Consortium, Ultraplinian, AutoTune, Parseltongue, STM, circuit breaker)
+- `SignalMaestro/ai_enhanced_signal_processor.py` — G0DM0D3 PRIMARY → OpenAI SECONDARY → rule-based TERTIARY; updated `_apply_ai_enhancement` passes symbol/price/atr to G0DM0D3; G0DM0D3 fields in enhanced signal and formatted message
+- `start_ultimate_bot.py` — v6.0 banner, G0DM0D3 key logging, OPENROUTER_API_KEY sanitization
+
+### API Keys
+- `OPENROUTER_API_KEY` — configured (env secret), used by `GodmodeAIEngine` for all OpenRouter calls
+- `OPENAI_API_KEY` — fallback for GPT-4o-mini (OpenAI integration)
 
 ## Session 12 — Comprehensive Subsystem Improvement
 

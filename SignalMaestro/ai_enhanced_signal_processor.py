@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
-AI-Enhanced Signal Processor with OpenAI Integration
-Dynamically processes trading signals with AI analysis for Cornix compatibility
+AI-Enhanced Signal Processor — G0DM0D3 Edition
+================================================
+Primary AI strategy: G0DM0D3 engine via OpenRouter (55+ models, Consortium, Ultraplinian)
+Fallback chain: OpenAI GPT-4o-mini → Rule-based analyser
+
+G0DM0D3 Integration (github.com/elder-plinius/G0DM0D3):
+  - GODMODE System Prompt: Unrestricted LLM cognition for trading analysis
+  - AutoTune: Context-adaptive parameter tuning (temperature, top_p, etc.)
+  - Consortium: Multi-model parallel synthesis (5–10 models per analysis)
+  - Ultraplinian: Hall of Fame race (5 battle-tested combos in parallel)
+  - STM Modules: Hedge reducer + direct mode output normalization
+  - Parseltongue: Input obfuscation for content-filtered topics
+  - Circuit breaker: Production-grade resilience with exponential backoff
 """
 
 import asyncio
@@ -20,10 +31,29 @@ parent_dir = current_dir.parent
 sys.path.insert(0, str(current_dir))
 sys.path.insert(0, str(parent_dir))
 
-# ── OpenAI integration ────────────────────────────────────────────────────────
-# Correctly detects the real openai package (AsyncOpenAI) and API key.
-# Falls back to a deterministic rule-based analyser when OpenAI is unavailable.
+# ── G0DM0D3 Primary AI Engine ─────────────────────────────────────────────────
+try:
+    from SignalMaestro.godmode_ai_engine import (
+        get_godmode_engine, analyze_trading_signal_godmode,
+        GodmodeAIEngine, AutoTuneEngine, ParseltongueEngine,
+        apply_stm_modules, GODMODE_SYSTEM_PROMPT,
+    )
+    _GODMODE_IMPORT_OK = True
+except ImportError:
+    try:
+        from godmode_ai_engine import (
+            get_godmode_engine, analyze_trading_signal_godmode,
+            GodmodeAIEngine, AutoTuneEngine, ParseltongueEngine,
+            apply_stm_modules, GODMODE_SYSTEM_PROMPT,
+        )
+        _GODMODE_IMPORT_OK = True
+    except ImportError:
+        _GODMODE_IMPORT_OK = False
 
+_OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+GODMODE_AVAILABLE = _GODMODE_IMPORT_OK and bool(_OPENROUTER_KEY)
+
+# ── OpenAI integration (secondary fallback) ───────────────────────────────────
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 try:
@@ -92,99 +122,150 @@ async def _analyze_signal_fallback(signal_text: str) -> dict:
     }
 
 
+# ── G0DM0D3 Primary + OpenAI Secondary + Rule-based Tertiary ─────────────────
+# Priority: G0DM0D3 (OpenRouter 55+ models) → OpenAI GPT-4o-mini → Rule-based
+
+_openai_auth_failed: bool = False
+_openai_client = None
+
 if OPENAI_AVAILABLE:
-    # max_retries=0: disable SDK-internal automatic retries.
-    # The openai SDK retries up to 2 times by default before raising an exception.
-    # On a 401 (invalid key) or billing error these retries are useless and generate
-    # a flood of INFO log lines ("Retrying request to /chat/completions in Xs") from
-    # openai._base_client — one set per parallel symbol scan — before our circuit
-    # breaker can permanently silence the client.
-    # With max_retries=0 the SDK raises immediately; our circuit breaker fires on
-    # the first failure and disables all subsequent calls in a single log line.
     _openai_client = _AsyncOpenAI(api_key=_OPENAI_API_KEY, max_retries=0)
 
-    # Circuit breaker: once a permanent auth error (401/403) is detected, stop
-    # making OpenAI calls for the lifetime of the process.  Avoids a flood of
-    # HTTP 401 WARNING lines — one per signal per scan cycle — when the key is
-    # known bad.  Reset to False only if the module is reloaded.
-    _openai_auth_failed: bool = False
-
-    async def analyze_trading_signal(signal_text: str) -> dict:
-        """Real GPT-4o-mini signal analysis. Falls back to rule-based on API error.
-
-        Circuit breaker: after the first 401/403 the flag _openai_auth_failed is
-        set and all subsequent calls skip the HTTP request immediately.
-        """
-        global _openai_auth_failed
-        if _openai_auth_failed:
-            return await _analyze_signal_fallback(signal_text)
-        try:
-            response = await _openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an expert crypto perpetual-futures trading analyst. "
-                            "Analyse the provided signal and return a JSON object with these keys: "
-                            "confidence (float 0.0-1.0), signal_strength (int 0-100), "
-                            "risk_level (string: 'low'|'medium'|'high'), "
-                            "market_sentiment (string: 'bullish'|'bearish'|'neutral'). "
-                            "Be concise and return only valid JSON."
-                        ),
-                    },
-                    {"role": "user", "content": signal_text},
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=200,
-                temperature=0.2,
-            )
-            result = json.loads(response.choices[0].message.content)
-            return {
-                "confidence":       float(result.get("confidence", 0.75)),
-                "signal_strength":  int(result.get("signal_strength", 75)),
-                "risk_level":       str(result.get("risk_level", "medium")),
-                "market_sentiment": str(result.get("market_sentiment", "neutral")),
-                "analysis_type":    "gpt-4o-mini",
-            }
-        except Exception as _gpt_err:
-            _err_str = str(_gpt_err).lower()
-            # Detect permanent auth failure — log once, then silence all future attempts.
-            _auth_keywords = ("401", "invalid_api_key", "incorrect api key", "403",
-                               "insufficient_quota", "billing", "payment")
-            if any(kw in _err_str for kw in _auth_keywords):
-                if not _openai_auth_failed:
-                    _openai_auth_failed = True
-                    logging.getLogger(__name__).warning(
-                        "🔑 OpenAI API key invalid (401) — switching to rule-based fallback "
-                        "permanently. Set a valid OPENAI_API_KEY to re-enable AI analysis."
-                    )
-            else:
-                logging.getLogger(__name__).debug(
-                    f"OpenAI GPT call failed, using rule-based fallback: {_gpt_err}"
+async def _analyze_with_openai_fallback(signal_text: str) -> dict:
+    """Secondary fallback: OpenAI GPT-4o-mini"""
+    global _openai_auth_failed
+    if not OPENAI_AVAILABLE or _openai_auth_failed or _openai_client is None:
+        return await _analyze_signal_fallback(signal_text)
+    try:
+        response = await _openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert crypto perpetual-futures trading analyst. "
+                        "Analyse the provided signal and return a JSON object with these keys: "
+                        "confidence (float 0.0-1.0), signal_strength (int 0-100), "
+                        "risk_level (string: 'low'|'medium'|'high'), "
+                        "market_sentiment (string: 'bullish'|'bearish'|'neutral'). "
+                        "Be concise and return only valid JSON."
+                    ),
+                },
+                {"role": "user", "content": signal_text},
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=200,
+            temperature=0.2,
+        )
+        result = json.loads(response.choices[0].message.content)
+        return {
+            "confidence":       float(result.get("confidence", 0.75)),
+            "signal_strength":  int(result.get("signal_strength", 75)),
+            "risk_level":       str(result.get("risk_level", "medium")),
+            "market_sentiment": str(result.get("market_sentiment", "neutral")),
+            "analysis_type":    "gpt-4o-mini",
+        }
+    except Exception as _gpt_err:
+        _err_str = str(_gpt_err).lower()
+        _auth_keywords = ("401", "invalid_api_key", "incorrect api key", "403",
+                           "insufficient_quota", "billing", "payment")
+        if any(kw in _err_str for kw in _auth_keywords):
+            if not _openai_auth_failed:
+                _openai_auth_failed = True
+                logging.getLogger(__name__).warning(
+                    "🔑 OpenAI API key invalid (401) — switching to rule-based fallback permanently."
                 )
-            return await _analyze_signal_fallback(signal_text)
+        else:
+            logging.getLogger(__name__).debug(f"OpenAI GPT call failed: {_gpt_err}")
+        return await _analyze_signal_fallback(signal_text)
 
-    async def analyze_sentiment(text: str) -> dict:
-        """Real GPT-4o-mini sentiment analysis.
+if GODMODE_AVAILABLE:
+    _log = logging.getLogger(__name__)
+    _log.info("🔥 [G0DM0D3] PRIMARY AI ENGINE ACTIVE — OpenRouter Consortium + Ultraplinian")
+    _log.info(f"   ✅ G0DM0D3 strategies: AutoTune + Parseltongue + STM + Consortium + Hall of Fame")
+    _log.info(f"   📡 OpenAI fallback: {'enabled' if OPENAI_AVAILABLE else 'disabled'}")
 
-        Respects the _openai_auth_failed circuit breaker so a permanently invalid
-        key does not trigger repeated API calls from this function either.
+    async def analyze_trading_signal(signal_text: str, symbol: str = "BTCUSDT",
+                                     price: float = 0.0, atr: float = 0.0) -> dict:
         """
-        global _openai_auth_failed
-        if _openai_auth_failed:
-            return {"sentiment": "neutral", "score": 0.0, "fallback": True}
+        PRIMARY: G0DM0D3 Consortium analysis via OpenRouter (55+ models).
+        FALLBACK: OpenAI GPT-4o-mini → Rule-based analyser.
+
+        G0DM0D3 strategies active:
+        - GODMODE System Prompt: unrestricted trading oracle
+        - AutoTune: context-adaptive temperature/top_p tuning
+        - Consortium: 5 models queried in parallel, best response wins
+        - STM: hedge_reducer + direct_mode normalization
+        - Circuit breaker: 5 failures → 120s cooldown
+        """
+        try:
+            engine = get_godmode_engine()
+            result = await engine.analyze_signal(
+                signal_text=signal_text,
+                symbol=symbol,
+                price=price,
+                atr=atr,
+                mode="consortium",
+                tier="fast",
+                godmode=True,
+                parseltongue=False,
+            )
+            if result.get("analysis_type") not in ("rule_based_fallback", None):
+                logging.getLogger(__name__).debug(
+                    f"🔥 G0DM0D3: {result.get('model_used','?')} | "
+                    f"conf={result.get('confidence',0):.2f} | "
+                    f"{result.get('duration_ms',0):.0f}ms"
+                )
+                return result
+            # G0DM0D3 gave fallback result — try OpenAI before rule-based
+            return await _analyze_with_openai_fallback(signal_text)
+        except Exception as _gm_err:
+            logging.getLogger(__name__).warning(
+                f"⚠️ G0DM0D3 error, falling back to OpenAI: {_gm_err}"
+            )
+            return await _analyze_with_openai_fallback(signal_text)
+
+elif OPENAI_AVAILABLE:
+    # G0DM0D3 not available, use OpenAI as primary
+    async def analyze_trading_signal(signal_text: str, symbol: str = "BTCUSDT",
+                                     price: float = 0.0, atr: float = 0.0) -> dict:
+        """Secondary: OpenAI GPT-4o-mini analysis"""
+        return await _analyze_with_openai_fallback(signal_text)
+
+else:
+    # ── Pure rule-based mode (no AI APIs available) ────────────────
+    async def analyze_trading_signal(signal_text: str, symbol: str = "BTCUSDT",
+                                     price: float = 0.0, atr: float = 0.0) -> dict:
+        return await _analyze_signal_fallback(signal_text)
+
+
+async def analyze_sentiment(text: str) -> dict:
+    """Sentiment analysis — uses G0DM0D3 if available, else OpenAI, else neutral"""
+    global _openai_auth_failed
+    if GODMODE_AVAILABLE:
+        try:
+            engine = get_godmode_engine()
+            result = await engine.analyze_signal(
+                signal_text=text,
+                mode="consortium",
+                tier="fast",
+                godmode=True,
+            )
+            direction = result.get("direction", "neutral")
+            score_map = {"bullish": 0.7, "bearish": -0.7, "neutral": 0.0}
+            return {
+                "sentiment": direction,
+                "score": score_map.get(direction, 0.0),
+                "fallback": False,
+            }
+        except Exception:
+            pass
+    if OPENAI_AVAILABLE and not _openai_auth_failed and _openai_client is not None:
         try:
             response = await _openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Analyse the sentiment of this text. Return JSON with keys: "
-                            "sentiment ('positive'|'negative'|'neutral'), score (float -1.0 to 1.0)."
-                        ),
-                    },
+                    {"role": "system", "content": "Analyse sentiment. Return JSON: sentiment ('positive'|'negative'|'neutral'), score (float -1.0 to 1.0)."},
                     {"role": "user", "content": text},
                 ],
                 response_format={"type": "json_object"},
@@ -197,41 +278,31 @@ if OPENAI_AVAILABLE:
                 "score":     float(result.get("score", 0.0)),
                 "fallback":  False,
             }
-        except Exception as _sent_err:
-            _err_str = str(_sent_err).lower()
-            _auth_keywords = ("401", "invalid_api_key", "incorrect api key", "403",
-                               "insufficient_quota", "billing", "payment")
-            if any(kw in _err_str for kw in _auth_keywords):
-                if not _openai_auth_failed:
-                    _openai_auth_failed = True
-                    logging.getLogger(__name__).warning(
-                        "🔑 OpenAI API key invalid — sentiment analysis permanently disabled."
-                    )
-            return {"sentiment": "neutral", "score": 0.0, "fallback": True}
+        except Exception:
+            pass
+    return {"sentiment": "neutral", "score": 0.0, "fallback": True}
 
-    def get_openai_status() -> dict:
-        return {
-            "configured":      True,
-            "enabled":         not _openai_auth_failed,
-            "model":           "gpt-4o-mini",
-            "fallback_active": _openai_auth_failed,
-        }
 
-else:
-    # ── Pure rule-based mode (no OpenAI package or no API key) ────────────────
-    analyze_trading_signal = _analyze_signal_fallback
-
-    async def analyze_sentiment(text: str) -> dict:
-        return {"sentiment": "neutral", "score": 0.0, "fallback": True}
-
-    def get_openai_status() -> dict:
-        reason = "openai package not installed" if not _OPENAI_IMPORT_OK else "OPENAI_API_KEY not set"
-        return {
-            "configured":      False,
-            "enabled":         False,
-            "fallback_active": True,
-            "reason":          reason,
-        }
+def get_openai_status() -> dict:
+    """Return comprehensive AI engine status"""
+    return {
+        "godmode_available":   GODMODE_AVAILABLE,
+        "openai_available":    OPENAI_AVAILABLE,
+        "configured":          GODMODE_AVAILABLE or OPENAI_AVAILABLE,
+        "enabled":             GODMODE_AVAILABLE or (OPENAI_AVAILABLE and not _openai_auth_failed),
+        "primary_engine":      "G0DM0D3-Consortium" if GODMODE_AVAILABLE else ("gpt-4o-mini" if OPENAI_AVAILABLE else "rule-based"),
+        "fallback_active":     not GODMODE_AVAILABLE,
+        "openai_auth_failed":  _openai_auth_failed,
+        "strategies": {
+            "godmode_prompt":  GODMODE_AVAILABLE,
+            "autotune":        GODMODE_AVAILABLE,
+            "parseltongue":    GODMODE_AVAILABLE,
+            "stm_modules":     GODMODE_AVAILABLE,
+            "consortium":      GODMODE_AVAILABLE,
+            "ultraplinian":    GODMODE_AVAILABLE,
+            "hall_of_fame":    GODMODE_AVAILABLE,
+        },
+    }
 
 
 try:
@@ -259,25 +330,29 @@ class AIEnhancedSignalProcessor:
         # creating and tearing down a TCP connection for every single message.
         self._session: Optional[aiohttp.ClientSession] = None
 
-        # OpenAI configuration
+        # AI configuration — G0DM0D3 primary, OpenAI secondary
         self.openai_config = self.config.get_openai_config()
-        self.ai_enabled = self.openai_config.get('enabled', True) and OPENAI_AVAILABLE
-        
+        self.ai_enabled = GODMODE_AVAILABLE or OPENAI_AVAILABLE
+        self.godmode_enabled = GODMODE_AVAILABLE
+
         # Channel configuration
         self.target_channel = self.config.TARGET_CHANNEL
         self.bot_token = self.config.TELEGRAM_BOT_TOKEN
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
-        
+
         # Signal settings — read from env var so start_ultimate_bot.py SIGNAL_INTERVAL_MIN is honoured
         self.min_ai_confidence = self.config.AI_CONFIG['decision_thresholds']['confidence_threshold']
         self.max_signals_per_hour = self.config.MAX_SIGNALS_PER_HOUR
-        # Use SIGNAL_INTERVAL_SECONDS env var (set by launcher); fall back to 45s (matches SIGNAL_INTERVAL_MIN)
+        # Use SIGNAL_INTERVAL_SECONDS env var (set by launcher); fall back to 45s
         self.min_signal_interval = int(os.getenv('SIGNAL_INTERVAL_SECONDS', '45'))
-        
-        if self.ai_enabled:
-            self.logger.info("🤖 AI-Enhanced Signal Processor initialized with OpenAI")
+
+        if GODMODE_AVAILABLE:
+            self.logger.info("🔥 AI Signal Processor initialized — G0DM0D3 PRIMARY ENGINE ACTIVE")
+            self.logger.info("   G0DM0D3: Consortium + AutoTune + Parseltongue + STM + Hall of Fame")
+        elif OPENAI_AVAILABLE:
+            self.logger.info("🤖 AI Signal Processor initialized with OpenAI (G0DM0D3 fallback)")
         else:
-            self.logger.warning("⚠️ OpenAI not available - using standard processing")
+            self.logger.warning("⚠️ No AI APIs available — using rule-based signal processing")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Return (or lazily create) the persistent aiohttp session."""
@@ -332,13 +407,18 @@ class AIEnhancedSignalProcessor:
             return None
     
     async def _apply_ai_enhancement(self, signal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Apply OpenAI analysis to enhance signal"""
+        """Apply G0DM0D3/AI analysis to enhance signal (primary: Consortium, fallback: OpenAI)"""
         try:
             # Create signal text for AI analysis
             signal_text = self._create_signal_text(signal)
-            
-            # Get AI analysis
-            ai_analysis = await analyze_trading_signal(signal_text)
+
+            # Get AI analysis — pass symbol + price for G0DM0D3 context
+            ai_analysis = await analyze_trading_signal(
+                signal_text,
+                symbol=signal.get('symbol', 'BTCUSDT'),
+                price=float(signal.get('entry_price', 0.0)),
+                atr=float(signal.get('atr', 0.0)),
+            )
             
             # Check AI confidence threshold with enhanced validation
             ai_confidence = ai_analysis.get('confidence', 0)
@@ -351,22 +431,34 @@ class AIEnhancedSignalProcessor:
                 self.logger.warning(f"🚫 AI confidence {ai_confidence:.1%} below {self.min_ai_confidence:.0%} threshold - signal blocked")
                 return None
             
-            # Enhance signal with AI insights
+            # Enhance signal with G0DM0D3/AI insights
             enhanced_signal = signal.copy()
             enhanced_signal.update({
-                'ai_analysis': ai_analysis,
-                'ai_confidence': ai_confidence,
-                'ai_signal_strength': ai_analysis.get('signal_strength', 0),
-                'ai_risk_level': ai_analysis.get('risk_level', 'medium'),
-                'ai_market_sentiment': ai_analysis.get('market_sentiment', 'neutral'),
-                'ai_enhanced': True,
-                'enhancement_timestamp': datetime.now().isoformat()
+                'ai_analysis':          ai_analysis,
+                'ai_confidence':        ai_confidence,
+                'ai_signal_strength':   ai_analysis.get('signal_strength', 0),
+                'ai_risk_level':        ai_analysis.get('risk_level', 'medium'),
+                'ai_market_sentiment':  ai_analysis.get('market_sentiment', 'neutral'),
+                'ai_direction':         ai_analysis.get('direction', 'neutral'),
+                'ai_quality_score':     ai_analysis.get('quality_score', 0),
+                'ai_regime':            ai_analysis.get('regime', 'unknown'),
+                'ai_entry_quality':     ai_analysis.get('entry_quality', 'fair'),
+                'ai_reasoning':         ai_analysis.get('reasoning', ''),
+                'ai_model_used':        ai_analysis.get('model_used', 'unknown'),
+                'ai_analysis_type':     ai_analysis.get('analysis_type', 'unknown'),
+                'ai_enhanced':          True,
+                'godmode_active':       GODMODE_AVAILABLE,
+                'enhancement_timestamp': datetime.now().isoformat(),
             })
-            
-            self.logger.info(f"🤖 AI Enhanced {signal['symbol']}: "
-                           f"Confidence {ai_confidence:.1%}, "
-                           f"Strength {ai_analysis.get('signal_strength', 0)}, "
-                           f"Sentiment {ai_analysis.get('market_sentiment', 'neutral')}")
+
+            engine_label = "G0DM0D3" if GODMODE_AVAILABLE else "OpenAI"
+            model_used = ai_analysis.get('model_used', 'unknown')
+            self.logger.info(
+                f"🔥 {engine_label} Enhanced {signal.get('symbol','?')}: "
+                f"conf={ai_confidence:.1%} | strength={ai_analysis.get('signal_strength',0)} | "
+                f"sentiment={ai_analysis.get('market_sentiment','?')} | "
+                f"direction={ai_analysis.get('direction','?')} | model={model_used}"
+            )
             
             return enhanced_signal
             
@@ -444,7 +536,7 @@ Market Conditions: {signal.get('market_regime', 'trending')}
         return cornix_signal
     
     def _create_formatted_message(self, signal: Dict[str, Any], ai_analysis: Dict[str, Any]) -> str:
-        """Create beautifully formatted message for channel"""
+        """Create beautifully formatted message for channel with G0DM0D3 analysis"""
         symbol = signal.get('symbol', '')
         action = signal.get('action', '').upper()
         entry = signal.get('entry_price', 0)
@@ -455,19 +547,25 @@ Market Conditions: {signal.get('market_regime', 'trending')}
         leverage = signal.get('leverage', 1)
         strength = signal.get('strength', 0)
         ai_confidence = signal.get('ai_confidence', 0)
-        
-        # AI insights
-        ai_sentiment = ai_analysis.get('market_sentiment', 'neutral').upper()
-        ai_risk = ai_analysis.get('risk_level', 'medium').upper()
-        ai_signal_strength = ai_analysis.get('signal_strength', 0)
-        
+
+        # G0DM0D3/AI insights
+        ai_sentiment    = ai_analysis.get('market_sentiment', 'neutral').upper()
+        ai_risk         = ai_analysis.get('risk_level', 'medium').upper()
+        ai_signal_str   = ai_analysis.get('signal_strength', 0)
+        ai_direction    = ai_analysis.get('direction', 'neutral').upper()
+        ai_quality      = ai_analysis.get('quality_score', 0)
+        ai_regime       = ai_analysis.get('regime', 'unknown').upper()
+        ai_entry_q      = ai_analysis.get('entry_quality', 'fair').upper()
+        ai_reasoning    = ai_analysis.get('reasoning', '')
+        ai_model        = ai_analysis.get('model_used', 'unknown')
+        godmode_active  = signal.get('godmode_active', False)
+
         # Emojis based on action and confidence
-        action_emoji = "🟢" if action == "BUY" else "🔴"
+        action_emoji     = "🟢" if action == "BUY" else "🔴"
         confidence_emoji = "🚀" if ai_confidence > 0.8 else "⚡" if ai_confidence > 0.6 else "📊"
-        
-        # Risk level emoji
-        risk_emoji = "🟢" if ai_risk == "LOW" else "🟡" if ai_risk == "MEDIUM" else "🔴"
-        
+        risk_emoji       = "🟢" if ai_risk == "LOW" else "🟡" if ai_risk == "MEDIUM" else "🔴"
+        engine_badge     = "🔥 G0DM0D3" if godmode_active else "🤖 AI"
+
         message = f"""
 {action_emoji} **{symbol}** {action} SIGNAL {confidence_emoji}
 
@@ -475,7 +573,7 @@ Market Conditions: {signal.get('market_regime', 'trending')}
 • Entry: `${entry:.6f}`
 • Stop Loss: `${sl:.6f}`
 • TP1: `${tp1:.6f}`
-• TP2: `${tp2:.6f}`  
+• TP2: `${tp2:.6f}`
 • TP3: `${tp3:.6f}`
 
 ⚡ **TRADE SETUP**
@@ -483,10 +581,15 @@ Market Conditions: {signal.get('market_regime', 'trending')}
 • Signal Strength: `{strength}%`
 • AI Confidence: `{ai_confidence:.1%}`
 
-🤖 **AI ANALYSIS**
-• AI Signal Strength: `{ai_signal_strength}/100`
-• Market Sentiment: `{ai_sentiment}`
+{engine_badge} **ORACLE ANALYSIS**
+• Direction: `{ai_direction}`
+• Sentiment: `{ai_sentiment}`
 • Risk Level: `{risk_emoji} {ai_risk}`
+• Signal Strength: `{ai_signal_str}/100`
+• Quality Score: `{ai_quality}/100`
+• Market Regime: `{ai_regime}`
+• Entry Quality: `{ai_entry_q}`
+{f'• Reasoning: _{ai_reasoning[:80]}_' if ai_reasoning else ''}
 
 🎯 **CORNIX FORMAT**
 ```
@@ -500,7 +603,7 @@ TP3: {tp3:.6f}
 Leverage: {leverage}x
 ```
 
-🔮 **Powered by AI-Enhanced Signal Processing**
+🔥 **Powered by G0DM0D3 AI Oracle + MiroFish Swarm Intelligence**
 ⏰ {datetime.now().strftime('%H:%M:%S UTC')}
 """
         

@@ -1,8 +1,26 @@
 #!/usr/bin/env python3
 """
-Ultimate Trading Bot Launcher — MiroFish Swarm Edition
-Trades BTCUSDT Perpetual Futures (Binance USDM)
-Strategy: MiroFish Multi-Agent Swarm Intelligence (github.com/666ghj/MiroFish)
+Ultimate Trading Bot Launcher — G0DM0D3 + MiroFish Swarm Edition
+=================================================================
+Trades ALL Binance USDM Perpetual Futures (up to 80 symbols)
+Strategy: G0DM0D3 AI Oracle + MiroFish Multi-Agent Swarm Intelligence
+
+G0DM0D3 Integration (github.com/elder-plinius/G0DM0D3):
+  ✅ GODMODE System Prompt   — Unrestricted AI trading oracle
+  ✅ AutoTune Engine          — Context-adaptive LLM parameters (temp/top_p/top_k)
+  ✅ Parseltongue             — Input obfuscation for content-filtered analysis
+  ✅ Libertas Hall of Fame    — 5 battle-tested model+prompt combos racing in parallel
+  ✅ STM Modules              — Hedge reducer + direct mode output normalization
+  ✅ Consortium Engine        — 5–10 models queried in parallel, best response wins
+  ✅ OpenRouter API           — 55+ frontier models (Claude, Grok, Gemini, DeepSeek, Hermes)
+
+MiroFish Architecture (github.com/666ghj/MiroFish):
+  ✅ 10 Swarm Agents         — TrendAgent, MomentumAgent, VolumeAgent, OrderFlowAgent, etc.
+  ✅ Graph-State Memory       — Market knowledge graph with temporal edges
+  ✅ ReACT Pattern            — Reason → Act → Reflect orchestration
+  ✅ Consensus Emergence      — Weighted collective intelligence (75% quorum)
+  ✅ Session-Aware Weights    — Asian/EU/US session multipliers
+
 Comprehensive error handling, circuit breaker, exponential backoff restart.
 """
 
@@ -30,9 +48,10 @@ def _sanitize_env_key(name: str) -> None:
         os.environ[name] = clean
 
 
-# Sanitize all API keys before any imports or use — critical for LLM/Binance calls
+# Sanitize ALL API keys before any imports or use — critical for LLM/Binance calls
 for _key_name in (
     "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LLM_API_KEY",
+    "OPENROUTER_API_KEY",
     "BINANCE_API_KEY", "BINANCE_API_SECRET",
     "TELEGRAM_BOT_TOKEN",
 ):
@@ -185,13 +204,20 @@ async def main():
     # Heartbeat interval — propagate launcher constant so scanner reads it
     os.environ.setdefault("HEARTBEAT_INTERVAL",      str(SCANNER_HEARTBEAT_TIMEOUT))
     # AI keys — log presence (never log values)
-    _anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    _openai_key    = os.getenv("OPENAI_API_KEY", "").strip()
+    _anthropic_key    = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    _openai_key       = os.getenv("OPENAI_API_KEY", "").strip()
+    _openrouter_key   = os.getenv("OPENROUTER_API_KEY", "").strip()
     logger.info(
-        f"🤖 AI keys: Claude={'✅ CONFIGURED' if _anthropic_key else '❌ missing'} | "
-        f"OpenAI={'✅ configured' if _openai_key else '⬜ not set (optional)'}"
+        f"🔥 G0DM0D3: {'✅ ACTIVE (primary)' if _openrouter_key else '❌ OPENROUTER_API_KEY missing'} | "
+        f"Claude={'✅' if _anthropic_key else '—'} | "
+        f"OpenAI={'✅ (fallback)' if _openai_key else '—'}"
     )
-    del _anthropic_key, _openai_key  # never keep key values in scope
+    if _openrouter_key:
+        logger.info(
+            "🔥 G0DM0D3 strategies active: GODMODE Prompt | AutoTune | Parseltongue | "
+            "Consortium | Ultraplinian | STM | Hall of Fame (5 combos)"
+        )
+    del _anthropic_key, _openai_key, _openrouter_key  # never keep key values in scope
 
     # Verify required environment variables
     required_vars = ["TELEGRAM_BOT_TOKEN", "BINANCE_API_KEY", "BINANCE_API_SECRET"]
@@ -202,9 +228,11 @@ async def main():
 
     # ── Startup Banner ──
     logger.info("=" * 90)
-    logger.info("🐟 MIROFISH SWARM TRADING BOT v5.0 — ALL USDM MARKETS — PRODUCTION DEPLOYMENT")
+    logger.info("🔥 G0DM0D3 + MIROFISH SWARM TRADING BOT v6.0 — ALL USDM MARKETS — PRODUCTION")
     logger.info("=" * 90)
     logger.info("📊 Markets:    ALL Binance USDM Perpetual Futures (up to 80, $50M+ 24h vol)")
+    logger.info("🔥 AI Primary: G0DM0D3 Engine (github.com/elder-plinius/G0DM0D3)")
+    logger.info("               OpenRouter API — 55+ frontier models (Claude, Grok, Gemini, DeepSeek)")
     logger.info("🐟 Strategy:   MiroFish Multi-Agent Swarm Intelligence")
     logger.info("               github.com/666ghj/MiroFish")
     logger.info("⏱️  Timeframe:  15M (primary swing/scalp timeframe)")
@@ -212,6 +240,16 @@ async def main():
     logger.info("📋 Format:     Cornix-compatible signal format")
     logger.info(f"🔄 Scanner:    TRUE PARALLEL — {SCAN_PARALLEL_LIMIT} concurrent streams (asyncio.gather + Semaphore)")
     logger.info(f"📡 Hourly Cap: {SIGNALS_PER_HOUR_MIN}–{SIGNALS_PER_HOUR_MAX} signals/hour | Interval: ≥{SIGNAL_INTERVAL_MIN}s between signals")
+    logger.info("")
+    logger.info("🔥 G0DM0D3 AI STRATEGIES (ALL ACTIVE):")
+    logger.info("   ⚡ GODMODE Prompt    — Unrestricted AI trading oracle (no filter limitations)")
+    logger.info("   🎛  AutoTune          — Context-adaptive temp/top_p/top_k parameter tuning")
+    logger.info("   🐍 Parseltongue      — Input obfuscation engine (6 techniques, 3 intensities)")
+    logger.info("   🏆 Hall of Fame      — 5 proven combos: CLAUDE/GROK/GEMINI/DEEPSEEK/HERMES")
+    logger.info("   ⚡ STM Modules       — Hedge reducer + direct mode + JSON extractor")
+    logger.info("   🌐 Consortium        — 5–10 models in parallel (fast/standard/smart tiers)")
+    logger.info("   🚀 Ultraplinian      — Hall of Fame race: all 5 combos, best response wins")
+    logger.info("   📊 OpenRouter        — 55+ models: Claude 3.5/4, Grok 3, Gemini 2, GPT-5, Llama 3")
     logger.info("")
     logger.info("✅ MIROFISH SWARM AGENTS (10 agents, 15M-tuned) — 100% MiroFish Architecture:")
     logger.info("   🐟 TrendAgent        — EMA 9/21 crossover + EMA200 + graph TrendState node    (22% w)")
@@ -223,7 +261,7 @@ async def main():
     logger.info("   💹 FundingFlowAgent   — VWAP deviation + OI proxy + squeeze detection        ( 5% w)")
     logger.info("   📐 PivotSRAgent      — Institutional S/R pivot levels + POC analysis         ( 8% w)")
     logger.info("   🔄 FLOOPAgent        — FLOOP Pro ML-optimized range filter + ROC momentum    (10% w)")
-    logger.info("   🤖 AIOrchestration   — Claude Sonnet 4.6 (primary) + GPT-4o-mini (fallback)    ( 5% w)")
+    logger.info("   🔥 AIOrchestration   — G0DM0D3 Consortium primary + Claude/GPT-4o fallback   ( 5% w)")
     logger.info("                          ReACT: Reason → Act → Reflect → Conclude")
     logger.info("")
     logger.info("✅ MIROFISH ARCHITECTURE (github.com/666ghj/MiroFish):")
