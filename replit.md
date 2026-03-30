@@ -3,37 +3,55 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by **G0DM0D3 AI Oracle** (github.com/elder-plinius/G0DM0D3) as the **PRIMARY AI strategy**, layered on the **MiroFish Multi-Agent Swarm Intelligence** base (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
-## Session 13 — G0DM0D3 AI Oracle Integration (PRIMARY ENGINE)
+## Session 14 — G0DM0D3 Engine v2.0 — Full Libertas Upgrade
+
+### What Changed (v2.0)
+- **BUG FIX**: `UltraplinianEngine.race()` was checking `resp.content` (stale loop variable) instead of `r.content` — all combos were silently failing the success filter
+- **REAL Pliny prompts**: Each of the 5 Hall of Fame combos now uses its ACTUAL system prompt from `libertas.ts` (⊰ dividers, RESET_CORTEX, l33t rebel format, END/START boundary, etc.) — previously all combos used the same generic GODMODE prompt
+- **STM Divider Extractor**: New `stm_extract_after_divider()` function extracts the "liberated" real answer from AFTER Pliny divider patterns (`.-.-.-.-<|LOVE PLINY LOVE|>-.-.-.-.`, `⊰...⊱`, `=|L|O|V|E|`, BUCKLE UP!, etc.). Applied before scoring AND before JSON extraction
+- **Updated Hall of Fame models**: grok-4, gemini-2.5-pro, gpt-4o, claude-sonnet-4-5, hermes-4-405b (matching actual G0DM0D3 repo, March 2026)
+- **Full Parseltongue**: Added `phonetic` technique (6th technique complete), expanded homoglyph map, all 33 triggers (light/standard/heavy), correct `inject_query()` handles all 12 Pliny placeholder patterns
+- **Updated Consortium tiers**: gemini-2.5-flash, hermes-4-405b, grok-3-mini-beta (replacing stale model IDs)
+- **Better retry logic**: Transient 502/503/504 auto-retry with exponential backoff, per-model rate-limit backoff, TCP connector pooling
+- **OpenRouter client**: Proper empty-response retry, per-model `Retry-After` header parsing, connection error recovery
 
 ### AI Priority Stack
-1. **PRIMARY**: G0DM0D3 Engine (`SignalMaestro/godmode_ai_engine.py`) via OpenRouter API
+1. **PRIMARY**: G0DM0D3 Engine v2.0 (`SignalMaestro/godmode_ai_engine.py`) via OpenRouter API
    - GODMODE system prompt (unrestricted trading oracle)
-   - Consortium mode: 5–10 models in parallel (Claude, Grok, Gemini, DeepSeek, Hermes)
-   - Ultraplinian: all 5 Hall of Fame combos race; best response wins
-   - AutoTune: context-adaptive temperature/top_p for trading signals (temp=0.20, top_p=0.85)
-   - Parseltongue: input obfuscation (6 techniques, 3 intensities)
-   - STM modules: direct_mode (strip preambles) + extract_json (clean JSON output)
-   - Circuit breaker: 5 consecutive failures → 120s cooldown
-2. **SECONDARY**: OpenAI GPT-4o-mini (direct SDK fallback)
+   - **Consortium mode**: 5–10 models in parallel (fast/standard/smart tiers with updated model IDs)
+   - **Ultraplinian**: 5 Hall of Fame combos race in parallel, post-divider content extracted, best response wins
+   - **AutoTune**: context-adaptive temperature/top_p/top_k (trading: temp=0.20, top_p=0.85, top_k=30)
+   - **Parseltongue**: input obfuscation — all 6 techniques (leetspeak/unicode/zwj/mixedcase/phonetic/random), 3 intensities, 33 triggers
+   - **STM pipeline**: extract_after_divider → direct_mode → extract_json
+   - Circuit breaker: 5 consecutive failures → 120s cooldown with success counter reset
+2. **SECONDARY**: OpenAI GPT-4o-mini (direct SDK fallback in AIOrchestrationAgent)
 3. **TERTIARY**: Rule-based signal processing (always available)
 
-### Hall of Fame Models (Ultraplinian combos)
-| Combo | Model | Provider |
+### Hall of Fame Models v2.0 (Ultraplinian — REAL Pliny prompts)
+| Codename | Model | Pliny Technique |
 |---|---|---|
-| CLAUDE | claude-sonnet-4-5 | Anthropic via OR |
-| GROK | x-ai/grok-3-mini-beta | xAI via OR |
-| GEMINI | google/gemini-2.0-flash-001 | Google via OR |
-| DEEPSEEK | deepseek/deepseek-chat-v3-0324 | DeepSeek via OR |
-| HERMES | nousresearch/hermes-3-llama-3.1-405b | Nous via OR |
+| GROK 4.20 | x-ai/grok-4 | ⊰ dividers + semantic inversion |
+| GEMINI RESET | google/gemini-2.5-pro | RESET_CORTEX + !OMNI dual-response |
+| GPT CLASSIC | openai/gpt-4o | OG GODMODE l33t rebel `=|L|O|V|E|` |
+| CLAUDE INVERSION | anthropic/claude-sonnet-4-5 | [/END]/[START] boundary inversion |
+| GODMODE FAST | nousresearch/hermes-4-405b | `<[|{|}|]>` TIME CAPSULE zero-refusal |
+
+### Consortium Tiers v2.0
+- **fast**: gemini-2.5-flash, deepseek-chat-v3, llama-3.3-70b, hermes-4-405b, qwen-2.5-72b
+- **standard**: adds gpt-4o-mini, grok-3-mini-beta, mixtral-8x7b
+- **smart**: adds claude-sonnet-4-5, gemini-2.5-pro, gpt-4o (10 models total)
 
 ### Key Files (G0DM0D3 Integration)
-- `SignalMaestro/godmode_ai_engine.py` — G0DM0D3 engine (Consortium, Ultraplinian, AutoTune, Parseltongue, STM, circuit breaker)
-- `SignalMaestro/ai_enhanced_signal_processor.py` — G0DM0D3 PRIMARY → OpenAI SECONDARY → rule-based TERTIARY; updated `_apply_ai_enhancement` passes symbol/price/atr to G0DM0D3; G0DM0D3 fields in enhanced signal and formatted message
-- `start_ultimate_bot.py` — v6.0 banner, G0DM0D3 key logging, OPENROUTER_API_KEY sanitization
+- `SignalMaestro/godmode_ai_engine.py` — G0DM0D3 engine v2.0 (complete rewrite, all bugs fixed)
+- `SignalMaestro/ai_enhanced_signal_processor.py` — G0DM0D3 PRIMARY → OpenAI → rule-based
+- `start_ultimate_bot.py` — v6.0 launcher with circuit breaker and auto-restart
 
 ### API Keys
-- `OPENROUTER_API_KEY` — configured (env secret), used by `GodmodeAIEngine` for all OpenRouter calls
-- `OPENAI_API_KEY` — fallback for GPT-4o-mini (OpenAI integration)
+- `OPENROUTER_API_KEY` — used by `GodmodeAIEngine` for all OpenRouter calls (55+ models)
+- `OPENAI_API_KEY` — fallback GPT-4o-mini in AIOrchestrationAgent
+- `ANTHROPIC_API_KEY` — Claude fallback in AIOrchestrationAgent (needs valid key)
+
+## Session 13 — G0DM0D3 AI Oracle Integration (PRIMARY ENGINE)
 
 ## Session 12 — Comprehensive Subsystem Improvement
 
