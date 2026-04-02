@@ -46,15 +46,6 @@ args = ""
 [workflows.workflow.metadata]
 outputType = "console"
 
-[[workflows.workflow]]
-name = "FLASK_PORT=8000 python mirofish_bot.py"
-mode = "sequential"
-author = 47973864
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "mirofish_bot.py"
-
 [[ports]]
 localPort = 3000
 externalPort = 80
