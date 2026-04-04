@@ -32,7 +32,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-MEMORY_DB_PATH = os.path.join(os.path.dirname(__file__), "swarm_memory.db")
+# ── DB path: prefer DATA_DIR env var (Railway volume) else module dir ─────────
+_DATA_DIR_BM25 = os.environ.get("DATA_DIR", "").strip()
+if _DATA_DIR_BM25:
+    os.makedirs(_DATA_DIR_BM25, exist_ok=True)
+    MEMORY_DB_PATH = os.path.join(_DATA_DIR_BM25, "swarm_memory.db")
+else:
+    MEMORY_DB_PATH = os.path.join(os.path.dirname(__file__), "swarm_memory.db")
 
 MEMORY_ROLES = [
     "bull", "bear", "risk_agg", "risk_con", "risk_neu", "portfolio_mgr",

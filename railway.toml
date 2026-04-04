@@ -1,0 +1,36 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Railway.app Deployment Configuration
+# MiroFish Swarm + G0DM0D3 AI Trading Bot
+# ──────────────────────────────────────────────────────────────────────────────
+
+[build]
+# Use the Dockerfile for a reproducible, production-grade container build
+builder          = "dockerfile"
+dockerfilePath   = "Dockerfile"
+
+[deploy]
+# Single long-running worker process (no HTTP ingress needed — Telegram polling)
+startCommand          = "python3 start_ultimate_bot.py"
+numReplicas           = 1
+restartPolicyType     = "on_failure"
+restartPolicyMaxRetries = 20
+
+# ── Required environment variables ────────────────────────────────────────────
+# Set these in the Railway dashboard → Variables tab:
+#
+#   OPENROUTER_API_KEY    — Primary AI (G0DM0D3 / ULTRAPLINIAN via OpenRouter)
+#   BINANCE_API_KEY       — Binance USDM Futures read access
+#   BINANCE_API_SECRET    — Binance USDM Futures read access
+#   TELEGRAM_BOT_TOKEN    — Telegram bot token from @BotFather
+#   TELEGRAM_CHANNEL_ID   — Channel/group ID to send signals to
+#   TELEGRAM_CHAT_ID      — Admin chat ID for alerts
+#
+# Optional:
+#   ANTHROPIC_API_KEY     — Claude fallback (leave blank if not available)
+#   OPENAI_API_KEY        — GPT-4o-mini fallback (leave blank if not available)
+#   DATA_DIR              — Override SQLite persistence dir (default: /data)
+#   PORT                  — Health-check HTTP port (default: 8080)
+#   SCAN_PARALLEL_LIMIT   — Parallel scanner concurrency (default: 15)
+#   SIGNALS_PER_HOUR_MIN  — Min signals per hour (default: 5)
+#   SIGNALS_PER_HOUR_MAX  — Max signals per hour (default: 10)
+#   AI_THRESHOLD_PERCENT  — Confidence gate % (default: 80)

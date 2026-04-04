@@ -27,23 +27,27 @@ class MLTradeAnalyzer:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.model_dir = Path("SignalMaestro/ml_models")
-        self.model_dir.mkdir(exist_ok=True)
-        
+        # ── Data paths: prefer DATA_DIR env var (Railway volume) else defaults ───
+        _data_dir = os.environ.get("DATA_DIR", "").strip()
+        if _data_dir:
+            self.model_dir = Path(_data_dir) / "ml_models"
+            self.db_path   = str(Path(_data_dir) / "trade_learning.db")
+        else:
+            self.model_dir = Path("SignalMaestro/ml_models")
+            self.db_path   = "SignalMaestro/trade_learning.db"
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+
         # Models for different aspects
         self.loss_prediction_model = None
         self.signal_strength_model = None
         self.entry_timing_model = None
         self.scaler = StandardScaler()
-        
+
         # Persistent encoders
         self.direction_encoder = LabelEncoder()
         self.cvd_encoder = LabelEncoder()
         self.macd_encoder = LabelEncoder()
         self.feature_names = None
-        
-        # Trade database
-        self.db_path = "SignalMaestro/trade_learning.db"
         self._initialize_database()
         
         # Learning parameters
