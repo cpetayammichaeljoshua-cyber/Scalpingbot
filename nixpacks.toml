@@ -1,26 +1,11 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Nixpacks build configuration (Railway fallback when no Dockerfile is present)
-# Primary build method: Dockerfile (see Dockerfile in project root)
-# ──────────────────────────────────────────────────────────────────────────────
+# Railway Nixpacks Configuration
+# For AI Trading Signal Bot
 
 [phases.setup]
-nixPkgs = [
-    "python311",
-    "python311Packages.pip",
-    "gcc",
-    "gccStdenv",
-    "openssl",
-    "libffi",
-    "zlib",
-    "stdenv.cc.cc.lib",
-    "curl",
-]
+nixPkgs = ["python311", "gcc", "openssl"]
 
 [phases.install]
-cmds = [
-    "pip install --upgrade pip",
-    "pip install -r requirements.txt",
-]
+cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
 
 [start]
-cmd = "python3 start_ultimate_bot.py"
+cmd = "python start_ultimate_bot.py"

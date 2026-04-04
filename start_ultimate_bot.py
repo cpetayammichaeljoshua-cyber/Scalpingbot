@@ -22,9 +22,7 @@ import warnings
 import logging
 import time
 import unicodedata
-import json
 from pathlib import Path
-from datetime import datetime, timezone
 
 
 def _sanitize_env_key(name: str) -> None:
@@ -179,71 +177,11 @@ except ImportError as e:
 
 
 # ─────────────────────────────────────────────
-# Railway / Production Health Check Server
-# ─────────────────────────────────────────────
-
-_bot_start_time: float = 0.0
-_bot_status: dict = {"status": "starting", "uptime_s": 0, "signals_sent": 0}
-
-
-async def _health_server(port: int) -> None:
-    """
-    Lightweight async HTTP health-check server for Railway / Docker.
-    Railway polls GET /health every 60 s and expects a 200 response.
-    Falls back silently if aiohttp is unavailable or port is taken.
-    """
-    try:
-        from aiohttp import web as _web
-
-        async def _handle_health(request: "_web.Request") -> "_web.Response":
-            uptime = int(time.time() - _bot_start_time) if _bot_start_time else 0
-            payload = {
-                "status": "ok",
-                "uptime_seconds": uptime,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "bot": _bot_status,
-            }
-            return _web.Response(
-                text=json.dumps(payload),
-                content_type="application/json",
-                status=200,
-            )
-
-        async def _handle_root(request: "_web.Request") -> "_web.Response":
-            return _web.Response(text="MiroFish Swarm Bot running", status=200)
-
-        app = _web.Application()
-        app.router.add_get("/health", _handle_health)
-        app.router.add_get("/", _handle_root)
-
-        runner = _web.AppRunner(app)
-        await runner.setup()
-        site = _web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        logging.getLogger(__name__).info(
-            f"🌐 Health-check server started — http://0.0.0.0:{port}/health"
-        )
-        while True:
-            await asyncio.sleep(60)
-    except OSError as e:
-        logging.getLogger(__name__).warning(
-            f"⚠️ Health-check server could not bind to port {port}: {e}"
-        )
-    except ImportError:
-        logging.getLogger(__name__).debug("aiohttp not available — health server skipped")
-    except asyncio.CancelledError:
-        pass
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"⚠️ Health-check server error: {e}")
-
-
-# ─────────────────────────────────────────────
 # Main Async Bot Runner
 # ─────────────────────────────────────────────
 
 async def main():
     """Main entry point — initializes and runs the MiroFish Swarm Bot"""
-    global _bot_start_time, _bot_status
     logger = logging.getLogger(__name__)
 
     # Propagate launcher constants to env vars for child modules
@@ -372,17 +310,6 @@ async def main():
     logger.info(f"   Circuit breaker:   {CIRCUIT_BREAKER_THRESHOLD} consecutive failures")
     logger.info("=" * 90)
 
-    # ── Update global bot status for health endpoint ──
-    _bot_start_time = time.time()
-    _bot_status.update({"status": "running", "uptime_s": 0})
-
-    # ── Start health-check server as background task (Railway / Docker) ───────
-    _health_port = int(os.environ.get("PORT", "8080"))
-    health_task = asyncio.create_task(
-        _health_server(_health_port),
-        name="health_server",
-    )
-
     try:
         if SCANNER_OPERATION_TIMEOUT is not None:
             await asyncio.wait_for(
@@ -415,15 +342,6 @@ async def main():
         logger.debug("Full traceback:", exc_info=True)
         return False
     finally:
-        # Cancel health-check server when scanner exits
-        if not health_task.done():
-            health_task.cancel()
-            try:
-                await health_task
-            except asyncio.CancelledError:
-                pass
-        _bot_status["status"] = "stopped"
-
         if bot is not None:
             try:
                 # Gracefully close async HTTP sessions before garbage-collecting bot

@@ -20,15 +20,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-# ── DB path: prefer DATA_DIR env var (Railway volume mount) else module dir ───
-# On Railway: set DATA_DIR=/data and mount a persistent volume to /data.
-# On Replit / local: defaults to the SignalMaestro/ directory (same as before).
-_DATA_DIR = os.environ.get("DATA_DIR", "").strip()
-if _DATA_DIR:
-    os.makedirs(_DATA_DIR, exist_ok=True)
-    DB_PATH = os.path.join(_DATA_DIR, "trade_history.db")
-else:
-    DB_PATH = os.path.join(os.path.dirname(__file__), "trade_history.db")
+# ── DB path sits next to this module ──────────────────────────────────────────
+DB_PATH = os.path.join(os.path.dirname(__file__), "trade_history.db")
 
 # Trade expires after this many seconds with no TP/SL touch (6 hours on 15M)
 TRADE_EXPIRY_SECONDS = 21_600

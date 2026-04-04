@@ -51,13 +51,7 @@ try:
 except ImportError:
     _HAS_NUMPY = False
 
-# ── Weights path: prefer DATA_DIR env var (Railway volume) else module dir ─────
-_DATA_DIR_NN = os.environ.get("DATA_DIR", "").strip()
-if _DATA_DIR_NN:
-    os.makedirs(_DATA_DIR_NN, exist_ok=True)
-    WEIGHTS_PATH = os.path.join(_DATA_DIR_NN, "nn_weights.json")
-else:
-    WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
+WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
 MIN_TRAIN_SAMPLES = 20   # minimum labeled trades before NN activates
 INPUT_DIM        = 42    # v4: +1 for FLOOPAgent vote (was 41); 10 agents now fully captured
