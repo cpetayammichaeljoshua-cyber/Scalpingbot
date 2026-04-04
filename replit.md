@@ -1,7 +1,35 @@
 # MiroFish Swarm Intelligence Trading Bot — ALL USDM Markets
 
 ## Project Overview
-A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
+
+## Session 21 — Production Stability: 418 IP Ban Handling + Rate Limit Reduction
+
+### Critical Bug Fixes
+
+**HTTP 418 Binance IP Ban now fully handled (`SignalMaestro/btcusdt_trader.py`)**
+- Added `_record_ip_ban(body)` — parses ban expiry Unix ms timestamp from 418 response body, stores as `self._ip_banned_until`, logs clear countdown message
+- Added `await _wait_ip_ban_if_needed()` — called at the start of every public API method; sleeps until ban expires rather than hammering the API (which extends the ban)
+- 418 handling added to: `get_klines`, `get_current_price`, `get_24hr_ticker_stats`, `get_order_book`, `get_funding_rate`, `_fetch_all_tickers` (6 methods)
+- Added `import re` to module-level imports (was missing for regex parsing)
+
+**`SCAN_PARALLEL_LIMIT` reduced from 30 → 15 (all files)**
+- `start_ultimate_bot.py`: `SCAN_PARALLEL_LIMIT = 30` → `15` with updated comment explaining Binance weight-based rate limits
+- `SignalMaestro/fxsusdt_telegram_bot.py`: default fallback `"30"` → `"15"` for standalone runs
+- `BTCUSDTTrader` TCPConnector: `limit=100, limit_per_host=50` → `limit=60, limit_per_host=25` (right-sized to new semaphore)
+
+**Logging setup moved before bot import (`start_ultimate_bot.py`)**
+- `logging.basicConfig()` now runs before `from SignalMaestro.fxsusdt_telegram_bot import FXSUSDTTelegramBot`
+- Import-time log messages now have proper timestamps and formatting
+
+**`import re` moved to module level (`SignalMaestro/fxsusdt_telegram_bot.py`)**
+- `import re as _re` was inside the `send_message()` retry loop — moved to module-level `import re` with inline reference updated
+
+### Dependencies Fixed (`requirements.txt`)
+- `pandas>=2.0.0,<2.1` → `pandas>=2.0.0,<3.0` (was blocking 2.1.x, 2.2.x patch releases)
+- `scikit-learn>=1.3.0,<1.5` → `scikit-learn>=1.3.0,<2.0` (was blocking 1.5.x, 1.6.x)
+- `matplotlib>=3.8.0,<3.9` → `matplotlib>=3.8.0,<4.0` (unnecessarily tight)
+- Added `rank-bm25>=0.2.2` — required by `SignalMaestro/swarm_bm25_memory.py` (was missing, causing ImportError in environments without it pre-installed)
 
 ## Session 20 — Win-Rate Recovery: Comprehensive Filter Tightening
 

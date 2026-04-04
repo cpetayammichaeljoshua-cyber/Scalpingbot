@@ -9,6 +9,7 @@ public market-data calls, eliminating per-request session creation overhead.
 
 import asyncio
 import logging
+import re
 import aiohttp
 import os
 from collections import OrderedDict
@@ -66,6 +67,11 @@ class BTCUSDTTrader:
         self._perpetual_cache_time: float = 0.0
         self._perpetual_cache_ttl: float = 3600.0  # 1 hour
 
+        # IP ban tracking — Binance returns HTTP 418 when an IP is banned.
+        # The ban duration is embedded in the response body as a Unix ms timestamp.
+        # All API methods check this before making requests and wait out the ban.
+        self._ip_banned_until: float = 0.0  # Unix timestamp (seconds) when ban expires
+
         self.logger.info(
             f"✅ BTCUSDTTrader initialized — {'Testnet' if self.testnet else 'Mainnet'} | "
             f"Multi-market mode enabled | Persistent HTTP session pooling active"
@@ -82,8 +88,8 @@ class BTCUSDTTrader:
         """
         if self._session is None or self._session.closed:
             self._connector = aiohttp.TCPConnector(
-                limit=100,          # max 100 total concurrent connections
-                limit_per_host=50,  # max 50 to fapi.binance.com (SCAN_PARALLEL_LIMIT=30 + overhead)
+                limit=60,           # max 60 total concurrent connections
+                limit_per_host=25,  # max 25 to fapi.binance.com (SCAN_PARALLEL_LIMIT=15 + overhead)
                 ttl_dns_cache=300,  # cache DNS for 5 minutes
                 enable_cleanup_closed=True,
             )
@@ -101,6 +107,55 @@ class BTCUSDTTrader:
         self._session   = None
         self._connector = None
         self.logger.debug("🔗 Shared aiohttp session closed")
+
+    # ─────────────────────────────────────────
+    # IP Ban Handling (Binance HTTP 418)
+    # ─────────────────────────────────────────
+
+    def _record_ip_ban(self, body: str) -> float:
+        """
+        Parse a Binance HTTP 418 response body, record the ban expiry, and return
+        the number of seconds to wait.
+
+        Binance ban response body format:
+            {"code":-1003,"msg":"Way too many requests; IP(x.x.x.x) banned until
+             1775296677884. Please use the web socket for live updates..."}
+
+        If the timestamp cannot be parsed, defaults to a 5-minute local ban to
+        protect against hammering the API further.
+        """
+        ban_until_secs: float = 0.0
+        m = re.search(r'banned until (\d{10,13})', body)
+        if m:
+            raw_ts = int(m.group(1))
+            # Binance returns milliseconds — convert to seconds if needed
+            ban_until_secs = raw_ts / 1000.0 if raw_ts > 1e12 else float(raw_ts)
+        if ban_until_secs < time.time():
+            # Fallback: 5-minute ban from now if we can't parse or timestamp is stale
+            ban_until_secs = time.time() + 300.0
+        self._ip_banned_until = ban_until_secs
+        wait_secs = max(0.0, ban_until_secs - time.time())
+        self.logger.error(
+            f"🚫 BINANCE IP BAN (HTTP 418) — banned until "
+            f"{datetime.utcfromtimestamp(ban_until_secs).strftime('%H:%M:%S UTC')} "
+            f"({wait_secs / 60:.1f} min). All API calls paused."
+        )
+        return wait_secs
+
+    async def _wait_ip_ban_if_needed(self) -> None:
+        """
+        If the IP is currently banned, sleep until the ban expires.
+        Called at the start of every public API method to prevent hammering
+        Binance while a ban is active (which would extend the ban window).
+        """
+        now = time.time()
+        if self._ip_banned_until > now:
+            wait = self._ip_banned_until - now
+            self.logger.warning(
+                f"⏸ IP ban active — waiting {wait:.1f}s "
+                f"(expires {datetime.utcfromtimestamp(self._ip_banned_until).strftime('%H:%M:%S UTC')})"
+            )
+            await asyncio.sleep(wait)
 
     # ─────────────────────────────────────────
     # Auth Helpers
@@ -139,6 +194,7 @@ class BTCUSDTTrader:
         method without creating a separate trader instance.
         """
         sym = symbol or self.symbol
+        await self._wait_ip_ban_if_needed()
         try:
             url = f"{self.base_url}/fapi/v1/ticker/price"
             s = await self._get_session()
@@ -149,6 +205,9 @@ class BTCUSDTTrader:
                     self.logger.debug(f"💰 {sym} price: ${price:,.4g}")
                     return price
                 body = await r.text()
+                if r.status == 418:
+                    self._record_ip_ban(body)
+                    return None
                 self.logger.error(f"Price fetch error [{sym}]: HTTP {r.status}: {body[:200]}")
         except asyncio.TimeoutError:
             self.logger.warning(f"⏱ Timeout fetching price [{sym}]")
@@ -190,7 +249,12 @@ class BTCUSDTTrader:
                 self._klines_cache.move_to_end((c_sym, c_interval, c_limit))
                 return c_data[-limit:] if len(c_data) >= limit else c_data
 
+        # Pause if IP is currently banned by Binance (HTTP 418 was received earlier)
+        await self._wait_ip_ban_if_needed()
+
         # Retry loop — handles Binance 429 (rate-limited) with Retry-After backoff.
+        # 418 (IP ban) is handled immediately: ban is recorded and we return None —
+        # retrying during a ban would extend the ban window further.
         # Other 4xx errors are treated as permanent and break out immediately.
         _max_attempts = 3
         for _attempt in range(_max_attempts):
@@ -226,6 +290,13 @@ class BTCUSDTTrader:
                         continue  # retry
 
                     body = await r.text()
+                    if r.status == 418:
+                        # IP banned — record the ban and stop retrying immediately.
+                        # Continuing to retry during a ban compounds the violation
+                        # and can extend the ban window significantly.
+                        self._record_ip_ban(body)
+                        return None
+
                     # Use 500-char limit so multi-field error bodies
                     # (e.g. Binance code + msg + serverTime) are fully captured.
                     self.logger.error(
@@ -248,12 +319,17 @@ class BTCUSDTTrader:
     async def get_24hr_ticker_stats(self, symbol: Optional[str] = None) -> Optional[Dict]:
         """24h rolling window ticker statistics"""
         sym = symbol or self.symbol
+        await self._wait_ip_ban_if_needed()
         try:
             url = f"{self.base_url}/fapi/v1/ticker/24hr"
             s = await self._get_session()
             async with s.get(url, params={"symbol": sym}) as r:
                 if r.status == 200:
                     return await r.json()
+                if r.status == 418:
+                    body = await r.text()
+                    self._record_ip_ban(body)
+                    return None
         except Exception as e:
             self.logger.error(f"24hr ticker error: {e}")
         return None
@@ -262,12 +338,17 @@ class BTCUSDTTrader:
         """Fetch order book depth"""
         sym = symbol or self.symbol
         limit = min(limit, 1000)
+        await self._wait_ip_ban_if_needed()
         try:
             url = f"{self.base_url}/fapi/v1/depth"
             s = await self._get_session()
             async with s.get(url, params={"symbol": sym, "limit": limit}) as r:
                 if r.status == 200:
                     return await r.json()
+                if r.status == 418:
+                    body = await r.text()
+                    self._record_ip_ban(body)
+                    return None
         except Exception as e:
             self.logger.error(f"Order book error: {e}")
         return None
@@ -275,6 +356,7 @@ class BTCUSDTTrader:
     async def get_funding_rate(self, symbol: Optional[str] = None) -> Optional[Dict]:
         """Get current funding rate — returns dict with 'fundingRate' key (str)"""
         sym = symbol or self.symbol
+        await self._wait_ip_ban_if_needed()
         try:
             url = f"{self.base_url}/fapi/v1/premiumIndex"
             s = await self._get_session()
@@ -287,6 +369,10 @@ class BTCUSDTTrader:
                         "markPrice":   data.get("markPrice", "0"),
                         "indexPrice":  data.get("indexPrice", "0"),
                     }
+                if r.status == 418:
+                    body = await r.text()
+                    self._record_ip_ban(body)
+                    return None
         except Exception as e:
             self.logger.error(f"Funding rate error: {e}")
         return None
@@ -456,6 +542,7 @@ class BTCUSDTTrader:
         Previously had no retry, meaning a single network hiccup would leave the bot
         holding the old symbol list for up to an hour before the next refresh attempt.
         """
+        await self._wait_ip_ban_if_needed()
         url = f"{self.base_url}/fapi/v1/ticker/24hr"
         for attempt in range(retries):
             try:
@@ -480,6 +567,10 @@ class BTCUSDTTrader:
                         continue  # retry
 
                     body = await r.text()
+                    if r.status == 418:
+                        self._record_ip_ban(body)
+                        return None
+
                     self.logger.error(
                         f"24hr ticker (all) HTTP {r.status} "
                         f"(attempt {attempt+1}/{retries}): {body[:200]}"

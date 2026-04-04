@@ -52,9 +52,12 @@ CYCLE_SLEEP_MIN = 30   # seconds between full parallel scan cycles (minimum)
 CYCLE_SLEEP_MAX = 60   # seconds between full parallel scan cycles (maximum)
 assert CYCLE_SLEEP_MIN <= CYCLE_SLEEP_MAX, "CYCLE_SLEEP_MIN must be <= CYCLE_SLEEP_MAX"
 
-# Maximum concurrent symbol scans within a single parallel cycle (Semaphore limit)
-# Binance USDM rate limit: 1200 req/min. 80 symbols × ~3 req = 240 req/cycle — safe at 30.
-SCAN_PARALLEL_LIMIT = 30   # 30 concurrent Binance REST requests (well within rate limits)
+# Maximum concurrent symbol scans within a single parallel cycle (Semaphore limit).
+# Binance USDM rate limit: 1200 req/min (weight-based). Klines endpoint = weight 5,
+# so effective safe rate is ~240 weighted req/min.  80 symbols × ~3 req × weight 5 = 1200
+# at 30 concurrent — right at the edge and triggers IP 418 bans.
+# Reduced to 15 to give 2× headroom and eliminate IP bans in production.
+SCAN_PARALLEL_LIMIT = 15   # 15 concurrent requests — safe margin from 418 IP bans
 
 SIGNAL_INTERVAL_MIN = 300  # 300s (5 min) per-symbol cooldown — prevents same-symbol spam on 15M
 
@@ -115,21 +118,8 @@ sys.path.insert(0, str(Path(__file__).parent / "SignalMaestro"))
 sys.path.insert(0, os.path.dirname(__file__))
 
 # ─────────────────────────────────────────────
-# Import Bot
-# ─────────────────────────────────────────────
-try:
-    from SignalMaestro.fxsusdt_telegram_bot import FXSUSDTTelegramBot
-except ImportError as e:
-    print(f"❌ Import Error: {e}")
-    print("🔧 Attempting fallback import...")
-    try:
-        from fxsusdt_telegram_bot import FXSUSDTTelegramBot
-    except ImportError as e2:
-        print(f"❌ Fatal Import Error: {e2}")
-        sys.exit(1)
-
-# ─────────────────────────────────────────────
-# Logging
+# Logging — configured BEFORE bot import so all
+# import-time log messages use the right format
 # ─────────────────────────────────────────────
 log_level = logging.DEBUG if os.getenv("DEBUG", "").lower() in ("1", "true", "yes") else logging.INFO
 logging.basicConfig(
@@ -160,6 +150,20 @@ logging.getLogger("openai.resources").setLevel(logging.WARNING)
 # Suppress Anthropic SDK internal retry messages (same issue as openai above).
 logging.getLogger("anthropic").setLevel(logging.WARNING)
 logging.getLogger("anthropic._base_client").setLevel(logging.WARNING)
+
+# ─────────────────────────────────────────────
+# Import Bot
+# ─────────────────────────────────────────────
+try:
+    from SignalMaestro.fxsusdt_telegram_bot import FXSUSDTTelegramBot
+except ImportError as e:
+    print(f"❌ Import Error: {e}")
+    print("🔧 Attempting fallback import...")
+    try:
+        from fxsusdt_telegram_bot import FXSUSDTTelegramBot
+    except ImportError as e2:
+        print(f"❌ Fatal Import Error: {e2}")
+        sys.exit(1)
 
 
 # ─────────────────────────────────────────────

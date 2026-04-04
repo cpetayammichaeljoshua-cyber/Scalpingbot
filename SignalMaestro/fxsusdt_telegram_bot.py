@@ -11,6 +11,7 @@ import copy
 import dataclasses
 import logging
 import math
+import re
 import aiohttp
 import os
 import time
@@ -242,7 +243,7 @@ class FXSUSDTTelegramBot:
         # ── Pre-built scan semaphore — avoids allocating a new asyncio.Semaphore
         # object on every scan_all_parallel() call (every 30-60s cycle).
         # The env var is read once at startup; restart the bot to apply changes.
-        _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "30")))
+        _scan_limit = max(1, int(os.getenv("SCAN_PARALLEL_LIMIT", "15")))
         self._scan_limit: int = _scan_limit        # stored so log/diagnostics can read the live value
         self._scan_semaphore: asyncio.Semaphore = asyncio.Semaphore(_scan_limit)
 
@@ -421,8 +422,7 @@ class FXSUSDTTelegramBot:
                         if "chat not found" in error_desc.lower():
                             return False
                         if "can't parse" in error_desc.lower() and parse_mode in ("Markdown", "MarkdownV2", "HTML"):
-                            import re as _re
-                            plain = _re.sub(r'[*_`\[\]()~>#+\-=|{}.!\\]', '', text)
+                            plain = re.sub(r'[*_`\[\]()~>#+\-=|{}.!\\]', '', text)
                             data_plain = {"chat_id": chat_id, "text": plain, "link_preview_options": {"is_disabled": True}}
                             async with session.post(url, json=data_plain, timeout=aiohttp.ClientTimeout(total=12)) as r2:
                                 if r2.status == 200:
