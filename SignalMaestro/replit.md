@@ -1,8 +1,8 @@
-# Trading Signal Bot
+# MiroFish Swarm + G0DM0D3 AI Trading Bot
 
 ## Overview
 
-This is a streamlined Telegram signal processing bot that receives, parses, and forwards trading signals. The bot focuses specifically on Telegram functionality, processing incoming trading signals and forwarding them to designated chats or channels. It includes signal parsing capabilities, risk analysis, and formatted message forwarding without complex web interfaces or direct trading execution.
+Production-grade Binance USDM Perpetual Futures trading signal bot. Scans up to 80 markets in parallel using 10 specialized MiroFish swarm agents + G0DM0D3 AI engine (ULTRAPLINIAN multi-model racing via OpenRouter). Sends Cornix-compatible signals to Telegram. Run via: `python3 start_ultimate_bot.py`.
 
 ## User Preferences
 

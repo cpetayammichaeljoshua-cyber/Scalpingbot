@@ -1634,8 +1634,8 @@ class AIOrchestrationAgent:
     # OpenAI re-test interval for permanently-disabled state (key may be updated)
     _OPENAI_RETRY_INTERVAL = 14400.0        # 4 hours — re-probe if key was updated
     _OPENAI_MODEL  = "gpt-4o-mini"
-    _AI_TIMEOUT    = 15.0   # seconds — hard timeout for any AI call (raised from 12)
-    _MAX_TOKENS    = 300    # sufficient for the structured JSON response
+    _AI_TIMEOUT    = 35.0   # seconds — hard timeout for any AI call (raised: free-tier LLM latency)
+    _MAX_TOKENS    = 350    # sufficient for the structured JSON response with reasoning
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".AIOrchestrationAgent")
@@ -2341,7 +2341,7 @@ class AIOrchestrationAgent:
                 _g3_start = time.time()
                 _g3_vote, _g3_conf, _g3_narrative, _g3_trace = await asyncio.wait_for(
                     self._godmod3.analyze(prompt, atr_pct=_atr_pct, symbol=symbol),
-                    timeout=self._AI_TIMEOUT + 5.0,  # +5s for global semaphore wait overhead
+                    timeout=self._AI_TIMEOUT + 20.0,  # +20s: includes global semaphore wait + free-tier latency
                 )
                 _g3_ms = (time.time() - _g3_start) * 1000
 
