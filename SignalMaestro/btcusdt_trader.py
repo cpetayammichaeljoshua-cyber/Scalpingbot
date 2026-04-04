@@ -71,6 +71,10 @@ class BTCUSDTTrader:
         # The ban duration is embedded in the response body as a Unix ms timestamp.
         # All API methods check this before making requests and wait out the ban.
         self._ip_banned_until: float = 0.0  # Unix timestamp (seconds) when ban expires
+        # Suppress duplicate "IP ban active" log messages from parallel coroutines.
+        # Only log once per 60 seconds — every parallel coroutine calls
+        # _wait_ip_ban_if_needed independently, producing log floods otherwise.
+        self._ip_ban_last_logged: float = 0.0
 
         self.logger.info(
             f"✅ BTCUSDTTrader initialized — {'Testnet' if self.testnet else 'Mainnet'} | "
@@ -142,20 +146,36 @@ class BTCUSDTTrader:
         )
         return wait_secs
 
+    def is_ip_banned(self) -> bool:
+        """Return True if a Binance IP ban is currently active."""
+        return self._ip_banned_until > time.time()
+
+    def ip_ban_wait_seconds(self) -> float:
+        """Return remaining ban wait seconds (0 if not banned)."""
+        return max(0.0, self._ip_banned_until - time.time())
+
     async def _wait_ip_ban_if_needed(self) -> None:
         """
         If the IP is currently banned, sleep until the ban expires.
         Called at the start of every public API method to prevent hammering
         Binance while a ban is active (which would extend the ban window).
+
+        Log deduplication: with 15+ parallel coroutines each calling this
+        method, the same message would flood logs hundreds of times per minute.
+        Only one log is emitted per 60 seconds during an active ban.
         """
         now = time.time()
         if self._ip_banned_until > now:
             wait = self._ip_banned_until - now
-            self.logger.warning(
-                f"⏸ IP ban active — waiting {wait:.1f}s "
-                f"(expires {datetime.utcfromtimestamp(self._ip_banned_until).strftime('%H:%M:%S UTC')})"
-            )
-            await asyncio.sleep(wait)
+            # Suppress duplicate log messages from parallel coroutines.
+            # Log at most once every 60 s while the ban is active.
+            if now - self._ip_ban_last_logged >= 60.0:
+                self._ip_ban_last_logged = now
+                self.logger.warning(
+                    f"⏸ IP ban active — waiting {wait:.1f}s "
+                    f"(expires {datetime.utcfromtimestamp(self._ip_banned_until).strftime('%H:%M:%S UTC')})"
+                )
+            await asyncio.sleep(min(wait, 30.0))  # sleep at most 30s per call
 
     # ─────────────────────────────────────────
     # Auth Helpers
@@ -597,16 +617,39 @@ class BTCUSDTTrader:
         Return a frozenset of symbols that are both PERPETUAL contract type AND
         have TRADING status on Binance USDM. Cached for _perpetual_cache_ttl seconds
         (default 1 hour) to avoid hammering the exchangeInfo endpoint.
+
+        BUG FIX: Added _wait_ip_ban_if_needed() guard so this method respects
+        the IP ban state (like every other API method in this class).  Previously
+        it would issue a live /fapi/v1/exchangeInfo call even while banned, which
+        could extend the ban window.  Returns the cached frozenset (possibly empty)
+        when banned so callers degrade gracefully via the name-based heuristic.
         """
         now = time.time()
         if (self._perpetual_trading_symbols is not None and
                 now - self._perpetual_cache_time < self._perpetual_cache_ttl):
             return self._perpetual_trading_symbols
 
+        # Respect IP ban — if Binance has banned the IP, skip the live call and
+        # return the last cached value (or empty frozenset on first boot).
+        if self.is_ip_banned():
+            if self._perpetual_trading_symbols is not None:
+                return self._perpetual_trading_symbols
+            return frozenset()
+
         try:
             url = f"{self.base_url}/fapi/v1/exchangeInfo"
             s   = await self._get_session()
             async with s.get(url) as r:
+                if r.status == 418:
+                    body = await r.text()
+                    self._record_ip_ban(body)
+                    # Return stale cache or empty set — callers use name heuristic
+                    return self._perpetual_trading_symbols or frozenset()
+
+                if r.status == 429:
+                    self.logger.warning("⏳ exchangeInfo rate-limited (429) — perpetual filter kept stale")
+                    return self._perpetual_trading_symbols or frozenset()
+
                 if r.status != 200:
                     self.logger.warning(f"exchangeInfo HTTP {r.status} — perpetual filter disabled")
                     return frozenset()

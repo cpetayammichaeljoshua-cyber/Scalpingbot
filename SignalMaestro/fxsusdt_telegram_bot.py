@@ -1151,7 +1151,14 @@ class FXSUSDTTelegramBot:
         # Reuse the pre-built self._scan_semaphore (created in __init__) to
         # avoid allocating a new asyncio.Semaphore object every 30-60s scan cycle.
         async def _scan_one(symbol: str) -> bool:
+            # Skip immediately if IP ban becomes active mid-scan (avoids
+            # hammering Binance from queued coroutines waiting on semaphore).
+            if self.trader.is_ip_banned():
+                return False
             async with self._scan_semaphore:
+                # Re-check after acquiring semaphore (may have waited in queue)
+                if self.trader.is_ip_banned():
+                    return False
                 try:
                     return await asyncio.wait_for(
                         self.scan_and_signal(symbol),
@@ -2116,6 +2123,21 @@ class FXSUSDTTelegramBot:
                 # uses _symbol_blacklist for its fast pre-check (skips strategy eval
                 # for blacklisted symbols without going through can_send_signal).
                 self._refresh_symbol_blacklist()
+
+                # ── 2d. IP ban guard — skip scan if Binance banned the IP ────
+                # When banned, spawning 80 parallel scan coroutines is wasteful:
+                # every coroutine calls _wait_ip_ban_if_needed, sleeps 30s, times
+                # out (wait_for limit), and floods the log. Instead, sleep the main
+                # loop for up to 5 minutes then retry the symbol refresh and re-check.
+                if self.trader.is_ip_banned():
+                    _ban_wait = self.trader.ip_ban_wait_seconds()
+                    _ban_sleep = min(_ban_wait, 300.0)  # sleep up to 5 min per iteration
+                    self.logger.warning(
+                        f"🚫 IP ban active — skipping scan cycle, "
+                        f"sleeping {_ban_sleep:.0f}s (ban expires in {_ban_wait/60:.1f} min)"
+                    )
+                    await asyncio.sleep(_ban_sleep)
+                    continue  # re-check ban at top of loop
 
                 # ── 3. TRUE PARALLEL: scan ALL symbols simultaneously ─────────
                 symbols = list(self._active_symbols)  # snapshot to avoid mid-scan mutations

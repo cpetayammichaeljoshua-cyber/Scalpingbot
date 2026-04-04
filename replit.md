@@ -3,6 +3,37 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 22 — Comprehensive Bug Hunt + Production Verification
+
+### Critical Bug Fixes Applied
+
+**Bug #4: `_get_perpetual_trading_set` missing IP ban handling (`SignalMaestro/btcusdt_trader.py`)**
+- Previously made live `/fapi/v1/exchangeInfo` API calls even while Binance had banned the IP — could extend the ban window
+- Added `is_ip_banned()` fast-path guard: returns stale cache (or empty frozenset) immediately when banned
+- Added 418 response handler: records ban via `_record_ip_ban()` and returns stale cache gracefully
+- Added 429 response handler: keeps stale cache with a warning instead of returning empty frozenset
+- Now consistent with all other API methods in the class that already called `_wait_ip_ban_if_needed()`
+
+**Bug #1-#3 (session 21 continuation — verified still correct)**
+- IP ban log flood suppression (max 1 log per 60s) — confirmed working
+- Scanner IP ban guard in `run_continuous_scanner` — confirmed working
+- Mid-scan IP ban checks in `_scan_one` (pre/post-semaphore) — confirmed working
+
+### Architecture Verification
+- All 10 MiroFish agents confirmed wired and voting: TrendAgent, MomentumAgent, VolumeAgent, VolatilityAgent, OrderFlowAgent, SentimentAgent, FundingFlowAgent, **PivotSRAgent** (was silently unused until session 21), **FLOOPAgent**, AIOrchestrationAgent
+- HTF 1H and 4H klines prefetch with per-symbol caches (5min and 15min TTL) — verified correct
+- EMA200 counter-trend gate (rejects signals against EMA200 unless 95%+ consensus) — verified correct
+- IRONS AI scorer (25-indicator panel, min score 65) — integrated and active
+- NN gate (MC-Dropout, Youden's-J threshold, 977 training samples, 83.1% accuracy) — active
+- Fear & Greed tiered gate for BUY signals — active (F&G=11 correctly blocked HEMIUSDT BUY in first cycle)
+- Symbol blacklist (75% loss rate threshold) — active, 23 symbols blocked at startup
+
+### Production Status (Cycle #1 results)
+- 80 symbols scanned in **6.4 seconds** (parallel)
+- 1 signal sent: RENDERUSDT SELL @ $1.881 | Consensus=100% Conf=91.4% | NN win_prob=74%
+- 23 symbols correctly blacklisted (historical ≥75% loss rate)
+- All syntax validation passed (5 core files)
+
 ## Session 21 — Production Stability: 418 IP Ban Handling + Rate Limit Reduction
 
 ### Critical Bug Fixes
