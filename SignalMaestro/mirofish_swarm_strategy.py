@@ -44,6 +44,19 @@ except ImportError:
         from smart_llm_router import SmartLLMRouter
     except ImportError:
         SmartLLMRouter = None
+
+# G0DM0D3 Strategy Engine — Primary AI Layer (github.com/elder-plinius/G0DM0D3)
+# ULTRAPLINIAN multi-model racing + AutoTune + STM + GODMODE CLASSIC via OpenRouter
+try:
+    from SignalMaestro.godmod3_strategy import G0DM0D3Engine, get_godmod3_engine
+    _GODMOD3_AVAILABLE = True
+except ImportError:
+    try:
+        from godmod3_strategy import G0DM0D3Engine, get_godmod3_engine
+        _GODMOD3_AVAILABLE = True
+    except ImportError:
+        _GODMOD3_AVAILABLE = False
+        G0DM0D3Engine = None  # type: ignore
 from typing import Dict, Any, Optional, List, Tuple
 from enum import Enum
 
@@ -1567,22 +1580,28 @@ class PivotSRAgent:
 
 class AIOrchestrationAgent:
     """
-    AI Orchestration Agent implementing MiroFish ReACT pattern.
+    AI Orchestration Agent implementing MiroFish ReACT pattern + G0DM0D3 AI Strategy.
     Reason → Act (InsightForge) → Reflect → Conclude.
 
-    AI Priority:
-      1. Claude (Anthropic) claude-3-5-haiku-20241022  — primary (fastest, cheapest, smart)
-      2. OpenAI GPT-4o-mini                            — secondary fallback
-      3. Rule-based consensus analysis                 — final fallback (always available)
+    AI Priority (G0DM0D3-enhanced):
+      1. G0DM0D3 ULTRAPLINIAN  — Primary: multi-model racing via OpenRouter (qwen/qwen3.6-plus:free)
+                                  GODMODE CLASSIC 5-combo parallel racing as fallback within G0DM0D3
+      2. Claude (Anthropic)    — Secondary: claude-sonnet-4-6 cascade
+      3. OpenAI GPT-4o-mini    — Tertiary fallback
+      4. Rule-based consensus  — Final deterministic fallback (always available)
     """
     NAME = "AIOrchestrationAgent"
     PROFILE = AgentProfile(
         agent_id=8,
         name="AIOrchestrationAgent",
-        persona="Senior quantitative analyst. ReACT: Reason-Act-Reflect-Conclude. Claude 3.5 Haiku primary + GPT-4o-mini + rule fallback.",
+        persona=(
+            "G0DM0D3 AI Engine: ULTRAPLINIAN multi-model racing + AutoTune + STM + GODMODE CLASSIC. "
+            "Primary: qwen/qwen3.6-plus:free via OpenRouter. "
+            "ReACT: Reason-Act(G0DM0D3)-Reflect-Conclude. Fallback: Claude → GPT → Rule-based."
+        ),
         stance="neutral",
-        activity_level=0.92,
-        influence_weight=0.04,
+        activity_level=0.96,
+        influence_weight=0.06,
         sentiment_bias=0.0,
         response_delay_min=300,
         response_delay_max=1500,
@@ -1659,6 +1678,30 @@ class AIOrchestrationAgent:
             self._llm_router = SmartLLMRouter(available_models=list(self._CLAUDE_MODELS) + [self._OPENAI_MODEL])
         self._init_claude()
         self._init_openai()
+
+        # ── G0DM0D3 Engine — PRIMARY AI STRATEGY ─────────────────────────────
+        # Integrates full G0DM0D3 framework (github.com/elder-plinius/G0DM0D3):
+        # ULTRAPLINIAN multi-model racing + AutoTune + STM + GODMODE CLASSIC
+        # Primary model: qwen/qwen3.6-plus:free via OpenRouter
+        self._godmod3: Optional[G0DM0D3Engine] = None
+        if _GODMOD3_AVAILABLE:
+            try:
+                self._godmod3 = get_godmod3_engine()
+                if self._godmod3.is_available():
+                    self.logger.info(
+                        "✅ G0DM0D3 Engine ACTIVE — ULTRAPLINIAN+AutoTune+STM+GODMODE "
+                        "(qwen/qwen3.6-plus:free via OpenRouter) [PRIMARY AI]"
+                    )
+                else:
+                    self.logger.warning(
+                        "⚠️ G0DM0D3 Engine: OPENROUTER_API_KEY not set — "
+                        "falling back to Claude/OpenAI. Set OPENROUTER_API_KEY to enable."
+                    )
+            except Exception as _g3e:
+                self.logger.warning(f"⚠️ G0DM0D3 init failed (non-fatal): {_g3e}")
+                self._godmod3 = None
+        else:
+            self.logger.info("ℹ️ G0DM0D3 module not available — using Claude/OpenAI")
 
     def _get_probe_lock(self) -> asyncio.Lock:
         """Lazily create the probe lock inside the running event loop."""
@@ -2269,7 +2312,63 @@ class AIOrchestrationAgent:
             bb_pct=_bb_pct, stoch_k=_stoch_k, atr_pct=_atr_pct
         )
 
-        # ── ACT: Claude (primary, with automatic model cascade on 404) ──
+        # ── ACT: G0DM0D3 PRIMARY (ULTRAPLINIAN + GODMODE CLASSIC via OpenRouter) ──
+        # G0DM0D3 is the main AI strategy: races multiple free OpenRouter models in
+        # parallel (ULTRAPLINIAN), auto-tunes sampling params, applies STM normalisation.
+        # Falls back to GODMODE CLASSIC (5 prompt combos) if ULTRAPLINIAN fails.
+        ai_source = None
+        data = None
+
+        # ── G0DM0D3 pre-filter gate ──
+        # Only call G0DM0D3 when the non-AI swarm already shows STRONG consensus.
+        # This reduces API calls from ~80/cycle to ~3-8/cycle — staying under free tier limits.
+        #
+        # Gate requirements (both must be true):
+        #   1) At least 7 of 9 non-AI agents voted in one direction (≥78% agreement)
+        #   2) The winning direction dominates by ≥3 votes over the losing direction
+        #
+        # Rationale: OpenRouter free models (qwq-32b, deepseek-r1) have strict rate limits.
+        # Only calling when there's near-consensus saves API credits and avoids rate-limit cascades.
+        _g3_min_votes = 7   # 7/9 = 78% non-AI consensus required (was 5)
+        _g3_min_margin = 3  # winning direction must lead by ≥3 (not a close call)
+        _g3_should_call = (
+            (buy_votes >= _g3_min_votes or sell_votes >= _g3_min_votes)
+            and abs(buy_votes - sell_votes) >= _g3_min_margin
+        )
+
+        if self._godmod3 is not None and self._godmod3.is_available() and _g3_should_call:
+            try:
+                _g3_start = time.time()
+                _g3_vote, _g3_conf, _g3_narrative, _g3_trace = await asyncio.wait_for(
+                    self._godmod3.analyze(prompt, atr_pct=_atr_pct, symbol=symbol),
+                    timeout=self._AI_TIMEOUT + 5.0,  # +5s for global semaphore wait overhead
+                )
+                _g3_ms = (time.time() - _g3_start) * 1000
+
+                if _g3_vote in ("BUY", "SELL", "NEUTRAL") and _g3_conf >= 50.0:
+                    data = {
+                        "vote": _g3_vote,
+                        "confidence": _g3_conf,
+                        "narrative": _g3_narrative,
+                        "reason": f"G0DM0D3 ULTRAPLINIAN/GODMODE analysis",
+                        "act": f"Signal: {_g3_vote} @{_g3_conf:.1f}%",
+                        "reflect": f"Multi-model consensus via OpenRouter ({_g3_ms:.0f}ms)",
+                    }
+                    ai_source = f"G0DM0D3/qwen3.6-plus+race"
+                    react_trace.append({
+                        "step": "ACT",
+                        "source": ai_source,
+                        "strategy": "ULTRAPLINIAN+GODMODE_CLASSIC",
+                        "vote": _g3_vote,
+                        "confidence": _g3_conf,
+                        "latency_ms": _g3_ms,
+                    })
+            except asyncio.TimeoutError:
+                self.logger.debug("⏱️ G0DM0D3 timeout — falling back to Claude")
+            except Exception as _g3e:
+                self.logger.debug(f"⚠️ G0DM0D3 error (non-fatal): {_g3e}")
+
+        # ── ACT: Claude (secondary, with automatic model cascade on 404) ──
         # ClawRouter-inspired routing: log the routing decision for this prompt
         _route_decision = None
         if self._llm_router is not None:
@@ -2280,36 +2379,38 @@ class AIOrchestrationAgent:
             except Exception:
                 pass
 
-        ai_source = None
-        _call_start = time.time()
-        data = await self._query_claude(prompt)
-        _call_ms = (time.time() - _call_start) * 1000
-        if data:
-            _active_model = next(
-                (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
-                self._CLAUDE_MODELS[-1]
-            )
-            ai_source = f"Claude/{_active_model}"
-            if self._llm_router is not None:
-                self._llm_router.record_outcome(_active_model, success=True, latency_ms=_call_ms)
-        else:
-            if self._llm_router is not None:
-                _failed_model = next(
-                    (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
-                    self._CLAUDE_MODELS[0]
-                )
-                self._llm_router.record_outcome(_failed_model, success=False, latency_ms=_call_ms)
-            # ── ACT: OpenAI (secondary fallback) ──
+        # ── ACT: Claude (secondary — only if G0DM0D3 didn't provide data) ──
+        _call_ms = 0.0
+        if data is None:
             _call_start = time.time()
-            data = await self._query_openai(prompt)
+            data = await self._query_claude(prompt)
             _call_ms = (time.time() - _call_start) * 1000
             if data:
-                ai_source = f"OpenAI/{self._OPENAI_MODEL}"
+                _active_model = next(
+                    (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
+                    self._CLAUDE_MODELS[-1]
+                )
+                ai_source = f"Claude/{_active_model}"
                 if self._llm_router is not None:
-                    self._llm_router.record_outcome(self._OPENAI_MODEL, success=True, latency_ms=_call_ms)
+                    self._llm_router.record_outcome(_active_model, success=True, latency_ms=_call_ms)
             else:
                 if self._llm_router is not None:
-                    self._llm_router.record_outcome(self._OPENAI_MODEL, success=False, latency_ms=_call_ms)
+                    _failed_model = next(
+                        (m for m in self._CLAUDE_MODELS if m not in self._claude_failed_models),
+                        self._CLAUDE_MODELS[0]
+                    )
+                    self._llm_router.record_outcome(_failed_model, success=False, latency_ms=_call_ms)
+                # ── ACT: OpenAI (tertiary fallback) ──
+                _call_start = time.time()
+                data = await self._query_openai(prompt)
+                _call_ms = (time.time() - _call_start) * 1000
+                if data:
+                    ai_source = f"OpenAI/{self._OPENAI_MODEL}"
+                    if self._llm_router is not None:
+                        self._llm_router.record_outcome(self._OPENAI_MODEL, success=True, latency_ms=_call_ms)
+                else:
+                    if self._llm_router is not None:
+                        self._llm_router.record_outcome(self._OPENAI_MODEL, success=False, latency_ms=_call_ms)
 
         if data:
             vote        = data.get("vote", "NEUTRAL").upper().strip()
