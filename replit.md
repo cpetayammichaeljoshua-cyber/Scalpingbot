@@ -3,6 +3,120 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(30)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 20 — Win-Rate Recovery: Comprehensive Filter Tightening
+
+**Motivation:** Diagnostic showed 33.7% overall win rate, 75% recent loss rate (last 20 trades), NN training data showing 26.6% win rate. Multiple filters were too permissive, allowing low-quality signals through.
+
+### Critical Bug Fixes
+
+**NN unanimous override threshold raised: `nn_win_prob >= 0.12` → `0.25` (`fxsusdt_telegram_bot.py`)**
+- The unanimous consensus override was bypassing NN hard-reject with only 12% win probability — near useless
+- Also tightened uncertainty cutoff from `0.25` → `0.20` for more reliable bypass
+- Strong (non-unanimous) consensus override gap tightened: `reject_thresh - 0.15` → `reject_thresh - 0.10`
+
+**`_reject_threshold` default fixed: `0.08` → `0.35` (`fxsusdt_telegram_bot.py`)**
+- Default of 0.08 effectively disabled the NN hard-reject gate before first training run
+- 0.35 is a safe conservative fallback while NN learns
+
+**Danger penalty cap fixed: `0.10` → `0.15` (`neural_signal_trainer.py`)**
+- Docstring documented range [0, 0.15] but implementation capped at 0.10 — now consistent
+
+**Danger penalty scaling raised: `0.35×` → `0.60×` (`neural_signal_trainer.py`)**
+- Danger zone penalty was scaled down 65%, rendering loss-pattern analysis nearly ineffective
+- Now applies 60% of computed penalty for meaningful loss-zone filtering
+
+### Parameter Tightening
+
+**Streak system more aggressive (`fxsusdt_telegram_bot.py`):**
+- `STREAK_TRIGGER_N`: 3 → 2 (boost starts after 2nd consecutive loss, not 3rd)
+- `STREAK_BOOST_PER_LOSS`: 2.0 → 3.0 (+3% per loss instead of +2%)
+- `STREAK_MAX_BOOST_PCT`: 15.0 → 20.0 (max +20% above base threshold)
+
+**Symbol blacklist tightened (`fxsusdt_telegram_bot.py`):**
+- `SYMBOL_BLOCK_LOSS_RATE`: 85% → 75%
+- `SYMBOL_BLOCK_MIN_TRADES`: 15 → 10 (faster blacklisting with fewer samples)
+
+**Per-symbol loss penalty tightened (`fxsusdt_telegram_bot.py`):**
+- Trigger threshold: `>65%` → `>55%` recent loss rate
+- Max penalty: `-8pt` → `-12pt` (formula: `(rlr - 0.55) × 60, max 12`)
+
+**Global recent-loss-rate gate added (`fxsusdt_telegram_bot.py`):**
+- New non-consecutive gate: if last 20 trades show >65% loss rate → threshold raised up to +10pt
+- Complements the streak (consecutive) boost — catches sustained loss periods with occasional wins between
+
+**Kelly win rate parameters corrected:**
+- `fxsusdt_telegram_bot.py`: floor guard `0.338` → `0.30`; blending prior `0.338` → `0.30`
+- `fxsusdt_telegram_bot.py`: default `0.42` → `0.35`
+- `mirofish_swarm_strategy.py`: `_global_win_rate` default `0.42` → `0.35`
+
+**Market filters tightened (`mirofish_swarm_strategy.py`):**
+- RANGING regime consensus gate: `< 0.85` → `< 0.88`
+- Volume ratio floor: ASIAN `0.65` → `0.70`; others `0.75` → `0.80`
+- EMA200 counter-trend consensus: `< 0.92` → `< 0.95` (needs near-unanimous 9+/10 agents)
+
+**NN quality gate raised (`neural_signal_trainer.py`):**
+- `win_acc` minimum: `0.35` → `0.40` (model must correctly identify 40%+ of wins to be activated)
+
+### Summary of Changes
+| File | Changes |
+|------|---------|
+| `fxsusdt_telegram_bot.py` | NN override `0.12→0.25`; `_reject_threshold` default `0.08→0.35`; streak `3/2%/15%→2/3%/20%`; blacklist `85%/15→75%/10`; penalty trigger `65%→55%` max `8→12pt`; global RLR gate (>65%→+10pt); Kelly `0.42/0.338→0.35/0.30` |
+| `neural_signal_trainer.py` | danger penalty cap `0.10→0.15`; scaling `0.35×→0.60×`; quality gate win_acc `0.35→0.40` |
+| `mirofish_swarm_strategy.py` | `_global_win_rate` default `0.42→0.35`; RANGING `0.85→0.88`; vol floor `0.65/0.75→0.70/0.80`; EMA200 `0.92→0.95` |
+
+## Session 19 — Production Hardening & Performance Optimization Pass
+
+### Bug Fixes
+
+**`_ensure_tp_separation` — Dead Code & SELL Direction Fix (`mirofish_swarm_strategy.py`)**
+- Removed dead `elif tick_fn(price + tp3_d) <= tick_fn(price + tp2_d)` branch (unreachable after the `if _t3 <= _t2` block already updated `_t3`)
+- Added `is_buy` parameter: SELL signals now use `price - _sign*tp_d` for tick-rounding checks so the separation test is evaluated at the correct price direction (below entry, not above)
+- Call site updated: `_ensure_tp_separation(..., is_buy=(action == "BUY"))`
+
+**`_global_win_rate` default raised: 0.338 → 0.42 (`mirofish_swarm_strategy.py`, `fxsusdt_telegram_bot.py`)**
+- Prior default of 33.8% was systematically under-estimating Kelly fraction, causing negative-expectation signals to pass while real-edge signals lost confidence
+- 42% is a more realistic cold-start prior for multi-market crypto futures
+- Affects: Kelly leverage calculation (strategy), PM Kelly Criterion (bot), heartbeat win-rate sync
+
+### Performance Improvements
+
+**`_MAX_BOOST` raised: 12 → 15 (`fxsusdt_telegram_bot.py`)**
+- Previously cut off signals at ≥68% pre-boost confidence; now allows 65%+ to reach 80% threshold when all 5 Phase 1 sources agree (ATAS + Market Intel + Insider + Microstructure + AI)
+- Pre-boost impossibility gate floor lowered from 68% to 65%
+
+**Per-symbol 30s scan timeout (`fxsusdt_telegram_bot.py` — `scan_all_parallel`)**
+- `asyncio.wait_for(..., timeout=30.0)` wraps each `scan_and_signal` call inside `_scan_one`
+- Prevents one slow Binance REST endpoint from blocking the entire 80-symbol gather indefinitely
+- Timeout logged at DEBUG level (no alert spam)
+
+**PM Reaction Decay half-life extended: 3 bars → 4 bars (`fxsusdt_telegram_bot.py`)**
+- `_PM_LAMBDA = math.log(2) / 4.0` (was `/3.0`)
+- New half-life = 4 × 15m = 60 min — better calibrated for crypto swing signal maturity
+- Prevents over-penalizing fresh 15m setups that are still forming
+
+**Same-direction deduplication (90-min window) (`fxsusdt_telegram_bot.py`)**
+- New Tier 1b in `can_send_signal`: rejects same symbol + same direction within 5400s (90 min)
+- `_symbol_last_direction: Dict[str, tuple]` tracks (action, unix_ts) per symbol
+- Only active when `action` param is passed (process_signals always passes it; early scan_and_signal check skips it)
+- Direction recorded in `send_signal_to_channel` on success
+- Cleared by `/admin restart` command
+- Prevents e.g. 6 consecutive BTC BUY signals across scan cycles in trending markets
+
+**Klines cache TTL + size upgrade (`btcusdt_trader.py`)**
+- TTL: 90s → 120s — now comfortably covers a full 20-40s scan + Phase 1 boost re-fetch
+- Max entries: 300 → 500 — handles 80 symbols × 3 timeframes (240) with headroom
+
+**Connection pool upgrade (`btcusdt_trader.py`)**
+- `limit`: 60 → 100 total connections
+- `limit_per_host`: 30 → 50 (fapi.binance.com) — matches SCAN_PARALLEL_LIMIT=30 + Phase 1 boost overhead (up to 5 extra requests per symbol)
+
+### Summary of Changes
+| File | Changes |
+|------|---------|
+| `mirofish_swarm_strategy.py` | `_ensure_tp_separation` bug fix (dead elif + SELL direction); `_global_win_rate` 0.338→0.42 |
+| `fxsusdt_telegram_bot.py` | `_MAX_BOOST` 12→15; 30s per-symbol timeout; PM lambda ln(2)/4; 90-min direction dedup; `_global_win_rate` default 0.42; admin restart clears direction dict |
+| `btcusdt_trader.py` | klines TTL 90→120s; cache max 300→500; connector pool 60/30→100/50 |
+
 ## Session 18 — Prediction Market Papers Framework Implementation
 
 ### Shannon Entropy + Kelly Criterion + Reaction Decay (`fxsusdt_telegram_bot.py`, `mirofish_swarm_strategy.py`)

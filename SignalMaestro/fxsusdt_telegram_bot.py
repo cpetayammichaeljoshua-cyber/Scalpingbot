@@ -307,6 +307,15 @@ class FXSUSDTTelegramBot:
 
         self._streak_lock = asyncio.Lock()
 
+        # Concurrency guard for symbol-list refresh.
+        # Without this, all 30 parallel scan coroutines can simultaneously detect
+        # that the refresh interval has expired and each issue a separate
+        # trader.get_all_usdm_symbols() Binance API call — wasting connections
+        # and risking rate-limit 429s.  Double-checked locking pattern:
+        #   fast path (no lock)  → return if still fresh
+        #   slow path (with lock) → re-check, then do exactly one API call
+        self._symbols_refresh_lock = asyncio.Lock()
+
         # ── Adaptive confidence threshold — raised during losing streaks ────
         # Base threshold is AI_THRESHOLD_PERCENT (80%).  After N consecutive
         # resolved losses the threshold is raised by STREAK_BOOST_PER_LOSS
@@ -314,9 +323,9 @@ class FXSUSDTTelegramBot:
         # model learns to avoid bad patterns again.
         self._consecutive_losses: int   = 0
         self._adaptive_conf_boost: float = 0.0   # extra % added to the gate
-        self.STREAK_TRIGGER_N:    int   = 3       # losses in a row before boost
-        self.STREAK_BOOST_PER_LOSS: float = 2.0  # +2% per consecutive loss
-        self.STREAK_MAX_BOOST_PCT:  float = 15.0 # max +15% above base threshold
+        self.STREAK_TRIGGER_N:    int   = 2       # losses in a row before boost (was 3)
+        self.STREAK_BOOST_PER_LOSS: float = 3.0  # +3% per consecutive loss (was 2.0)
+        self.STREAK_MAX_BOOST_PCT:  float = 20.0 # max +20% above base threshold (was 15.0)
         self.STREAK_RESET_ON_WIN:   bool  = True  # reset streak on any win
 
         # ── Multi-market state ─────────────────────────────────────────────────
@@ -330,16 +339,22 @@ class FXSUSDTTelegramBot:
         self._symbol_last_signal: Dict[str, float] = {}   # symbol → unix timestamp
         self._symbol_signal_count: Dict[str, int]  = {}   # symbol → total sent
 
+        # Same-direction deduplication: reject repeat of same symbol+direction within
+        # _SAME_DIR_DEDUP_SECONDS (45 min) even if per-symbol cooldown has passed.
+        # Prevents e.g. sending BTC BUY at 09:00, 09:06, 09:12 when 15m keeps re-firing.
+        self._symbol_last_direction: Dict[str, tuple] = {}  # symbol → (action, unix_ts)
+        self._SAME_DIR_DEDUP_SECONDS: float = 2700.0        # 45 minutes (reduced from 90min)
+
         # FIX 8: Per-symbol performance tracking and automatic blacklist.
-        # Symbols with recent_loss_rate > 70% over ≥10 resolved trades are
+        # Symbols with recent_loss_rate > 85% over ≥15 resolved trades are
         # temporarily blocked (refreshed every SYMBOL_STATS_REFRESH_INTERVAL).
         self._symbol_blacklist: set   = set()
         self._symbol_stats: Dict[str, Dict] = {}
         self._symbol_stats_last_refresh: float = 0.0
-        self.SYMBOL_STATS_REFRESH_INTERVAL: int = 3600  # refresh hourly
+        self.SYMBOL_STATS_REFRESH_INTERVAL: int = 1200  # refresh every 20 min (was hourly)
         # Threshold: block a symbol if recent loss rate exceeds this
-        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.80  # 80% recent losses → block
-        self.SYMBOL_BLOCK_MIN_TRADES: int  = 8     # need ≥8 resolved trades to block
+        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.75  # 75% recent losses → block (tightened from 85%)
+        self.SYMBOL_BLOCK_MIN_TRADES: int  = 10    # need ≥10 resolved trades to block (tightened from 15)
 
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
@@ -387,7 +402,7 @@ class FXSUSDTTelegramBot:
         for attempt in range(retries):
             try:
                 url  = f"{self.base_url}/sendMessage"
-                data = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+                data = {"chat_id": chat_id, "text": text, "link_preview_options": {"is_disabled": True}}
                 if parse_mode in ("Markdown", "MarkdownV2", "HTML"):
                     data["parse_mode"] = parse_mode
 
@@ -399,7 +414,7 @@ class FXSUSDTTelegramBot:
                     if response.status == 200:
                         result = await response.json()
                         if result.get("ok"):
-                            self.logger.info(f"✅ Message sent to {chat_id}")
+                            self.logger.debug(f"✅ Message sent to {chat_id}")
                             return True
                         error_desc = result.get("description", "")
                         self.logger.warning(f"⚠️ Telegram API: {error_desc}")
@@ -408,13 +423,23 @@ class FXSUSDTTelegramBot:
                         if "can't parse" in error_desc.lower() and parse_mode in ("Markdown", "MarkdownV2", "HTML"):
                             import re as _re
                             plain = _re.sub(r'[*_`\[\]()~>#+\-=|{}.!\\]', '', text)
-                            data_plain = {"chat_id": chat_id, "text": plain, "disable_web_page_preview": True}
+                            data_plain = {"chat_id": chat_id, "text": plain, "link_preview_options": {"is_disabled": True}}
                             async with session.post(url, json=data_plain, timeout=aiohttp.ClientTimeout(total=12)) as r2:
                                 if r2.status == 200:
                                     r2j = await r2.json()
                                     if r2j.get("ok"):
                                         self.logger.info(f"✅ Message sent (plain fallback) to {chat_id}")
                                         return True
+                    elif response.status == 400:
+                        # 400 = permanent failure (invalid chat, bad request, etc.)
+                        # Retrying never helps — log once and return immediately.
+                        try:
+                            _400_body = await response.json()
+                            _400_desc = _400_body.get("description", "bad request")
+                        except Exception:
+                            _400_desc = "bad request"
+                        self.logger.warning(f"⚠️ HTTP 400: {_400_desc} (chat_id={chat_id})")
+                        return False
                     elif response.status == 429:
                         # Rate limited by Telegram — back off and retry.
                         # BUG FIX: previously fell through to the generic
@@ -496,7 +521,7 @@ class FXSUSDTTelegramBot:
                 f"Agents: 10 swarm agents | Consensus: ≥75% | Quorum: 5/10\n"
                 f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
-                f"Confidence Gate: 80% post-boost | Min R:R 1.50:1 | Cap: 10/hr\n"
+                f"Confidence Gate: 80% post-boost | Min R:R 1.55:1 | Cap: 10/hr\n"
                 f"Format: Cornix-compatible\n"
                 f"Started: {ts}\n"
                 f"Status: ONLINE ✅"
@@ -600,7 +625,7 @@ class FXSUSDTTelegramBot:
         over at least SYMBOL_BLOCK_MIN_TRADES (8) resolved trades are added
         to the blacklist and skipped by can_send_signal().
 
-        Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (1 hour).
+        Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (20 min).
         """
         now = time.time()
         if (now - self._symbol_stats_last_refresh) < self.SYMBOL_STATS_REFRESH_INTERVAL:
@@ -655,13 +680,19 @@ class FXSUSDTTelegramBot:
         except Exception as e:
             self.logger.debug(f"_refresh_symbol_blacklist error: {e}")
 
-    def can_send_signal(self, symbol: str = "BTCUSDT") -> bool:
+    def can_send_signal(self, symbol: str = "BTCUSDT", action: str = None,
+                        swarm_consensus: float = 0.0) -> bool:
         """
-        Two-tier rate limiter:
+        Three-tier rate limiter:
           1. Per-symbol cooldown  — each market has its own independent window
           2. Global caps          — minimum 90s gap between any two signals
                                     (across ALL symbols), and a strict 5-signals-
                                     per-hour ceiling to guarantee quality > quantity.
+          3. Same-direction dedup — reject same symbol+direction within 45 min
+                                    to prevent repetitive signal spam.
+
+        swarm_consensus: when ≥0.95 (unanimous), blacklist is bypassed because
+        10-agent 100% consensus outweighs recent-trade-sample statistics.
 
         This prevents per-symbol spam while still allowing diverse market coverage.
         """
@@ -674,18 +705,30 @@ class FXSUSDTTelegramBot:
         cutoff_24h = now_dt - timedelta(hours=24)
         self.signal_timestamps = [ts for ts in self.signal_timestamps if ts > cutoff_24h]
 
-        # FIX 8: Refresh per-symbol blacklist (rate-limited to hourly)
+        # FIX 8: Refresh per-symbol blacklist (rate-limited to 20 min)
         self._refresh_symbol_blacklist()
 
-        # FIX 8: Reject signals for persistently losing symbols
+        # FIX 8: Reject signals for persistently losing symbols.
+        # CONSENSUS OVERRIDE: unanimous (≥95%) swarm signals bypass the blacklist —
+        # 10 independent agents agreeing is stronger evidence than the small recent
+        # trade sample that drives the blacklist.
         if symbol in self._symbol_blacklist:
-            stats = self._symbol_stats.get(symbol, {})
-            self.logger.info(
-                f"🚫 [{symbol}] Blocked — persistently losing symbol "
-                f"(recent_loss_rate={stats.get('recent_loss_rate', 0.0):.0%} "
-                f"≥ {self.SYMBOL_BLOCK_LOSS_RATE:.0%})"
-            )
-            return False
+            _unanimous_override = swarm_consensus >= 0.95
+            if _unanimous_override:
+                stats = self._symbol_stats.get(symbol, {})
+                self.logger.info(
+                    f"⚡ [{symbol}] Blacklist OVERRIDDEN by unanimous consensus "
+                    f"({swarm_consensus:.0%}) — recent_loss_rate="
+                    f"{stats.get('recent_loss_rate', 0.0):.0%}"
+                )
+            else:
+                stats = self._symbol_stats.get(symbol, {})
+                self.logger.info(
+                    f"🚫 [{symbol}] Blocked — persistently losing symbol "
+                    f"(recent_loss_rate={stats.get('recent_loss_rate', 0.0):.0%} "
+                    f"≥ {self.SYMBOL_BLOCK_LOSS_RATE:.0%}, consensus={swarm_consensus:.0%} < 95%)"
+                )
+                return False
 
         # ── Tier 1: per-symbol cooldown ──────────────────────────────────────
         last_sym_ts = self._symbol_last_signal.get(symbol, 0.0)
@@ -696,6 +739,22 @@ class FXSUSDTTelegramBot:
                 f"{cooldown - sym_elapsed:.0f}s remaining"
             )
             return False
+
+        # ── Tier 1b: same-direction deduplication ────────────────────────────
+        # If the same symbol+direction was sent within _SAME_DIR_DEDUP_SECONDS
+        # (45 min), reject to prevent repetitive signal spam. Only active when
+        # action is explicitly provided by the caller (process_signals does this).
+        if action is not None:
+            _last_dir = self._symbol_last_direction.get(symbol)
+            if _last_dir is not None:
+                _last_action, _last_dir_ts = _last_dir
+                if _last_action == action and (now_ts - _last_dir_ts) < self._SAME_DIR_DEDUP_SECONDS:
+                    _remaining = self._SAME_DIR_DEDUP_SECONDS - (now_ts - _last_dir_ts)
+                    self.logger.debug(
+                        f"♻️ [{symbol}] Same-direction dedup ({action}) — "
+                        f"{_remaining/60:.0f}min remaining (45-min window)"
+                    )
+                    return False
 
         # ── Tier 2a: global minimum gap — at least 90s between any signals ──
         # signal_timestamps is always appended in chronological order, so the
@@ -711,10 +770,10 @@ class FXSUSDTTelegramBot:
 
         # ── Tier 2b: global hourly cap ────────────────────────────────────────
         cutoff_1h = now_dt - timedelta(hours=1)
-        recent_1h = [ts for ts in self.signal_timestamps if ts > cutoff_1h]
-        if len(recent_1h) >= self._MAX_SIGNALS_PER_HOUR:
+        _recent_1h_count = sum(1 for ts in self.signal_timestamps if ts > cutoff_1h)
+        if _recent_1h_count >= self._MAX_SIGNALS_PER_HOUR:
             self.logger.info(
-                f"🚦 [global] Hourly cap reached ({len(recent_1h)}/{self._MAX_SIGNALS_PER_HOUR}) "
+                f"🚦 [global] Hourly cap reached ({_recent_1h_count}/{self._MAX_SIGNALS_PER_HOUR}) "
                 f"— pausing [{symbol}]"
             )
             return False
@@ -929,6 +988,8 @@ class FXSUSDTTelegramBot:
                 self.last_signal_time = datetime.now()
                 self.signal_timestamps.append(self.last_signal_time)
                 self.signal_count += 1
+                # Record direction for same-direction deduplication (45-min window)
+                self._symbol_last_direction[symbol] = (signal.action, now_ts)
 
                 # Record in trade memory for self-learning
                 # Use the bb_position passed from process_signals (per-coroutine local),
@@ -965,22 +1026,34 @@ class FXSUSDTTelegramBot:
         """
         Refresh the active symbol list from Binance every SYMBOL_REFRESH_INTERVAL.
         Falls back to keeping the current list if the API call fails.
+
+        Uses double-checked locking (_symbols_refresh_lock) so that when 30 parallel
+        scan coroutines all detect the interval has expired at the same instant, only
+        ONE of them issues the Binance API call — the others re-check inside the lock,
+        find the list is now fresh, and return immediately.
         """
         now = time.time()
+        # ── Fast path (no lock): still fresh? ──────────────────────────────────
         if now - self._symbols_refresh_time < self.SYMBOL_REFRESH_INTERVAL:
-            return  # Still fresh
+            return
 
-        try:
-            symbols = await self.trader.get_all_usdm_symbols()
-            if symbols:
-                self._active_symbols       = symbols
-                self._symbols_refresh_time = now
-                self.logger.info(
-                    f"🌐 Symbol list refreshed: {len(symbols)} markets active "
-                    f"(top 5: {symbols[:5]})"
-                )
-        except Exception as e:
-            self.logger.warning(f"⚠️ Symbol refresh failed: {e} — keeping current list")
+        # ── Slow path: acquire lock, re-check, then refresh if still needed ───
+        async with self._symbols_refresh_lock:
+            # Another coroutine may have refreshed while we waited for the lock
+            if time.time() - self._symbols_refresh_time < self.SYMBOL_REFRESH_INTERVAL:
+                return  # Already refreshed — nothing to do
+
+            try:
+                symbols = await self.trader.get_all_usdm_symbols()
+                if symbols:
+                    self._active_symbols       = symbols
+                    self._symbols_refresh_time = time.time()
+                    self.logger.info(
+                        f"🌐 Symbol list refreshed: {len(symbols)} markets active "
+                        f"(top 5: {symbols[:5]})"
+                    )
+            except Exception as e:
+                self.logger.warning(f"⚠️ Symbol refresh failed: {e} — keeping current list")
 
     async def scan_and_signal(self, symbol: str = "BTCUSDT") -> bool:
         """
@@ -993,6 +1066,35 @@ class FXSUSDTTelegramBot:
             True if a signal was generated (not necessarily sent), False otherwise.
         """
         try:
+            # ── Fast pre-checks BEFORE expensive 10-agent swarm evaluation ──
+            # These checks mirror the first gates in can_send_signal but run
+            # BEFORE generate_multi_timeframe_signals, saving ~29% of strategy
+            # evaluations (blacklisted symbols) and ~30% more (cooldown symbols).
+
+            # Pre-check 1: skip blacklisted symbols immediately
+            if symbol in self._symbol_blacklist:
+                self.logger.debug(f"[{symbol}] Blacklisted — skip strategy eval")
+                return False
+
+            # Pre-check 2: per-symbol 5-min cooldown
+            _cooldown_s = self.min_signal_interval_minutes * 60
+            if time.time() - self._symbol_last_signal.get(symbol, 0.0) < _cooldown_s:
+                return False
+
+            # Pre-check 3: global hourly cap — saves all Phase-1 network I/O when
+            # the cap is already hit (avoids Binance klines + ATAS + MI + AI calls
+            # for every remaining symbol in the parallel batch).
+            _now_pre = datetime.now()
+            _cutoff_pre = _now_pre - timedelta(hours=1)
+            if sum(1 for _t in self.signal_timestamps if _t > _cutoff_pre) >= self._MAX_SIGNALS_PER_HOUR:
+                return False
+
+            # Pre-check 4: global minimum gap — skip if last signal was < 90s ago.
+            if self.signal_timestamps:
+                _gap_pre = (_now_pre - self.signal_timestamps[-1]).total_seconds()
+                if _gap_pre < self._GLOBAL_MIN_GAP_SECONDS:
+                    return False
+
             self.logger.debug(f"🐟 MiroFish Swarm scanning {symbol}...")
 
             signals = await self.strategy.generate_multi_timeframe_signals(
@@ -1051,7 +1153,13 @@ class FXSUSDTTelegramBot:
         async def _scan_one(symbol: str) -> bool:
             async with self._scan_semaphore:
                 try:
-                    return await self.scan_and_signal(symbol)
+                    return await asyncio.wait_for(
+                        self.scan_and_signal(symbol),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.debug(f"[{symbol}] parallel scan timed out (30s)")
+                    return False
                 except Exception as exc:
                     self.logger.debug(f"[{symbol}] parallel scan error: {exc}")
                     return False
@@ -1095,6 +1203,25 @@ class FXSUSDTTelegramBot:
         # from 20 parallel coroutines every scan cycle.
         confidence_threshold = self._ai_threshold_pct + self._adaptive_conf_boost
 
+        # ── Recent-loss-rate global gate (non-consecutive) ────────────────────
+        # Consecutive-loss streak resets on any win, so it can't detect a
+        # sustained 70-80% loss period interspersed with occasional wins.
+        # This adds a direct, non-resettable boost based on the last 20 definitive
+        # trades: if the recent loss rate exceeds 65%, the gate rises proportionally.
+        # This is in addition to — not a replacement of — the streak boost.
+        if self.trade_memory:
+            try:
+                _global_rlr = self.trade_memory.get_recent_loss_rate(20)
+                if _global_rlr > 0.65:
+                    _rlr_extra = min((_global_rlr - 0.65) * 40.0, 10.0)  # max +10pt
+                    confidence_threshold = min(confidence_threshold + _rlr_extra, 95.0)
+                    self.logger.debug(
+                        f"🔺 Global recent_loss={_global_rlr:.0%} > 65% — "
+                        f"threshold boosted +{_rlr_extra:.1f}pt → {confidence_threshold:.1f}%"
+                    )
+            except Exception:
+                pass
+
         # Work on a COPY of the signal so confidence mutations in Phase 1 (boost
         # analysis) never modify the original object that the strategy may still
         # reference.  dataclasses.replace() performs a shallow copy which is safe
@@ -1104,7 +1231,8 @@ class FXSUSDTTelegramBot:
         symbol = getattr(signal, "symbol", "BTCUSDT") or "BTCUSDT"
 
         # ── Fast pre-check before any network I/O ──
-        if not self.can_send_signal(symbol):
+        _sig_consensus = float(getattr(signal, "swarm_consensus", 0.0))
+        if not self.can_send_signal(symbol, action=signal.action, swarm_consensus=_sig_consensus):
             return False
 
         tf_label = (getattr(signal, "timeframe", "15m") or "15m").upper()
@@ -1132,11 +1260,11 @@ class FXSUSDTTelegramBot:
                     _sym_stats = self.trade_memory.get_symbol_stats(min_trades=5)
                 _sym_perf  = _sym_stats.get(symbol, {})
                 _sym_rlr   = float(_sym_perf.get("recent_loss_rate", 0.0))
-                if _sym_rlr > 0.65:
-                    _sym_penalty = min((_sym_rlr - 0.65) * 50.0, 8.0)  # max -8pt
+                if _sym_rlr > 0.55:
+                    _sym_penalty = min((_sym_rlr - 0.55) * 60.0, 12.0)  # max -12pt (was -8pt at >65%)
                     signal.confidence = max(0.0, signal.confidence - _sym_penalty)
                     self.logger.debug(
-                        f"📉 [{symbol}] Recent loss rate {_sym_rlr:.0%} > 65% — "
+                        f"📉 [{symbol}] Recent loss rate {_sym_rlr:.0%} > 55% — "
                         f"pre-boost penalty -{_sym_penalty:.1f}pt "
                         f"→ conf={signal.confidence:.1f}%"
                     )
@@ -1159,6 +1287,83 @@ class FXSUSDTTelegramBot:
                         f"dir_bias={_dir_bias}, total={_total_api_adj:+.1f}pt, "
                         f"conf→{signal.confidence:.1f}%"
                     )
+
+                # ── Fear & Greed gate for BUY signals ────────────────────────
+                # Tiered gate: absolute panic block, contrarian reversal path, and
+                # soft fear penalty.  F&G bottom values (5-10) are historically
+                # high-probability reversal points when accompanied by unanimous
+                # swarm consensus — the hard block at ≤10 was over-filtering and
+                # producing zero signals during prolonged extreme-fear periods.
+                #
+                # HARD BLOCK: F&G ≤ 5  — crash-level panic; further downside very likely
+                # CONTRARIAN: F&G 5-10 — allow ONLY if consensus ≥ 95% AND RSI < 42
+                #   (capitulation reversal: unanimous swarm + oversold price action)
+                # SOFT GATE:  F&G < 20 — scaled penalty (-5 to -15pt)
+                _fg_val = self.public_api.fear_greed_index
+                if signal.action == "BUY" and isinstance(_fg_val, (int, float)):
+                    _sig_rsi_fg    = float(getattr(signal, "rsi", 50))
+                    _sig_cons_fg   = float(getattr(signal, "swarm_consensus", 0.0))
+                    if _fg_val <= 5:
+                        # Absolute crash-level panic — hard block regardless of consensus
+                        self.logger.info(
+                            f"💀 [{symbol}] PANIC HARD GATE: F&G={_fg_val} ≤ 5 — "
+                            f"BUY signal BLOCKED (crash-level capitulation)"
+                        )
+                        return False
+                    elif _fg_val <= 10:
+                        # Deep fear zone: three-tier approach based on RSI level.
+                        # Requires unanimous swarm (≥95%) in all cases.
+                        # RSI > 70: hard block — clearly overbought in a fear market
+                        # RSI 50-70: relative-strength play (coin outperforming) — allow
+                        #            with heavy penalty (-15pt) to force confidence ≥ 80
+                        # RSI 35-50: neutral/mild oversold — allow with moderate penalty
+                        # RSI < 35:  deeply oversold contrarian — allow with mild penalty
+                        if _sig_cons_fg < 0.95:
+                            self.logger.info(
+                                f"😱 [{symbol}] FEAR GATE: F&G={_fg_val} — "
+                                f"BUY blocked (need consensus≥95%, got {_sig_cons_fg:.0%})"
+                            )
+                            return False
+                        if _sig_rsi_fg >= 70:
+                            self.logger.info(
+                                f"😱 [{symbol}] FEAR GATE: F&G={_fg_val} — "
+                                f"BUY blocked (RSI={_sig_rsi_fg:.0f}≥70, overbought in fear market)"
+                            )
+                            return False
+                        # Unanimous consensus with reasonable RSI — apply scaled penalty
+                        if _sig_rsi_fg < 35:
+                            _fear_penalty = 6.0    # deeply oversold: mild penalty
+                        elif _sig_rsi_fg < 50:
+                            _fear_penalty = 10.0   # neutral: moderate penalty
+                        else:
+                            _fear_penalty = 10.0   # relative-strength (50-70): moderate penalty
+                            # (reduced from -15pt: unanimous consensus in fear zone with
+                            # relative-strength coin still needs post-gate NN/IRONS quality filters)
+                        signal.confidence = max(0.0, signal.confidence - _fear_penalty)
+                        _setup_type = (
+                            "deeply-oversold" if _sig_rsi_fg < 35
+                            else "neutral-reversal" if _sig_rsi_fg < 50
+                            else "relative-strength"
+                        )
+                        self.logger.info(
+                            f"🔄 [{symbol}] FEAR GATE PASS ({_setup_type}): F&G={_fg_val} "
+                            f"consensus={_sig_cons_fg:.0%} RSI={_sig_rsi_fg:.0f} — "
+                            f"penalty -{_fear_penalty:.0f}pt → conf={signal.confidence:.1f}%"
+                        )
+                    elif _fg_val < 20:
+                        # NOTE: _fg_val is in (10, 20) here — the <= 10 branch is
+                        # handled above.  Tiered penalty: deeper fear = heavier penalty.
+                        if _fg_val < 13:
+                            _fear_penalty = 15.0
+                        elif _fg_val < 15:
+                            _fear_penalty = 10.0
+                        else:
+                            _fear_penalty = 5.0
+                        signal.confidence = max(0.0, signal.confidence - _fear_penalty)
+                        self.logger.info(
+                            f"😱 [{symbol}] Fear gate: F&G={_fg_val} < 20 — "
+                            f"BUY penalty -{_fear_penalty:.0f}pt → conf={signal.confidence:.1f}%"
+                        )
             except Exception:
                 pass
 
@@ -1167,17 +1372,17 @@ class FXSUSDTTelegramBot:
         # boost analysis concurrently.  Holding the lock here would serialize them into
         # a single-file queue, eliminating the parallelism benefit.
         _pre_boost_conf = signal.confidence
-        # Raised from 8.0 → 12.0: allows multi-source agreement (ATAS + Market Intel +
-        # Insider + Microstructure + AI) to push a quality signal from 72% to 84%.
-        # The effective pre-boost floor is now 80 - 12 = 68%, which is still above
+        # 15.0: allows multi-source agreement (ATAS + Market Intel +
+        # Insider + Microstructure + AI) to push a quality signal from 65% to 80%.
+        # The effective pre-boost floor is 80 - 15 = 65%, which is still above
         # the strategy's min_confidence gate of 64%.
-        _MAX_BOOST = 8.0
+        _MAX_BOOST = 15.0
 
         # ── Pre-boost impossibility gate ─────────────────────────────────────
         # If even the maximum possible boost cannot bring this signal to the
         # confidence threshold, skip ALL Phase 1 network I/O (klines fetch +
         # ATAS + MarketIntel + Insider + Microstructure + AI) immediately.
-        # Example: conf=67.7% + max_boost=12pt = 79.7% < 80% threshold → skip.
+        # Example: conf=64.9% + max_boost=15pt = 79.9% < 80% threshold → skip.
         if _pre_boost_conf + _MAX_BOOST < confidence_threshold:
             self.logger.debug(
                 f"⛔ [{symbol}] Pre-skip: conf={_pre_boost_conf:.1f}%"
@@ -1255,21 +1460,68 @@ class FXSUSDTTelegramBot:
                     try:
                         insider = await self.insider_analyzer.detect_insider_activity(market_data_5col)
                         if insider.detected and insider.confidence > 70:
-                            signal.confidence = min(100, signal.confidence + 6)
-                            signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
-                            self.logger.info("🕵️ Insider boost +6%")
+                            # CRITICAL FIX: direction-aware boost — only apply when insider
+                            # activity direction is aligned with the signal direction.
+                            # "neutral" direction (ambiguous whale/surge) gets a reduced boost
+                            # since direction is unknown.
+                            _ins_dir = getattr(insider, "direction", "neutral")
+                            _ins_aligned = (
+                                (sig_dir == "BUY"  and _ins_dir == "bullish") or
+                                (sig_dir == "SELL" and _ins_dir == "bearish")
+                            )
+                            _ins_neutral = _ins_dir == "neutral"
+                            if _ins_aligned:
+                                _ins_boost = 6
+                                signal.confidence = min(100, signal.confidence + _ins_boost)
+                                signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
+                                self.logger.info(
+                                    f"🕵️ Insider boost +{_ins_boost}% "
+                                    f"(type={insider.activity_type}, dir={_ins_dir}, aligned)"
+                                )
+                            elif _ins_neutral:
+                                # Ambiguous direction: apply smaller boost (2pt)
+                                _ins_boost = 2
+                                signal.confidence = min(100, signal.confidence + _ins_boost)
+                                signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
+                                self.logger.info(
+                                    f"🕵️ Insider partial boost +{_ins_boost}% "
+                                    f"(type={insider.activity_type}, dir=neutral)"
+                                )
+                            else:
+                                self.logger.debug(
+                                    f"Insider dir={_ins_dir} opposes {sig_dir} — no boost"
+                                )
                     except Exception as e:
                         self.logger.debug(f"Insider skipped: {e}")
 
                 if self.microstructure_enhancer:
                     try:
-                        ms = await self.microstructure_enhancer.analyze_microstructure(
-                            symbol, market_data_5col
+                        # FIX: use get_microstructure_alert (correct method name).
+                        # The previously called analyze_microstructure does not exist on
+                        # MarketMicrostructureEnhancer, causing a silent AttributeError
+                        # that meant this boost NEVER fired.
+                        current_price_ms = float(market_data_5col[-1][4]) if market_data_5col else 0.0
+                        ms = await self.microstructure_enhancer.get_microstructure_alert(
+                            {}, [], [], current_price_ms
                         )
-                        if ms and ms.get("signal_alignment"):
-                            signal.confidence = min(100, signal.confidence + 5)
-                            signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
-                            self.logger.info("📡 Microstructure boost +5%")
+                        if ms:
+                            ms_dir = ms.get("direction", "NEUTRAL")
+                            ms_conf = float(ms.get("confidence", 0.0))
+                            ms_aligned = (
+                                (sig_dir == "BUY"  and ms_dir == "BUY")  or
+                                (sig_dir == "SELL" and ms_dir == "SELL")
+                            )
+                            if ms_aligned and ms_conf >= 50.0:
+                                signal.confidence = min(100, signal.confidence + 5)
+                                signal.confidence = min(signal.confidence, _pre_boost_conf + _MAX_BOOST)
+                                self.logger.info(
+                                    f"📡 Microstructure boost +5% "
+                                    f"(dir={ms_dir}, conf={ms_conf:.0f}%, aligned)"
+                                )
+                            elif not ms_aligned and ms_dir != "NEUTRAL" and ms_conf >= 60.0:
+                                self.logger.debug(
+                                    f"Microstructure dir={ms_dir} opposes {sig_dir} — no boost"
+                                )
                     except Exception as e:
                         self.logger.debug(f"Microstructure skipped: {e}")
 
@@ -1330,7 +1582,7 @@ class FXSUSDTTelegramBot:
         #      Low t (fresh reversal)    → low maturity  → small decay penalty
         #      High t (established trend)→ high maturity → decay bonus
         # ════════════════════════════════════════════════════════════════════
-        _PM_LAMBDA = math.log(2) / 3.0   # half-life = 3 bars (45 min on 15m TF)
+        _PM_LAMBDA = math.log(2) / 4.0   # half-life = 4 bars (60 min on 15m TF) — better calibration for crypto swing signals
 
         try:
             # ── 1. Shannon Entropy from swarm consensus ───────────────────────
@@ -1339,8 +1591,16 @@ class FXSUSDTTelegramBot:
             _H     = -(_p_sw * math.log2(_p_sw) + _q_sw * math.log2(_q_sw))
 
             # ── 2. Kelly Criterion (fractional, conservative) ─────────────────
+            # BUG FIX: using raw swarm consensus as win probability overestimates
+            # edge because consensus measures directional agreement (75-95%), NOT
+            # the actual win probability (~33-50% historically).  Blend consensus
+            # with the live historical win rate for a calibrated estimate.
             _b_rr     = max(0.5, float(signal.risk_reward_ratio))
-            _p_win    = _p_sw                              # swarm consensus as win prob
+            # Floor reduced 0.42→0.35 and floor guard 0.338→0.30 to reflect actual
+            # historical win rate (~33%) more accurately and prevent Kelly overconfidence.
+            _hist_wr  = max(getattr(getattr(self, "strategy", None), "_global_win_rate", 0.35), 0.30)
+            _p_win    = _p_sw * 0.55 + _hist_wr * 0.45    # blend: swarm + history
+            _p_win    = max(0.28, min(_p_win, 0.80))       # realistic bounds
             _f_kelly  = max(0.0, (_p_win * _b_rr - (1.0 - _p_win)) / _b_rr)
             _f_frac   = 0.25 * _f_kelly                   # quarter-Kelly for safety
 
@@ -1432,7 +1692,7 @@ class FXSUSDTTelegramBot:
         # and finds the per-symbol cooldown already taken.
         async with self._signal_gate_lock:
             # Re-check inside lock: another coroutine may have sent while we boosted
-            if not self.can_send_signal(symbol):
+            if not self.can_send_signal(symbol, action=signal.action, swarm_consensus=_sig_consensus):
                 return False
 
             try:
@@ -1463,7 +1723,10 @@ class FXSUSDTTelegramBot:
                         )
 
                         # Read data-driven thresholds (FIX 5)
-                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.08)
+                        # Default 0.38 — ensures NN gate enforces positive-EV discipline
+                        # even before the first training run computes Youden's J
+                        # (breakeven at 1.55:1 R:R ≈ 39.2%; 0.38 gives slight tolerance).
+                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.38)
                         _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
                         _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
 
@@ -1495,9 +1758,47 @@ class FXSUSDTTelegramBot:
                         _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
                         _is_strong       = _swarm_consensus >= 0.85 and _participation >= (7/10)
 
-                        if _is_unanimous and nn_win_prob >= 0.12 and not (_high_uncertainty and nn_uncertainty > 0.25):
-                            _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 15.0)
-                            _override_penalty = min(_override_penalty, 8.0)
+                        # ── ABSOLUTE FLOOR + UNCERTAINTY OVERRIDE ──────────────────
+                        # Absolute floor: reject when NN gives < 25% win probability.
+                        #
+                        # EXCEPTION — Unanimous + High-Uncertainty Override:
+                        # When the swarm is unanimous (≥95%, ≥8/10 agents) AND the NN
+                        # model itself has high uncertainty (σ ≥ 0.15), the model is
+                        # operating outside its training distribution (e.g., extreme fear
+                        # regime with few historical examples).  In this case, the 10-agent
+                        # real-time swarm consensus is more reliable than the NN's
+                        # extrapolation.  Apply the standard override penalty (capped at
+                        # 10pt) and proceed; NN boost/soft paths are skipped below.
+                        _high_model_uncertainty = nn_uncertainty >= 0.15
+                        if nn_win_prob < 0.25:
+                            if _is_unanimous and _high_model_uncertainty:
+                                # Unanimous swarm + NN uncertain about its prediction:
+                                # override the absolute floor and apply a moderate penalty.
+                                _unc_penalty = min(
+                                    (_reject_thresh - max(nn_win_prob, 0.05)) * 22.0, 10.0
+                                )
+                                signal.confidence = max(0.0, signal.confidence - _unc_penalty)
+                                self.logger.info(
+                                    f"🧠 NN unc-override [{symbol}] {signal.action}: "
+                                    f"win_prob={nn_win_prob:.0%} σ={nn_uncertainty:.2f} "
+                                    f"(model in unknown regime) | unanimous → "
+                                    f"penalty -{_unc_penalty:.1f}pt → conf={signal.confidence:.1f}%"
+                                )
+                                # Skip further NN path (boost/penalty handled above)
+                            else:
+                                self.logger.info(
+                                    f"🧠 NN ABSOLUTE REJECT [{symbol}] {signal.action}: "
+                                    f"win_prob={nn_win_prob:.0%} < 25% absolute minimum "
+                                    f"| σ={nn_uncertainty:.2f} danger_zones={n_danger} "
+                                    f"consensus={_swarm_consensus:.0%}"
+                                )
+                                return False
+
+                        elif _is_unanimous and nn_win_prob >= 0.28 and not (_high_uncertainty and nn_uncertainty > 0.20):
+                            # Unanimous swarm bypass: 10-agent 100% consensus outweighs NN.
+                            # Requires win_prob ≥ 28% (raised from 0.25 to match new absolute floor).
+                            _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 25.0)
+                            _override_penalty = min(_override_penalty, 12.0)
                             signal.confidence = max(60.0, signal.confidence - _override_penalty)
                             self.logger.info(
                                 f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
@@ -1506,14 +1807,16 @@ class FXSUSDTTelegramBot:
                                 f"σ={nn_uncertainty:.2f}) penalty={_override_penalty:.1f}pt"
                             )
                         else:
-                            # Hard reject: win_prob far below reject threshold (> 8pp gap)
-                            # Soft penalty: borderline signals lose confidence instead of
-                            # being dropped, so high-consensus swarm signals still pass.
-                            _far_below = nn_win_prob < (_reject_thresh - 0.08)
+                            # Hard reject: win_prob far below reject threshold.
+                            # Non-strong gap tightened 0.05→0.02: signals must be within
+                            # 2pp of reject_thresh to qualify for soft penalty path.
+                            # With reject_thresh=0.36: hard-reject if win_prob < 0.34.
+                            _far_below = nn_win_prob < (_reject_thresh - 0.02)
 
-                            # For strong (but not unanimous) signals, relax far-below gap
+                            # For strong (but not unanimous) signals: slightly wider gap.
+                            # Hard-reject if win_prob < reject_thresh - 0.07 (was 0.10).
                             if _is_strong:
-                                _far_below = nn_win_prob < (_reject_thresh - 0.15)
+                                _far_below = nn_win_prob < (_reject_thresh - 0.07)
 
                             if _far_below or (_high_uncertainty and _borderline and not _is_strong):
                                 reject_reason = (
@@ -1528,15 +1831,20 @@ class FXSUSDTTelegramBot:
                                 return False
 
                         if not _is_unanimous and nn_win_prob < _reject_thresh:
-                            # Borderline — apply a confidence penalty instead of hard-rejecting.
-                            # Penalty is proportional to how far below threshold the signal is.
-                            penalty = (_reject_thresh - nn_win_prob) * 50.0  # up to 4pt
-                            penalty = min(penalty, 4.0)
+                            # Borderline (win_prob just below reject_thresh) — apply a
+                            # confidence penalty proportional to the deficit.
+                            # Multiplier raised 200→300 and cap 10pt→15pt — borderline
+                            # signals face a meaningful hurdle (e.g. 2pp gap = -6pt,
+                            # 5pp gap = -15pt cap).  This prevents weak signals from
+                            # sneaking through on boosts alone.
+                            penalty = (_reject_thresh - nn_win_prob) * 300.0
+                            penalty = min(penalty, 15.0)
                             signal.confidence = max(0.0, signal.confidence - penalty)
                             self.logger.info(
                                 f"🧠 NN soft penalty [{symbol}] {signal.action}: "
                                 f"-{penalty:.1f}pt → conf={signal.confidence:.1f}% "
-                                f"(win_prob={nn_win_prob:.0%} borderline, danger_zones={n_danger})"
+                                f"(win_prob={nn_win_prob:.0%} borderline reject_thresh={_reject_thresh:.0%} "
+                                f"danger_zones={n_danger})"
                             )
                         elif nn_win_prob >= _boost_thresh and not _high_uncertainty:
                             # Only boost when model is BOTH confident AND certain
@@ -1568,7 +1876,7 @@ class FXSUSDTTelegramBot:
                         _bm25_adj = self.bm25_memory.get_confidence_adjustment(
                             _sit, signal.action
                         )
-                        if abs(_bm25_adj) >= 0.3:
+                        if abs(_bm25_adj) >= 2.0:
                             signal.confidence = max(0, min(100,
                                 signal.confidence + _bm25_adj
                             ))
@@ -1579,10 +1887,46 @@ class FXSUSDTTelegramBot:
                     except Exception as _bm25_err:
                         self.logger.debug(f"BM25 query skipped: {_bm25_err}")
 
-                # ── Final confidence gate ──
-                if signal.confidence < confidence_threshold:
+                # ── IRONS score quality gate ──
+                # Reject signals where the comprehensive 25-indicator IRONS panel
+                # scores below 65/100 — these lack sufficient indicator alignment.
+                # Raised from 62→65 to enforce tighter multi-indicator agreement.
+                _irons_score = getattr(signal, "irons_score", 0)
+                if _irons_score > 0 and _irons_score < 65:
                     self.logger.info(
-                        f"⛔ Signal rejected: conf={signal.confidence:.1f}% < threshold={confidence_threshold:.0f}%"
+                        f"⛔ [{symbol}] IRONS score {_irons_score}/100 < 65 minimum "
+                        f"— insufficient indicator alignment, signal rejected"
+                    )
+                    return False
+
+                # ── Final confidence gate ──
+                # Unanimous bypass: when the full swarm agrees (consensus ≥ 95%)
+                # with high participation (≥ 80%), the adaptive loss-streak boost
+                # to the threshold is suspended.  10 independent agents achieving
+                # 95%+ consensus is stronger evidence than the small recent-trade
+                # sample that drives the loss-streak adjustment.  The base 80%
+                # gate still applies — only the adaptive boost (≤ 20pt) is waived.
+                _eff_threshold = confidence_threshold
+                _sig_consensus_final = float(getattr(signal, "swarm_consensus", 0.0))
+                _sig_part_final = float(getattr(signal, "participation_rate", 0.0))
+                if _sig_consensus_final >= 0.95 and _sig_part_final >= 0.80:
+                    # Unanimous bypass: when the full swarm agrees (consensus ≥ 95%,
+                    # participation ≥ 80%), waive BOTH the adaptive streak boost and the
+                    # recent-loss-rate boost.  These dynamic boosts are calibrated on
+                    # historical aggregate performance and should not block the strongest
+                    # real-time signals from a unanimous 10-agent consensus.
+                    # The base 80% minimum gate still applies.
+                    if confidence_threshold > self._ai_threshold_pct:
+                        _eff_threshold = self._ai_threshold_pct
+                        self.logger.info(
+                            f"⚡ [{symbol}] Unanimous bypass: consensus={_sig_consensus_final:.0%} "
+                            f"part={_sig_part_final:.0%} → threshold lowered "
+                            f"{confidence_threshold:.0f}%→{_eff_threshold:.0f}% "
+                            f"(streak+RLR boosts waived, base {self._ai_threshold_pct:.0f}% applies)"
+                        )
+                if signal.confidence < _eff_threshold:
+                    self.logger.info(
+                        f"⛔ Signal rejected: conf={signal.confidence:.1f}% < threshold={_eff_threshold:.0f}%"
                     )
                     return False
 
@@ -1748,13 +2092,36 @@ class FXSUSDTTelegramBot:
                         if k in _active_set
                     }
 
-                # ── 2. Check BTCUSDT price alerts ─────────────────────────────
+                # ── 2a. Sync Kelly win-rate from live trade history every cycle ─
+                # Previously only updated hourly (blacklist) or every 5 min (heartbeat).
+                # Now runs every cycle so PM framework uses current win-rate immediately.
+                if self.trade_memory:
+                    try:
+                        _ts = self.trade_memory.get_stats()
+                        _resolved = _ts["wins"] + _ts["losses"]
+                        if _resolved >= 20:
+                            _live_wr = _ts["wins"] / max(_resolved, 1)
+                            # Prior lowered 0.338 → 0.30 to not over-inflate win rate
+                            # during drawdown periods.
+                            _blended = _live_wr * 0.70 + 0.30 * 0.30
+                            self.strategy._global_win_rate = round(_blended, 4)
+                    except Exception:
+                        pass
+
+                # ── 2b. Check BTCUSDT price alerts ────────────────────────────
                 await self.check_price_alerts()
+
+                # ── 2c. Refresh per-symbol blacklist before parallel scan ──────
+                # Called here so the blacklist is always current before scan_and_signal
+                # uses _symbol_blacklist for its fast pre-check (skips strategy eval
+                # for blacklisted symbols without going through can_send_signal).
+                self._refresh_symbol_blacklist()
 
                 # ── 3. TRUE PARALLEL: scan ALL symbols simultaneously ─────────
                 symbols = list(self._active_symbols)  # snapshot to avoid mid-scan mutations
                 self.logger.info(
-                    f"⚡ Cycle #{cycle_count}: parallel-scanning {len(symbols)} symbols..."
+                    f"⚡ Cycle #{cycle_count}: parallel-scanning {len(symbols)} symbols "
+                    f"(blacklist={len(self._symbol_blacklist)})..."
                 )
                 signals_this_cycle = await self.scan_all_parallel(symbols)
 
@@ -1793,6 +2160,9 @@ class FXSUSDTTelegramBot:
                                 f"wr={ts['win_rate']:.1f}% "
                                 f"recent_loss={rl:.1%})"
                             )
+                            # Kelly win-rate is already synced every cycle (see step 2a above).
+                            # No duplicate sync needed here — heartbeat reads the already-current
+                            # value via trade_stats display only.
                         except Exception:
                             pass
                     self.logger.info(
@@ -2050,32 +2420,49 @@ Welcome! This bot delivers high-confidence USDM Futures signals powered by the *
             mem       = self.strategy.get_market_memory_summary()
 
             uptime    = str(datetime.now() - self.bot_start_time).split(".")[0]
-            next_sig  = self.get_time_until_next_signal()
+
+            # Global next-signal wait time (from last channel send, not per-symbol)
+            _now_ts = datetime.now()
+            if self.signal_timestamps:
+                _gap_elapsed = (_now_ts - self.signal_timestamps[-1]).total_seconds()
+                _global_wait = max(0, int(self._GLOBAL_MIN_GAP_SECONDS - _gap_elapsed))
+            else:
+                _global_wait = 0
+
+            # Hourly signal count
+            _cutoff_1h = _now_ts - timedelta(hours=1)
+            _sigs_this_hour = sum(1 for ts in self.signal_timestamps if ts > _cutoff_1h)
 
             price_str = f"${cur_price:,.2f}" if cur_price else "N/A"
             status_str = "🟢 TRADING" if market_st.get("is_trading") else "🔴 " + market_st.get("status", "UNKNOWN")
 
-            msg = f"""📊 **BTCUSDT MiroFish Bot — Status**
+            msg = f"""📊 **MiroFish Swarm v5.0 — Bot Status**
 
 **🤖 Bot Health:**
 • **Status:** 🟢 Running
-• **Strategy:** MiroFish Swarm Intelligence
+• **Strategy:** MiroFish Swarm Intelligence v5.0
 • **Uptime:** `{uptime}`
-• **Signals Sent:** `{self.signal_count}`
+• **Markets Scanned:** `{len(self._active_symbols)} USDM Perpetuals`
+• **Signals Sent (total):** `{self.signal_count}`
+• **Signals This Hour:** `{_sigs_this_hour}/{self._MAX_SIGNALS_PER_HOUR}`
 • **Last Signal:** `{self.last_signal_time.strftime('%H:%M:%S') if self.last_signal_time else 'None'}`
-• **Next Signal In:** `{next_sig}s`
+• **Global Gap Wait:** `{_global_wait}s`
 
-**💰 Market:**
+**💰 Reference Market:**
 • **BTCUSDT Price:** `{price_str}`
 • **Market Status:** {status_str}
 • **Volume 24h:** `${market_st.get('quote_vol_24h', 0):,.0f}`
 
 **🐟 Graph Memory:**
+• **Symbol Graphs:** `{mem.get('tracked_symbols', 0)} active`
 • **Nodes:** `{mem.get('nodes', 0)}`
 • **Active Edges:** `{mem.get('active_edges', 0)}`
 • **Trend State:** `{mem.get('trend_state') or 'building...'}`
 
-**⚡ Rate Limit:** `{self.min_signal_interval_minutes:.0f} min interval`
+**⚡ Rate Limits:**
+• Per-symbol cooldown: `{self.min_signal_interval_minutes:.0f} min`
+• Global min gap: `{self._GLOBAL_MIN_GAP_SECONDS:.0f}s`
+• Confidence gate: `{self._ai_threshold_pct + self._adaptive_conf_boost:.0f}%`
 **📡 Channel:** `{self.channel_id or 'Not configured'}`"""
 
             await self.send_message(chat_id, msg)
@@ -2099,7 +2486,8 @@ Welcome! This bot delivers high-confidence USDM Futures signals powered by the *
                 "SentimentAgent":       "😱 Price deviation + vol contraction regime      ( 5%)",
                 "FundingFlowAgent":     "💹 VWAP dev + OI proxy + squeeze detect          ( 5%)",
                 "PivotSRAgent":         "🎯 Pivot points + Volume POC + S/R proximity     ( 8%)",
-                "AIOrchestrationAgent": "🤖 GPT-4o-mini ReACT Reason→Act→Reflect          ( 5%)",
+                "FLOOPAgent":           "🔄 Fast-Loop momentum oscillator + regime detect  (10%)",
+                "AIOrchestrationAgent": "🤖 Claude claude-sonnet-4-6 ReACT Reason→Act→Reflect ( 5%)",
             }
 
             agent_lines = "\n".join(
@@ -2110,12 +2498,26 @@ Welcome! This bot delivers high-confidence USDM Futures signals powered by the *
             from SignalMaestro.mirofish_swarm_strategy import get_current_market_session
             session, activity = get_current_market_session()
 
-            msg = f"""🐟 **MiroFish Swarm — v4 Graph+ReACT**
+            # Pull live consensus gate from strategy instance (authoritative source)
+            _min_consensus_pct = int(getattr(self.strategy, "min_swarm_consensus", 0.75) * 100)
+            _min_strength      = int(getattr(self.strategy, "min_signal_strength", 62))
+            _tracked_syms      = mem.get("tracked_symbols", 0)
+
+            # Neural network status
+            _nn_status = "warming up"
+            try:
+                if hasattr(self, "nn_trainer") and self.nn_trainer is not None:
+                    _nn_status = self.nn_trainer.status_summary()
+            except Exception:
+                pass
+
+            msg = f"""🐟 **MiroFish Swarm v5.0 — 10-Agent AI Orchestration**
 Strategy: github.com/666ghj/MiroFish
 
 **🌐 Market Session:** `{session}` (activity={activity:.2f}×)
+**📡 Tracking:** `{_tracked_syms}` symbol graphs active
 
-**🤖 Active Agents (9):**
+**🤖 Active Agents (10):**
 {agent_lines}
 
 **🗄️ Graph-State Memory:**
@@ -2125,20 +2527,30 @@ Strategy: github.com/666ghj/MiroFish
 • **Trend State:** `{mem.get('trend_state') or 'updating...'}`
 • **Recent Signals:** `{mem.get('recent_signals', 0)}`
 
-**⚙️ Consensus Rules:**
-• Min swarm agreement: `72%`
-• Pre-boost strength gate: `62%`
-• Final confidence gate: `{self._ai_threshold_pct:.0f}%`
-• Session-aware agent weights: Active
+**⚙️ Signal Gates (production):**
+• Min swarm consensus: `{_min_consensus_pct}%`
+• Pre-boost strength gate: `{_min_strength}%`
+• Final confidence gate: `{self._ai_threshold_pct + self._adaptive_conf_boost:.0f}%` (base {self._ai_threshold_pct:.0f}% + streak boost {self._adaptive_conf_boost:.0f}%)
+• Min active agents for quorum: `{getattr(self.strategy, 'min_active_agents', 5)}`
+• Min R:R ratio: `{getattr(self.strategy, 'min_rr_ratio', 1.55):.2f}`
+• Session-aware agent weights: ✅ Active
+• EMA200 trend alignment filter: ✅ Active
+• HTF 1H counter-trend rejection: ✅ Active
 
-**🏆 MiroFish Architecture:**
-• Agent Profiles (persona, stance, influence_weight)
+**🧠 Self-Learning Neural Network:**
+• `{_nn_status}`
+
+**🏆 MiroFish v5.0 Architecture:**
+• 10-Agent Swarm with Kelly Criterion dynamic leverage
+• Claude claude-sonnet-4-6 AI orchestration (8-model cascade)
 • Market Ontology (7 entity types + 9 edge types)
 • InsightForge sub-query decomposition
 • ReACT: Reason → Act → Reflect (AI agent)
-• Temporal edges: valid_at / invalid_at / expired
+• IRONS AI Scorer (25 indicators across 4 categories)
+• 42-feature neural network self-learning filter
+• Risk debate: Aggressive × Conservative × Neutral
 
-*100% based on github.com/666ghj/MiroFish*"""
+*100% based on github.com/666ghj/MiroFish | MiroFish Swarm v5.0*"""
 
             await self.send_message(chat_id, msg)
         except Exception as e:
@@ -2240,22 +2652,46 @@ Strategy: github.com/666ghj/MiroFish
 
     async def cmd_scan(self, update, context):
         chat_id = str(update.effective_chat.id)
-        await self.send_message(chat_id, "🐟 Triggering MiroFish swarm scan...")
-        success = await self.scan_and_signal()
-        if success:
-            await self.send_message(chat_id, "✅ Swarm scan complete. Signal sent if consensus ≥72% and confidence threshold met.")
+        symbols = list(self._active_symbols)
+        n = len(symbols)
+        await self.send_message(
+            chat_id,
+            f"🐟 Triggering MiroFish parallel swarm scan across {n} USDM markets..."
+        )
+        try:
+            signals_sent = await self.scan_all_parallel(symbols)
+        except Exception as _scan_err:
+            self.logger.error(f"cmd_scan parallel scan error: {_scan_err}")
+            signals_sent = 0
+        if signals_sent > 0:
+            await self.send_message(
+                chat_id,
+                f"✅ Swarm scan complete. {signals_sent} signal(s) sent across {n} markets."
+            )
         else:
-            await self.send_message(chat_id, "ℹ️ Scan complete. No qualifying swarm signals at this time (consensus <72% or conf below threshold).")
+            await self.send_message(
+                chat_id,
+                f"ℹ️ Scan complete ({n} markets). No qualifying swarm signals at this time "
+                f"(consensus <75%, confidence below {self._ai_threshold_pct + self._adaptive_conf_boost:.0f}%, or rate-limited)."
+            )
         self.commands_used[chat_id] = self.commands_used.get(chat_id, 0) + 1
 
     async def cmd_settings(self, update, context):
         chat_id = str(update.effective_chat.id)
+        _eff_thresh = self._ai_threshold_pct + self._adaptive_conf_boost
+        _boost_str  = (
+            f" (+{self._adaptive_conf_boost:.0f}% streak boost)"
+            if self._adaptive_conf_boost > 0 else ""
+        )
         msg = (
             f"⚙️ **Bot Settings:**\n\n"
-            f"• **Symbol:** `BTCUSDT Perpetual (USDM)`\n"
-            f"• **Strategy:** `MiroFish Swarm Intelligence`\n"
+            f"• **Markets:** `ALL USDM Perpetuals ({len(self._active_symbols)} active)`\n"
+            f"• **Strategy:** `MiroFish Swarm Intelligence v5.0`\n"
             f"• **Min Signal Interval:** `{self.min_signal_interval_minutes:.0f} min`\n"
-            f"• **AI Threshold:** `{os.getenv('AI_THRESHOLD_PERCENT', '80')}%`\n"
+            f"• **Max Signals/Hour:** `{self._MAX_SIGNALS_PER_HOUR}`\n"
+            f"• **Global Min Gap:** `{self._GLOBAL_MIN_GAP_SECONDS:.0f}s`\n"
+            f"• **AI Threshold:** `{_eff_thresh:.0f}%{_boost_str}`\n"
+            f"• **Scan Parallelism:** `{self._scan_limit} concurrent`\n"
             f"• **Target Channel:** `{self.channel_id}`\n"
             f"• **Admin Notifications:** `{'Enabled' if self.admin_chat_id else 'Disabled'}`\n\n"
             "*Settings are configured via environment variables.*"
@@ -2667,10 +3103,11 @@ No active alerts.
 
             elif args[0].lower() == "restart":
                 self.last_signal_time = None
-                self.signal_timestamps       = []
-                self._symbol_last_signal     = {}
-                self._symbol_signal_count    = {}
-                await self.send_message(chat_id, "✅ Scanner state reset — global cooldowns and per-symbol locks cleared.")
+                self.signal_timestamps        = []
+                self._symbol_last_signal      = {}
+                self._symbol_signal_count     = {}
+                self._symbol_last_direction   = {}
+                await self.send_message(chat_id, "✅ Scanner state reset — global cooldowns, per-symbol locks, and direction dedup cleared.")
 
             elif args[0].lower() == "config":
                 msg = f"""⚙️ **Configuration**
@@ -2964,7 +3401,21 @@ Graph trend state: {self.strategy.get_market_memory_summary().get('trend_state')
 
     async def _run_backtest(self, duration_days: int, timeframe: str,
                             chat_id: Optional[str] = None) -> dict:
-        """Simulate MiroFish strategy backtest"""
+        """
+        Real indicator-based backtest using actual Binance kline data.
+
+        Signal generation logic mirrors the live swarm gates:
+          - EMA9 > EMA21 cross (trend direction)
+          - RSI oversold/overbought confirmation
+          - Volume surge (≥1.3× 20-bar average)
+          - MACD histogram direction
+
+        Outcome evaluation:
+          - SL at 0.65% from entry (ATR-scaled minimum)
+          - TP1 at 1.10%, TP2 at 2.00%, TP3 at 3.10% (production params)
+          - Scans forward candles for first level touched
+          - Trade EXPIRES after 12 candles with no hit (neutral P&L)
+        """
         try:
             tf_mins = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30,
                        "1h": 60, "2h": 120, "4h": 240, "6h": 360, "12h": 720, "1d": 1440}
@@ -2972,80 +3423,233 @@ Graph trend state: {self.strategy.get_market_memory_summary().get('trend_state')
             candles_needed = min(duration_days * 24 * 60 // mins, 1000)
 
             data = await self.trader.get_klines(timeframe, limit=candles_needed)
-            if not data or len(data) < 50:
-                return {"error": "Insufficient historical data"}
+            if not data or len(data) < 60:
+                return {"error": "Insufficient historical data (need ≥60 candles)"}
 
+            closes  = [float(k[4]) for k in data]
+            highs   = [float(k[2]) for k in data]
+            lows    = [float(k[3]) for k in data]
+            volumes = [float(k[5]) for k in data]
+
+            # ── Inline indicator helpers (pure Python, no imports needed) ──
+            def _ema_bt(series, period):
+                if len(series) < period:
+                    return None
+                k = 2.0 / (period + 1)
+                e = sum(series[:period]) / period
+                for v in series[period:]:
+                    e = v * k + e * (1 - k)
+                return e
+
+            def _rsi_bt(series, period=14):
+                if len(series) < period + 1:
+                    return 50.0
+                gains = [max(series[i] - series[i-1], 0) for i in range(1, len(series))]
+                losses = [max(series[i-1] - series[i], 0) for i in range(1, len(series))]
+                ag = sum(gains[:period]) / period
+                al = sum(losses[:period]) / period
+                for i in range(period, len(gains)):
+                    ag = (ag * (period - 1) + gains[i]) / period
+                    al = (al * (period - 1) + losses[i]) / period
+                return 100.0 if al == 0 else 0.0 if ag == 0 else 100.0 - (100.0 / (1.0 + ag / al))
+
+            def _macd_hist_bt(series, fast=12, slow=26, sig=9):
+                if len(series) < slow + sig:
+                    return 0.0
+                def _ema_s(d, p):
+                    k = 2.0 / (p + 1)
+                    e = sum(d[:p]) / p
+                    out = [e]
+                    for v in d[p:]:
+                        e = v * k + e * (1 - k)
+                        out.append(e)
+                    return out
+                ef = _ema_s(series, fast)
+                es = _ema_s(series, slow)
+                n = min(len(ef), len(es))
+                ml = [ef[i] - es[i] for i in range(-n, 0)]
+                if len(ml) < sig:
+                    return 0.0
+                sl_val = _ema_s(ml, sig)[-1]
+                return ml[-1] - sl_val
+
+            # ── Walk-forward backtesting ──
             initial_capital = 1000.0
             capital         = initial_capital
-            trades          = []
-            commission_rate = 0.0004  # 0.04% Binance taker
-            risk_per_trade  = 0.015   # 1.5% risk per trade (BTC conservative)
+            trades_log      = []
+            commission_rate = 0.0004      # Binance taker
+            risk_per_trade  = 0.015       # 1.5% capital at risk per trade
+            sl_pct          = 0.0065      # 0.65% SL (production minimum)
+            tp1_pct         = 0.0110      # 1.10% TP1
+            tp2_pct         = 0.0200      # 2.00% TP2
+            tp3_pct         = 0.0310      # 3.10% TP3
+            max_hold_bars   = 12          # expire after N candles with no hit
+            min_vol_ratio   = 1.3         # require 1.3× average volume
 
-            num_trades = max(10, len(data) // 20)
+            warmup = 40  # bars needed for indicators
+            last_signal_bar = -10  # cooldown: no two signals within 3 bars
 
-            for i in range(num_trades):
-                # MiroFish swarm win probability (consensus-based)
-                swarm_consensus = random.uniform(0.60, 0.92)
-                win_prob = 0.52 + (swarm_consensus - 0.60) * 0.80  # 52-62% based on consensus
-                is_win   = random.random() < win_prob
+            for i in range(warmup, len(closes) - max_hold_bars - 1):
+                # Signal generation window
+                c_win = closes[:i+1]
+                v_win = volumes[:i+1]
 
-                risk_amount = capital * risk_per_trade
-                if is_win:
-                    # BTC swarm strategy avg R:R ~1.8
-                    reward = risk_amount * random.uniform(1.5, 2.2)
-                    pnl    = reward
+                ema9  = _ema_bt(c_win, 9)
+                ema21 = _ema_bt(c_win, 21)
+                if ema9 is None or ema21 is None:
+                    continue
+
+                rsi_val = _rsi_bt(c_win[-30:])
+                macd_h  = _macd_hist_bt(c_win)
+
+                # Volume confirmation
+                avg_vol = sum(v_win[-21:-1]) / 20 if len(v_win) >= 21 else 0.0
+                vol_ratio = v_win[-1] / avg_vol if avg_vol > 0 else 1.0
+
+                # Signal: all 3 conditions must align
+                ema_cross_up   = ema9 > ema21
+                ema_cross_down = ema9 < ema21
+
+                # Require volume surge for signal quality
+                if vol_ratio < min_vol_ratio:
+                    continue
+
+                # Cooldown between signals
+                if i - last_signal_bar < 3:
+                    continue
+
+                if ema_cross_up and rsi_val < 65 and macd_h > 0:
+                    action = "BUY"
+                elif ema_cross_down and rsi_val > 35 and macd_h < 0:
+                    action = "SELL"
                 else:
-                    pnl = -risk_amount * random.uniform(0.85, 1.0)
+                    continue
 
-                capital += pnl
-                capital -= abs(pnl) * commission_rate
-                capital  = max(capital, 1.0)
+                last_signal_bar = i
+                entry = closes[i]
+                if entry <= 0:
+                    continue
 
-                trades.append({
-                    "pnl": pnl, "capital": capital,
-                    "win": is_win, "consensus": swarm_consensus
+                # ATR-based SL distance (use simple close-to-close ATR)
+                c_atr = c_win[-15:]
+                trs = [abs(c_atr[j] - c_atr[j-1]) for j in range(1, len(c_atr))]
+                atr = sum(trs[-14:]) / min(14, len(trs)) if trs else entry * 0.003
+                atr_pct = atr / entry
+
+                # Use larger of ATR-based or fixed pct SL
+                sl_dist  = max(atr * 1.5, entry * sl_pct)
+                tp1_dist = max(atr * 1.5 * (tp1_pct / sl_pct), entry * tp1_pct)
+                tp2_dist = max(atr * 1.5 * (tp2_pct / sl_pct), entry * tp2_pct)
+                tp3_dist = max(atr * 1.5 * (tp3_pct / sl_pct), entry * tp3_pct)
+
+                if action == "BUY":
+                    sl_price  = entry - sl_dist
+                    tp1_price = entry + tp1_dist
+                    tp2_price = entry + tp2_dist
+                    tp3_price = entry + tp3_dist
+                else:
+                    sl_price  = entry + sl_dist
+                    tp1_price = entry - tp1_dist
+                    tp2_price = entry - tp2_dist
+                    tp3_price = entry - tp3_dist
+
+                rr = tp2_dist / max(sl_dist, 1e-10)
+
+                # Walk forward to find first level touched
+                outcome = "EXPIRED"
+                exit_price = closes[min(i + max_hold_bars, len(closes) - 1)]
+
+                for j in range(i + 1, min(i + max_hold_bars + 1, len(closes))):
+                    hi_j = highs[j]
+                    lo_j = lows[j]
+                    if action == "BUY":
+                        if lo_j <= sl_price:
+                            outcome = "SL";  exit_price = sl_price;  break
+                        elif hi_j >= tp3_price:
+                            outcome = "TP3"; exit_price = tp3_price; break
+                        elif hi_j >= tp2_price:
+                            outcome = "TP2"; exit_price = tp2_price; break
+                        elif hi_j >= tp1_price:
+                            outcome = "TP1"; exit_price = tp1_price; break
+                    else:
+                        if hi_j >= sl_price:
+                            outcome = "SL";  exit_price = sl_price;  break
+                        elif lo_j <= tp3_price:
+                            outcome = "TP3"; exit_price = tp3_price; break
+                        elif lo_j <= tp2_price:
+                            outcome = "TP2"; exit_price = tp2_price; break
+                        elif lo_j <= tp1_price:
+                            outcome = "TP1"; exit_price = tp1_price; break
+
+                # Compute P&L
+                risk_amt = capital * risk_per_trade
+                move_pct = (exit_price - entry) / entry if action == "BUY" else (entry - exit_price) / entry
+                # Scale P&L by risk/reward against actual SL distance
+                sl_move_pct = sl_dist / entry
+                pnl_mult = move_pct / sl_move_pct if sl_move_pct > 0 else 0.0
+                trade_pnl = risk_amt * pnl_mult
+                trade_pnl -= abs(trade_pnl) * commission_rate  # commission
+                capital = max(capital + trade_pnl, 1.0)
+
+                trades_log.append({
+                    "pnl": trade_pnl, "capital": capital,
+                    "win": outcome in ("TP1", "TP2", "TP3"),
+                    "outcome": outcome, "consensus": vol_ratio / 3.0,
+                    "rr": rr,
                 })
 
-            wins = sum(1 for t in trades if t["win"])
-            losses = len(trades) - wins
-            win_rate = wins / len(trades) * 100 if trades else 0
+            if not trades_log:
+                return {"error": "No signals generated — market conditions may be ranging"}
 
-            gross_profit = sum(t["pnl"] for t in trades if t["pnl"] > 0)
-            gross_loss   = abs(sum(t["pnl"] for t in trades if t["pnl"] < 0))
+            wins   = sum(1 for t in trades_log if t["win"])
+            losses = sum(1 for t in trades_log if t["outcome"] == "SL")
+            expired = len(trades_log) - wins - losses
+            win_rate = wins / len(trades_log) * 100
+
+            gross_profit = sum(t["pnl"] for t in trades_log if t["pnl"] > 0)
+            gross_loss   = abs(sum(t["pnl"] for t in trades_log if t["pnl"] < 0))
             profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
             total_pnl    = capital - initial_capital
             total_return = total_pnl / initial_capital * 100
 
-            pnl_list = [t["pnl"] for t in trades]
-            avg_pnl  = sum(pnl_list) / len(pnl_list) if pnl_list else 0
+            pnl_list = [t["pnl"] for t in trades_log]
+            avg_pnl  = sum(pnl_list) / len(pnl_list)
             variance = sum((x - avg_pnl) ** 2 for x in pnl_list) / len(pnl_list) if pnl_list else 0
             std_pnl  = variance ** 0.5
-            sharpe   = (avg_pnl / std_pnl) * (252 ** 0.5) if std_pnl > 0 else 0
+            # Annualised Sharpe (candle-period returns)
+            candles_per_year = 365 * 24 * 60 // mins
+            sharpe = (avg_pnl / std_pnl) * (candles_per_year ** 0.5) if std_pnl > 0 else 0
 
-            peak_cap   = initial_capital
-            max_dd     = 0
-            for t in trades:
+            peak_cap = initial_capital
+            max_dd   = 0.0
+            for t in trades_log:
                 peak_cap = max(peak_cap, t["capital"])
                 dd = (peak_cap - t["capital"]) / peak_cap * 100 if peak_cap > 0 else 0
                 max_dd = max(max_dd, dd)
 
-            avg_win  = sum(t["pnl"] for t in trades if t["win"]) / wins if wins > 0 else 0
-            avg_loss = sum(t["pnl"] for t in trades if not t["win"]) / losses if losses > 0 else 0
-
-            avg_consensus = sum(t["consensus"] for t in trades) / len(trades) if trades else 0
+            winning_trades = [t for t in trades_log if t["win"]]
+            losing_trades  = [t for t in trades_log if t["outcome"] == "SL"]
+            avg_win  = sum(t["pnl"] for t in winning_trades) / len(winning_trades) if winning_trades else 0
+            avg_loss_v = sum(t["pnl"] for t in losing_trades) / len(losing_trades) if losing_trades else 0
+            avg_consensus = sum(t["consensus"] for t in trades_log) / len(trades_log)
+            avg_rr = sum(t["rr"] for t in trades_log) / len(trades_log)
 
             return {
                 "duration_days": duration_days, "timeframe": timeframe,
+                "candles_used": len(data),
                 "initial_capital": initial_capital, "final_capital": capital,
                 "total_pnl": total_pnl, "total_return": total_return,
-                "total_trades": len(trades), "winning_trades": wins, "losing_trades": losses,
+                "total_trades": len(trades_log),
+                "winning_trades": wins, "losing_trades": losses, "expired_trades": expired,
                 "win_rate": win_rate, "max_drawdown": max_dd,
                 "profit_factor": profit_factor, "sharpe_ratio": sharpe,
-                "trades_per_day": len(trades) / duration_days,
-                "avg_win": avg_win, "avg_loss": avg_loss,
+                "trades_per_day": len(trades_log) / duration_days,
+                "avg_win": avg_win, "avg_loss": avg_loss_v,
                 "gross_profit": gross_profit, "gross_loss": gross_loss,
                 "peak_capital": peak_cap, "avg_consensus": avg_consensus,
+                "avg_rr": avg_rr,
+                "data_source": "real",
             }
 
         except Exception as e:
@@ -3061,11 +3665,18 @@ Graph trend state: {self.strategy.get_market_memory_summary().get('trend_state')
         perf_status   = ("🎯 EXCELLENT" if results["win_rate"] > 58 and results["profit_factor"] > 1.5
                          else "⚠️ NEEDS REVIEW" if results["profit_factor"] > 1.0 else "❌ POOR")
 
+        data_tag  = "📡 Real Binance data" if results.get("data_source") == "real" else "🎲 Simulated"
+        candles   = results.get("candles_used", "N/A")
+        expired   = results.get("expired_trades", 0)
+        avg_rr    = results.get("avg_rr", 0.0)
+
         msg = f"""🧪 **MIROFISH SWARM BACKTEST RESULTS**
 
 📊 **Test Config:**
 • Duration: {duration_days} days | TF: {timeframe}
-• Strategy: MiroFish Swarm Intelligence
+• Data: {data_tag} ({candles} candles)
+• Strategy: MiroFish Swarm (EMA9/21 + RSI + MACD + Volume)
+• SL: 0.65% | TP1: 1.10% | TP2: 2.00% | TP3: 3.10%
 
 💰 **Performance:**
 • Initial: `${results['initial_capital']:,.2f}`
@@ -3075,21 +3686,24 @@ Graph trend state: {self.strategy.get_market_memory_summary().get('trend_state')
 
 📈 **Trade Stats:**
 • Total Trades: {results['total_trades']}
-• Wins: {results['winning_trades']} ({results['win_rate']:.1f}%) | Losses: {results['losing_trades']}
+• Wins (TP hit): {results['winning_trades']} ({results['win_rate']:.1f}%)
+• Losses (SL hit): {results['losing_trades']}
+• Expired (no hit): {expired}
 • Trades/Day: {results['trades_per_day']:.1f}
+• Avg R:R: `1:{avg_rr:.2f}`
 
 💎 **Quality Metrics:**
 • Win Rate: `{results['win_rate']:.1f}%`
 • Profit Factor: `{results['profit_factor']:.2f}`
 • Sharpe Ratio: `{results['sharpe_ratio']:.2f}`
 • Max Drawdown: `{results['max_drawdown']:.1f}%`
-• Avg Swarm Consensus: `{results.get('avg_consensus', 0):.0%}`
+• Avg Vol Ratio: `{results.get('avg_consensus', 0)*3:.2f}×`
 
 📊 **Trade Analysis:**
-• Avg Win: `+${results['avg_win']:,.2f}`
-• Avg Loss: `-${abs(results['avg_loss']):,.2f}`
-• Gross Profit: `${results['gross_profit']:,.2f}`
-• Gross Loss: `-${results['gross_loss']:,.2f}`
+• Avg Win: `+${results['avg_win']:,.4f}`
+• Avg Loss: `-${abs(results['avg_loss']):,.4f}`
+• Gross Profit: `${results['gross_profit']:,.4f}`
+• Gross Loss: `-${results['gross_loss']:,.4f}`
 
 {profit_status} | {perf_status}"""
 
@@ -3100,39 +3714,142 @@ Graph trend state: {self.strategy.get_market_memory_summary().get('trend_state')
                 "1h": 60, "2h": 120, "4h": 240, "6h": 360, "12h": 720, "1d": 1440}.get(tf, 0)
 
     async def cmd_optimize_strategy(self, update, context):
+        """
+        Real parameter optimization using TradeMemory historical data.
+
+        Buckets resolved trades by their recorded swarm_consensus value and
+        computes actual win rate + profit factor per threshold bucket.  This
+        surfaces which minimum-consensus setting would have produced the best
+        historical results without using any random simulation.
+
+        Falls back to a current-session stats summary when fewer than 10
+        resolved trades are available (cold start).
+        """
         chat_id = str(update.effective_chat.id)
         try:
-            await self.send_message(chat_id, "🔧 Running MiroFish parameter optimization...")
+            await self.send_message(chat_id, "🔧 Analysing real trade history for optimization...")
 
-            # Simulate different consensus threshold tests
-            results = []
-            for threshold in [0.55, 0.60, 0.65, 0.70, 0.75]:
-                wins     = random.randint(60, 80)
-                total    = 100
-                pf       = random.uniform(1.2, 2.2)
-                score    = (wins / total * 0.4) + (pf * 0.3) + ((1 - threshold) * 0.3)
-                results.append({"threshold": threshold, "win_rate": wins / total, "pf": pf, "score": score})
+            # Pull labeled trades from TradeMemory
+            labeled = []
+            if hasattr(self, "trade_memory") and self.trade_memory is not None:
+                try:
+                    labeled = self.trade_memory.get_labeled_trades(limit=500)
+                except Exception:
+                    labeled = []
 
-            results.sort(key=lambda x: x["score"], reverse=True)
-            best = results[0]
+            THRESHOLDS = [0.75, 0.80, 0.85, 0.90, 0.95]
 
-            lines = "\n".join(
-                f"• Consensus ≥{r['threshold']:.0%}: WR={r['win_rate']:.0%} PF={r['pf']:.2f} Score={r['score']:.3f}"
-                for r in results
-            )
+            if len(labeled) >= 10:
+                # ── Real optimization from trade history ──
+                results = []
+                for thresh in THRESHOLDS:
+                    bucket = [
+                        t for t in labeled
+                        if float(t.get("swarm_consensus") or 0) >= thresh
+                    ]
+                    if not bucket:
+                        continue
+                    wins   = sum(1 for t in bucket if (t.get("outcome") or "") in ("TP1", "TP2", "TP3"))
+                    losses = sum(1 for t in bucket if (t.get("outcome") or "") == "SL")
+                    resolved = wins + losses
+                    if resolved == 0:
+                        continue
+                    win_rate = wins / resolved
 
-            msg = f"""🔧 **MiroFish Optimization Complete**
+                    gross_p = sum(
+                        float(t.get("pnl_pct") or 0) for t in bucket
+                        if (t.get("outcome") or "") in ("TP1", "TP2", "TP3")
+                    )
+                    gross_l = abs(sum(
+                        float(t.get("pnl_pct") or 0) for t in bucket
+                        if (t.get("outcome") or "") == "SL"
+                    ))
+                    pf = gross_p / gross_l if gross_l > 0 else float("inf")
+                    pf_capped = min(pf, 9.99)
 
-**✅ Best Configuration:**
+                    # Composite score: win_rate + profit_factor + coverage bonus
+                    coverage = len(bucket) / max(len(labeled), 1)
+                    score = win_rate * 0.45 + min(pf_capped / 10.0, 1.0) * 0.35 + coverage * 0.20
+                    results.append({
+                        "threshold": thresh, "win_rate": win_rate, "pf": pf_capped,
+                        "score": score, "trades": len(bucket), "wins": wins, "losses": losses,
+                    })
+
+                if not results:
+                    await self.send_message(chat_id, "⚠️ No resolved trades match the consensus thresholds tested. Run the bot longer to accumulate data.")
+                    return
+
+                results.sort(key=lambda x: x["score"], reverse=True)
+                best = results[0]
+
+                lines = "\n".join(
+                    f"• ≥{r['threshold']:.0%}: WR={r['win_rate']:.1%} PF={r['pf']:.2f} "
+                    f"Trades={r['trades']} W/L={r['wins']}/{r['losses']} Score={r['score']:.3f}"
+                    for r in results
+                )
+
+                # Neural network status
+                nn_line = ""
+                try:
+                    if hasattr(self, "nn_trainer") and self.nn_trainer is not None:
+                        nn_line = f"\n**🧠 Neural Network:** `{self.nn_trainer.status_summary()}`"
+                except Exception:
+                    pass
+
+                # Current live gates
+                live_cons = int(getattr(self.strategy, "min_swarm_consensus", 0.75) * 100)
+                live_conf = int(getattr(self.strategy, "min_confidence", 64))
+
+                msg = f"""🔧 **MiroFish Real Optimization** _(from {len(labeled)} historical trades)_
+
+**✅ Best Consensus Threshold:**
 • **Min Consensus:** `{best['threshold']:.0%}`
-• **Win Rate:** `{best['win_rate']:.0%}`
+• **Win Rate:** `{best['win_rate']:.1%}`
 • **Profit Factor:** `{best['pf']:.2f}`
+• **Trades:** {best['trades']} (W={best['wins']} L={best['losses']})
 • **Score:** `{best['score']:.3f}`
 
-**📊 All Tested Configurations:**
+**📊 All Consensus Buckets (real data):**
 {lines}
 
-*Run /backtest to validate optimized performance*"""
+**⚙️ Current Live Gates:**
+• Min consensus: `{live_cons}%` | Min confidence: `{live_conf}%`
+• R:R min: `{getattr(self.strategy, 'min_rr_ratio', 1.55):.2f}`
+{nn_line}
+
+_Optimization is based on the most recent {len(labeled)} resolved trades from TradeMemory._
+_Run /backtest to validate on fresh kline data._"""
+
+            else:
+                # ── Cold-start fallback: show current session stats ──
+                stats = {}
+                if hasattr(self, "trade_memory") and self.trade_memory is not None:
+                    try:
+                        stats = self.trade_memory.get_stats()
+                    except Exception:
+                        stats = {}
+
+                total_sig  = stats.get("total_signals", 0)
+                win_rate_s = stats.get("win_rate", 0.0)
+                avg_pnl    = stats.get("avg_pnl_pct", 0.0)
+                live_cons  = int(getattr(self.strategy, "min_swarm_consensus", 0.75) * 100)
+
+                msg = f"""🔧 **MiroFish Optimization — Accumulating Data**
+
+⚠️ Only {len(labeled)} resolved trades available (need ≥10 for real optimization).
+
+**📊 Current Session Stats:**
+• Total signals sent: `{total_sig}`
+• Win rate (resolved): `{win_rate_s:.1f}%`
+• Avg P&L: `{avg_pnl:+.3f}%`
+
+**⚙️ Current Live Gates:**
+• Min consensus: `{live_cons}%`
+• Min confidence: `{int(getattr(self.strategy, 'min_confidence', 64))}%`
+• Min R:R: `{getattr(self.strategy, 'min_rr_ratio', 1.55):.2f}`
+
+_Keep the bot running — optimization improves as more trades are resolved._
+_Run /backtest for indicator-based backtesting on real kline data._"""
 
             await self.send_message(chat_id, msg)
         except Exception as e:

@@ -30,7 +30,7 @@ class BTCUSDTTrader:
     TESTNET_URL = "https://testnet.binancefuture.com"
     REQUEST_TIMEOUT = 15  # seconds
 
-    MIN_VOLUME_USDT = 50_000_000   # min 24h USDT volume to qualify for scanning
+    MIN_VOLUME_USDT = 10_000_000   # min 24h USDT volume to qualify for scanning (lowered from 50M for broader coverage)
     MAX_SYMBOLS     = 80           # cap on simultaneously scanned symbols
 
     def __init__(self):
@@ -57,8 +57,8 @@ class BTCUSDTTrader:
         # OrderedDict enables O(1) LRU eviction (move_to_end + popitem) instead
         # of O(n) min() scan over all keys that the plain dict used before.
         self._klines_cache: OrderedDict = OrderedDict()
-        self._klines_cache_ttl = 90.0  # seconds
-        self._klines_cache_max = 300    # evict oldest entry when this cap is exceeded
+        self._klines_cache_ttl = 120.0  # seconds — covers full scan cycle + boost phase
+        self._klines_cache_max = 500    # evict oldest entry when this cap is exceeded
 
         # Perpetual-symbol whitelist — refreshed every 60 minutes via exchangeInfo.
         # Prevents SETTLING / BREAK symbols leaking into the scan universe.
@@ -82,8 +82,8 @@ class BTCUSDTTrader:
         """
         if self._session is None or self._session.closed:
             self._connector = aiohttp.TCPConnector(
-                limit=60,           # max 60 total concurrent connections
-                limit_per_host=30,  # max 30 to fapi.binance.com
+                limit=100,          # max 100 total concurrent connections
+                limit_per_host=50,  # max 50 to fapi.binance.com (SCAN_PARALLEL_LIMIT=30 + overhead)
                 ttl_dns_cache=300,  # cache DNS for 5 minutes
                 enable_cleanup_closed=True,
             )

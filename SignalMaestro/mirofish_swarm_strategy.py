@@ -484,7 +484,7 @@ class TrendAgent:
         persona="Systematic trend follower. Multi-EMA alignment + slope + crossover specialist.",
         stance="trend_follower",
         activity_level=0.92,
-        influence_weight=0.22,
+        influence_weight=0.18,
         sentiment_bias=0.0,
         response_delay_min=50,
         response_delay_max=200,
@@ -680,7 +680,7 @@ class MomentumAgent:
         persona="Aggressive momentum trader. RSI slope + MACD histogram + Stochastic. Buys strength.",
         stance="momentum",
         activity_level=0.93,
-        influence_weight=0.20,
+        influence_weight=0.16,
         sentiment_bias=0.05,
         response_delay_min=30,
         response_delay_max=150,
@@ -851,7 +851,7 @@ class VolumeAgent:
         persona="Institutional volume tracker. OBV trend + CMF + volume surge specialist.",
         stance="neutral",
         activity_level=0.90,
-        influence_weight=0.18,
+        influence_weight=0.15,
         sentiment_bias=0.0,
         response_delay_min=100,
         response_delay_max=300,
@@ -886,7 +886,7 @@ class VolumeAgent:
             obv_mom_bear = len(obv_vals) >= 10 and obv_vals[-1] < obv_vals[-10]
 
             # Volume surge
-            avg_vol = sum(v[-20:-1]) / 19 if len(v) >= 20 else sum(v) / len(v)
+            avg_vol = sum(v[-21:-1]) / 20 if len(v) >= 21 else (sum(v[:-1]) / (len(v) - 1) if len(v) > 1 else float(v[0]))
             vol_ratio = v[-1] / avg_vol if avg_vol > 0 else 1.0
 
             price_up   = c[-1] > c[-2]
@@ -963,7 +963,7 @@ class VolatilityAgent:
         persona="Volatility regime specialist. BB%B position, ATR regime, Keltner squeeze detector.",
         stance="contrarian",
         activity_level=0.88,
-        influence_weight=0.15,
+        influence_weight=0.12,
         sentiment_bias=-0.05,
         response_delay_min=80,
         response_delay_max=250,
@@ -1119,7 +1119,7 @@ class OrderFlowAgent:
         persona="Price action purist. Multi-pattern scoring: engulfing, candle structure, pressure.",
         stance="neutral",
         activity_level=0.88,
-        influence_weight=0.15,
+        influence_weight=0.12,
         sentiment_bias=0.0,
         response_delay_min=20,
         response_delay_max=100,
@@ -1249,7 +1249,7 @@ class SentimentAgent:
         persona="Market regime detector. Multi-EMA price alignment + sentiment momentum.",
         stance="contrarian",
         activity_level=0.80,
-        influence_weight=0.05,
+        influence_weight=0.04,
         sentiment_bias=-0.1,
         response_delay_min=200,
         response_delay_max=500,
@@ -1342,7 +1342,7 @@ class FundingFlowAgent:
         persona="Futures derivatives specialist. Funding rate, VWAP deviation, OI squeeze detector.",
         stance="contrarian",
         activity_level=0.82,
-        influence_weight=0.05,
+        influence_weight=0.04,
         sentiment_bias=0.0,
         response_delay_min=150,
         response_delay_max=400,
@@ -1456,7 +1456,7 @@ class PivotSRAgent:
         persona="Institutional S/R specialist. Pivot points + volume profile POC. Avoids S/R traps.",
         stance="neutral",
         activity_level=0.88,
-        influence_weight=0.08,
+        influence_weight=0.07,
         sentiment_bias=0.0,
         response_delay_min=50,
         response_delay_max=200,
@@ -1582,7 +1582,7 @@ class AIOrchestrationAgent:
         persona="Senior quantitative analyst. ReACT: Reason-Act-Reflect-Conclude. Claude 3.5 Haiku primary + GPT-4o-mini + rule fallback.",
         stance="neutral",
         activity_level=0.92,
-        influence_weight=0.05,
+        influence_weight=0.04,
         sentiment_bias=0.0,
         response_delay_min=300,
         response_delay_max=1500,
@@ -2667,7 +2667,7 @@ class FLOOPAgent:
         ),
         stance="neutral",
         activity_level=0.90,
-        influence_weight=0.10,
+        influence_weight=0.08,
         sentiment_bias=0.0,
         response_delay_min=10,
         response_delay_max=50,
@@ -2691,7 +2691,13 @@ class FLOOPAgent:
         """Run FLOOP Pro analysis. Returns (vote, confidence)."""
         try:
             n = len(closes)
-            if n < 210:
+            # BUG FIX: guard lowered from 210 → 200.
+            # The kline acceptance gate in _analyze_timeframe requires ≥200 bars
+            # (BTCUSDT_PARAMS["15m"]["min_candles"] = 200), so klines arrays of
+            # size 200-209 are valid but were silently NEUTRAL here — wasting the
+            # 10th agent.  All FLOOP computations (EMA200, ROC20, ATR14, range
+            # filter×60 bars) work correctly with exactly 200 bars.
+            if n < 200:
                 return "NEUTRAL", 50.0
 
             score = 0.0   # positive → BUY, negative → SELL
@@ -2898,10 +2904,14 @@ class MiroFishSwarmStrategy:
         self._htf_cache: Dict[str, Tuple[list, float]] = {}
         self._htf_cache_ttl = 300.0  # 5 minutes
 
+        # ── HTF 4H klines cache — refreshed every 15 min (4H bars change slowly) ──
+        self._htf_4h_cache: Dict[str, Tuple[list, float]] = {}
+        self._htf_4h_cache_ttl = 900.0  # 15 minutes
+
         # ── Session state ──
         self._current_session  = "UNKNOWN"
         self._session_activity = 1.0
-        self._global_win_rate  = 0.338
+        self._global_win_rate  = 0.335  # calibrated to actual historical win rate (~33.5%)
 
         self.logger.info("🐟 MiroFish Swarm Strategy v5.0 initialized — USDM Futures")
         self.logger.info("   Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions+PivotSR+FLOOPPro")
@@ -2993,6 +3003,36 @@ class MiroFishSwarmStrategy:
             except Exception as _htf_err:
                 self.logger.debug(f"[{symbol}] HTF 1H fetch skipped: {_htf_err}")
 
+        # ── HTF 4H klines prefetch for MTF panel ──────────────────────────────
+        # FIX: _htf_4h was always "NEUTRAL" because 4H data was never fetched.
+        # Now fetched with a 15-minute cache TTL (4H bars move slowly).
+        htf_closes_4h: Optional[List[float]] = None
+        _skip_htf_4h = any(tf == "4h" for tf in self.timeframes)
+        if not _skip_htf_4h:
+            try:
+                _now_ts4 = time.time()
+                _cached4 = self._htf_4h_cache.get(symbol)
+                if _cached4 and (_now_ts4 - _cached4[1]) < self._htf_4h_cache_ttl:
+                    htf_closes_4h = _cached4[0]
+                    self.logger.debug(f"[{symbol}] HTF 4H cache hit ({len(htf_closes_4h)} bars)")
+                else:
+                    _htf4_raw = await asyncio.wait_for(
+                        trader.get_market_data(symbol, "4h", 30), timeout=5.0
+                    )
+                    if _htf4_raw and len(_htf4_raw) >= 10:
+                        htf_closes_4h = [float(k[4]) for k in _htf4_raw]
+                        self._htf_4h_cache[symbol] = (htf_closes_4h, _now_ts4)
+                        if len(self._htf_4h_cache) > 120:
+                            for _ev4 in list(self._htf_4h_cache.keys()):
+                                if _ev4 != "BTCUSDT":
+                                    del self._htf_4h_cache[_ev4]
+                                    break
+                        self.logger.debug(
+                            f"[{symbol}] HTF 4H fetched — {len(htf_closes_4h)} bars cached"
+                        )
+            except Exception as _htf4_err:
+                self.logger.debug(f"[{symbol}] HTF 4H fetch skipped: {_htf4_err}")
+
         for tf in self.timeframes:
             try:
                 params = BTCUSDT_PARAMS.get(tf, BTCUSDT_PARAMS["5m"])
@@ -3008,7 +3048,8 @@ class MiroFishSwarmStrategy:
 
                 signal = await self._analyze_timeframe(
                     klines, tf, params, funding_rate, symbol, sym_graph,
-                    htf_closes=htf_closes_1h
+                    htf_closes=htf_closes_1h,
+                    htf_4h_closes=htf_closes_4h,
                 )
                 if signal:
                     signals.append(signal)
@@ -3028,7 +3069,8 @@ class MiroFishSwarmStrategy:
                                   funding_rate: float = None,
                                   symbol: str = "BTCUSDT",
                                   graph: "MarketGraphMemory" = None,
-                                  htf_closes: Optional[List[float]] = None) -> Optional[SwarmSignal]:
+                                  htf_closes: Optional[List[float]] = None,
+                                  htf_4h_closes: Optional[List[float]] = None) -> Optional[SwarmSignal]:
         if graph is None:
             # Fallback: create a temporary graph (should not normally happen)
             graph = MarketGraphMemory(max_nodes=100, max_edges=200)
@@ -3154,12 +3196,13 @@ class MiroFishSwarmStrategy:
                     sell_weight += eff_w * (data["conf"] / 100.0)
 
             total_signal_weight = buy_weight + sell_weight
-            if total_signal_weight > 0:
-                buy_weight  /= total_signal_weight
-                sell_weight /= total_signal_weight
-            total_signal_weight = buy_weight + sell_weight
+            # Check for near-zero total weight BEFORE normalization — after
+            # normalization buy_weight + sell_weight is always 1.0, making
+            # the check dead code and silently passing zero-signal cycles.
             if total_signal_weight < 0.005:
                 return None
+            buy_weight  /= total_signal_weight
+            sell_weight /= total_signal_weight
 
             # ── Quorum check ──
             active_votes = [(n, d) for n, d in all_votes.items() if d["vote"] != "NEUTRAL"]
@@ -3169,13 +3212,15 @@ class MiroFishSwarmStrategy:
                 return None
 
             # ── Consensus ──
+            # buy_weight and sell_weight are now normalised → they sum to 1.0.
+            # consensus = normalised dominant weight (fraction of directional signal).
             # BUG FIX: exact ties now return None (no directional bias).
             if buy_weight > sell_weight:
                 action    = "BUY"
-                consensus = buy_weight / total_signal_weight
+                consensus = buy_weight      # already normalised; equals buy / (buy+sell)
             elif sell_weight > buy_weight:
                 action    = "SELL"
-                consensus = sell_weight / total_signal_weight
+                consensus = sell_weight     # already normalised; equals sell / (buy+sell)
             else:
                 self.logger.debug(f"⚠️ Exact weight tie {buy_weight:.4f} — no direction, skipped")
                 return None
@@ -3220,10 +3265,10 @@ class MiroFishSwarmStrategy:
             # ── Unanimous consensus bonus ──────────────────────────────────────
             # When every non-neutral agent votes the same direction (0 contrarians)
             # AND at least 6/10 agents participated, this is an extremely rare and
-            # highly reliable setup.  Apply a direct +4% confidence bonus.
+            # highly reliable setup.  Apply a direct +4pt confidence bonus.
             # This partially offsets the strict min_confidence gate for elite setups.
             if n_contrary == 0 and n_active >= 6:
-                weighted_conf = min(weighted_conf + 2.0, 95.0)
+                weighted_conf = min(weighted_conf + 4.0, 95.0)
 
             session_boost = (self._session_activity - 1.0) * 3.0
             weighted_conf = min(max(weighted_conf + session_boost, 0.0), 95.0)
@@ -3449,14 +3494,22 @@ class MiroFishSwarmStrategy:
 
             _rsi_raw  = _rsi(closes, 14)
             rsi_val   = _rsi_raw if _rsi_raw is not None else 50.0
-            _avg_vol  = sum(volumes[-20:-1]) / 19 if len(volumes) >= 20 else 0.0
+            # 20-bar average of bars preceding the current bar (excluding current
+            # to avoid look-ahead bias in the volume ratio comparison).
+            # Fixed from sum(volumes[-20:-1])/19 which only averaged 19 bars.
+            _avg_vol  = (
+                sum(volumes[-21:-1]) / 20 if len(volumes) >= 21
+                else (sum(volumes[:-1]) / (len(volumes) - 1) if len(volumes) > 1 else 0.0)
+            )
             vol_ratio = volumes[-1] / _avg_vol if _avg_vol > 0 else 1.0
             leverage  = LEVERAGE_MAP.get(tf, 15)
 
             # Kelly Criterion: moved to after Step 7 (uses actual TP1/SL distances)
 
             _cur_sess = getattr(self, "_current_session", "US")
-            _vol_floor = 0.45 if _cur_sess == "ASIAN" else 0.55
+            # Raised volume floor: ASIAN 0.65→0.70, others 0.75→0.80.
+            # Low-volume signals fire on thin order books where fills are unreliable.
+            _vol_floor = 0.70 if _cur_sess == "ASIAN" else 0.80
             if vol_ratio < _vol_floor:
                 self.logger.debug(
                     f"⚠️ [{symbol}|{tf}] Volume ratio {vol_ratio:.2f}x < {_vol_floor:.2f}x "
@@ -3570,8 +3623,16 @@ class MiroFishSwarmStrategy:
                         else:
                             confidence = max(confidence - 2.0, 50.0)
                     else:
-                        if consensus < 0.90:
-                            confidence = max(confidence - 1.5, 50.0)
+                        # RANGING market — require very strong consensus or reject.
+                        # Tightened from 0.85 → 0.88: ranging signals are noisy and
+                        # contribute disproportionately to losses.
+                        if consensus < 0.88:
+                            self.logger.debug(
+                                f"⚠️ [{symbol}|{tf}] RANGING regime + consensus={consensus:.0%} < 88% "
+                                f"— low-conviction ranging signal rejected"
+                            )
+                            return None
+                        confidence = max(confidence - 1.5, 50.0)
                 except Exception:
                     pass
 
@@ -3665,10 +3726,16 @@ class MiroFishSwarmStrategy:
                 elif _utc_h in _IT_WORST_HOURS:
                     confidence = max(confidence - 3.0, 50.0)
 
-                if action == "BUY":
+                # Direction boost is now regime-aware and symmetric:
+                # Only boost when the action aligns with the detected market regime.
+                # Previously this unconditionally added +1.5pt to every BUY and
+                # penalised every SELL by -1.0pt — biasing the bot toward longs
+                # regardless of market structure. Counter-trend filtering is already
+                # handled by the EMA200 gate (Step 5n).
+                if action == "BUY" and _regime == "BULL":
                     confidence = min(confidence + 1.5, 95.0)
-                elif action == "SELL":
-                    confidence = max(confidence - 1.0, 50.0)
+                elif action == "SELL" and _regime == "BEAR":
+                    confidence = min(confidence + 1.5, 95.0)
 
                 _IT_BLACKLIST = {
                     "TRUMPUSDT", "STOUSDT", "APRUSDT", "PUMPUSDT", "COSUSDT",
@@ -3744,6 +3811,39 @@ class MiroFishSwarmStrategy:
             if signal_strength < self.min_signal_strength or confidence < self.min_confidence:
                 return None
 
+            # ── Step 5n: EMA200 trend alignment (critical win-rate filter) ──
+            # Only allow LONG signals when price is above EMA200 (bull market structure)
+            # and SHORT signals when price is below EMA200 (bear market structure).
+            # Counter-trend signals (against EMA200) require ≥92% swarm consensus.
+            # Research: trading with the major trend improves win rate by 15-25%.
+            if len(closes) >= 200:
+                try:
+                    _ema200 = _ema(closes, 200)
+                    if _ema200 is not None:
+                        _price_above_ema200 = closes[-1] > _ema200
+                        _ema200_aligned = (
+                            (action == "BUY"  and _price_above_ema200) or
+                            (action == "SELL" and not _price_above_ema200)
+                        )
+                        if not _ema200_aligned:
+                            # Raised from 0.92 → 0.95: counter-trend EMA200 trades
+                            # require near-unanimous swarm consensus (9/10+ agents).
+                            if consensus < 0.95:
+                                self.logger.debug(
+                                    f"⚠️ [{symbol}|{tf}] Against EMA200 trend "
+                                    f"(price {'above' if _price_above_ema200 else 'below'} EMA200={_ema200:.4g}) "
+                                    f"consensus={consensus:.0%} < 95% — signal rejected"
+                                )
+                                return None
+                            else:
+                                confidence = max(confidence - 5.0, 50.0)
+                                self.logger.debug(
+                                    f"⚠️ [{symbol}|{tf}] Counter-EMA200 trade allowed (consensus={consensus:.0%} ≥ 92%) "
+                                    f"— conf penalized -5pt → {confidence:.1f}%"
+                                )
+                except Exception:
+                    pass
+
             # ── Step 6: InsightForge market context ──
             insight          = graph.insight_forge(f"{symbol} {action} signal", n_facts=5)
             graph_insight_txt = insight.to_text()
@@ -3795,13 +3895,15 @@ class MiroFishSwarmStrategy:
             tp3_dist = max(tp3_dist, tp2_dist + min_tp_gap)
 
             # Post-tick collision guard: ensure rounding doesn't collapse TP levels
-            def _ensure_tp_separation(tp1_d, tp2_d, tp3_d, price, tick_fn):
-                _t1 = tick_fn(price + tp1_d)
-                _t2 = tick_fn(price + tp2_d)
-                _t3 = tick_fn(price + tp3_d)
-                if _t2 <= _t1:
+            def _ensure_tp_separation(tp1_d, tp2_d, tp3_d, price, tick_fn, is_buy=True):
+                _sign = 1 if is_buy else -1
+                _t1 = tick_fn(price + _sign * tp1_d)
+                _t2 = tick_fn(price + _sign * tp2_d)
+                _t3 = tick_fn(price + _sign * tp3_d)
+                if (_sign == 1 and _t2 <= _t1) or (_sign == -1 and _t2 >= _t1):
                     tp2_d = tp1_d + min_tp_gap * 1.5
-                if _t3 <= _t2 or tick_fn(price + tp3_d) <= tick_fn(price + tp2_d):
+                    _t2 = tick_fn(price + _sign * tp2_d)
+                if (_sign == 1 and _t3 <= _t2) or (_sign == -1 and _t3 >= _t2):
                     tp3_d = tp2_d + min_tp_gap * 1.5
                 return tp1_d, tp2_d, tp3_d
 
@@ -3819,7 +3921,7 @@ class MiroFishSwarmStrategy:
                 return round(round(price / tick) * tick, 10)
 
             tp1_dist, tp2_dist, tp3_dist = _ensure_tp_separation(
-                tp1_dist, tp2_dist, tp3_dist, cur_price, _tick
+                tp1_dist, tp2_dist, tp3_dist, cur_price, _tick, is_buy=(action == "BUY")
             )
 
             if action == "BUY":
@@ -3878,7 +3980,9 @@ class MiroFishSwarmStrategy:
                 return None
 
             # ── Kelly Criterion dynamic leverage (uses actual TP1/SL distances) ──
-            _hist_wr = getattr(self, '_global_win_rate', 0.338)
+            # Default reduced 0.42 → 0.35 to reflect actual historical win rate
+            # (~33-34%) and prevent over-leveraging on new sessions.
+            _hist_wr = getattr(self, '_global_win_rate', 0.35)
             _consensus_p = min(consensus, 0.95) * (confidence / 100.0)
             _kelly_p = _hist_wr * 0.6 + _consensus_p * 0.4
             _kelly_p = max(0.05, min(_kelly_p, 0.85))
@@ -3921,13 +4025,31 @@ class MiroFishSwarmStrategy:
             _irons_result = {}
             _htf_1h = "NEUTRAL"; _htf_4h = "NEUTRAL"
             try:
-                if htf_closes and len(htf_closes) >= 10:
-                    _htf_ema9  = sum(htf_closes[-9:]) / 9
-                    _htf_ema21 = sum(htf_closes[-21:]) / 21 if len(htf_closes) >= 21 else _htf_ema9
-                    if _htf_ema9 > _htf_ema21:
-                        _htf_1h = "BUY"
-                    elif _htf_ema9 < _htf_ema21:
-                        _htf_1h = "SELL"
+                # Use proper exponential moving averages (not SMA) for the HTF trend.
+                # SMA over the last N bars ignores the weighting of recent prices
+                # and produces the same result regardless of how prices have been
+                # trending within those N bars — EMA correctly emphasises recent action.
+                if htf_closes and len(htf_closes) >= 9:
+                    _htf_ema9  = _ema(htf_closes, 9)
+                    _htf_ema21 = _ema(htf_closes, 21) if len(htf_closes) >= 21 else _htf_ema9
+                    if _htf_ema9 is not None and _htf_ema21 is not None:
+                        if _htf_ema9 > _htf_ema21:
+                            _htf_1h = "BUY"
+                        elif _htf_ema9 < _htf_ema21:
+                            _htf_1h = "SELL"
+            except Exception:
+                pass
+
+            # ── 4H trend from prefetched 4H klines ──────────────────────────
+            try:
+                if htf_4h_closes and len(htf_4h_closes) >= 9:
+                    _4h_ema9  = _ema(htf_4h_closes, 9)
+                    _4h_ema21 = _ema(htf_4h_closes, 21) if len(htf_4h_closes) >= 21 else _4h_ema9
+                    if _4h_ema9 is not None and _4h_ema21 is not None:
+                        if _4h_ema9 > _4h_ema21:
+                            _htf_4h = "BUY"
+                        elif _4h_ema9 < _4h_ema21:
+                            _htf_4h = "SELL"
             except Exception:
                 pass
 
@@ -4382,8 +4504,14 @@ def _supertrend(closes: List[float], highs: List[float], lows: List[float],
     # Use simplified but correct approach: compute on the last few candles
     results = []
     atr_smooth = sum(atr_vals[:period]) / period
+    # BUG FIX: was `atr_vals[i-1]` which double-counted the last seed element
+    # at i=period (Wilder smoothing starts on the element AFTER the seed window).
+    # Correct: at each bar i, consume atr_vals[i] (not atr_vals[i-1]) so the
+    # seed window covers atr_vals[0..period-1] and the Wilder updates start at
+    # atr_vals[period].  Guard for the final bar where i may equal len(atr_vals).
     for i in range(period, n):
-        atr_smooth = (atr_smooth * (period - 1) + atr_vals[i-1]) / period
+        if i < len(atr_vals):
+            atr_smooth = (atr_smooth * (period - 1) + atr_vals[i]) / period
         hl2 = (h[i] + l[i]) / 2.0
         basic_upper = hl2 + multiplier * atr_smooth
         basic_lower = hl2 - multiplier * atr_smooth

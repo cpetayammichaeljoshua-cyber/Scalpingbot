@@ -384,12 +384,23 @@ class TradeMemory:
         }
 
     def get_loss_trades(self, limit: int = 500) -> List[Dict]:
-        """Trades that hit SL or expired with negative P&L — for loss pattern analysis."""
+        """Trades that hit SL or expired with significant negative P&L — for loss pattern analysis.
+
+        BUG FIX: Previously used pnl_pct <= 0 which included neutral EXPIRED trades
+        (pnl in −0.5%..0%) as confirmed losses.  This biased LossPatternAnalyzer's
+        danger-zone computation by treating ambiguous near-zero expiries the same as
+        genuine losses, producing incorrect feature boundaries.
+
+        Aligned with build_label() ±0.5% threshold used throughout the system:
+          • SL hits                    → always a loss
+          • EXPIRED pnl ≤ −0.5%       → confirmed loss (significant drawdown)
+          • EXPIRED −0.5% < pnl ≤ 0%  → neutral — excluded (too noisy to learn from)
+        """
         with self._db() as c:
             rows = c.execute("""
                 SELECT * FROM trades
                 WHERE outcome IS NOT NULL
-                  AND (outcome = 'SL' OR (outcome = 'EXPIRED' AND pnl_pct <= 0))
+                  AND (outcome = 'SL' OR (outcome = 'EXPIRED' AND pnl_pct <= -0.5))
                 ORDER BY timestamp DESC
                 LIMIT ?
             """, (limit,)).fetchall()
@@ -472,9 +483,14 @@ class TradeMemory:
             elif outcome == "SL":
                 definitive.append(1)  # loss
             elif outcome == "EXPIRED":
-                if pnl >= 0.3:
+                # BUG FIX: thresholds aligned with build_label() in neural_signal_trainer.py.
+                # Previous code used pnl >= 0.3 (win) / pnl <= -0.15 (loss), but build_label
+                # uses ±0.5% — causing the loss-rate statistic and NN training to classify
+                # the same EXPIRED trades differently (e.g. a -0.3% expiry was counted as a
+                # loss here but skipped as "too noisy" in NN training).  Aligned to ±0.5%.
+                if pnl >= 0.5:
                     definitive.append(0)
-                elif pnl <= -0.15:
+                elif pnl <= -0.5:
                     definitive.append(1)
             if len(definitive) >= n:
                 break
@@ -516,7 +532,9 @@ class TradeMemory:
                 "win_rate": round(wins / resolved, 4) if resolved > 0 else 0.0,
             }
 
-        # Also compute recent_loss_rate (last 10 definitive) per symbol.
+        # Also compute recent_loss_rate (last 20 definitive) per symbol.
+        # Window increased from 10 to 20 for more statistical reliability —
+        # a 10-trade sample in a volatile bear market is too noisy.
         # FIXED: previously used pnl_pct <= 0 which flagged neutral EXPIRED
         # trades (-0.1% pnl) as losses, falsely inflating per-symbol loss rates
         # and causing symbols like BTCUSDT to be blacklisted.
@@ -526,7 +544,7 @@ class TradeMemory:
                     SELECT outcome, pnl_pct FROM trades
                     WHERE outcome IS NOT NULL AND symbol = ?
                     ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
-                    LIMIT 30
+                    LIMIT 60
                 """, (sym,)).fetchall()
                 if recent:
                     definitive = []
@@ -538,11 +556,13 @@ class TradeMemory:
                         elif outcome == "SL":
                             definitive.append(1)
                         elif outcome == "EXPIRED":
-                            if pnl >= 0.3:
+                            # BUG FIX: aligned with build_label() ±0.5% thresholds.
+                            # See get_recent_loss_rate for full explanation.
+                            if pnl >= 0.5:
                                 definitive.append(0)
-                            elif pnl <= -0.15:
+                            elif pnl <= -0.5:
                                 definitive.append(1)
-                        if len(definitive) >= 10:
+                        if len(definitive) >= 20:
                             break
                     if definitive:
                         result[sym]["recent_loss_rate"] = round(

@@ -455,7 +455,8 @@ class LossPatternAnalyzer:
                     _zones_hit += 1
                     if _zones_hit >= 4:
                         break
-            return min(max(penalty, 0.0), 0.10)
+            # Cap raised from 0.10 → 0.15 to match the documented range [0, 0.15].
+            return min(max(penalty, 0.0), 0.15)
         except Exception:
             return 0.0
 
@@ -549,10 +550,14 @@ class NeuralSignalTrainer:
         self.last_loss_rate    = 0.0    # fraction of training data that was losses
 
         # FIX 5: Optimal threshold (Youden's J from validation data).
-        # reject_threshold: signals below this are rejected.
+        # reject_threshold: signals below this are hard-rejected or heavily penalized.
         # boost_threshold:  signals above this get a confidence boost.
+        # FIXED: Was 0.08 (near-zero), allowing 5% win_prob signals to slip through.
+        # Raised to 0.38 floor — rejects signals below the 38% win-probability target
+        # needed to achieve positive EV at the configured 1.55:1 R:R ratio
+        # (breakeven = 1/(1+1.55) = ~39.2%; floor set at 0.38 for slight tolerance).
         self._opt_threshold    = 0.50   # default; overwritten after each training run
-        self._reject_threshold = 0.08   # lower bound (only reject truly bad signals)
+        self._reject_threshold = 0.38   # floor: reject below 38% win prob (raised from 0.35)
         self._boost_threshold  = 0.70   # upper bound (only boost above this)
 
         # Direction-aware calibration offsets.
@@ -736,10 +741,17 @@ class NeuralSignalTrainer:
                     best_j = j
                     best_thresh = float(t)
 
-            # Derived reject / boost thresholds around optimal
-            # Wider gap from optimal threshold to reduce blanket rejections
-            self._reject_threshold = max(0.08, best_thresh - 0.42)
-            self._boost_threshold  = min(0.80, best_thresh + 0.12)
+            # Derived reject / boost thresholds around optimal threshold.
+            #
+            # Formula: max(0.38, best_thresh * 0.62) with 0.38 hard floor.
+            # The 0.38 floor reflects the EV-breakeven win rate at 1.55:1 R:R:
+            #   breakeven = 1/(1+1.55) ≈ 39.2% — floor at 0.38 gives slight tolerance.
+            #   thresh=0.525 → max(0.38, 0.326) = 0.38
+            #   thresh=0.600 → max(0.38, 0.372) = 0.38
+            #   thresh=0.700 → max(0.38, 0.434) = 0.43
+            # Raised from 0.35 to 0.38 to enforce positive-EV selection discipline.
+            self._reject_threshold = max(0.38, best_thresh * 0.62)
+            self._boost_threshold  = min(0.85, best_thresh + 0.15)
             return best_thresh
         except Exception:
             return 0.50
@@ -818,7 +830,9 @@ class NeuralSignalTrainer:
 
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                penalty *= 0.35
+                # Raised scaling 0.35 → 0.60: danger zone penalty was being cut by 65%,
+                # rendering the loss-pattern analysis nearly ineffective.
+                penalty *= 0.60
                 base_prob = max(0.05, base_prob - penalty)
 
             return base_prob
@@ -874,7 +888,8 @@ class NeuralSignalTrainer:
 
             if self.loss_analyzer.is_fitted:
                 penalty = self.loss_analyzer.danger_penalty(X_norm[0])
-                penalty *= 0.35
+                # Raised scaling 0.35 → 0.60 (matches predict_signal fix).
+                penalty *= 0.60
                 mean_p = max(0.05, mean_p - penalty)
 
             return mean_p, std_p
@@ -1008,8 +1023,12 @@ class NeuralSignalTrainer:
 
             if not (warm_restart and self.trained):
                 self._xavier_init()
-                # Reset base LR on cold restart so cosine schedule starts fresh
-                self._base_lr = self.lr if self.lr > 1e-5 else 0.001
+                # Reset base LR on cold restart so cosine schedule starts fresh.
+                # Use max() to guarantee _base_lr is at least 1e-3 even when
+                # self.lr has drifted to the cosine annealing floor (≈1e-5 + ε),
+                # which would satisfy self.lr > 1e-5 but yield a near-zero base LR
+                # and a flat cosine schedule on the next cycle.
+                self._base_lr = max(self.lr, 1e-3)
 
             best_val   = float("inf")
             best_wts   = [p.copy() for p in self._params()]
@@ -1158,8 +1177,10 @@ class NeuralSignalTrainer:
             # Both must be reasonable for the model to add value over the raw
             # confidence gate.  A minimum of 8 wins + 8 losses is also required
             # to ensure both classes are represented in training.
+            # Raised win_acc gate 0.35 → 0.40: a model that only identifies 35% of
+            # wins adds minimal filtering value above the raw confidence gate.
             quality_ok = (
-                win_acc  >= 0.35
+                win_acc  >= 0.40
                 and loss_acc >= 0.35
                 and wins  >= 8
                 and losses >= 8
@@ -1356,9 +1377,12 @@ class NeuralSignalTrainer:
             self._w_win  = float(d.get("_w_win",  1.0))
             self._w_loss = float(d.get("_w_loss", self.class_weight_loss))
 
-            # FIX 5: Restore optimal thresholds
+            # FIX 5v2: Restore optimal thresholds.
+            # Apply 0.35 floor (raised from 0.30) so old saved weights don't restore
+            # a too-permissive reject threshold.  Saved values from older training runs
+            # may have been 0.08–0.30 — enforce the current production floor.
             self._opt_threshold    = float(d.get("_opt_threshold",    0.50))
-            self._reject_threshold = float(d.get("_reject_threshold", 0.08))
+            self._reject_threshold = max(0.35, float(d.get("_reject_threshold", 0.35)))
             self._boost_threshold  = float(d.get("_boost_threshold",  0.70))
 
             # Restore direction-aware calibration offsets

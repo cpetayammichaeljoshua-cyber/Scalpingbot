@@ -905,6 +905,9 @@ def format_irons_panel(
     elif score >= 55:  score_emoji = "⚠️"
     else:              score_emoji = "🔴"
 
+    # Direction arrow (▲ LONG, ▼ SHORT)
+    dir_arrow = "▲" if is_buy else "▼"
+
     # Indicator emoji helper
     def _ie(s: int) -> str:
         if s >= 65: return "✅"
@@ -939,12 +942,11 @@ def format_irons_panel(
     )
 
     # ── IRONS AI Score header ──
-    risk_line = risk_label.split("—")[1].strip() if "—" in risk_label else risk_label
     score_block = (
         f"\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
         f"🤖 IRONS AI | Score: {score}/100\n"
         f"{score_emoji} {risk_label}\n"
-        f"🔎 {signal_symbol} {direction} ▲ | {signal_leverage}x | {regime}\n"
+        f"🔎 {signal_symbol} {direction} {dir_arrow} | {signal_leverage}x | {regime}\n"
         f"▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
     )
 
