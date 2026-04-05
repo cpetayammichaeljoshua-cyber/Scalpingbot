@@ -1,11 +1,3 @@
-
-import aiohttp
-import logging
-from typing import Optional, List, Dict
-import websockets
-import json
-
-
 """
 Binance trading integration using ccxt library
 Handles trade execution, portfolio management, and market data
@@ -15,6 +7,9 @@ ENHANCED with real-time WebSocket market data streaming
 
 import asyncio
 import logging
+import aiohttp
+import json
+import websockets
 import ccxt.async_support as ccxt
 from typing import Dict, Any, List, Optional, Callable
 from decimal import Decimal, ROUND_DOWN

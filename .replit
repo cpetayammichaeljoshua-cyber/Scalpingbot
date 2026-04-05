@@ -27,10 +27,6 @@ args = "mirofish_bot.py"
 task = "workflow.run"
 args = "Main Trading Bot"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "python3 start_ultimate_bot.py"
-
 [[workflows.workflow]]
 name = "Main Trading Bot"
 mode = "parallel"
@@ -62,17 +58,6 @@ author = 47973864
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "mirofish_bot.py"
-
-[[workflows.workflow]]
-name = "python3 start_ultimate_bot.py"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 start_ultimate_bot.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[ports]]
 localPort = 3000

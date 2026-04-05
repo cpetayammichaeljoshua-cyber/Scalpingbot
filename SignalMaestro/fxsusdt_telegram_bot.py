@@ -348,14 +348,15 @@ class FXSUSDTTelegramBot:
 
         # FIX 8: Per-symbol performance tracking and automatic blacklist.
         # Symbols with recent_loss_rate > 85% over ≥15 resolved trades are
-        # temporarily blocked (refreshed every SYMBOL_STATS_REFRESH_INTERVAL).
+        # temporarily blocked (refreshed every SYMBOL_STATS_REFRESH_INTERVAL seconds).
+        # Protected high-liquidity symbols (top 24) are never blacklisted.
         self._symbol_blacklist: set   = set()
         self._symbol_stats: Dict[str, Dict] = {}
         self._symbol_stats_last_refresh: float = 0.0
         self.SYMBOL_STATS_REFRESH_INTERVAL: int = 1200  # refresh every 20 min (was hourly)
         # Threshold: block a symbol if recent loss rate exceeds this
-        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.75  # 75% recent losses → block (tightened from 85%)
-        self.SYMBOL_BLOCK_MIN_TRADES: int  = 10    # need ≥10 resolved trades to block (tightened from 15)
+        self.SYMBOL_BLOCK_LOSS_RATE: float = 0.85  # 85% recent losses → block (requires very persistent losing streak)
+        self.SYMBOL_BLOCK_MIN_TRADES: int  = 15    # need ≥15 resolved trades to block (statistically meaningful sample)
 
         # ── BTCUSDT contract specifications (legacy reference) ──
         self.contract_specs = {
@@ -519,7 +520,7 @@ class FXSUSDTTelegramBot:
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
                 f"Agents: 10 swarm agents | Consensus: ≥75% | Quorum: 5/10\n"
-                f"AI: Claude 3.5 Sonnet (primary) → GPT-4o-mini → Rule-based\n"
+                f"AI: G0DM0D3 ULTRAPLINIAN → Qwen3.6-Plus (OpenRouter) → Rule-based\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
                 f"Confidence Gate: 80% post-boost | Min R:R 1.55:1 | Cap: 10/hr\n"
                 f"Format: Cornix-compatible\n"
@@ -621,8 +622,8 @@ class FXSUSDTTelegramBot:
         """
         Refresh per-symbol performance stats and rebuild the blacklist.
 
-        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (75%)
-        over at least SYMBOL_BLOCK_MIN_TRADES (8) resolved trades are added
+        Symbols whose recent_loss_rate exceeds SYMBOL_BLOCK_LOSS_RATE (85%)
+        over at least SYMBOL_BLOCK_MIN_TRADES (15) resolved trades are added
         to the blacklist and skipped by can_send_signal().
 
         Called at most once per SYMBOL_STATS_REFRESH_INTERVAL (20 min).
@@ -640,9 +641,17 @@ class FXSUSDTTelegramBot:
             self._symbol_stats_last_refresh = now
 
             # Symbols that must NEVER be blacklisted regardless of loss rate.
-            # These are high-liquidity markets where temporary loss streaks are
-            # noise, and removing them would significantly reduce signal volume.
-            PROTECTED_SYMBOLS = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
+            # These are high-liquidity perpetual futures where temporary loss streaks
+            # are statistical noise, and removing them would significantly reduce
+            # signal volume and market coverage quality.
+            PROTECTED_SYMBOLS = {
+                "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
+                "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
+                "LINKUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT",
+                "BCHUSDT", "UNIUSDT", "ATOMUSDT", "FTMUSDT",
+                "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT",
+                "NEARUSDT", "INJUSDT", "SEIUSDT", "TIAUSDT",
+            }
 
             new_blacklist = set()
             for sym, s in stats.items():
