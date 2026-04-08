@@ -3,6 +3,50 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 23 — 3 Critical Bug Fixes + Lock Granularity Optimization + z4ptacticsbot Integration
+
+### Critical Bug Fixes Applied
+
+**Bug #1: `_stochastic()` — `d_period` parameter defined but never used (`SignalMaestro/mirofish_swarm_strategy.py`)**
+- Previous: returned raw `%K = (close - lowest_low) / (highest_high - lowest_low) × 100` — ignoring the `d_period=3` parameter entirely
+- Raw `%K` swings 0→100 in a single bar on crypto, generating false momentum signals in `MomentumAgent` and the AI prompt builder
+- **Fix**: Now computes proper `%D = SMA(d_period) of %K` — calculates `%K` for each of the last `d_period` bars then averages them
+- Data requirement updated: `k_period + d_period - 1 = 16` bars (was 14) — trivially satisfied with 50-200 bar klines fetch
+- Updated all callers: `MomentumAgent` (line 737), signal prompt builder (renamed `_stoch_raw` → `_stoch_d` for clarity)
+
+**Bug #2: `_compute_adx_proxy()` — returns raw single DX, not smoothed ADX (`SignalMaestro/mirofish_swarm_strategy.py`)**
+- Previous: correctly Wilder-smoothed TR/+DM/-DM but then computed **one** DX from the final smoothed values — this is still one raw DX value, not ADX
+- A single raw DX can spike 0→80 in one bar, making regime detection (RANGING vs BULL vs BEAR) extremely noisy with false regime flips
+- **Fix**: Accumulates a DX value at **every** smoothing step, then Wilder-smooths the entire DX series — this is the correct Wilder 1978 ADX algorithm
+- Returns `(adx, last_pdi, last_mdi)` — consumers unchanged; only the `adx` value is now properly smoothed
+- Minimum data guard updated: `period * 2 + 2 = 30` bars (was 20) — caller guard at line 3687 updated accordingly
+
+**Bug #3: NN inference inside `_signal_gate_lock` — serializing 80 parallel scanners (`SignalMaestro/fxsusdt_telegram_bot.py`)**
+- Previous: `predict_signal_with_uncertainty()` (20 MC-Dropout stochastic passes, 50–200ms) ran INSIDE `_signal_gate_lock`
+- 80 parallel scanners waited serially for each other's NN inferences — a single slow pass blocked all other symbols
+- **Fix**: Moved NN inference + BM25 memory query COMPLETELY OUTSIDE the lock (Phase 2 pre-gate)
+  - `signal` is a `dataclasses.replace()` local copy — mutations to `signal.confidence` are not shared with other coroutines
+  - Early `return False` rejections (absolute floor, hard-reject) now exit without ever acquiring the lock
+  - Lock now held for `<5ms`: only `can_send_signal` re-check + IRONS score check + final threshold + `send_signal_to_channel` setup
+  - All `return False` paths in the NN section now correctly prevent lock acquisition (no change to external behavior)
+
+### z4ptacticsbot Integration (`https://github.com/cpetayammichaeljoshua-cyber/z4ptacticsbot.git`)
+- Comprehensive scan of all 53K+ files across 8 repositories: G0DM0D3 (web UI/TypeScript), MiroFish (backend), MiroFish-Offline (Zep-free graph_tools), OpenClaw (multi-channel assistant), repo2–7 (OpenClaw sub-components)
+- **Finding**: No new Python trading logic exists beyond what is already integrated. All trading-specific code (swarm, NN, memory, signals) is in the production codebase.
+- **Integrated patterns**:
+  - `MiroFish-Offline/graph_tools.py` InsightForge offline parallel retrieval → already implemented as `MarketGraphMemory` in `mirofish_swarm_strategy.py`
+  - G0DM0D3 ULTRAPLINIAN model racing → already integrated in `godmod3_strategy.py`
+  - OpenClaw multi-channel routing → already integrated via Telegram + Smart LLM Router
+  - `graph_memory_updater.py` batch queue pattern → already used in graph node pruning logic
+
+### Production Verification (Cycle #1 post-fix)
+- All 80 symbols scanned cleanly — no errors, no crashes
+- NN inference executing OUTSIDE lock — confirmed from log ordering (NN reject before lock path)
+- Smoothed Stochastic `%D` feeding MomentumAgent and AI prompt
+- True smoothed ADX feeding regime detector — confirmed stable regime labels
+- XRPUSDT BUY signal sent: consensus=100%, conf=87.1%, NN win_prob=37% (unanimous override)
+- Fear & Greed = 17 (Extreme Fear) correctly applying -5pt penalty to all BUY signals
+
 ## Session 22 — Comprehensive Bug Hunt + Production Verification
 
 ### Critical Bug Fixes Applied

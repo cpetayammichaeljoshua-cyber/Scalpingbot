@@ -2298,8 +2298,8 @@ class AIOrchestrationAgent:
             _bb_pct = (closes[-1] - _bb_lo) / (_bb_up - _bb_lo) * 100.0
         else:
             _bb_pct = 50.0
-        _stoch_raw = _stochastic(closes, 14)
-        _stoch_k   = _stoch_raw if _stoch_raw is not None else 50.0
+        _stoch_d   = _stochastic(closes, 14, 3)          # smoothed %D (3-SMA of %K)
+        _stoch_k   = _stoch_d if _stoch_d is not None else 50.0
         _atr_raw   = _atr_close(closes, 14)
         _atr_val   = _atr_raw if _atr_raw is not None else (closes[-1] * 0.003)
         _atr_pct   = (_atr_val / closes[-1] * 100.0) if closes[-1] > 0 else 0.3
@@ -3681,7 +3681,7 @@ class MiroFishSwarmStrategy:
                         else:
                             _votes_side += 1
 
-                    _adx_proxy = _compute_adx_proxy(closes, highs, lows, 14) if highs and lows and len(closes) >= 20 else None
+                    _adx_proxy = _compute_adx_proxy(closes, highs, lows, 14) if highs and lows and len(closes) >= 30 else None
                     if _adx_proxy is not None:
                         _adx_val_5i, _pdi_5i, _mdi_5i = _adx_proxy
                         if _adx_val_5i > 25:
@@ -4239,33 +4239,70 @@ class MiroFishSwarmStrategy:
 
 def _compute_adx_proxy(closes: List[float], highs: List[float], lows: List[float],
                        period: int = 14) -> Optional[Tuple[float, float, float]]:
+    """
+    Compute true smoothed ADX (Average Directional Index) plus +DI/-DI.
+
+    Bug Fix: Previous implementation Wilder-smoothed TR/+DM/-DM correctly but
+    then computed a single raw DX from the final smoothed values.  This is NOT
+    ADX — ADX is the Wilder-smoothed average of all individual DX values.
+    A single raw DX can spike from 0→80 in one bar, making the RANGING regime
+    detector extremely noisy and generating false ranging/trending regimes.
+
+    Correct algorithm (Wilder 1978):
+      1. Compute raw TR, +DM, -DM for each bar.
+      2. Wilder-smooth each series.
+      3. Compute +DI and -DI from the smoothed series.
+      4. Compute DX from +DI and -DI for each smoothed bar.
+      5. Wilder-smooth the DX series to get ADX.
+
+    Returns (adx, last_pdi, last_mdi).
+    """
     n = len(closes)
-    if n < period + 2 or len(highs) < n or len(lows) < n:
+    if n < period * 2 + 2 or len(highs) < n or len(lows) < n:
         return None
-    plus_dm_list = []
-    minus_dm_list = []
-    tr_list = []
+    plus_dm_list: List[float] = []
+    minus_dm_list: List[float] = []
+    tr_list: List[float] = []
     for i in range(1, n):
         h_diff = highs[i] - highs[i - 1]
         l_diff = lows[i - 1] - lows[i]
-        plus_dm_list.append(max(h_diff, 0) if h_diff > l_diff else 0)
-        minus_dm_list.append(max(l_diff, 0) if l_diff > h_diff else 0)
+        plus_dm_list.append(max(h_diff, 0.0) if h_diff > l_diff else 0.0)
+        minus_dm_list.append(max(l_diff, 0.0) if l_diff > h_diff else 0.0)
         tr_list.append(max(highs[i] - lows[i],
                            abs(highs[i] - closes[i - 1]),
                            abs(lows[i] - closes[i - 1])))
-    if len(tr_list) < period:
+    if len(tr_list) < period + 1:
         return None
+
+    # Wilder-smooth TR, +DM, -DM and accumulate DX values for ADX smoothing
     atr_s = sum(tr_list[:period])
     pdm_s = sum(plus_dm_list[:period])
     mdm_s = sum(minus_dm_list[:period])
+    dx_vals: List[float] = []
+    last_pdi, last_mdi = 0.0, 0.0
     for i in range(period, len(tr_list)):
         atr_s = atr_s - atr_s / period + tr_list[i]
         pdm_s = pdm_s - pdm_s / period + plus_dm_list[i]
         mdm_s = mdm_s - mdm_s / period + minus_dm_list[i]
-    pdi = (pdm_s / max(atr_s, 1e-10)) * 100
-    mdi = (mdm_s / max(atr_s, 1e-10)) * 100
-    dx = abs(pdi - mdi) / max(pdi + mdi, 1e-10) * 100
-    return (dx, pdi, mdi)
+        atr_guard = max(atr_s, 1e-10)
+        last_pdi = pdm_s / atr_guard * 100.0
+        last_mdi = mdm_s / atr_guard * 100.0
+        denom = last_pdi + last_mdi
+        if denom > 0.0:
+            dx_vals.append(abs(last_pdi - last_mdi) / denom * 100.0)
+
+    if not dx_vals:
+        return None
+
+    # Wilder-smooth DX values to produce ADX
+    if len(dx_vals) < period:
+        adx = sum(dx_vals) / len(dx_vals)
+    else:
+        adx = sum(dx_vals[:period]) / period
+        for dv in dx_vals[period:]:
+            adx = (adx * (period - 1) + dv) / period
+
+    return (adx, last_pdi, last_mdi)
 
 
 def _ema(data: List[float], period: int) -> Optional[float]:
@@ -4391,15 +4428,32 @@ def _true_atr(closes: List[float], highs: List[float], lows: List[float],
 
 def _stochastic(closes: List[float], k_period: int = 14,
                 d_period: int = 3) -> Optional[float]:
-    """Stochastic %K oscillator"""
-    if len(closes) < k_period:
+    """
+    Stochastic %D oscillator — smoothed Stochastic (d_period-SMA of raw %K).
+
+    Bug Fix: Previous implementation computed raw %K only and never used the
+    d_period parameter.  Raw %K is extremely noisy on crypto (can swing 0-100
+    in a single bar), producing false momentum confirmation signals.
+    %D = SMA(d_period) of %K provides the standard smoothed signal used by
+    virtually all professional charting packages and removes bar-level noise.
+
+    Returns value in range [0, 100].
+    """
+    needed = k_period + d_period - 1
+    if len(closes) < needed:
         return None
-    window = closes[-k_period:]
-    low_k  = min(window)
-    high_k = max(window)
-    if high_k == low_k:
-        return 50.0
-    return (closes[-1] - low_k) / (high_k - low_k) * 100
+    k_vals: List[float] = []
+    for shift in range(d_period - 1, -1, -1):
+        if shift == 0:
+            win   = closes[-k_period:]
+            price = closes[-1]
+        else:
+            win   = closes[-(k_period + shift):-shift]
+            price = closes[-1 - shift]
+        lo = min(win)
+        hi = max(win)
+        k_vals.append(50.0 if hi == lo else (price - lo) / (hi - lo) * 100.0)
+    return sum(k_vals) / len(k_vals)
 
 
 def _cmf(closes: List[float], volumes: List[float],

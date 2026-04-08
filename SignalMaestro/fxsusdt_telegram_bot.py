@@ -1702,207 +1702,201 @@ class FXSUSDTTelegramBot:
         except Exception as _pm_err:
             self.logger.debug(f"PM framework skipped: {_pm_err}")
 
+        # ── Phase 2 pre-gate: NN inference + BM25 (OUTSIDE lock — parallelism-safe) ──
+        # Bug Fix: predict_signal_with_uncertainty (20 MC-Dropout passes, 50-200ms)
+        # was previously executed INSIDE _signal_gate_lock.  With 80 parallel scanners
+        # this serialized every symbol's NN inference into a single-file queue,
+        # negating all parallel scan throughput gains.
+        #
+        # Safety: `signal` is a local dataclasses.replace() copy — mutations to
+        # signal.confidence here are NOT visible to other coroutines.  The lock is
+        # then held for <5ms (IRONS check + threshold check + Telegram call setup).
+        # The can_send_signal re-check INSIDE the lock still prevents double-sending.
+        _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
+        if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
+            try:
+                # MC-Dropout prediction with uncertainty (20 stochastic forward passes)
+                nn_win_prob, nn_uncertainty = (
+                    self.nn_trainer.predict_signal_with_uncertainty(
+                        signal, _local_bb_position
+                    )
+                )
+
+                # Read data-driven thresholds (Youden's J from validation data)
+                # Default 0.38 — ensures NN gate enforces positive-EV discipline
+                # even before the first training run computes Youden's J
+                # (breakeven at 1.55:1 R:R ≈ 39.2%; 0.38 gives slight tolerance).
+                _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.38)
+                _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
+                _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
+
+                # High-uncertainty borderline signals → reject conservatively.
+                # If std > 0.15 and probability is within ±0.08 of reject threshold,
+                # the model is too uncertain to be trusted — skip the signal.
+                _high_uncertainty = nn_uncertainty > 0.15
+                _borderline       = abs(nn_win_prob - _reject_thresh) < 0.08
+
+                n_danger = len(getattr(
+                    getattr(self.nn_trainer, "loss_analyzer", None),
+                    "danger_zones", []
+                ))
+
+                # When ALL (or nearly all) swarm agents unanimously agree, the
+                # collective intelligence of 10 independent agents outweighs the
+                # NN gate — which was trained on limited historical data (200
+                # samples, 54.5% win-rate split).  A 10/10 unanimous swarm with
+                # ≥90% weighted consensus is the highest-quality signal the bot
+                # can generate.  NN still applies soft penalty/boost, but the
+                # hard-reject is bypassed.
+                #
+                # Thresholds:
+                #   consensus ≥ 0.90 AND participation ≥ 7/10 → bypass hard-reject
+                #   consensus ≥ 0.95 AND participation = 10/10 → bypass all NN filters
+                _swarm_consensus = signal.swarm_consensus        # 0..1
+                _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
+                _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
+                _is_strong       = _swarm_consensus >= 0.85 and _participation >= (7/10)
+
+                # Absolute floor: reject when NN gives < 25% win probability.
+                #
+                # EXCEPTION — Unanimous + High-Uncertainty Override:
+                # When the swarm is unanimous (≥95%, ≥8/10 agents) AND the NN
+                # model itself has high uncertainty (σ ≥ 0.15), the model is
+                # operating outside its training distribution (e.g., extreme fear
+                # regime with few historical examples).  In this case, the 10-agent
+                # real-time swarm consensus is more reliable than the NN's
+                # extrapolation.  Apply the standard override penalty (capped at
+                # 10pt) and proceed; NN boost/soft paths are skipped below.
+                _high_model_uncertainty = nn_uncertainty >= 0.15
+                if nn_win_prob < 0.25:
+                    if _is_unanimous and _high_model_uncertainty:
+                        # Unanimous swarm + NN uncertain about its prediction:
+                        # override the absolute floor and apply a moderate penalty.
+                        _unc_penalty = min(
+                            (_reject_thresh - max(nn_win_prob, 0.05)) * 22.0, 10.0
+                        )
+                        signal.confidence = max(0.0, signal.confidence - _unc_penalty)
+                        self.logger.info(
+                            f"🧠 NN unc-override [{symbol}] {signal.action}: "
+                            f"win_prob={nn_win_prob:.0%} σ={nn_uncertainty:.2f} "
+                            f"(model in unknown regime) | unanimous → "
+                            f"penalty -{_unc_penalty:.1f}pt → conf={signal.confidence:.1f}%"
+                        )
+                        # Skip further NN path (boost/penalty handled above)
+                    else:
+                        self.logger.info(
+                            f"🧠 NN ABSOLUTE REJECT [{symbol}] {signal.action}: "
+                            f"win_prob={nn_win_prob:.0%} < 25% absolute minimum "
+                            f"| σ={nn_uncertainty:.2f} danger_zones={n_danger} "
+                            f"consensus={_swarm_consensus:.0%}"
+                        )
+                        return False
+
+                elif _is_unanimous and nn_win_prob >= 0.28 and not (_high_uncertainty and nn_uncertainty > 0.20):
+                    # Unanimous swarm bypass: 10-agent 100% consensus outweighs NN.
+                    # Requires win_prob ≥ 28% (raised from 0.25 to match new absolute floor).
+                    _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 25.0)
+                    _override_penalty = min(_override_penalty, 12.0)
+                    signal.confidence = max(60.0, signal.confidence - _override_penalty)
+                    self.logger.info(
+                        f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
+                        f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
+                        f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%} "
+                        f"σ={nn_uncertainty:.2f}) penalty={_override_penalty:.1f}pt"
+                    )
+                else:
+                    # Hard reject: win_prob far below reject threshold.
+                    # Non-strong gap tightened 0.05→0.02: signals must be within
+                    # 2pp of reject_thresh to qualify for soft penalty path.
+                    # With reject_thresh=0.36: hard-reject if win_prob < 0.34.
+                    _far_below = nn_win_prob < (_reject_thresh - 0.02)
+
+                    # For strong (but not unanimous) signals: slightly wider gap.
+                    # Hard-reject if win_prob < reject_thresh - 0.07 (was 0.10).
+                    if _is_strong:
+                        _far_below = nn_win_prob < (_reject_thresh - 0.07)
+
+                    if _far_below or (_high_uncertainty and _borderline and not _is_strong):
+                        reject_reason = (
+                            f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
+                            if (_high_uncertainty and _borderline)
+                            else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
+                        )
+                        self.logger.info(
+                            f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
+                            f"{reject_reason} | danger_zones={n_danger}"
+                        )
+                        return False
+
+                if not _is_unanimous and nn_win_prob < _reject_thresh:
+                    # Borderline (win_prob just below reject_thresh) — apply a
+                    # confidence penalty proportional to the deficit.
+                    # Multiplier raised 200→300 and cap 10pt→15pt — borderline
+                    # signals face a meaningful hurdle (e.g. 2pp gap = -6pt,
+                    # 5pp gap = -15pt cap).  This prevents weak signals from
+                    # sneaking through on boosts alone.
+                    penalty = (_reject_thresh - nn_win_prob) * 300.0
+                    penalty = min(penalty, 15.0)
+                    signal.confidence = max(0.0, signal.confidence - penalty)
+                    self.logger.info(
+                        f"🧠 NN soft penalty [{symbol}] {signal.action}: "
+                        f"-{penalty:.1f}pt → conf={signal.confidence:.1f}% "
+                        f"(win_prob={nn_win_prob:.0%} borderline reject_thresh={_reject_thresh:.0%} "
+                        f"danger_zones={n_danger})"
+                    )
+                elif nn_win_prob >= _boost_thresh and not _high_uncertainty:
+                    # Only boost when model is BOTH confident AND certain
+                    nn_boost = min((nn_win_prob - _boost_thresh) * 16.7, 5.0)
+                    signal.confidence = min(100.0, signal.confidence + nn_boost)
+                    self.logger.debug(
+                        f"🧠 NN boost +{nn_boost:.1f}pt → "
+                        f"conf={signal.confidence:.1f}% "
+                        f"(win_prob={nn_win_prob:.0%} σ={nn_uncertainty:.2f})"
+                    )
+                else:
+                    self.logger.debug(
+                        f"🧠 NN pass [{symbol}]: win_prob={nn_win_prob:.0%} "
+                        f"σ={nn_uncertainty:.2f} "
+                        f"thresh={_opt_thresh:.3f} acc={_nn_accuracy:.1%}"
+                    )
+            except Exception as _nn_err:
+                self.logger.debug(f"NN gate skipped: {_nn_err}")
+
+        if self.bm25_memory is not None:
+            try:
+                _sit = (
+                    f"symbol={symbol} action={signal.action} "
+                    f"rsi={getattr(signal, 'rsi', 50):.0f} "
+                    f"vol_ratio={getattr(signal, 'volume_ratio', 1.0):.2f} "
+                    f"consensus={getattr(signal, 'swarm_consensus', 0):.2f} "
+                    f"confidence={signal.confidence:.1f}"
+                )
+                _bm25_adj = self.bm25_memory.get_confidence_adjustment(
+                    _sit, signal.action
+                )
+                if abs(_bm25_adj) >= 2.0:
+                    signal.confidence = max(0, min(100,
+                        signal.confidence + _bm25_adj
+                    ))
+                    self.logger.debug(
+                        f"🧠 BM25 memory adj {_bm25_adj:+.1f}pt → "
+                        f"conf={signal.confidence:.1f}%"
+                    )
+            except Exception as _bm25_err:
+                self.logger.debug(f"BM25 query skipped: {_bm25_err}")
+
         # ── Phase 2: Atomic gate — lock held for milliseconds only ────────────
         # Two coroutines that both passed the initial pre-check cannot both send
         # for the same symbol: the loser of the lock race re-checks can_send_signal
         # and finds the per-symbol cooldown already taken.
+        # Lock now held for <5ms: IRONS check + final threshold + send setup only.
+        # NN inference and BM25 query run OUTSIDE the lock (see above).
         async with self._signal_gate_lock:
             # Re-check inside lock: another coroutine may have sent while we boosted
             if not self.can_send_signal(symbol, action=signal.action, swarm_consensus=_sig_consensus):
                 return False
 
             try:
-                # ── Neural network signal gate ────────────────────────────────
-                # MLP trained on past resolved outcomes (NeuralSignalTrainer).
-                # Once ≥20 labeled trades exist and accuracy ≥ 55%:
-                #
-                # FIX 5: Thresholds are now computed from validation data
-                #   (Youden's J = max TPR+TNR-1) instead of hardcoded 0.40/0.70.
-                #   _reject_threshold = opt_thresh - 0.10 (reject below this)
-                #   _boost_threshold  = opt_thresh + 0.10 (boost above this)
-                #
-                # FIX 6: MC-Dropout (20 stochastic passes) provides calibrated
-                #   uncertainty.  High uncertainty (std > 0.15) + borderline
-                #   probability → reject conservatively to avoid overconfident
-                #   predictions from a single deterministic forward pass.
-                #
-                # Loss-pattern danger zones apply an additional penalty inside
-                # predict_signal_with_uncertainty().
-                _nn_accuracy = getattr(self.nn_trainer, "last_accuracy", 0.0) if self.nn_trainer else 0.0
-                if self.nn_trainer and getattr(self.nn_trainer, "trained", False) and _nn_accuracy >= 0.55:
-                    try:
-                        # FIX 6: MC-Dropout prediction with uncertainty
-                        nn_win_prob, nn_uncertainty = (
-                            self.nn_trainer.predict_signal_with_uncertainty(
-                                signal, _local_bb_position
-                            )
-                        )
-
-                        # Read data-driven thresholds (FIX 5)
-                        # Default 0.38 — ensures NN gate enforces positive-EV discipline
-                        # even before the first training run computes Youden's J
-                        # (breakeven at 1.55:1 R:R ≈ 39.2%; 0.38 gives slight tolerance).
-                        _reject_thresh = getattr(self.nn_trainer, "_reject_threshold", 0.38)
-                        _boost_thresh  = getattr(self.nn_trainer, "_boost_threshold",  0.70)
-                        _opt_thresh    = getattr(self.nn_trainer, "_opt_threshold",     0.50)
-
-                        # FIX 6: High-uncertainty borderline signals → reject conservatively.
-                        # If std > 0.15 and probability is within ±0.08 of reject threshold,
-                        # the model is too uncertain to be trusted — skip the signal.
-                        _high_uncertainty = nn_uncertainty > 0.15
-                        _borderline       = abs(nn_win_prob - _reject_thresh) < 0.08
-
-                        n_danger = len(getattr(
-                            getattr(self.nn_trainer, "loss_analyzer", None),
-                            "danger_zones", []
-                        ))
-
-                        # ── CONSENSUS OVERRIDE (FIX 7) ─────────────────────────────────
-                        # When ALL (or nearly all) swarm agents unanimously agree, the
-                        # collective intelligence of 10 independent agents outweighs the
-                        # NN gate — which was trained on limited historical data (200
-                        # samples, 54.5% win-rate split).  A 10/10 unanimous swarm with
-                        # ≥90% weighted consensus is the highest-quality signal the bot
-                        # can generate.  NN still applies soft penalty/boost, but the
-                        # hard-reject is bypassed.
-                        #
-                        # Thresholds:
-                        #   consensus ≥ 0.90 AND participation ≥ 7/10 → bypass hard-reject
-                        #   consensus ≥ 0.95 AND participation = 10/10 → bypass all NN filters
-                        _swarm_consensus = signal.swarm_consensus        # 0..1
-                        _participation   = getattr(signal, "participation_rate", 0.0)  # 0..1
-                        _is_unanimous    = _swarm_consensus >= 0.95 and _participation >= (8/10)
-                        _is_strong       = _swarm_consensus >= 0.85 and _participation >= (7/10)
-
-                        # ── ABSOLUTE FLOOR + UNCERTAINTY OVERRIDE ──────────────────
-                        # Absolute floor: reject when NN gives < 25% win probability.
-                        #
-                        # EXCEPTION — Unanimous + High-Uncertainty Override:
-                        # When the swarm is unanimous (≥95%, ≥8/10 agents) AND the NN
-                        # model itself has high uncertainty (σ ≥ 0.15), the model is
-                        # operating outside its training distribution (e.g., extreme fear
-                        # regime with few historical examples).  In this case, the 10-agent
-                        # real-time swarm consensus is more reliable than the NN's
-                        # extrapolation.  Apply the standard override penalty (capped at
-                        # 10pt) and proceed; NN boost/soft paths are skipped below.
-                        _high_model_uncertainty = nn_uncertainty >= 0.15
-                        if nn_win_prob < 0.25:
-                            if _is_unanimous and _high_model_uncertainty:
-                                # Unanimous swarm + NN uncertain about its prediction:
-                                # override the absolute floor and apply a moderate penalty.
-                                _unc_penalty = min(
-                                    (_reject_thresh - max(nn_win_prob, 0.05)) * 22.0, 10.0
-                                )
-                                signal.confidence = max(0.0, signal.confidence - _unc_penalty)
-                                self.logger.info(
-                                    f"🧠 NN unc-override [{symbol}] {signal.action}: "
-                                    f"win_prob={nn_win_prob:.0%} σ={nn_uncertainty:.2f} "
-                                    f"(model in unknown regime) | unanimous → "
-                                    f"penalty -{_unc_penalty:.1f}pt → conf={signal.confidence:.1f}%"
-                                )
-                                # Skip further NN path (boost/penalty handled above)
-                            else:
-                                self.logger.info(
-                                    f"🧠 NN ABSOLUTE REJECT [{symbol}] {signal.action}: "
-                                    f"win_prob={nn_win_prob:.0%} < 25% absolute minimum "
-                                    f"| σ={nn_uncertainty:.2f} danger_zones={n_danger} "
-                                    f"consensus={_swarm_consensus:.0%}"
-                                )
-                                return False
-
-                        elif _is_unanimous and nn_win_prob >= 0.28 and not (_high_uncertainty and nn_uncertainty > 0.20):
-                            # Unanimous swarm bypass: 10-agent 100% consensus outweighs NN.
-                            # Requires win_prob ≥ 28% (raised from 0.25 to match new absolute floor).
-                            _override_penalty = max(0.0, (_reject_thresh - nn_win_prob) * 25.0)
-                            _override_penalty = min(_override_penalty, 12.0)
-                            signal.confidence = max(60.0, signal.confidence - _override_penalty)
-                            self.logger.info(
-                                f"🧠 NN override UNANIMOUS [{symbol}] {signal.action}: "
-                                f"consensus={_swarm_consensus:.0%} part={_participation:.0%} "
-                                f"→ bypassing NN hard-reject (win_prob={nn_win_prob:.0%} "
-                                f"σ={nn_uncertainty:.2f}) penalty={_override_penalty:.1f}pt"
-                            )
-                        else:
-                            # Hard reject: win_prob far below reject threshold.
-                            # Non-strong gap tightened 0.05→0.02: signals must be within
-                            # 2pp of reject_thresh to qualify for soft penalty path.
-                            # With reject_thresh=0.36: hard-reject if win_prob < 0.34.
-                            _far_below = nn_win_prob < (_reject_thresh - 0.02)
-
-                            # For strong (but not unanimous) signals: slightly wider gap.
-                            # Hard-reject if win_prob < reject_thresh - 0.07 (was 0.10).
-                            if _is_strong:
-                                _far_below = nn_win_prob < (_reject_thresh - 0.07)
-
-                            if _far_below or (_high_uncertainty and _borderline and not _is_strong):
-                                reject_reason = (
-                                    f"high_uncertainty (σ={nn_uncertainty:.2f}) + borderline"
-                                    if (_high_uncertainty and _borderline)
-                                    else f"win_prob={nn_win_prob:.0%} << reject_thresh={_reject_thresh:.0%}"
-                                )
-                                self.logger.info(
-                                    f"🧠 NN gate REJECTED [{symbol}] {signal.action}: "
-                                    f"{reject_reason} | danger_zones={n_danger}"
-                                )
-                                return False
-
-                        if not _is_unanimous and nn_win_prob < _reject_thresh:
-                            # Borderline (win_prob just below reject_thresh) — apply a
-                            # confidence penalty proportional to the deficit.
-                            # Multiplier raised 200→300 and cap 10pt→15pt — borderline
-                            # signals face a meaningful hurdle (e.g. 2pp gap = -6pt,
-                            # 5pp gap = -15pt cap).  This prevents weak signals from
-                            # sneaking through on boosts alone.
-                            penalty = (_reject_thresh - nn_win_prob) * 300.0
-                            penalty = min(penalty, 15.0)
-                            signal.confidence = max(0.0, signal.confidence - penalty)
-                            self.logger.info(
-                                f"🧠 NN soft penalty [{symbol}] {signal.action}: "
-                                f"-{penalty:.1f}pt → conf={signal.confidence:.1f}% "
-                                f"(win_prob={nn_win_prob:.0%} borderline reject_thresh={_reject_thresh:.0%} "
-                                f"danger_zones={n_danger})"
-                            )
-                        elif nn_win_prob >= _boost_thresh and not _high_uncertainty:
-                            # Only boost when model is BOTH confident AND certain
-                            nn_boost = min((nn_win_prob - _boost_thresh) * 16.7, 5.0)
-                            signal.confidence = min(100.0, signal.confidence + nn_boost)
-                            self.logger.debug(
-                                f"🧠 NN boost +{nn_boost:.1f}pt → "
-                                f"conf={signal.confidence:.1f}% "
-                                f"(win_prob={nn_win_prob:.0%} σ={nn_uncertainty:.2f})"
-                            )
-                        else:
-                            self.logger.debug(
-                                f"🧠 NN pass [{symbol}]: win_prob={nn_win_prob:.0%} "
-                                f"σ={nn_uncertainty:.2f} "
-                                f"thresh={_opt_thresh:.3f} acc={_nn_accuracy:.1%}"
-                            )
-                    except Exception as _nn_err:
-                        self.logger.debug(f"NN gate skipped: {_nn_err}")
-
-                if self.bm25_memory is not None:
-                    try:
-                        _sit = (
-                            f"symbol={symbol} action={signal.action} "
-                            f"rsi={getattr(signal, 'rsi', 50):.0f} "
-                            f"vol_ratio={getattr(signal, 'volume_ratio', 1.0):.2f} "
-                            f"consensus={getattr(signal, 'swarm_consensus', 0):.2f} "
-                            f"confidence={signal.confidence:.1f}"
-                        )
-                        _bm25_adj = self.bm25_memory.get_confidence_adjustment(
-                            _sit, signal.action
-                        )
-                        if abs(_bm25_adj) >= 2.0:
-                            signal.confidence = max(0, min(100,
-                                signal.confidence + _bm25_adj
-                            ))
-                            self.logger.debug(
-                                f"🧠 BM25 memory adj {_bm25_adj:+.1f}pt → "
-                                f"conf={signal.confidence:.1f}%"
-                            )
-                    except Exception as _bm25_err:
-                        self.logger.debug(f"BM25 query skipped: {_bm25_err}")
-
                 # ── IRONS score quality gate ──
                 # Reject signals where the comprehensive 25-indicator IRONS panel
                 # scores below 65/100 — these lack sufficient indicator alignment.
