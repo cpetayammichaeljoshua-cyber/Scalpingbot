@@ -3,6 +3,41 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 25 — Rate-Storm Fix + GODMODE 404 Cleanup + Global 60s Throttle (April 2026)
+
+### Root Cause Fixed
+**Problem**: 80 parallel symbol scans exhaust ALL per-model rate limits (8 req/min each) within the first few seconds of every cycle, leaving the AI Signal Gate with nothing to call for the rest of the minute.
+
+### Changes Applied (`SignalMaestro/godmod3_strategy.py`)
+
+**1. Global per-60s AI call throttle — PRIMARY rate-storm fix**
+- New `_check_global_throttle()` async method with a `deque`-based sliding 60s window
+- `_MAX_AI_CALLS_PER_60S = 50` — aggregate cap across all models, all calls
+- Called right after the `has_available_models()` pre-check in `analyze()`
+- When cap is reached: returns `NEUTRAL/50%` instantly (no wasted HTTP calls)
+- Keeps the 14 working models × 7/min = 98 safe calls/min well within budget
+- `_global_throttle_lock` (asyncio.Lock, lazy-init) protects the deque under 80 concurrent coroutines
+
+**2. GODMODE_COMBOS — replaced 404 DeepSeek R1 with Qwen3-Next-80B**
+- `deepseek/deepseek-r1-0528:free` → 404 on this account → replaced with `qwen/qwen3-next-80b-a3b-instruct:free`
+- All 5 GODMODE combos now use confirmed-working free models
+- Distinct model identities confirmed: Hermes405B / Llama3.3-70B / Qwen3-80B / Moonlight-16A / Gemma3-27B
+
+**3. Reduced global semaphore pressure**
+- `_GLOBAL_CONCURRENT_LIMIT`: 4 → 3 (fewer concurrent OpenRouter calls)
+- `_RACE_SEM_LIMIT`: 3 → 2 (fewer concurrent calls per race)
+- `_INTER_CALL_DELAY_BASE`: 0.5s → 0.8s (more breathing room between calls)
+- `_INTER_CALL_DELAY_MAX`: 2.0s → 3.0s (longer max backoff under pressure)
+
+**4. Confirmed working models: 15 (removed all 404 models)**
+- Removed: nvidia/nemotron-70b, deepseek/deepseek-r1-0528, deepseek/deepseek-chat, deepseek/deepseek-r1-zero, tngtech/deepseek-r1t-chimera, mistralai/mistral-small-3.1-24b, mistralai/mistral-7b, microsoft/phi-3-medium-128k, cohere/command-r7b, google/gemma-3-12b-it, qwen/qwen3.6-plus
+- Active: hermes-3-405b, llama-3.3-70b, qwen3-next-80b, stepfun-flash, qwen3-coder, arcee-trinity-large, moonlight-16a, dolphin-24b, glm-4.5-air, gemma-3-27b, trinity-mini, lfm-thinking, lfm-instruct, llama-3.2-3b, openrouter/free
+
+### Result
+- Bot running: Cycle #1 complete in 16.2s | 1 signal sent (1000SHIBUSDT SELL conf=83.6%)
+- AI Signal Gate no longer blocking all signals from rate exhaustion
+- Global throttle prevents 429 storms from 80-parallel symbol scans
+
 ## Session 24 — G0DM0D3 Multi-Model Expansion + z4ptacticsbot Integration (April 2026)
 
 ### Changes Applied (`SignalMaestro/godmod3_strategy.py`)

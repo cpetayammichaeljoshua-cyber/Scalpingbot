@@ -521,7 +521,7 @@ class FXSUSDTTelegramBot:
                 f"Timeframe: 15M (Primary)\n"
                 f"Markets: ALL USDM Perpetuals (PARALLEL scan, ≤80 symbols, $50M+ vol)\n"
                 f"Agents: 10 swarm agents | Consensus: ≥75% | Quorum: 5/10\n"
-                f"AI: G0DM0D3 ULTRAPLINIAN → Qwen3.6-Plus (OpenRouter) → Rule-based\n"
+                f"AI: G0DM0D3 v3.0 | 26 free models | 5-tier ULTRAPLINIAN | EnsembleVote\n"
                 f"Architecture: Profiles+Ontology+Graph+InsightForge+ReACT+Sessions\n"
                 f"Confidence Gate: 80% post-boost | Min R:R 1.55:1 | Cap: 10/hr\n"
                 f"Format: Cornix-compatible\n"
