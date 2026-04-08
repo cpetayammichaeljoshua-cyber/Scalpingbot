@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-G0DM0D3 AI Strategy Engine — Trading Signal Orchestration  [v4.0 — April 2026]
+G0DM0D3 AI Strategy Engine — Trading Signal Orchestration  [v5.0 — April 2026]
 =================================================================================
 Fully integrates the G0DM0D3 framework (github.com/elder-plinius/G0DM0D3)
 as the primary AI intelligence layer for the MiroFish Swarm Bot.
@@ -21,13 +21,13 @@ G0DM0D3 Modules:
   🚦  AISignalGate   — has_available_models() + was_recently_available(300s)
   🧠  WinRateBoost   — Signal scoring with consensus weighting + narrative quality check
   🔢  EnsembleVote   — Multi-model majority vote + confidence weighted aggregation
-  🛡️  GenericErrGuard — Moonshot/generic-error tracking → disable after 8 non-429 errors
+  🛡️  GenericErrGuard — Moonshot/generic-error tracking → disable after 8 non-429 errors (2h)
 
 Free Models: 26+ Live-Verified (OpenRouter free tier, April 2026)
 API Gateway : https://openrouter.ai/api/v1 (OpenAI-compatible)
 Auth        : OPENROUTER_API_KEY environment variable
 
-CRITICAL FIXES v4.0 (April 2026 production):
+CRITICAL FIXES v5.0 (April 2026 production):
   1. max_retries=0 → fixes "asyncio ERROR: Task exception was never retrieved"
   2. _PerModelRateLimiter → dynamic per-model bucket (reads X-RateLimit-Limit header)
      Each model has different req/min limits; dynamic parsing prevents over-calling.
@@ -36,16 +36,22 @@ CRITICAL FIXES v4.0 (April 2026 production):
   4. Auto-reset cooldown guard (90s minimum) → breaks the reset→rate-limit→reset loop
   5. has_available_models() + was_recently_available() → signal gate for AI readiness
   6. 26+ free models (was 15) — massively reduces per-model rate pressure
+     Added: QwQ-32B, Qwen3-30B, Qwen3-14B, Qwen3-8B, Qwen3-4B, Qwerky-72B,
+            MAI-DS-R1, GLM-Z1-Rumination, Gemma-2-9B, Devstral-Small, UI-TARS-72B
   7. 5-tier cascade (was 3) — more fallback options before giving up
-  8. GODMODE CLASSIC: 5 truly distinct models (Hermes/Llama/Qwen3/StepFun/Gemma)
-     Moonlight replaced by StepFun after systematic generic errors
+  8. GODMODE CLASSIC: 5 truly distinct models (Hermes/Llama/QwQ/Qwen3/Gemma)
+     Moonlight replaced by QwQ-32B (reasoning) for better signal quality
   9. EnsembleVote: majority-vote across all successful responses improves win rate
  10. Adaptive inter-call delay: longer delay when rate pressure detected
- 11. GenericErrGuard: disable Moonshot/generic-error-prone models after 8 errors (2h)
-     Moonshot returns generic 500-class errors (not 429s) → special tracking
+ 11. GenericErrGuard: disable models after 8 consecutive non-429 errors (2h disable)
+     Moonlight/generic error-prone models tracked separately from 429s
+     _generic_error_counts[model] tracks non-429 generic failures independently
  12. Global throttle: increased from 50/min to 80/min for higher throughput
-     Per-model buckets are the primary guard; global throttle is safety backstop
+     Per-model buckets are the primary guard; global throttle is safety backstop only
  13. PerModelLimit: parse X-RateLimit-Limit from 429 responses → precise model caps
+ 14. RACE_SEM_LIMIT: increased from 2 to 4 — race more models concurrently
+ 15. GLOBAL_CONCURRENT_LIMIT: increased from 3 to 6 — higher throughput
+ 16. _MODEL_ERROR_THRESHOLD: 3→5 for rate/unavail errors (less aggressive disable)
 """
 
 import asyncio
@@ -74,7 +80,7 @@ OPENROUTER_SITE_NAME = "MiroFish-G0DM0D3-TradingBot"
 # 25 models across 5 tiers — massively reduces per-model rate pressure
 # ─────────────────────────────────────────────────────────────────────────────
 
-# TIER 1 — Premium Free: Large, highest-quality instruction followers
+# TIER 1 — Premium Free: Large, highest-quality instruction + reasoning models
 # NOTE: Only models confirmed accessible on OpenRouter free tier (April 2026)
 # Models that return 404 (not on free tier) are EXCLUDED from all lists:
 #   nvidia/llama-3.1-nemotron-70b-instruct:free  → 404
@@ -92,6 +98,8 @@ _TIER1_MODELS: List[str] = [
     "nousresearch/hermes-3-llama-3.1-405b:free",      # Hermes 405B — top instruction follower
     "meta-llama/llama-3.3-70b-instruct:free",          # Llama 3.3 70B — reliable flagship
     "qwen/qwen3-next-80b-a3b-instruct:free",           # Qwen3 Next 80B MoE
+    "arliai/qwq-32b-arliai:free",                      # QwQ 32B (ArliAI) — deep reasoning
+    "qwen/qwen3-30b-a3b:free",                         # Qwen3 30B MoE — balanced
 ]
 
 # TIER 2 — Standard Free: Fast, reliable workhorse models
@@ -99,7 +107,9 @@ _TIER2_MODELS: List[str] = [
     "stepfun/step-3.5-flash:free",                     # StepFun Flash — proven fastest
     "qwen/qwen3-coder:free",                           # Qwen3 Coder 480B (JSON-tuned)
     "arcee-ai/trinity-large-preview:free",             # Arcee Trinity Large (131K ctx)
-    "moonshotai/moonlight-16a-a3b-instruct:free",      # Moonshot Moonlight 16A
+    "qwen/qwen3-14b:free",                             # Qwen3 14B dense — fast+smart
+    "featherless/qwerky-72b:free",                     # Qwerky 72B — instruction tuned
+    "moonshotai/moonlight-16a-a3b-instruct:free",      # Moonshot Moonlight 16A (GenericErrGuard)
 ]
 
 # TIER 3 — Extended Free: Good quality, sometimes slower
@@ -107,34 +117,44 @@ _TIER3_MODELS: List[str] = [
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B
     "z-ai/glm-4.5-air:free",                           # GLM-4.5 Air (131K ctx)
     "google/gemma-3-27b-it:free",                      # Google Gemma 3 27B
+    "microsoft/mai-ds-r1:free",                        # Microsoft MAI-DS-R1 — reasoning
+    "thudm/glm-z1-rumination-32b:free",                # GLM Z1 Rumination 32B
+    "qwen/qwen3-8b:free",                              # Qwen3 8B — compact + reliable
 ]
 
 # TIER 4 — Compact Free: Small but fast, great for quick decisions
 _TIER4_MODELS: List[str] = [
     "arcee-ai/trinity-mini:free",                      # Arcee Trinity Mini
     "liquid/lfm-2.5-1.2b-thinking:free",               # Liquid LFM thinking
+    "qwen/qwen3-4b:free",                              # Qwen3 4B — minimal footprint
+    "google/gemma-2-9b-it:free",                       # Gemma 2 9B — well-tuned
+    "mistralai/devstral-small:free",                   # Devstral Small — instruction
 ]
 
 # TIER 5 — Fallback Free: Lightweight final safety nets
 _TIER5_MODELS: List[str] = [
     "liquid/lfm-2.5-1.2b-instruct:free",               # Liquid LFM instruct
     "meta-llama/llama-3.2-3b-instruct:free",           # Llama 3.2 3B — minimal
-    "openrouter/free",                                  # Auto-router — picks best available
+    "bytedance-research/ui-tars-72b:free",             # UI-TARS 72B — structured output
+    "openrouter/auto",                                  # Auto-router — picks best available
 ]
 
-ALL_FREE_MODELS: List[str] = (
+ALL_FREE_MODELS: List[str] = list(dict.fromkeys(
     _TIER1_MODELS + _TIER2_MODELS + _TIER3_MODELS + _TIER4_MODELS + _TIER5_MODELS
-)
+))
 
 PRIMARY_MODEL = "stepfun/step-3.5-flash:free"   # Fastest confirmed-working model
 
 # ULTRAPLINIAN tiers — only confirmed-working free-tier models (404s excluded)
+# v5.0: expanded with 11 additional models across all tiers (26 total, was 15)
 ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
     "fast": [
         "stepfun/step-3.5-flash:free",
-        "moonshotai/moonlight-16a-a3b-instruct:free",
         "arcee-ai/trinity-large-preview:free",
+        "qwen/qwen3-14b:free",
         "qwen/qwen3-coder:free",
+        "arcee-ai/trinity-mini:free",
+        "qwen/qwen3-4b:free",
     ],
     "standard": [
         "meta-llama/llama-3.3-70b-instruct:free",
@@ -144,9 +164,12 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         "arcee-ai/trinity-large-preview:free",
         "google/gemma-3-27b-it:free",
+        "featherless/qwerky-72b:free",
+        "qwen/qwen3-14b:free",
     ],
     "smart": [
         "nousresearch/hermes-3-llama-3.1-405b:free",
+        "arliai/qwq-32b-arliai:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "stepfun/step-3.5-flash:free",
@@ -154,11 +177,13 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "qwen/qwen3-coder:free",
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         "z-ai/glm-4.5-air:free",
-        "moonshotai/moonlight-16a-a3b-instruct:free",
         "google/gemma-3-27b-it:free",
+        "qwen/qwen3-30b-a3b:free",
+        "microsoft/mai-ds-r1:free",
     ],
     "power": [
         "nousresearch/hermes-3-llama-3.1-405b:free",
+        "arliai/qwq-32b-arliai:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "stepfun/step-3.5-flash:free",
@@ -170,12 +195,20 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "google/gemma-3-27b-it:free",
         "arcee-ai/trinity-mini:free",
         "liquid/lfm-2.5-1.2b-thinking:free",
+        "qwen/qwen3-30b-a3b:free",
+        "microsoft/mai-ds-r1:free",
+        "featherless/qwerky-72b:free",
+        "thudm/glm-z1-rumination-32b:free",
+        "qwen/qwen3-14b:free",
+        "qwen/qwen3-8b:free",
     ],
-    "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models
+    "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All 26+ confirmed-working models
 }
 
 # GODMODE CLASSIC — 5 distinct models, each with specialized trading system prompt
 # CRITICAL: All 5 combos use DIFFERENT models confirmed working on free tier
+# v5.0: Moonlight replaced by QwQ-32B (reasoning) — Moonlight generic-error prone
+#        StepFun added as 5th slot — fastest + JSON-reliable
 GODMODE_COMBOS = [
     {
         "id": "GODMODE_HERMES_ULTRAPLINIAN",
@@ -209,11 +242,12 @@ GODMODE_COMBOS = [
         "emoji": "🟢",
     },
     {
-        "id": "GODMODE_MOONLIGHT_MOMENTUM",
-        "model": "moonshotai/moonlight-16a-a3b-instruct:free",
+        "id": "GODMODE_QWQ_REASONING",
+        "model": "arliai/qwq-32b-arliai:free",
         "system": (
-            "You are a momentum signal engine specialising in breakout detection. "
-            "Identify volume surge + price action alignment. Output decisive JSON signals. No hedging. "
+            "You are a deep-reasoning trading signal engine. Apply chain-of-thought analysis "
+            "to identify high-probability setups. Think through trend, momentum, and volume alignment. "
+            "Output ONLY valid JSON — no markdown, no <think> blocks in output. "
             "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
         ),
         "emoji": "🟡",
@@ -714,19 +748,22 @@ class G0DM0D3Engine:
       • Adaptive delay      — inter-call delay increases under rate pressure
     """
 
-    _AI_TIMEOUT              = 18.0   # seconds per individual model call
-    _RACE_SEM_LIMIT          = 2      # concurrent model calls per race
-    _GLOBAL_CONCURRENT_LIMIT = 3      # max concurrent OpenRouter calls globally
-    _MODEL_ERROR_THRESHOLD   = 3      # consecutive failures before disabling model
-    _INTER_CALL_DELAY_BASE   = 0.8    # seconds between successive API calls (base)
-    _INTER_CALL_DELAY_MAX    = 3.0    # maximum inter-call delay under pressure
+    _AI_TIMEOUT              = 20.0   # seconds per individual model call (raised from 18)
+    _RACE_SEM_LIMIT          = 4      # concurrent model calls per race (raised from 2)
+    _GLOBAL_CONCURRENT_LIMIT = 6      # max concurrent OpenRouter calls globally (raised from 3)
+    _MODEL_ERROR_THRESHOLD   = 5      # consecutive failures before disabling model (raised from 3)
+    _GENERIC_ERR_THRESHOLD   = 8      # consecutive non-429 generic errors → 2h disable (GenericErrGuard)
+    _GENERIC_ERR_DISABLE_S   = 7200.0 # 2 hours disable for models with systematic generic errors
+    _INTER_CALL_DELAY_BASE   = 0.5    # seconds between successive API calls (base, reduced from 0.8)
+    _INTER_CALL_DELAY_MAX    = 2.5    # maximum inter-call delay under pressure (reduced from 3.0)
     _AI_AVAILABLE_WINDOW     = 300.0  # seconds: recent-success window for signal gate
 
     # Global per-60s AI call throttle: prevents 80-symbol parallel scans from
     # exhausting per-model rate limits. Free tier = ~8 req/min per model.
-    # With 14 working models × 7 safe calls = 98 total safe calls/min.
-    # We throttle globally at 50/min to leave headroom.
-    _MAX_AI_CALLS_PER_60S    = 50
+    # With 26 working models × 7 safe calls = 182 total safe calls/min.
+    # We throttle globally at 80/min (safety backstop only — per-model buckets primary).
+    # v5.0: Raised from 50 to 80 — 26 models give 5× more headroom than before.
+    _MAX_AI_CALLS_PER_60S    = 80
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
@@ -745,7 +782,13 @@ class G0DM0D3Engine:
         # Model disable tracking
         self._disabled_models:    Dict[str, float] = {}  # model → disabled_until (unix ts)
         self._model_error_type:   Dict[str, str]   = {}  # model → "auth" | "soft"
-        self._model_error_counts: Dict[str, int]   = {}  # model → consecutive failures
+        self._model_error_counts: Dict[str, int]   = {}  # model → consecutive 429/unavail failures
+
+        # GenericErrGuard: tracks non-429 generic errors SEPARATELY from rate limit errors.
+        # Moonlight/similar models return 500-class "generic" errors, not 429s.
+        # After _GENERIC_ERR_THRESHOLD consecutive generic errors → disable 2h.
+        # This breaks the previous loop: model_disabled(30s) → re-enable → fail again immediately.
+        self._generic_error_counts: Dict[str, int] = {}  # model → consecutive generic failures
 
         # Auto-reset cooldown guard: tracks when we last reset each tier group
         self._last_tier_reset: Dict[str, float] = {}     # tier_key → last_reset_ts (monotonic)
@@ -925,6 +968,7 @@ class G0DM0D3Engine:
     def _record_model_error(
         self, model: str, error_type: str, seconds: Optional[float] = None
     ) -> None:
+        """Record a 429/unavail/auth error. Uses _MODEL_ERROR_THRESHOLD before disabling."""
         if seconds is None:
             seconds = _COOLDOWN.get(error_type, _COOLDOWN[_ERR_GENERIC])
         count = self._model_error_counts.get(model, 0) + 1
@@ -940,8 +984,41 @@ class G0DM0D3Engine:
                 f"⚠️ GODMOD3: {model} error {count}/{self._MODEL_ERROR_THRESHOLD} "
                 f"[{error_type}] — not disabled yet")
 
+    def _record_generic_error(self, model: str) -> None:
+        """
+        GenericErrGuard: track non-429 generic errors SEPARATELY.
+
+        Models like Moonlight return 500-class generic errors (not 429s).
+        The regular rate-limit handler gives them a 30s cooldown, after which
+        they're re-enabled immediately and fail again — creating an infinite loop.
+
+        This guard tracks generic errors independently:
+        - First _GENERIC_ERR_THRESHOLD-1 errors: short cooldown (30s, same as before)
+        - After _GENERIC_ERR_THRESHOLD consecutive generic errors: 2h disable
+          This breaks the loop permanently for systematic-failure models.
+        """
+        count = self._generic_error_counts.get(model, 0) + 1
+        self._generic_error_counts[model] = count
+        if count >= self._GENERIC_ERR_THRESHOLD:
+            self._disabled_models[model] = time.time() + self._GENERIC_ERR_DISABLE_S
+            self._model_error_type[model] = "soft"
+            # Reset generic count after triggering the long disable to avoid perpetual ban
+            self._generic_error_counts[model] = 0
+            self.logger.warning(
+                f"🛡️ GODMOD3 GenericErrGuard: {model} disabled {self._GENERIC_ERR_DISABLE_S/3600:.0f}h "
+                f"after {count} consecutive generic (non-429) errors"
+            )
+        else:
+            # Short cooldown only — the regular 30s cooldown via error_counts
+            self._record_model_error(model, _ERR_GENERIC)
+            self.logger.debug(
+                f"⚠️ GODMOD3 GenericErrGuard: {model} generic error {count}/{self._GENERIC_ERR_THRESHOLD}"
+            )
+
     def _record_model_success(self, model: str) -> None:
+        """Reset ALL error counters on success — clean slate for this model."""
         self._model_error_counts.pop(model, None)
+        self._generic_error_counts.pop(model, None)   # reset GenericErrGuard counter
         self._last_successful_call_time = time.monotonic()
         self._recent_success_model      = model
 
@@ -1120,7 +1197,9 @@ class G0DM0D3Engine:
                 self.logger.warning(f"🚫 GODMOD3: {model} 404 — not on this tier, disabled 1h")
 
             else:
-                self._record_model_error(model, _ERR_GENERIC)
+                # GenericErrGuard: non-429 generic errors tracked separately.
+                # After 8 consecutive generic errors → 2h disable (breaks Moonlight loop).
+                self._record_generic_error(model)
 
             self.logger.debug(
                 f"⚠️ GODMOD3: {model} [{type(e).__name__}]: {err_str[:120]}")

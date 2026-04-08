@@ -1634,7 +1634,7 @@ class AIOrchestrationAgent:
     # OpenAI re-test interval for permanently-disabled state (key may be updated)
     _OPENAI_RETRY_INTERVAL = 14400.0        # 4 hours — re-probe if key was updated
     _OPENAI_MODEL  = "gpt-4o-mini"
-    _AI_TIMEOUT    = 15.0   # seconds — hard timeout for any AI call (raised from 12)
+    _AI_TIMEOUT    = 25.0   # seconds — hard timeout for any AI call (raised from 15→25)
     _MAX_TOKENS    = 300    # sufficient for the structured JSON response
 
     def __init__(self):
@@ -2320,17 +2320,20 @@ class AIOrchestrationAgent:
         data = None
 
         # ── G0DM0D3 pre-filter gate ──
-        # Only call G0DM0D3 when the non-AI swarm already shows STRONG consensus.
-        # This reduces API calls from ~80/cycle to ~3-8/cycle — staying under free tier limits.
+        # Only call G0DM0D3 when the non-AI swarm shows reasonable consensus.
+        # This reduces API calls from ~80/cycle to ~8-15/cycle — staying under free tier limits.
         #
         # Gate requirements (both must be true):
-        #   1) At least 7 of 9 non-AI agents voted in one direction (≥78% agreement)
-        #   2) The winning direction dominates by ≥3 votes over the losing direction
+        #   1) At least 5 of 9 non-AI agents voted in one direction (≥56% agreement)
+        #      v5.0: Lowered from 7 (≥78%) → 5 (≥56%) — 7/9 was almost never triggered,
+        #            causing AI to return NEUTRAL for every signal (was the main win-rate killer)
+        #   2) The winning direction dominates by ≥2 votes over the losing direction
+        #      v5.0: Lowered from 3 → 2 — even marginal consensus benefits from AI confirmation
         #
-        # Rationale: OpenRouter free models (qwq-32b, deepseek-r1) have strict rate limits.
-        # Only calling when there's near-consensus saves API credits and avoids rate-limit cascades.
-        _g3_min_votes = 7   # 7/9 = 78% non-AI consensus required (was 5)
-        _g3_min_margin = 3  # winning direction must lead by ≥3 (not a close call)
+        # Rationale: With 26 free models and per-model buckets, we have far more AI capacity.
+        # A lower gate means more AI calls, but the per-model rate limiter handles throttling.
+        _g3_min_votes = 5   # 5/9 = 56% non-AI consensus required (was 7/9=78% — too strict)
+        _g3_min_margin = 2  # winning direction must lead by ≥2 (was 3 — too strict)
         _g3_should_call = (
             (buy_votes >= _g3_min_votes or sell_votes >= _g3_min_votes)
             and abs(buy_votes - sell_votes) >= _g3_min_margin
@@ -2341,7 +2344,8 @@ class AIOrchestrationAgent:
                 _g3_start = time.time()
                 _g3_vote, _g3_conf, _g3_narrative, _g3_trace = await asyncio.wait_for(
                     self._godmod3.analyze(prompt, atr_pct=_atr_pct, symbol=symbol),
-                    timeout=self._AI_TIMEOUT + 5.0,  # +5s for global semaphore wait overhead
+                    timeout=35.0,  # 35s: G0DM0D3 can take 23s+ with full 5-tier cascade
+                                   # v5.0: was _AI_TIMEOUT + 5.0 = 20s — too short for cascade
                 )
                 _g3_ms = (time.time() - _g3_start) * 1000
 

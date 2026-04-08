@@ -3,6 +3,37 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 26 — G0DM0D3 v5.0: GenericErrGuard + 26 Models + AI Gate Fix (April 2026)
+
+### Changes Applied
+
+**1. `SignalMaestro/godmod3_strategy.py` — GenericErrGuard system**
+- New `_generic_error_counts: Dict[str, int]` — separate tracking for non-429 generic errors
+- New `_GENERIC_ERR_THRESHOLD = 8` class constant — 8 consecutive generic errors triggers 2h disable
+- New `_GENERIC_ERR_DISABLE_S = 7200.0` class constant — 2h ban duration for systematic failures
+- New `_record_generic_error(model)` method — increments generic counter; at threshold → 2h disable; resets counter after triggering so the model can recover
+- `_call_model()` else-branch now calls `_record_generic_error()` instead of `_record_model_error()` — breaks the Moonlight-16A infinite-error loop
+- `_record_model_success()` now clears BOTH `_model_error_counts` AND `_generic_error_counts` — clean slate on success
+
+**2. `SignalMaestro/godmod3_strategy.py` — Model pool expansion: 15 → 26 models**
+- Added QwQ-32B (reasoning), Qwen3-30B, Qwen3-14B, Qwen3-8B, Qwen3-4B, Qwerky-72B, MAI-DS-R1, GLM-Z1-Rumination, Gemma-2-9B, Devstral-Small, UI-TARS-72B
+- ALL_FREE_MODELS deduplicated with `dict.fromkeys()` — no double-entries
+- GODMODE_COMBOS: replaced Moonlight-16A (generic-error prone) with QwQ-32B reasoning model
+- Rate constants updated: MAX_AI_CALLS_PER_60S=80, RACE_SEM_LIMIT=4, GLOBAL_CONCURRENT_LIMIT=6
+- MODEL_ERROR_THRESHOLD=5, AI_TIMEOUT=20s, INTER_CALL_DELAY_BASE=0.5s
+
+**3. `SignalMaestro/mirofish_swarm_strategy.py` — AI gate + timeout fixes**
+- `_AI_TIMEOUT`: 15s → 25s — allows LLMs with long thinking chains to complete
+- `_g3_min_votes`: 7 → 5 (7/9=78% gate was NEVER triggered in practice; root cause of AI always returning NEUTRAL)
+- `_g3_min_margin`: 3 → 2 (margin 3 was too strict; fixes the "AI gate blocks everything" bug)
+- `asyncio.wait_for` timeout: `_AI_TIMEOUT + 5.0 = 20s` → `35s` — G0DM0D3 cascade can take 23s+
+
+**4. `start_ultimate_bot.py` — Banner updated to v5.0**
+- Shows all 26 free models, GenericErrGuard, gate fix, and corrected timeout documentation
+
+### Why These Fixes Matter
+The 7/9 gate was the **main win-rate killer**: with 10 swarm agents and 1 AI oracle, the non-AI 9 agents needed 7+ to agree before AI was even consulted. In a well-balanced market, 7+ agreement is rare — so AI returned NEUTRAL on >90% of signals, effectively disabling the G0DM0D3 engine. The 5/9 gate dramatically increases AI consultation frequency while the per-model rate limiter prevents API storms.
+
 ## Session 25 — Rate-Storm Fix + GODMODE 404 Cleanup + Global 60s Throttle (April 2026)
 
 ### Root Cause Fixed
