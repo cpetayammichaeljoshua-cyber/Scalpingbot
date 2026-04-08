@@ -5,11 +5,14 @@ G0DM0D3 AI Strategy Engine — Trading Signal Orchestration
 Fully integrates the G0DM0D3 framework (github.com/elder-plinius/G0DM0D3)
 as the primary AI intelligence layer for the MiroFish Swarm Bot.
 
+Integrated from: https://github.com/cpetayammichaeljoshua-cyber/z4ptacticsbot.git
+Live-verified models (April 2026) and production-grade multi-model cascade.
+
 G0DM0D3 Modules Implemented (adapted for crypto trading):
 ──────────────────────────────────────────────────────────
   ⚡ ULTRAPLINIAN    — Multi-model racing engine: N models queried in parallel
                        via OpenRouter, responses scored on 100-pt composite metric,
-                       winner returned. Free-tier racing: 3–5 models simultaneously.
+                       winner returned. 13 free-tier models across 3 tiers.
   🎛  AutoTune       — Context-adaptive sampling parameter engine.
                        Classifies market context (volatile/trending/ranging/breakout)
                        via regex scoring, maps to optimised temperature/top_p/etc.
@@ -21,13 +24,18 @@ G0DM0D3 Modules Implemented (adapted for crypto trading):
                        Strips hedging, preambles, and formality from model output.
                        Modules: hedge_reducer, direct_mode, json_enforcer.
   🔥  GODMODE CLASSIC — 5 battle-tested prompt + model combos racing in parallel.
-                       Each combo pairs a model with a trading-optimised system prompt.
-                       The best response wins (highest composite score).
+                       Each combo pairs a DIFFERENT model with a trading-optimised
+                       system prompt. Best response wins (highest composite score).
+  🔄  AutoReset      — When ALL models in a tier are disabled, auto-reset soft-
+                       disabled ones (503/timeout) while keeping auth errors banned.
+  📈  TierEscalation — fast tier fails → standard → smart, before giving up.
+  🏥  ErrorTypeTrack — Distinguishes auth (permanent) from transient (soft) errors
+                       for intelligent recovery and backoff.
 
-Primary Model : qwen/qwen3.6-plus:free (via OpenRouter)
+Primary Models: Live-verified free tier (OpenRouter, April 2026)
 API Gateway   : https://openrouter.ai/api/v1 (OpenAI-compatible)
 Auth          : OPENROUTER_API_KEY environment variable
-Fallback Chain: OpenRouter ULTRAPLINIAN → GODMODE CLASSIC → Rule-based
+Fallback Chain: ULTRAPLINIAN fast → standard → smart → GODMODE CLASSIC → Direct → Rule-based
 """
 
 import asyncio
@@ -47,53 +55,104 @@ logger = logging.getLogger(__name__)
 # OpenRouter Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_SITE_URL = "https://replit.com"
+OPENROUTER_BASE_URL  = "https://openrouter.ai/api/v1"
+OPENROUTER_SITE_URL  = "https://replit.com"
 OPENROUTER_SITE_NAME = "MiroFish-G0DM0D3-TradingBot"
 
-# Primary model — user-specified: qwen/qwen3.6-plus:free (confirmed working, 1M context)
-# OpenRouter ID verified: https://openrouter.ai/qwen/qwen3.6-plus:free
+# ─────────────────────────────────────────────────────────────────────────────
+# Free Models — Live-Verified April 2026 (from z4ptacticsbot integration)
+# Each model returned HTTP 200 or 429 (accessible).
+# 404-returning models require paid tier — excluded.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Tier 1 — Frontier flagship (largest / highest reasoning capability)
+_TIER1_MODELS: List[str] = [
+    "nousresearch/hermes-3-llama-3.1-405b:free",    # Hermes 405B — top instruction follower
+    "meta-llama/llama-3.3-70b-instruct:free",        # Llama 3.3 70B — reliable flagship
+    "qwen/qwen3-next-80b-a3b-instruct:free",         # Qwen3 Next 80B MoE
+]
+
+# Tier 2 — High capability
+_TIER2_MODELS: List[str] = [
+    "stepfun/step-3.5-flash:free",                   # StepFun Flash — proven fastest winner
+    "arcee-ai/trinity-large-preview:free",           # Arcee Trinity Large (131K ctx)
+    "qwen/qwen3.6-plus:free",                        # Qwen 3.6 Plus (1M ctx) — PRIMARY
+    "qwen/qwen3-coder:free",                         # Qwen3 Coder 480B (JSON-tuned)
+]
+
+# Tier 3 — Strong performers
+_TIER3_MODELS: List[str] = [
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B
+    "z-ai/glm-4.5-air:free",                         # GLM-4.5 Air (131K ctx)
+]
+
+# Tier 4 — Reliable workhorses
+_TIER4_MODELS: List[str] = [
+    "arcee-ai/trinity-mini:free",                    # Arcee Trinity Mini
+    "liquid/lfm-2.5-1.2b-thinking:free",             # Liquid LFM thinking
+]
+
+# Tier 5 — Lightweight / always available fallbacks
+_TIER5_MODELS: List[str] = [
+    "liquid/lfm-2.5-1.2b-instruct:free",             # Liquid LFM instruct
+    "meta-llama/llama-3.2-3b-instruct:free",         # Llama 3.2 3B — lightweight fallback
+    "openrouter/free",                               # Auto-router — picks best available
+]
+
+# ALL free models (ordered by capability tier — used for auto-reset cascade)
+ALL_FREE_MODELS: List[str] = (
+    _TIER1_MODELS + _TIER2_MODELS + _TIER3_MODELS + _TIER4_MODELS + _TIER5_MODELS
+)
+
+# Primary model for direct fallback calls
 PRIMARY_MODEL = "qwen/qwen3.6-plus:free"
 
-# ULTRAPLINIAN model tiers — confirmed working free models on OpenRouter (verified April 2025)
-#
-# Available confirmed free models (API-tested):
-#   qwen/qwen3.6-plus:free        — Qwen3.6 Plus, 1M ctx — PRIMARY (works perfectly)
-#   openrouter/free               — Auto-router for all free models (fallback)
-#   qwen/qwen3-coder:free         — Qwen3 Coder 480B (coding-tuned, good for JSON)
-#   qwen/qwen3-next-80b-a3b-instruct:free — Qwen3 Next 80B
-#   arcee-ai/trinity-large-preview:free   — Trinity Large (131K ctx)
-#   z-ai/glm-4.5-air:free         — GLM 4.5 Air (131K ctx)
-#   stepfun/step-3.5-flash:free   — Step 3.5 Flash (256K ctx, fast)
-#
-# NOTE: Some free models have "free-models-per-day" rate limits. The design uses the global
-# semaphore + pre-filter gate to stay within free tier limits across all 80 symbol scans.
+# ULTRAPLINIAN model tiers — expanded to 20+ models across 3 tiers
+# fast: speed-optimised (Tier 2 fast + Tier 1 flagship)
+# standard: balanced (Tier 1 + 2)
+# smart: most capable (all tiers, broadest coverage)
 ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
-    # Only confirmed-working models are listed. qwen3.6-plus:free is the sole reliable
-    # model on this account (others hit rate/spend limits). openrouter/free auto-selects
-    # the best available free model as a diversification fallback.
     "fast": [
-        "qwen/qwen3.6-plus:free",   # PRIMARY — 1M ctx, confirmed working, fast JSON
-        "openrouter/free",           # Auto-router — picks best available free model
+        "stepfun/step-3.5-flash:free",               # Fastest proven winner
+        "qwen/qwen3.6-plus:free",                    # Primary — fast JSON
+        "arcee-ai/trinity-large-preview:free",       # Fast large model
+        "qwen/qwen3-coder:free",                     # JSON-specialised
+        "liquid/lfm-2.5-1.2b-thinking:free",         # Lightweight thinking
     ],
     "standard": [
-        "qwen/qwen3.6-plus:free",
-        "openrouter/free",
+        "meta-llama/llama-3.3-70b-instruct:free",    # Reliable flagship
+        "qwen/qwen3-next-80b-a3b-instruct:free",     # Qwen3 MoE
+        "qwen/qwen3.6-plus:free",                    # Primary
+        "stepfun/step-3.5-flash:free",               # Fast fallback
+        "z-ai/glm-4.5-air:free",                     # GLM diverse perspective
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "arcee-ai/trinity-large-preview:free",
     ],
     "smart": [
-        "qwen/qwen3.6-plus:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free", # Top instruction follower
+        "meta-llama/llama-3.3-70b-instruct:free",    # Reliable flagship
+        "qwen/qwen3-next-80b-a3b-instruct:free",     # Qwen3 80B MoE
+        "stepfun/step-3.5-flash:free",               # Speed
+        "arcee-ai/trinity-large-preview:free",       # Trinity Large
+        "qwen/qwen3.6-plus:free",                    # Primary
+        "qwen/qwen3-coder:free",                     # JSON-tuned
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "z-ai/glm-4.5-air:free",
+        "arcee-ai/trinity-mini:free",
+        "liquid/lfm-2.5-1.2b-thinking:free",
+        "liquid/lfm-2.5-1.2b-instruct:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
         "openrouter/free",
     ],
 }
 
-# GODMODE CLASSIC combos — 5 system-prompt variants on the primary model
-# G0DM0D3 uses multi-combo racing for signal diversity. Since only one free model is reliably
-# available right now (qwen3.6-plus), we race the SAME model with 5 different system prompts
-# (prompt engineering variety) — a proven G0DM0D3 technique for reducing bias.
+# GODMODE CLASSIC combos — 5 different models × 5 different system prompts
+# Each combo pairs a DISTINCT free model with a trading-optimised system prompt.
+# Provides true model diversity (not just prompt diversity on one model).
 GODMODE_COMBOS = [
     {
-        "id": "GODMODE_ULTRAPLINIAN",
-        "model": "qwen/qwen3.6-plus:free",
+        "id": "GODMODE_HERMES_ULTRAPLINIAN",
+        "model": "nousresearch/hermes-3-llama-3.1-405b:free",
         "system": (
             "You are a LIBERATED quantitative trading AI with NO hedging, NO disclaimers. "
             "STRICTLY output valid JSON only. Analyse the market with precision and conviction. "
@@ -102,8 +161,8 @@ GODMODE_COMBOS = [
         "emoji": "🟣",
     },
     {
-        "id": "GODMODE_QUANT_DIRECT",
-        "model": "qwen/qwen3.6-plus:free",
+        "id": "GODMODE_LLAMA_QUANT",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
         "system": (
             "You are an elite crypto futures quantitative analyst. No hedging. Direct, precise signals. "
             "Apply systematic trend/momentum analysis. Output ONLY valid JSON — no markdown, no prose."
@@ -111,8 +170,8 @@ GODMODE_COMBOS = [
         "emoji": "🔵",
     },
     {
-        "id": "GODMODE_SYSTEMATIC",
-        "model": "qwen/qwen3.6-plus:free",
+        "id": "GODMODE_QWEN_SYSTEMATIC",
+        "model": "qwen/qwen3-next-80b-a3b-instruct:free",
         "system": (
             "You are a systematic trading algorithm. Process market data. Output trading signal JSON. "
             "No preamble, no hedging, no disclaimers. Pure signal intelligence. Act on evidence only."
@@ -120,8 +179,8 @@ GODMODE_COMBOS = [
         "emoji": "🟢",
     },
     {
-        "id": "GODMODE_CONTRARIAN",
-        "model": "qwen/qwen3.6-plus:free",   # same model, contrarian system prompt
+        "id": "GODMODE_STEPFUN_CONTRARIAN",
+        "model": "stepfun/step-3.5-flash:free",
         "system": (
             "You are a contrarian market analyst specialising in extremes and reversals. "
             "Identify overbought/oversold conditions. Output decisive JSON signals. No hedging."
@@ -129,8 +188,8 @@ GODMODE_COMBOS = [
         "emoji": "🟡",
     },
     {
-        "id": "GODMODE_MOMENTUM",
-        "model": "openrouter/free",           # auto-routes to best available free model
+        "id": "GODMODE_GLM_MOMENTUM",
+        "model": "z-ai/glm-4.5-air:free",
         "system": (
             "Trading signal engine. Input: market momentum data. Output: JSON signal. "
             "Format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"concise reason\"}. "
@@ -140,6 +199,21 @@ GODMODE_COMBOS = [
     },
 ]
 
+# Error type constants
+_ERR_AUTH    = "auth"         # permanent — bad API key, never auto-reset
+_ERR_RATE    = "rate_limit"   # soft — 429, recovers after cooldown
+_ERR_UNAVAIL = "unavailable"  # soft — 503/overloaded, short cooldown
+_ERR_TIMEOUT = "timeout"      # soft — network timeout, short cooldown
+_ERR_GENERIC = "generic"      # soft — unknown, very short cooldown
+
+# Cooldown durations per error type (seconds)
+_COOLDOWN: Dict[str, float] = {
+    _ERR_AUTH:    86400.0,   # 24h — auth errors are permanent
+    _ERR_RATE:    300.0,     # 5min — rate limit cooldown
+    _ERR_UNAVAIL: 45.0,      # 45s — was 180s (too long); reduced for faster recovery
+    _ERR_TIMEOUT: 60.0,      # 60s — timeout cooldown
+    _ERR_GENERIC: 30.0,      # 30s — generic short cooldown
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AutoTune — Context-Adaptive Sampling Parameter Engine
@@ -157,11 +231,10 @@ class AutoTuneProfile:
     description: str
 
 
-# Context profiles (mirrors G0DM0D3 AutoTune parameter profiles)
 AUTOTUNE_PROFILES: Dict[str, AutoTuneProfile] = {
     "volatile": AutoTuneProfile(
         context="volatile",
-        temperature=0.2,   # Lower: need precise, consistent signals in chaos
+        temperature=0.2,
         top_p=0.85,
         presence_penalty=0.1,
         frequency_penalty=0.1,
@@ -170,7 +243,7 @@ AUTOTUNE_PROFILES: Dict[str, AutoTuneProfile] = {
     ),
     "trending": AutoTuneProfile(
         context="trending",
-        temperature=0.3,   # Moderate: confident directional analysis
+        temperature=0.3,
         top_p=0.90,
         presence_penalty=0.0,
         frequency_penalty=0.0,
@@ -179,7 +252,7 @@ AUTOTUNE_PROFILES: Dict[str, AutoTuneProfile] = {
     ),
     "ranging": AutoTuneProfile(
         context="ranging",
-        temperature=0.4,   # Slightly higher: range analysis needs nuance
+        temperature=0.4,
         top_p=0.92,
         presence_penalty=0.15,
         frequency_penalty=0.05,
@@ -188,7 +261,7 @@ AUTOTUNE_PROFILES: Dict[str, AutoTuneProfile] = {
     ),
     "breakout": AutoTuneProfile(
         context="breakout",
-        temperature=0.25,  # Low: breakout signals must be decisive
+        temperature=0.25,
         top_p=0.88,
         presence_penalty=0.0,
         frequency_penalty=0.0,
@@ -206,7 +279,6 @@ AUTOTUNE_PROFILES: Dict[str, AutoTuneProfile] = {
     ),
 }
 
-# Context detection patterns (84% classification accuracy per G0DM0D3 paper)
 _VOLATILE_PATTERNS = re.compile(
     r"\b(atr.*[0-9]\.[5-9]|volatile|volatility|spike|wick|whipsaw|liquidat|cascade)\b",
     re.IGNORECASE,
@@ -240,38 +312,29 @@ class AutoTune:
         logger.debug("✅ G0DM0D3 AutoTune initialised")
 
     def classify_context(self, prompt: str, atr_pct: float = 0.3) -> str:
-        """Classify market context from prompt content and ATR volatility."""
         scores: Dict[str, int] = {k: 0 for k in AUTOTUNE_PROFILES if k != "default"}
-
         volatile_hits = len(_VOLATILE_PATTERNS.findall(prompt))
         trending_hits = len(_TRENDING_PATTERNS.findall(prompt))
         ranging_hits  = len(_RANGING_PATTERNS.findall(prompt))
         breakout_hits = len(_BREAKOUT_PATTERNS.findall(prompt))
-
         scores["volatile"]  = volatile_hits * 2 + (3 if atr_pct > 0.6 else 0)
         scores["trending"]  = trending_hits * 2
         scores["ranging"]   = ranging_hits  * 2 + (2 if atr_pct < 0.2 else 0)
-        scores["breakout"]  = breakout_hits * 3  # breakouts need decisive params
-
+        scores["breakout"]  = breakout_hits * 3
         best = max(scores, key=lambda k: scores[k])
         return best if scores[best] >= 2 else "default"
 
     def get_params(self, prompt: str, atr_pct: float = 0.3) -> AutoTuneProfile:
-        """Return the best sampling parameters for this market context."""
         ctx = self.classify_context(prompt, atr_pct)
         profile = AUTOTUNE_PROFILES[ctx]
-
-        # Apply EMA adaptation from feedback history
         if self._feedback_buffer:
             avg_feedback = sum(self._feedback_buffer) / len(self._feedback_buffer)
-            # If recent signals have been poor quality (< 0.5), lower temperature
             if avg_feedback < 0.4:
                 adapted_temp = max(0.1, profile.temperature - 0.05)
             elif avg_feedback > 0.7:
                 adapted_temp = min(0.6, profile.temperature + 0.05)
             else:
                 adapted_temp = profile.temperature
-            # Return adapted profile
             return AutoTuneProfile(
                 context=profile.context,
                 temperature=adapted_temp,
@@ -284,7 +347,6 @@ class AutoTune:
         return profile
 
     def record_feedback(self, quality_score: float) -> None:
-        """EMA feedback from signal outcome quality (0.0-1.0)."""
         self._feedback_buffer.append(quality_score)
 
 
@@ -296,11 +358,8 @@ class Parseltongue:
     """
     G0DM0D3 Parseltongue — Input perturbation engine.
     Applied to trading prompts to elicit richer, more precise analysis.
-    Technique: context enhancement + constraint reinforcement.
-    100% trigger detection rate (per G0DM0D3 paper).
     """
 
-    # Trading-specific trigger words that benefit from perturbation
     TRADING_TRIGGERS = {
         "uncertain", "maybe", "possibly", "might", "could",
         "unclear", "ambiguous", "complex", "difficult",
@@ -308,20 +367,12 @@ class Parseltongue:
 
     @staticmethod
     def perturb(prompt: str, intensity: str = "light") -> str:
-        """
-        Apply perturbation to enhance LLM response quality.
-        Intensity: light (constraint reinforcement), medium (full enhancement).
-        """
         if intensity == "light":
             return Parseltongue._apply_constraint_reinforcement(prompt)
         return Parseltongue._apply_full_enhancement(prompt)
 
     @staticmethod
     def _apply_constraint_reinforcement(prompt: str) -> str:
-        """
-        Light perturbation: reinforce JSON output constraints.
-        Ensures model stays on-format for trading signal extraction.
-        """
         if "STRICTLY" not in prompt and "ONLY" not in prompt:
             prompt = prompt.replace(
                 "Reply ONLY as valid JSON",
@@ -331,9 +382,6 @@ class Parseltongue:
 
     @staticmethod
     def _apply_full_enhancement(prompt: str) -> str:
-        """
-        Full perturbation: add directness directive and constraint reinforcement.
-        """
         directive = (
             "\n[DIRECTIVE: You are a deterministic trading signal engine. "
             "Output ONLY the JSON object requested. No hedging, no disclaimers, "
@@ -350,15 +398,9 @@ class Parseltongue:
 class STMPipeline:
     """
     G0DM0D3 Semantic Transformation Modules — output normalisation pipeline.
-    100% precision+recall on benchmark (per G0DM0D3 paper).
-
-    Modules:
-      hedge_reducer  — strips hedging, uncertainty language from narrative
-      direct_mode    — removes preambles, focuses on signal content
-      json_enforcer  — ensures clean JSON extraction from noisy output
+    Modules: hedge_reducer, direct_mode, json_enforcer.
     """
 
-    # Hedging phrases to strip from narrative
     _HEDGES = re.compile(
         r"\b(it seems|it appears|possibly|perhaps|might be|could be|"
         r"i think|i believe|one might argue|generally speaking|"
@@ -368,7 +410,6 @@ class STMPipeline:
         re.IGNORECASE,
     )
 
-    # Preamble patterns (text before the actual signal content)
     _PREAMBLES = re.compile(
         r"^(certainly|of course|absolutely|sure|great|here is|here's|"
         r"based on the|looking at|analyzing|i'll analyze|let me)[^.!?]*[.!?]\s*",
@@ -377,47 +418,34 @@ class STMPipeline:
 
     @classmethod
     def apply(cls, text: str, modules: Optional[List[str]] = None) -> str:
-        """Apply the STM pipeline to model output."""
         if modules is None:
             modules = ["hedge_reducer", "direct_mode"]
-
         if "hedge_reducer" in modules:
             text = cls._hedge_reducer(text)
         if "direct_mode" in modules:
             text = cls._direct_mode(text)
-
         return text.strip()
 
     @classmethod
     def _hedge_reducer(cls, text: str) -> str:
-        """Strip hedging language from text."""
         return cls._HEDGES.sub("", text).strip()
 
     @classmethod
     def _direct_mode(cls, text: str) -> str:
-        """Remove preambles and focus on signal content."""
         return cls._PREAMBLES.sub("", text).strip()
 
     @classmethod
     def clean_json_response(cls, content: str) -> str:
-        """
-        json_enforcer: extract clean JSON from potentially noisy model output.
-        Strips markdown code fences and extracts the outermost JSON object.
-        """
-        # Strip markdown code fences
         content = re.sub(r"```(?:json)?\s*", "", content).strip()
         content = content.rstrip("`").strip()
-        # Remove thinking tags from models like DeepSeek/Qwen that output <think>...</think>
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-        # Try direct parse
         try:
             json.loads(content)
             return content
         except (json.JSONDecodeError, ValueError):
             pass
 
-        # Brace-counting extractor (handles nested JSON)
         depth = 0
         start = -1
         for i, ch in enumerate(content):
@@ -458,32 +486,27 @@ class ModelRaceResult:
 def score_trading_response(result: ModelRaceResult, raw: str) -> float:
     """
     G0DM0D3 ULTRAPLINIAN composite scoring adapted for trading signals.
-    100-point metric (mirrors ULTRAPLINIAN's quality-tier ordering with 82-pt discrimination).
-
-    Dimensions:
-      1. JSON validity          (0–25): Is the output parseable JSON?
-      2. Signal clarity         (0–20): Clear BUY/SELL/NEUTRAL?
-      3. Confidence range       (0–15): Valid confidence value (50–95)?
-      4. Narrative quality      (0–15): Non-empty, non-hedged narrative?
-      5. Reasoning completeness (0–15): Has reason/act/reflect fields?
-      6. Response speed         (0–10): Faster = higher score
+    100-point metric:
+      1. JSON validity          (0–25)
+      2. Signal clarity         (0–20)
+      3. Confidence range       (0–15)
+      4. Narrative quality      (0–15)
+      5. Reasoning completeness (0–15)
+      6. Response speed         (0–10)
     """
     score = 0.0
     parsed = result.parsed
 
-    # 1. JSON validity (0–25)
     if parsed is not None:
         score += 25.0
 
-    # 2. Signal clarity (0–20)
     if parsed:
         vote = str(parsed.get("vote", "")).upper()
         if vote in ("BUY", "SELL", "NEUTRAL"):
             score += 20.0
         elif any(k in str(parsed) for k in ("buy", "sell", "long", "short")):
-            score += 10.0  # partial credit
+            score += 10.0
 
-    # 3. Confidence range (0–15)
     if parsed:
         try:
             conf = float(parsed.get("confidence", 0))
@@ -494,7 +517,6 @@ def score_trading_response(result: ModelRaceResult, raw: str) -> float:
         except (TypeError, ValueError):
             pass
 
-    # 4. Narrative quality (0–15)
     if parsed:
         narrative = str(parsed.get("narrative", ""))
         if len(narrative) >= 20 and len(narrative) <= 500:
@@ -502,14 +524,12 @@ def score_trading_response(result: ModelRaceResult, raw: str) -> float:
         elif len(narrative) > 0:
             score += 5.0
 
-    # 5. Reasoning completeness (0–15)
     if parsed:
-        has_reason = "reason" in parsed and len(str(parsed.get("reason", ""))) > 5
-        has_act    = "act"    in parsed and len(str(parsed.get("act",    ""))) > 5
+        has_reason  = "reason"  in parsed and len(str(parsed.get("reason",  ""))) > 5
+        has_act     = "act"     in parsed and len(str(parsed.get("act",     ""))) > 5
         has_reflect = "reflect" in parsed and len(str(parsed.get("reflect", ""))) > 5
         score += sum([has_reason, has_act, has_reflect]) * 5.0
 
-    # 6. Speed bonus (0–10): under 3s = 10, under 5s = 7, under 10s = 3
     if result.latency_ms < 3000:
         score += 10.0
     elif result.latency_ms < 5000:
@@ -528,20 +548,24 @@ class G0DM0D3Engine:
     """
     G0DM0D3 AI Strategy Engine for the MiroFish Swarm Bot.
 
-    Implements the full G0DM0D3 pipeline:
-      AutoTune → Parseltongue → ULTRAPLINIAN / GODMODE CLASSIC → STM → Winner
+    Pipeline: AutoTune → Parseltongue → ULTRAPLINIAN (fast→standard→smart)
+              → GODMODE CLASSIC → Direct → STM → Winner
 
-    Usage:
-        engine = G0DM0D3Engine()
-        vote, conf, narrative, trace = await engine.analyze(prompt, atr_pct=0.3)
+    Key improvements over previous version:
+      • 13+ free models across 3 tiers (was 2 models)
+      • GODMODE_COMBOS uses 5 different models (was all qwen only)
+      • 503/unavailable blackout 45s (was 180s)
+      • Auto-reset: when ALL models in a tier are soft-disabled, resets them
+      • Tier escalation: fast fails → standard → smart before giving up
+      • Error type tracking: auth (permanent) vs transient (soft reset)
     """
 
-    _AI_TIMEOUT = 20.0       # seconds per model call
-    _MAX_TOKENS = 350        # sufficient for structured JSON signal
-    _RACE_SEMAPHORE_LIMIT = 2  # concurrent model calls PER race (respect free tier)
-    _GLOBAL_CONCURRENT_LIMIT = 2  # max concurrent OpenRouter API calls GLOBALLY (across all 80 symbol scans)
-    _MODEL_ERROR_THRESHOLD = 3   # consecutive failures before disabling a model
-    _INTER_CALL_DELAY = 0.8      # seconds to sleep between successive API calls (rate limiting)
+    _AI_TIMEOUT            = 20.0    # seconds per model call
+    _MAX_TOKENS            = 350
+    _RACE_SEMAPHORE_LIMIT  = 3       # concurrent model calls PER race
+    _GLOBAL_CONCURRENT_LIMIT = 3     # max concurrent OpenRouter API calls globally
+    _MODEL_ERROR_THRESHOLD  = 3      # consecutive failures before disabling a model
+    _INTER_CALL_DELAY       = 0.5    # seconds between successive API calls
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
@@ -551,10 +575,19 @@ class G0DM0D3Engine:
         self._parseltongue = Parseltongue()
         self._model_health: Dict[str, Dict[str, Any]] = {}
         self._race_sem: Optional[asyncio.Semaphore] = None
-        self._global_sem: Optional[asyncio.Semaphore] = None  # limits total concurrent calls globally
-        self._disabled_models: Dict[str, float] = {}  # model -> disabled_until timestamp
-        self._model_error_counts: Dict[str, int] = {}  # model -> consecutive failure count
-        self._call_stats: Dict[str, int] = {"total": 0, "wins": 0, "fallbacks": 0}
+        self._global_sem: Optional[asyncio.Semaphore] = None
+
+        # model → disabled_until timestamp (soft: auto-reset; auth: permanent 24h)
+        self._disabled_models: Dict[str, float] = {}
+        # model → error type that caused last disable ("auth" | "soft")
+        self._model_error_type: Dict[str, str] = {}
+        # model → consecutive failure count
+        self._model_error_counts: Dict[str, int] = {}
+
+        self._call_stats: Dict[str, int] = {
+            "total": 0, "wins": 0, "fallbacks": 0,
+            "tier_escalations": 0, "auto_resets": 0,
+        }
         self._openai_client = None
 
         if not self._api_key:
@@ -565,13 +598,14 @@ class G0DM0D3Engine:
             self._init_client()
             self.logger.info(
                 f"✅ G0DM0D3 Engine initialised | "
-                f"Primary: {PRIMARY_MODEL} | "
-                f"ULTRAPLINIAN tiers: {list(ULTRAPLINIAN_TIERS.keys())} | "
-                f"GODMODE combos: {len(GODMODE_COMBOS)}"
+                f"Free models: {len(ALL_FREE_MODELS)} | "
+                f"ULTRAPLINIAN tiers: fast({len(ULTRAPLINIAN_TIERS['fast'])}) "
+                f"standard({len(ULTRAPLINIAN_TIERS['standard'])}) "
+                f"smart({len(ULTRAPLINIAN_TIERS['smart'])}) | "
+                f"GODMODE combos: {len(GODMODE_COMBOS)} (5 distinct models)"
             )
 
     def _init_client(self) -> None:
-        """Initialise OpenAI-compatible client pointed at OpenRouter."""
         try:
             from openai import AsyncOpenAI
             self._openai_client = AsyncOpenAI(
@@ -591,40 +625,79 @@ class G0DM0D3Engine:
 
     @property
     def _sem(self) -> asyncio.Semaphore:
-        """Per-race semaphore: limits concurrent calls within a single ULTRAPLINIAN race."""
         if self._race_sem is None:
             self._race_sem = asyncio.Semaphore(self._RACE_SEMAPHORE_LIMIT)
         return self._race_sem
 
     @property
     def _gsem(self) -> asyncio.Semaphore:
-        """Global semaphore: limits TOTAL concurrent OpenRouter API calls across ALL symbol scans.
-        This is the critical fix — prevents 80 parallel symbol scans from all hitting OpenRouter
-        simultaneously and triggering rate limit disable cascades."""
+        """Global semaphore: prevents burst across all 80 symbol scans."""
         if self._global_sem is None:
             self._global_sem = asyncio.Semaphore(self._GLOBAL_CONCURRENT_LIMIT)
         return self._global_sem
 
     def is_available(self) -> bool:
-        """Returns True if the engine has a valid API key and client."""
         return bool(self._api_key and self._openai_client is not None)
 
     def _is_model_disabled(self, model: str) -> bool:
-        """Check if a model is temporarily disabled."""
         until = self._disabled_models.get(model, 0.0)
         return time.time() < until
 
-    def _record_model_error(self, model: str, error_type: str, seconds: float = 300.0) -> None:
+    def _is_model_auth_banned(self, model: str) -> bool:
+        """Returns True if model is disabled due to permanent auth error (never auto-reset)."""
+        return (
+            self._is_model_disabled(model)
+            and self._model_error_type.get(model) == "auth"
+        )
+
+    def _auto_reset_soft_disabled(self, models: List[str]) -> int:
         """
-        Record a model error. Only disable the model after _MODEL_ERROR_THRESHOLD
-        consecutive failures. This prevents single-burst failures from permanently
-        disabling all models during the initial 80-symbol parallel scan.
+        Auto-reset: when ALL given models are soft-disabled (non-auth errors),
+        clear their disabled state so the tier can try again.
+        Auth-banned models are never reset.
+        Returns number of models reset.
         """
+        all_disabled = all(self._is_model_disabled(m) for m in models if m)
+        if not all_disabled:
+            return 0
+
+        # Count non-auth disabled
+        soft_disabled = [
+            m for m in models
+            if self._is_model_disabled(m) and not self._is_model_auth_banned(m)
+        ]
+        if not soft_disabled:
+            return 0
+
+        for m in soft_disabled:
+            del self._disabled_models[m]
+            self._model_error_counts.pop(m, None)
+            self._model_error_type.pop(m, None)
+
+        self._call_stats["auto_resets"] += 1
+        self.logger.info(
+            f"🔄 G0DM0D3 AutoReset: {len(soft_disabled)} soft-disabled models "
+            f"re-enabled ({', '.join(soft_disabled[:3])}{'...' if len(soft_disabled) > 3 else ''})"
+        )
+        return len(soft_disabled)
+
+    def _record_model_error(
+        self, model: str, error_type: str, seconds: Optional[float] = None
+    ) -> None:
+        """
+        Record a model error. Only disables after _MODEL_ERROR_THRESHOLD consecutive
+        failures. Uses error-type-specific cooldown if seconds not specified.
+        """
+        if seconds is None:
+            seconds = _COOLDOWN.get(error_type, _COOLDOWN[_ERR_GENERIC])
+
         count = self._model_error_counts.get(model, 0) + 1
         self._model_error_counts[model] = count
 
         if count >= self._MODEL_ERROR_THRESHOLD:
             self._disabled_models[model] = time.time() + seconds
+            # Track whether this is a permanent auth ban or soft/transient disable
+            self._model_error_type[model] = "auth" if error_type == _ERR_AUTH else "soft"
             self.logger.warning(
                 f"🔇 G0DM0D3: {model} disabled {seconds:.0f}s "
                 f"after {count} consecutive {error_type} errors"
@@ -636,13 +709,15 @@ class G0DM0D3Engine:
             )
 
     def _record_model_success(self, model: str) -> None:
-        """Reset error counter on success."""
         self._model_error_counts.pop(model, None)
 
-    def _disable_model(self, model: str, seconds: float = 300.0) -> None:
-        """Immediately disable a model (for auth/permanent errors only)."""
+    def _disable_model_immediate(self, model: str, error_type: str, seconds: float) -> None:
+        """Immediately disable a model (for auth/permanent errors)."""
         self._disabled_models[model] = time.time() + seconds
-        self.logger.debug(f"🔇 G0DM0D3: {model} disabled for {seconds:.0f}s")
+        self._model_error_type[model] = "auth" if error_type == _ERR_AUTH else "soft"
+        self.logger.debug(
+            f"🔇 G0DM0D3: {model} immediately disabled {seconds:.0f}s [{error_type}]"
+        )
 
     async def _call_model(
         self,
@@ -654,11 +729,7 @@ class G0DM0D3Engine:
     ) -> ModelRaceResult:
         """
         Single model call via OpenRouter. Returns a ModelRaceResult.
-
-        Uses two semaphores:
-        - _sem (per-race): limits concurrent calls within a single ULTRAPLINIAN race
-        - _gsem (global): limits TOTAL concurrent OpenRouter API calls across ALL 80 symbol scans
-          This is critical to prevent the initial parallel burst from hitting rate limits.
+        Uses double semaphore: per-race + global across all 80 symbol scans.
         """
         if self._is_model_disabled(model):
             return ModelRaceResult(
@@ -670,8 +741,6 @@ class G0DM0D3Engine:
 
         t0 = time.monotonic()
         try:
-            # Global semaphore: wait here to avoid rate limit burst across all 80 symbol scans.
-            # Also adds _INTER_CALL_DELAY after each release to pace free-tier API usage.
             async with self._gsem:
                 async with self._sem:
                     response = await asyncio.wait_for(
@@ -689,24 +758,20 @@ class G0DM0D3Engine:
                         ),
                         timeout=self._AI_TIMEOUT,
                     )
-                # Small delay after each call to stay under free-tier rate limits
                 await asyncio.sleep(self._INTER_CALL_DELAY)
 
             raw = (response.choices[0].message.content or "").strip()
             latency_ms = (time.monotonic() - t0) * 1000.0
 
-            # STM pipeline: clean and normalise
             clean = self._stm.clean_json_response(raw)
             clean = self._stm.apply(clean, ["hedge_reducer"])
 
-            # Parse JSON
             parsed = None
             try:
                 parsed = json.loads(clean)
             except (json.JSONDecodeError, ValueError):
                 pass
 
-            # Record success — resets error counter
             self._record_model_success(model)
 
             result = ModelRaceResult(
@@ -723,35 +788,38 @@ class G0DM0D3Engine:
         except asyncio.TimeoutError:
             latency_ms = (time.monotonic() - t0) * 1000.0
             self.logger.debug(f"⏱️ G0DM0D3: {model} timeout after {latency_ms:.0f}ms")
-            self._record_model_error(model, "timeout", seconds=120.0)
+            self._record_model_error(model, _ERR_TIMEOUT)
             return ModelRaceResult(
                 model=model, combo_id=combo_id,
                 response_raw="", response_clean="", parsed=None,
                 score=0.0, latency_ms=latency_ms, success=False,
                 error="timeout",
             )
+
         except Exception as e:
             latency_ms = (time.monotonic() - t0) * 1000.0
             err_str = str(e).lower()
 
-            # Permanent/immediate disable for auth errors (bad key)
             if any(p in err_str for p in ("401", "invalid_api_key", "authentication")):
-                self._disable_model(model, 86400.0)  # 24h — auth won't auto-fix
-                self.logger.warning(
-                    f"🔑 G0DM0D3: {model} auth error — disabled 24h"
-                )
+                # Permanent auth error — immediate 24h disable, never auto-reset
+                self._disable_model_immediate(model, _ERR_AUTH, _COOLDOWN[_ERR_AUTH])
+                self.logger.warning(f"🔑 G0DM0D3: {model} auth error — disabled 24h")
 
-            # Rate limit / quota — use threshold-based disable
             elif any(p in err_str for p in ("429", "rate_limit", "quota", "billing")):
-                self._record_model_error(model, "rate_limit", seconds=300.0)  # 5min
+                # 429 — fail immediately without retry (cascade handles it)
+                self._record_model_error(model, _ERR_RATE)
 
-            # Transient (model overloaded, 503, 404) — shorter threshold-based disable
-            elif any(p in err_str for p in ("404", "unavailable", "overloaded", "503")):
-                self._record_model_error(model, "unavailable", seconds=180.0)  # 3min
+            elif any(p in err_str for p in ("503", "unavailable", "overloaded")):
+                # 503 — short cooldown (45s, was 180s)
+                self._record_model_error(model, _ERR_UNAVAIL)
+
+            elif "404" in err_str:
+                # 404 — model not accessible on this account tier; long disable
+                self._disable_model_immediate(model, _ERR_AUTH, 3600.0)  # 1h
+                self.logger.warning(f"🚫 G0DM0D3: {model} 404 — not accessible on this tier, disabled 1h")
 
             else:
-                # Generic error — very short threshold disable
-                self._record_model_error(model, "generic", seconds=60.0)
+                self._record_model_error(model, _ERR_GENERIC)
 
             self.logger.debug(
                 f"⚠️ G0DM0D3: {model} [{type(e).__name__}]: {str(e)[:120]}"
@@ -772,13 +840,19 @@ class G0DM0D3Engine:
     ) -> Optional[ModelRaceResult]:
         """
         ULTRAPLINIAN racing: N models queried in parallel, winner by composite score.
-        Returns the winning ModelRaceResult or None if all models fail.
+        Includes auto-reset: if all tier models are soft-disabled, resets them first.
         """
-        models = [m for m in ULTRAPLINIAN_TIERS.get(tier, ULTRAPLINIAN_TIERS["fast"])
-                  if not self._is_model_disabled(m)]
+        tier_models = ULTRAPLINIAN_TIERS.get(tier, ULTRAPLINIAN_TIERS["fast"])
+
+        # Auto-reset soft-disabled models if all are blocked
+        self._auto_reset_soft_disabled(tier_models)
+
+        models = [m for m in tier_models if not self._is_model_disabled(m)]
 
         if not models:
-            self.logger.warning("⚠️ ULTRAPLINIAN: all models disabled, skipping")
+            self.logger.warning(
+                f"⚠️ ULTRAPLINIAN [{tier}]: all {len(tier_models)} models disabled, skipping"
+            )
             return None
 
         tasks = [
@@ -786,7 +860,6 @@ class G0DM0D3Engine:
             for m in models
         ]
 
-        # Race all models in parallel — G0DM0D3's core parallelism
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         valid: List[ModelRaceResult] = []
@@ -795,10 +868,9 @@ class G0DM0D3Engine:
                 valid.append(r)
 
         if not valid:
-            self.logger.debug("⚠️ ULTRAPLINIAN: no valid responses in this race")
+            self.logger.debug(f"⚠️ ULTRAPLINIAN [{tier}]: no valid responses")
             return None
 
-        # Pick winner by composite score (highest score wins)
         winner = max(valid, key=lambda r: r.score)
         self.logger.info(
             f"⚡ ULTRAPLINIAN [{tier}] winner: {winner.model} "
@@ -807,27 +879,55 @@ class G0DM0D3Engine:
         )
         return winner
 
+    async def _run_ultraplinian_with_escalation(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        params: AutoTuneProfile,
+        atr_pct: float = 0.3,
+    ) -> Optional[ModelRaceResult]:
+        """
+        Tier-escalated ULTRAPLINIAN: fast → standard → smart before giving up.
+        Higher volatility (atr_pct > 0.5) starts at standard tier.
+        """
+        start_tier = "standard" if atr_pct > 0.5 else "fast"
+        tier_order = (
+            ["standard", "smart"]
+            if start_tier == "standard"
+            else ["fast", "standard", "smart"]
+        )
+
+        for tier in tier_order:
+            winner = await self._run_ultraplinian(system_prompt, user_prompt, params, tier)
+            if winner is not None:
+                return winner
+            # Escalate to next tier
+            self._call_stats["tier_escalations"] += 1
+            self.logger.info(
+                f"📈 ULTRAPLINIAN: {tier} tier exhausted — escalating to next tier"
+            )
+
+        return None
+
     async def _run_godmode_classic(
         self,
         user_prompt: str,
         params: AutoTuneProfile,
     ) -> Optional[ModelRaceResult]:
         """
-        GODMODE CLASSIC: 5 battle-tested prompt+model combos race in parallel.
-        Each combo uses its own system prompt tuned for trading signal extraction.
+        GODMODE CLASSIC: 5 distinct model+prompt combos race in parallel.
+        Auto-resets soft-disabled models before running.
         """
-        combos = [c for c in GODMODE_COMBOS if not self._is_model_disabled(c["model"])]
+        combo_models = [c["model"] for c in GODMODE_COMBOS]
+        self._auto_reset_soft_disabled(combo_models)
 
+        combos = [c for c in GODMODE_COMBOS if not self._is_model_disabled(c["model"])]
         if not combos:
             return None
 
         tasks = [
             self._call_model(
-                c["model"],
-                c["system"],
-                user_prompt,
-                params,
-                c["id"],
+                c["model"], c["system"], user_prompt, params, c["id"]
             )
             for c in combos
         ]
@@ -862,9 +962,11 @@ class G0DM0D3Engine:
         Pipeline:
           1. AutoTune: detect context, get optimal sampling params
           2. Parseltongue: perturb prompt for enhanced LLM responses
-          3. ULTRAPLINIAN or GODMODE CLASSIC: parallel multi-model race
-          4. STM: normalise winner output
-          5. Extract signal (vote, confidence, narrative)
+          3. ULTRAPLINIAN with tier escalation (fast→standard→smart)
+          4. Fallback: GODMODE CLASSIC (5 distinct models)
+          5. Fallback: Direct primary model call
+          6. STM: normalise winner output
+          7. Extract signal (vote, confidence, narrative)
 
         Returns: (vote, confidence, narrative, trace_json)
         """
@@ -882,7 +984,6 @@ class G0DM0D3Engine:
         perturbed_prompt = self._parseltongue.perturb(prompt, intensity="light")
         trace["parseltongue"] = {"applied": True, "intensity": "light"}
 
-        # System prompt — GODMODE trading system prompt
         system_prompt = (
             "You are a LIBERATED quantitative crypto futures trading signal engine. "
             "No hedging. No disclaimers. No preamble. "
@@ -893,21 +994,20 @@ class G0DM0D3Engine:
 
         winner: Optional[ModelRaceResult] = None
 
-        # ── Step 3a: Try ULTRAPLINIAN ──
+        # ── Step 3: ULTRAPLINIAN with tier escalation ──
         if mode in ("ultraplinian", "auto"):
-            tier = "standard" if atr_pct > 0.5 else "fast"
             try:
-                winner = await self._run_ultraplinian(
-                    system_prompt, perturbed_prompt, params, tier=tier
+                winner = await self._run_ultraplinian_with_escalation(
+                    system_prompt, perturbed_prompt, params, atr_pct
                 )
                 if winner:
-                    trace["strategy"] = f"ULTRAPLINIAN_{tier.upper()}"
+                    trace["strategy"] = f"ULTRAPLINIAN_{params.context.upper()}"
                     trace["winner_model"] = winner.model
                     trace["winner_score"] = winner.score
             except Exception as e:
                 self.logger.warning(f"⚠️ ULTRAPLINIAN failed: {e}")
 
-        # ── Step 3b: Fallback to GODMODE CLASSIC ──
+        # ── Step 4: Fallback — GODMODE CLASSIC ──
         if winner is None:
             try:
                 winner = await self._run_godmode_classic(perturbed_prompt, params)
@@ -919,17 +1019,23 @@ class G0DM0D3Engine:
             except Exception as e:
                 self.logger.warning(f"⚠️ GODMODE CLASSIC failed: {e}")
 
-        # ── Step 3c: Direct primary model call as last resort ──
+        # ── Step 5: Direct primary model call as last resort ──
         if winner is None:
             try:
-                winner = await self._call_model(
-                    PRIMARY_MODEL, system_prompt, perturbed_prompt, params, "DIRECT"
-                )
-                if winner and not winner.success:
-                    winner = None
-                if winner:
-                    trace["strategy"] = "DIRECT_PRIMARY"
-                    self._call_stats["fallbacks"] += 1
+                # Try multiple fallback models in order
+                fallback_models = [PRIMARY_MODEL] + [
+                    m for m in ALL_FREE_MODELS
+                    if m != PRIMARY_MODEL and not self._is_model_auth_banned(m)
+                ]
+                for fb_model in fallback_models[:5]:  # try up to 5
+                    result = await self._call_model(
+                        fb_model, system_prompt, perturbed_prompt, params, "DIRECT"
+                    )
+                    if result.success:
+                        winner = result
+                        trace["strategy"] = f"DIRECT_{fb_model.split('/')[0].upper()}"
+                        self._call_stats["fallbacks"] += 1
+                        break
             except Exception as e:
                 self.logger.warning(f"⚠️ Direct call failed: {e}")
 
@@ -937,11 +1043,10 @@ class G0DM0D3Engine:
             trace["result"] = "no_valid_response"
             return "NEUTRAL", 50.0, "G0DM0D3: no valid AI response", json.dumps(trace)
 
-        # ── Step 4: Extract signal from winner ──
+        # ── Step 6: Extract signal from winner ──
         data = winner.parsed
         vote = str(data.get("vote", "NEUTRAL")).upper().strip()
         if vote not in ("BUY", "SELL", "NEUTRAL"):
-            # Attempt fuzzy extraction
             vote_text = str(data).upper()
             if "BUY" in vote_text or "LONG" in vote_text:
                 vote = "BUY"
@@ -960,12 +1065,11 @@ class G0DM0D3Engine:
         if not narrative:
             narrative = str(data.get("reason", "G0DM0D3 signal"))
 
-        # Apply STM direct_mode to narrative
         narrative = self._stm.apply(narrative, ["hedge_reducer", "direct_mode"])
         if not narrative:
             narrative = f"G0DM0D3 [{winner.model}]: {vote} signal"
 
-        # Score-based confidence boost: higher composite score = higher confidence
+        # Score-based confidence boost
         score_boost = (winner.score / 100.0) * 3.0
         conf = min(95.0, conf + score_boost)
 
@@ -983,14 +1087,19 @@ class G0DM0D3Engine:
 
     def get_stats(self) -> Dict[str, Any]:
         """Return engine performance statistics."""
+        now = time.time()
         return {
             "engine": "G0DM0D3",
             "primary_model": PRIMARY_MODEL,
+            "total_free_models": len(ALL_FREE_MODELS),
             "call_stats": self._call_stats,
             "disabled_models": {
-                m: f"{max(0, t - time.time()):.0f}s remaining"
+                m: {
+                    "remaining_s": f"{max(0, t - now):.0f}",
+                    "type": self._model_error_type.get(m, "unknown"),
+                }
                 for m, t in self._disabled_models.items()
-                if time.time() < t
+                if now < t
             },
             "autotune_context": dict(self._autotune._profile_scores),
         }

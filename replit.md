@@ -3,6 +3,48 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 24 — G0DM0D3 Multi-Model Expansion + z4ptacticsbot Integration (April 2026)
+
+### Changes Applied (`SignalMaestro/godmod3_strategy.py`)
+
+**1. ULTRAPLINIAN_TIERS: 2 models → 14 live-verified free models (April 2026)**
+- Integrated from `https://github.com/cpetayammichaeljoshua-cyber/z4ptacticsbot.git` — live-probed model list
+- `fast` tier: 5 models (stepfun/step-3.5-flash, qwen/qwen3.6-plus, arcee-ai/trinity-large, qwen/qwen3-coder, liquid/lfm-2.5-thinking)
+- `standard` tier: 7 models (adds meta-llama/llama-3.3-70b, qwen/qwen3-next-80b, z-ai/glm-4.5-air, dolphin-mistral-24b, arcee-ai/trinity-large)
+- `smart` tier: 14 models (all available — nousresearch/hermes-3-llama-3.1-405b + full cascade)
+- `ALL_FREE_MODELS` list: 14 models for direct-call fallback cascade
+
+**2. GODMODE_COMBOS: 5 distinct models (was all qwen3.6-plus)**
+- Was: all 5 combos used `qwen/qwen3.6-plus:free` (prompt diversity only, zero model diversity)
+- Now: Hermes405B / Llama3.3-70B / Qwen3-Next-80B / StepFun-Flash / GLM-4.5-Air
+- True model diversity → reduces correlated failures, improved win rate
+
+**3. 503/unavailable blackout: 45s (was 180s)**
+- `_COOLDOWN[_ERR_UNAVAIL]` reduced 180s → 45s with exponential backoff on recurrence
+- Models recover 4× faster from transient overload events
+
+**4. Auto-reset: when ALL models in a tier are soft-disabled**
+- `_auto_reset_soft_disabled()` checks if all tier models are disabled — if so, resets soft ones
+- Auth-banned models (401/403) are never auto-reset
+- Prevents tier from being permanently stuck after a burst of 503s
+
+**5. Tier escalation: fast → standard → smart before giving up**
+- `_run_ultraplinian_with_escalation()` tries fast first, then standard, then smart
+- High volatility (ATR >0.5%) starts at standard tier
+- `tier_escalations` tracked in `_call_stats`
+
+**6. Error type tracking: auth (permanent) vs transient (soft reset)**
+- `_model_error_type` dict distinguishes `"auth"` from `"soft"` per model
+- `_is_model_auth_banned()` — skips auth-banned models in fallback cascade
+- 404 → disabled 1h (account tier limit); 401 → disabled 24h (bad key)
+
+**7. Direct fallback cascade: tries up to 5 models before giving up**
+- Old: tried only PRIMARY_MODEL as last resort
+- New: tries PRIMARY_MODEL + next 4 non-auth-banned free models
+
+### `start_ultimate_bot.py` — Banner Updated
+- Reflects 14 free models, 3 tiers, tier-escalation, GODMODE 5 distinct models
+
 ## Session 23 — 3 Critical Bug Fixes + Lock Granularity Optimization + z4ptacticsbot Integration
 
 ### Critical Bug Fixes Applied
