@@ -23,6 +23,7 @@ import random
 # Core strategy & trader — MiroFish Swarm
 from SignalMaestro.mirofish_swarm_strategy import MiroFishSwarmStrategy, SwarmSignal
 from SignalMaestro.btcusdt_trader import BTCUSDTTrader
+from SignalMaestro.godmod3_strategy import get_godmod3_engine
 
 # ── Self-learning system: trade memory + neural network ──────────────────────
 try:
@@ -1249,6 +1250,21 @@ class FXSUSDTTelegramBot:
         # ── Fast pre-check before any network I/O ──
         _sig_consensus = float(getattr(signal, "swarm_consensus", 0.0))
         if not self.can_send_signal(symbol, action=signal.action, swarm_consensus=_sig_consensus):
+            return False
+
+        # ── AI Signal Gate — send signals ONLY when free LLMs are confirmed available ──
+        # Per user requirement: signals are blocked when all free OpenRouter models are
+        # rate-limited or disabled.  was_recently_available(300) returns True if G0DM0D3
+        # successfully called at least one model in the last 5 minutes.
+        # has_available_models() returns True if at least one model currently has capacity.
+        _godmod3 = get_godmod3_engine()
+        _ai_ready = _godmod3.has_available_models() or _godmod3.was_recently_available(300)
+        if not _ai_ready:
+            _wait_s = _godmod3.get_next_available_seconds()
+            self.logger.info(
+                f"🚦 [{symbol}] AI Signal Gate BLOCKED — all free LLMs rate-limited "
+                f"(next available in ~{_wait_s:.0f}s). Signal held until AI recovers."
+            )
             return False
 
         tf_label = (getattr(signal, "timeframe", "15m") or "15m").upper()
