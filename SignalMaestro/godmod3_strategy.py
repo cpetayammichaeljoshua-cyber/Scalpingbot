@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-G0DM0D3 AI Strategy Engine — Trading Signal Orchestration  [v3.0 — April 2026]
+G0DM0D3 AI Strategy Engine — Trading Signal Orchestration  [v4.0 — April 2026]
 =================================================================================
 Fully integrates the G0DM0D3 framework (github.com/elder-plinius/G0DM0D3)
 as the primary AI intelligence layer for the MiroFish Swarm Bot.
@@ -9,40 +9,43 @@ Integrated from: https://github.com/cpetayammichaeljoshua-cyber/z4ptacticsbot.gi
 Live-verified models (April 2026) and production-grade multi-model cascade.
 
 G0DM0D3 Modules:
-  ⚡ ULTRAPLINIAN    — Multi-model racing: 25+ free models, 5 tiers, tier-escalation
+  ⚡ ULTRAPLINIAN    — Multi-model racing: 26+ free models, 5 tiers, tier-escalation
   🎛  AutoTune       — Context-adaptive sampling (volatile/trending/ranging/breakout/news)
   🐍  Parseltongue   — Input perturbation engine (light/medium/heavy intensity)
   ⚡  STM Pipeline   — hedge_reducer + direct_mode + json_enforcer + think_stripper
   🔥  GODMODE CLASSIC — 5 distinct model+prompt combos racing in parallel
-  🪣  PerModelBucket — Per-model token-bucket: 7 calls/min (< 8 limit) each model
+  🪣  PerModelBucket — Per-model token-bucket: dynamic limit from X-RateLimit-Limit header
   🔄  AutoReset      — Soft-disabled tier reset with 90s cooldown guard
   📈  TierEscalation — fast → standard → smart → power → ultra, X-RateLimit-Reset
-  🏥  ErrorTypeTrack — auth (permanent 24h), 429 (precise reset), 503 (45s), 404 (1h)
+  🏥  ErrorTypeTrack — auth(24h), 429(X-RateLimit-Reset), 503(45s), 404(1h), generic(2h)
   🚦  AISignalGate   — has_available_models() + was_recently_available(300s)
   🧠  WinRateBoost   — Signal scoring with consensus weighting + narrative quality check
   🔢  EnsembleVote   — Multi-model majority vote + confidence weighted aggregation
+  🛡️  GenericErrGuard — Moonshot/generic-error tracking → disable after 8 non-429 errors
 
-Free Models: 25+ Live-Verified (OpenRouter free tier, April 2026)
+Free Models: 26+ Live-Verified (OpenRouter free tier, April 2026)
 API Gateway : https://openrouter.ai/api/v1 (OpenAI-compatible)
 Auth        : OPENROUTER_API_KEY environment variable
 
-CRITICAL FIXES (April 2026 production):
+CRITICAL FIXES v4.0 (April 2026 production):
   1. max_retries=0 → fixes "asyncio ERROR: Task exception was never retrieved"
-     The openai SDK max_retries=1 creates background retry tasks whose exceptions
-     are never retrieved by asyncio, causing log spam and memory leaks.
-  2. _PerModelRateLimiter → per-model token bucket (7/min each) prevents 429 storms
-     Each model has 8 req/min limit; 80 parallel scans × 5 models = 400 calls/cycle.
-     Bucket checks BEFORE semaphore acquisition — no queue pileup.
+  2. _PerModelRateLimiter → dynamic per-model bucket (reads X-RateLimit-Limit header)
+     Each model has different req/min limits; dynamic parsing prevents over-calling.
   3. X-RateLimit-Reset parsing → precise 429 recovery instead of fixed 300s cooldown
-     Parses 'X-RateLimit-Reset' Unix-ms timestamp from 429 error body.
+     Parses both 'X-RateLimit-Reset' timestamp AND 'X-RateLimit-Limit' per model.
   4. Auto-reset cooldown guard (90s minimum) → breaks the reset→rate-limit→reset loop
   5. has_available_models() + was_recently_available() → signal gate for AI readiness
-     Signals blocked until at least one model is confirmed working recently.
-  6. 25+ free models (was 13) — massively reduces per-model pressure
+  6. 26+ free models (was 15) — massively reduces per-model rate pressure
   7. 5-tier cascade (was 3) — more fallback options before giving up
-  8. GODMODE CLASSIC: 5 truly distinct models (Hermes/Llama/DeepSeek/Moonlight/Gemma)
+  8. GODMODE CLASSIC: 5 truly distinct models (Hermes/Llama/Qwen3/StepFun/Gemma)
+     Moonlight replaced by StepFun after systematic generic errors
   9. EnsembleVote: majority-vote across all successful responses improves win rate
  10. Adaptive inter-call delay: longer delay when rate pressure detected
+ 11. GenericErrGuard: disable Moonshot/generic-error-prone models after 8 errors (2h)
+     Moonshot returns generic 500-class errors (not 429s) → special tracking
+ 12. Global throttle: increased from 50/min to 80/min for higher throughput
+     Per-model buckets are the primary guard; global throttle is safety backstop
+ 13. PerModelLimit: parse X-RateLimit-Limit from 429 responses → precise model caps
 """
 
 import asyncio
