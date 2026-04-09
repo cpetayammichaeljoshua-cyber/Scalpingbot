@@ -94,7 +94,7 @@ assert MIN_LEVERAGE <= MAX_LEVERAGE, f"MIN_LEVERAGE ({MIN_LEVERAGE}) must be <= 
 STOP_LOSS_PERCENT   = 0.65  # BTC 15M base SL %
 TAKE_PROFIT_PERCENT = 1.10  # BTC 15M TP1 % (TP2=2.00%, TP3=3.10%)
 
-SWARM_MIN_CONSENSUS = 0.75  # Minimum agent agreement (75%) to generate a signal
+SWARM_MIN_CONSENSUS = 0.95  # STRICT: 10/10 unanimous — ≥95% weighted consensus required
 
 DEFAULT_MAX_RESTARTS     = 100
 DEFAULT_RESTART_DELAY_BASE = 30

@@ -2975,11 +2975,11 @@ class MiroFishSwarmStrategy:
         self.primary_timeframe = "15m"
 
         # Pre-boost signal gates — calibrated for quality over quantity
-        self.min_signal_strength = 62.0     # raised: require stronger pre-boost signal
-        self.min_confidence      = 64.0     # raised: require solid agent agreement
-        self.min_swarm_consensus = 0.75     # raised: ≥75% weighted consensus (was 72%)
-        self.min_active_agents   = 5        # raised: quorum needs 5/10 agents non-NEUTRAL (was 3)
-        self.min_rr_ratio        = 1.55     # raised: minimum 1.55:1 risk-reward (was 1.50)
+        self.min_signal_strength = 65.0     # v8: raised for 10/10 unanimous requirement
+        self.min_confidence      = 67.0     # v8: raised to match unanimous consensus gate
+        self.min_swarm_consensus = 0.95     # v8: STRICT — ≥95% weighted consensus (10/10 unanimous)
+        self.min_active_agents   = 8        # v8: quorum needs 8/10 agents non-NEUTRAL (was 5)
+        self.min_rr_ratio        = 1.60     # v8: raised: minimum 1.60:1 risk-reward (was 1.55)
 
         # ── Initialize all 10 agents (v5: +FLOOPAgent) ──
         self.trend_agent      = TrendAgent()
@@ -3347,9 +3347,24 @@ class MiroFishSwarmStrategy:
             else:
                 weighted_conf = 50.0
 
-            # Participation bonus/penalty
+            # ── HARD UNANIMOUS GATE (v8.0) ────────────────────────────────────
+            # 10/10 unanimous requirement: ZERO contrary agents allowed.
+            # Any agent voting AGAINST the consensus direction → reject signal.
+            # This is the highest-conviction filter — only signals where ALL
+            # participating agents agree pass to the confidence/IRONS/NN gates.
             n_aligned  = len(aligned_agents)
             n_contrary = len(contrary_agents)
+
+            if n_contrary > 0:
+                self.logger.debug(
+                    f"⚠️ [{symbol}|{tf}] STRICT 10/10 UNANIMOUS GATE: "
+                    f"{n_contrary} contrary agent(s) "
+                    f"({', '.join(n for n, _, _ in contrary_agents)}) "
+                    f"oppose {action} — signal REJECTED (unanimous required)"
+                )
+                return None
+
+            # ── Participation scoring ─────────────────────────────────────────
             participation_rate = n_active / len(all_votes)
 
             if participation_rate >= 0.60:     # ≥6/10 agents active
@@ -3728,13 +3743,13 @@ class MiroFishSwarmStrategy:
                         else:
                             confidence = max(confidence - 2.0, 50.0)
                     else:
-                        # RANGING market — require very strong consensus or reject.
-                        # Tightened from 0.85 → 0.88: ranging signals are noisy and
+                        # RANGING market — require maximum consensus or reject.
+                        # Tightened from 0.88 → 0.95 to match global unanimous gate:
                         # contribute disproportionately to losses.
-                        if consensus < 0.88:
+                        if consensus < 0.95:
                             self.logger.debug(
-                                f"⚠️ [{symbol}|{tf}] RANGING regime + consensus={consensus:.0%} < 88% "
-                                f"— low-conviction ranging signal rejected"
+                                f"⚠️ [{symbol}|{tf}] RANGING regime + consensus={consensus:.0%} < 95% "
+                                f"— low-conviction ranging signal rejected (unanimous gate)"
                             )
                             return None
                         confidence = max(confidence - 1.5, 50.0)

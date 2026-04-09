@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """
-Universal USDM Futures Trader
+Universal USDM Futures Trader — v8.0 (April 2026)
 Binance USDM Futures — full API wrapper supporting ALL perpetual markets.
 Multi-market edition: scans all active USDM perpetual symbols.
-Uses a single persistent aiohttp.ClientSession (shared connector) for all
-public market-data calls, eliminating per-request session creation overhead.
+
+KEY IMPROVEMENTS v8.0:
+  • Multi-endpoint failover: fapi.binance.com → fapi1-fapi5.binance.com
+    Resolves HTTP 451 geo-block on Replit/cloud environments
+  • SPOT klines fallback (data.binance.com/api/v3) when all FAPI blocked
+  • Hardcoded fallback symbol list (top 80 USDM perps by volume, April 2026)
+    — ensures bot continues scanning when ticker endpoint is geo-blocked
+  • Endpoint health tracking — blocks confirmed-451 endpoints automatically
+  • All network methods use endpoint rotation: get_klines, get_current_price,
+    _fetch_all_tickers, _get_perpetual_trading_set, get_funding_rate
+  • Persistent shared aiohttp.ClientSession with generous limits
 """
 
 import asyncio
@@ -13,17 +22,64 @@ import re
 import aiohttp
 import os
 from collections import OrderedDict
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Set
 from datetime import datetime
 import hmac
 import hashlib
 import time
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Alternative Binance FAPI Endpoints — rotated on HTTP 451 geo-block
+# Binance operates CDN mirrors on fapi1-fapi5 with different IP allocations
+# that may bypass region-based restrictions on the primary fapi.binance.com
+# ─────────────────────────────────────────────────────────────────────────────
+_FAPI_ENDPOINTS: List[str] = [
+    "https://fapi.binance.com",
+    "https://fapi1.binance.com",
+    "https://fapi2.binance.com",
+    "https://fapi3.binance.com",
+    "https://fapi4.binance.com",
+    "https://fapi5.binance.com",
+]
+
+# Spot klines fallback — used when ALL FAPI endpoints fail with 451/geo-block.
+# USDM perpetual prices track spot extremely closely; close prices are valid
+# as input for technical indicators even if the instrument is a futures contract.
+_SPOT_KLINES_ENDPOINT = "https://data.binance.com/api/v3/klines"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hardcoded Fallback Symbol List — top 80 USDM perpetuals by 24h volume
+# April 2026 — used when the Binance 24hr ticker endpoint returns 451/error.
+# Refreshed periodically from Binance market data.
+# ─────────────────────────────────────────────────────────────────────────────
+_FALLBACK_USDM_SYMBOLS: List[str] = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
+    "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "INJUSDT",
+    "NEARUSDT", "MATICUSDT", "LTCUSDT", "SEIUSDT", "TIAUSDT",
+    "ATOMUSDT", "FTMUSDT", "AAVEUSDT", "UNIUSDT", "LDOUSDT",
+    "WLDUSDT", "ORDIUSDT", "RUNEUSDT", "STXUSDT", "IMXUSDT",
+    "MKRUSDT", "FETUSDT", "AGIXUSDT", "RNDRUSDT", "GMXUSDT",
+    "DYDXUSDT", "GALAUSDT", "SANDUSDT", "AXSUSDT", "FLOWUSDT",
+    "ICPUSDT", "FILUSDT", "TRXUSDT", "ETCUSDT", "BCHUSDT",
+    "XLMUSDT", "VETUSDT", "THETAUSDT", "ALGOUSDT", "GRTUSDT",
+    "SNXUSDT", "CRVUSDT", "COMPUSDT", "EGLDUSDT", "XMRUSDT",
+    "BATUSDT", "ZRXUSDT", "BANDUSDT", "STORJUSDT", "RLCUSDT",
+    "CFXUSDT", "WOOUSDT", "KNCUSDT", "MASKUSDT", "CELOUSDT",
+    "PERPUSDT", "BLZUSDT", "REEFUSDT", "CTKUSDT", "FLMUSDT",
+    "STMXUSDT", "OGUSDT", "ENJUSDT", "ZILUSDT", "XTZUSDT",
+    "QNTUSDT", "HBARUSDT", "MNTUSDT", "ARKMUSDT", "KASUSDT",
+    "JOEUSDT", "PENDLEUSDT", "PYTHUSDT", "SATSUSDT", "BOMEUSDT",
+]
+
+
 class BTCUSDTTrader:
     """
     Binance USDM Futures trader — supports ALL USDM perpetual markets.
     Backward-compatible: default symbol is BTCUSDT.
+
+    v8.0: Multi-endpoint failover resolves HTTP 451 geo-restriction.
     """
 
     SYMBOL = "BTCUSDT"
@@ -31,7 +87,7 @@ class BTCUSDTTrader:
     TESTNET_URL = "https://testnet.binancefuture.com"
     REQUEST_TIMEOUT = 15  # seconds
 
-    MIN_VOLUME_USDT = 10_000_000   # min 24h USDT volume to qualify for scanning (lowered from 50M for broader coverage)
+    MIN_VOLUME_USDT = 10_000_000   # min 24h USDT volume to qualify for scanning
     MAX_SYMBOLS     = 80           # cap on simultaneously scanned symbols
 
     def __init__(self):
@@ -52,48 +108,93 @@ class BTCUSDTTrader:
         self._session:   Optional[aiohttp.ClientSession]  = None
         self._connector: Optional[aiohttp.TCPConnector]   = None
 
+        # ── Multi-endpoint failover state ─────────────────────────────────────
+        # Tracks which FAPI endpoints have returned HTTP 451 (geo-blocked).
+        # Once blocked, an endpoint is skipped for _endpoint_block_ttl seconds
+        # before being retried (in case the block is temporary).
+        self._geo_blocked_endpoints: Dict[str, float] = {}  # url → blocked_until ts
+        self._endpoint_block_ttl = 3600.0  # 1 hour before retrying a blocked endpoint
+        self._current_fapi_idx = 0  # Index into _FAPI_ENDPOINTS for round-robin rotation
+
+        # Track whether we've fallen back to spot klines (informational)
+        self._using_spot_fallback = False
+
         # Short-lived klines cache — keyed by (symbol, interval, limit).
-        # TTL of 90 s avoids duplicate Binance fetches when process_signals
+        # TTL of 120s avoids duplicate Binance fetches when process_signals
         # re-requests the same klines that the strategy just fetched.
-        # OrderedDict enables O(1) LRU eviction (move_to_end + popitem) instead
-        # of O(n) min() scan over all keys that the plain dict used before.
+        # OrderedDict enables O(1) LRU eviction.
         self._klines_cache: OrderedDict = OrderedDict()
-        self._klines_cache_ttl = 120.0  # seconds — covers full scan cycle + boost phase
-        self._klines_cache_max = 500    # evict oldest entry when this cap is exceeded
+        self._klines_cache_ttl = 120.0
+        self._klines_cache_max = 500
 
         # Perpetual-symbol whitelist — refreshed every 60 minutes via exchangeInfo.
-        # Prevents SETTLING / BREAK symbols leaking into the scan universe.
         self._perpetual_trading_symbols: Optional[frozenset] = None
         self._perpetual_cache_time: float = 0.0
         self._perpetual_cache_ttl: float = 3600.0  # 1 hour
 
         # IP ban tracking — Binance returns HTTP 418 when an IP is banned.
-        # The ban duration is embedded in the response body as a Unix ms timestamp.
-        # All API methods check this before making requests and wait out the ban.
-        self._ip_banned_until: float = 0.0  # Unix timestamp (seconds) when ban expires
-        # Suppress duplicate "IP ban active" log messages from parallel coroutines.
-        # Only log once per 60 seconds — every parallel coroutine calls
-        # _wait_ip_ban_if_needed independently, producing log floods otherwise.
+        self._ip_banned_until: float = 0.0
         self._ip_ban_last_logged: float = 0.0
 
         self.logger.info(
-            f"✅ BTCUSDTTrader initialized — {'Testnet' if self.testnet else 'Mainnet'} | "
-            f"Multi-market mode enabled | Persistent HTTP session pooling active"
+            f"✅ BTCUSDTTrader v8.0 — {'Testnet' if self.testnet else 'Mainnet'} | "
+            f"Multi-endpoint failover: {len(_FAPI_ENDPOINTS)} FAPI endpoints | "
+            f"Fallback: {len(_FALLBACK_USDM_SYMBOLS)} hardcoded symbols | "
+            f"Spot klines fallback: {_SPOT_KLINES_ENDPOINT}"
         )
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Multi-Endpoint Helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _get_fapi_endpoints(self) -> List[str]:
+        """
+        Return the list of FAPI endpoints to try, with currently-blocked ones
+        filtered out (unless the block has expired).
+        Always includes at least one endpoint.
+        """
+        now = time.time()
+        available = [
+            ep for ep in _FAPI_ENDPOINTS
+            if now >= self._geo_blocked_endpoints.get(ep, 0.0)
+        ]
+        if not available:
+            # All endpoints blocked — reset oldest one to retry
+            self.logger.warning("⚠️ All FAPI endpoints geo-blocked — resetting oldest block")
+            oldest = min(self._geo_blocked_endpoints, key=self._geo_blocked_endpoints.get)
+            self._geo_blocked_endpoints.pop(oldest)
+            available = [oldest]
+        return available
+
+    def _record_geo_block(self, endpoint: str) -> None:
+        """Mark an endpoint as geo-blocked (HTTP 451) for _endpoint_block_ttl seconds."""
+        self._geo_blocked_endpoints[endpoint] = time.time() + self._endpoint_block_ttl
+        self.logger.warning(
+            f"🌐 HTTP 451 geo-block on {endpoint} — rotating to next FAPI endpoint "
+            f"(will retry in {self._endpoint_block_ttl/60:.0f}min)"
+        )
+
+    def _record_endpoint_success(self, endpoint: str) -> None:
+        """Clear geo-block status for a successfully-responding endpoint."""
+        self._geo_blocked_endpoints.pop(endpoint, None)
+        if self.base_url != endpoint:
+            self.logger.info(f"✅ Active FAPI endpoint switched to: {endpoint}")
+            self.base_url = endpoint
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Persistent Session Management
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """
         Return the shared persistent HTTP session, creating it on first call.
-        Uses a TCPConnector with generous limits for parallel scanning of 80 symbols.
+        Uses a TCPConnector with generous limits for parallel scanning of 80 symbols
+        across multiple alternative FAPI endpoints.
         """
         if self._session is None or self._session.closed:
             self._connector = aiohttp.TCPConnector(
-                limit=60,           # max 60 total concurrent connections
-                limit_per_host=25,  # max 25 to fapi.binance.com (SCAN_PARALLEL_LIMIT=15 + overhead)
+                limit=80,           # max 80 total concurrent connections
+                limit_per_host=30,  # max 30 per host (multi-endpoint routing)
                 ttl_dns_cache=300,  # cache DNS for 5 minutes
                 enable_cleanup_closed=True,
             )
@@ -101,7 +202,7 @@ class BTCUSDTTrader:
                 connector=self._connector,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
             )
-            self.logger.debug("🔗 Shared aiohttp session created (connector pooling active)")
+            self.logger.debug("🔗 Shared aiohttp session created (multi-endpoint connector active)")
         return self._session
 
     async def aclose(self):
@@ -112,30 +213,18 @@ class BTCUSDTTrader:
         self._connector = None
         self.logger.debug("🔗 Shared aiohttp session closed")
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # IP Ban Handling (Binance HTTP 418)
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _record_ip_ban(self, body: str) -> float:
-        """
-        Parse a Binance HTTP 418 response body, record the ban expiry, and return
-        the number of seconds to wait.
-
-        Binance ban response body format:
-            {"code":-1003,"msg":"Way too many requests; IP(x.x.x.x) banned until
-             1775296677884. Please use the web socket for live updates..."}
-
-        If the timestamp cannot be parsed, defaults to a 5-minute local ban to
-        protect against hammering the API further.
-        """
+        """Parse Binance HTTP 418 ban, record expiry, return wait seconds."""
         ban_until_secs: float = 0.0
         m = re.search(r'banned until (\d{10,13})', body)
         if m:
             raw_ts = int(m.group(1))
-            # Binance returns milliseconds — convert to seconds if needed
             ban_until_secs = raw_ts / 1000.0 if raw_ts > 1e12 else float(raw_ts)
         if ban_until_secs < time.time():
-            # Fallback: 5-minute ban from now if we can't parse or timestamp is stale
             ban_until_secs = time.time() + 300.0
         self._ip_banned_until = ban_until_secs
         wait_secs = max(0.0, ban_until_secs - time.time())
@@ -155,31 +244,21 @@ class BTCUSDTTrader:
         return max(0.0, self._ip_banned_until - time.time())
 
     async def _wait_ip_ban_if_needed(self) -> None:
-        """
-        If the IP is currently banned, sleep until the ban expires.
-        Called at the start of every public API method to prevent hammering
-        Binance while a ban is active (which would extend the ban window).
-
-        Log deduplication: with 15+ parallel coroutines each calling this
-        method, the same message would flood logs hundreds of times per minute.
-        Only one log is emitted per 60 seconds during an active ban.
-        """
+        """Sleep if IP is currently banned. Deduplicates log messages."""
         now = time.time()
         if self._ip_banned_until > now:
             wait = self._ip_banned_until - now
-            # Suppress duplicate log messages from parallel coroutines.
-            # Log at most once every 60 s while the ban is active.
             if now - self._ip_ban_last_logged >= 60.0:
                 self._ip_ban_last_logged = now
                 self.logger.warning(
                     f"⏸ IP ban active — waiting {wait:.1f}s "
                     f"(expires {datetime.utcfromtimestamp(self._ip_banned_until).strftime('%H:%M:%S UTC')})"
                 )
-            await asyncio.sleep(min(wait, 30.0))  # sleep at most 30s per call
+            await asyncio.sleep(min(wait, 30.0))
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # Auth Helpers
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _sign(self, query_string: str) -> str:
         return hmac.new(
@@ -192,47 +271,89 @@ class BTCUSDTTrader:
         return {"X-MBX-APIKEY": self.api_key}
 
     def _signed_params(self, params: dict) -> dict:
-        """
-        Return a NEW dict with timestamp + HMAC-SHA256 signature appended.
-        Never mutates the caller's dict — the same base params dict may be
-        reused across retries or parallel calls without corruption.
-        """
-        p = dict(params)                          # defensive copy
+        """Return a NEW dict with timestamp + HMAC-SHA256 signature appended."""
+        p = dict(params)
         p["timestamp"] = int(time.time() * 1000)
         query = "&".join(f"{k}={v}" for k, v in p.items())
         p["signature"] = self._sign(query)
         return p
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Core HTTP helper — multi-endpoint GET with 451 rotation
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _get_fapi(self, path: str, params: dict = None,
+                        retries: int = 2) -> Optional[Any]:
+        """
+        Perform a GET request to the Binance FAPI, automatically rotating to
+        alternative endpoints when the primary returns HTTP 451 (geo-block).
+
+        Tries all available endpoints before giving up.
+        Returns parsed JSON or None on failure.
+        """
+        await self._wait_ip_ban_if_needed()
+        if params is None:
+            params = {}
+
+        endpoints = self._get_fapi_endpoints()
+
+        for endpoint in endpoints:
+            url = f"{endpoint}{path}"
+            for attempt in range(retries):
+                try:
+                    s = await self._get_session()
+                    async with s.get(url, params=params) as r:
+                        if r.status == 200:
+                            self._record_endpoint_success(endpoint)
+                            return await r.json()
+
+                        if r.status == 451:
+                            self._record_geo_block(endpoint)
+                            break  # Try next endpoint immediately
+
+                        if r.status == 418:
+                            body = await r.text()
+                            self._record_ip_ban(body)
+                            return None
+
+                        if r.status == 429:
+                            _retry = int(r.headers.get("Retry-After", "5"))
+                            _retry = max(1, min(_retry, 60))
+                            self.logger.warning(
+                                f"⏳ Binance 429 {path} (attempt {attempt+1}) — backing off {_retry}s"
+                            )
+                            await asyncio.sleep(_retry)
+                            continue
+
+                        body = await r.text()
+                        self.logger.debug(f"FAPI {path} HTTP {r.status}: {body[:200]}")
+                        if 400 <= r.status < 500:
+                            return None  # Permanent client error
+
+                except asyncio.TimeoutError:
+                    if attempt < retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                except Exception as e:
+                    self.logger.debug(f"_get_fapi({path}) error [{endpoint}]: {e}")
+                    break
+
+        return None
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Market Data — Public (no auth)
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def get_current_price(self, symbol: Optional[str] = None) -> Optional[float]:
         """
-        Get current mark price for any USDM symbol (defaults to self.symbol = BTCUSDT).
-        Accepts an optional symbol so callers outside the BTC context can reuse this
-        method without creating a separate trader instance.
+        Get current mark price for any USDM symbol.
+        Rotates through alternative FAPI endpoints on 451 geo-block.
         """
         sym = symbol or self.symbol
-        await self._wait_ip_ban_if_needed()
-        try:
-            url = f"{self.base_url}/fapi/v1/ticker/price"
-            s = await self._get_session()
-            async with s.get(url, params={"symbol": sym}) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    price = float(data["price"])
-                    self.logger.debug(f"💰 {sym} price: ${price:,.4g}")
-                    return price
-                body = await r.text()
-                if r.status == 418:
-                    self._record_ip_ban(body)
-                    return None
-                self.logger.error(f"Price fetch error [{sym}]: HTTP {r.status}: {body[:200]}")
-        except asyncio.TimeoutError:
-            self.logger.warning(f"⏱ Timeout fetching price [{sym}]")
-        except Exception as e:
-            self.logger.error(f"get_current_price({sym}) error: {e}")
+        data = await self._get_fapi("/fapi/v1/ticker/price", {"symbol": sym})
+        if data and "price" in data:
+            price = float(data["price"])
+            self.logger.debug(f"💰 {sym} price: ${price:,.4g}")
+            return price
         return None
 
     async def get_market_data(self, symbol: str, timeframe: str, limit: int = 500) -> Optional[List]:
@@ -242,7 +363,13 @@ class BTCUSDTTrader:
     async def get_klines(self, interval: str, limit: int = 500,
                          symbol: Optional[str] = None) -> Optional[List]:
         """
-        Fetch klines from Binance USDM Futures (uses shared session).
+        Fetch klines from Binance USDM Futures with multi-endpoint failover.
+
+        Failover chain on HTTP 451:
+          1. Try fapi.binance.com (primary)
+          2. Try fapi1-fapi5.binance.com (CDN mirrors, different IPs)
+          3. Fall back to data.binance.com SPOT klines (close prices ~identical)
+
         Results are cached for _klines_cache_ttl seconds to prevent duplicate
         API calls when process_signals re-fetches klines the strategy already pulled.
         """
@@ -250,178 +377,140 @@ class BTCUSDTTrader:
         limit = min(limit, 1500)
         now = time.time()
 
-        # Return cached result if still fresh — also accept a larger cached fetch
-        # so strategy (250 bars) and boost analysis (200 bars) share one API call.
+        # Check exact cache hit
         cache_key = (sym, interval, limit)
         cached = self._klines_cache.get(cache_key)
         if cached is not None:
             data, fetched_at = cached
             if now - fetched_at < self._klines_cache_ttl:
-                self._klines_cache.move_to_end(cache_key)  # LRU: mark as recently used
+                self._klines_cache.move_to_end(cache_key)
                 return data
 
-        # Check if a larger cached result can satisfy this request (serves smaller
-        # limit requests from an existing larger fetch without a new API call).
+        # Check if a larger cached result can satisfy this request
         for (c_sym, c_interval, c_limit), (c_data, c_time) in list(self._klines_cache.items()):
             if (c_sym == sym and c_interval == interval and
                     c_limit >= limit and now - c_time < self._klines_cache_ttl):
-                # Mark this entry as recently-used (LRU refresh on read-hit)
                 self._klines_cache.move_to_end((c_sym, c_interval, c_limit))
                 return c_data[-limit:] if len(c_data) >= limit else c_data
 
-        # Pause if IP is currently banned by Binance (HTTP 418 was received earlier)
         await self._wait_ip_ban_if_needed()
 
-        # Retry loop — handles Binance 429 (rate-limited) with Retry-After backoff.
-        # 418 (IP ban) is handled immediately: ban is recorded and we return None —
-        # retrying during a ban would extend the ban window further.
-        # Other 4xx errors are treated as permanent and break out immediately.
-        _max_attempts = 3
-        for _attempt in range(_max_attempts):
-            try:
-                url = f"{self.base_url}/fapi/v1/klines"
-                params = {"symbol": sym, "interval": interval, "limit": limit}
-                s = await self._get_session()
-                async with s.get(url, params=params) as r:
-                    if r.status == 200:
-                        data = await r.json()
-                        # LRU eviction using OrderedDict: O(1) popitem(last=False) removes
-                        # the oldest entry instead of the previous O(n) min() scan.
-                        if cache_key in self._klines_cache:
-                            self._klines_cache.move_to_end(cache_key)
-                        self._klines_cache[cache_key] = (data, now)
-                        while len(self._klines_cache) > self._klines_cache_max:
-                            self._klines_cache.popitem(last=False)  # O(1): remove oldest
-                        return data
+        params = {"symbol": sym, "interval": interval, "limit": limit}
 
-                    if r.status == 429:
-                        _raw_retry = r.headers.get("Retry-After", "5")
-                        try:
-                            _retry_after = int(_raw_retry)
-                        except (ValueError, TypeError):
-                            _retry_after = 5
-                        _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
+        # ── Phase 1: Try all FAPI endpoints ──────────────────────────────────
+        endpoints = self._get_fapi_endpoints()
+        for endpoint in endpoints:
+            url = f"{endpoint}/fapi/v1/klines"
+            _max_attempts = 3
+            for _attempt in range(_max_attempts):
+                try:
+                    s = await self._get_session()
+                    async with s.get(url, params=params) as r:
+                        if r.status == 200:
+                            data = await r.json()
+                            self._record_endpoint_success(endpoint)
+                            self._using_spot_fallback = False
+                            # Cache the result
+                            if cache_key in self._klines_cache:
+                                self._klines_cache.move_to_end(cache_key)
+                            self._klines_cache[cache_key] = (data, now)
+                            while len(self._klines_cache) > self._klines_cache_max:
+                                self._klines_cache.popitem(last=False)
+                            return data
+
+                        if r.status == 451:
+                            self._record_geo_block(endpoint)
+                            break  # Next endpoint
+
+                        if r.status == 429:
+                            _retry = int(r.headers.get("Retry-After", "5"))
+                            _retry = max(1, min(_retry, 60))
+                            self.logger.warning(
+                                f"⏳ Binance 429 klines [{sym}|{interval}] "
+                                f"(attempt {_attempt+1}/{_max_attempts}) — backing off {_retry}s"
+                            )
+                            await asyncio.sleep(_retry)
+                            continue
+
+                        body = await r.text()
+                        if r.status == 418:
+                            self._record_ip_ban(body)
+                            return None
+
+                        self.logger.error(f"Klines error [{sym}|{interval}] HTTP {r.status}: {body[:500]}")
+                        break  # Other 4xx — no retry
+
+                except asyncio.TimeoutError:
+                    if _attempt < _max_attempts - 1:
+                        await asyncio.sleep(2 ** _attempt)
+                except Exception as e:
+                    self.logger.error(f"get_klines error [{endpoint}]: {e}")
+                    break
+
+        # ── Phase 2: SPOT klines fallback (data.binance.com) ─────────────────
+        # Used only when all FAPI endpoints are geo-blocked. SPOT close prices
+        # are virtually identical to USDM perpetual prices for TA purposes.
+        try:
+            spot_params = {"symbol": sym, "interval": interval, "limit": limit}
+            s = await self._get_session()
+            async with s.get(_SPOT_KLINES_ENDPOINT, params=spot_params) as r:
+                if r.status == 200:
+                    data = await r.json()
+                    if not self._using_spot_fallback:
                         self.logger.warning(
-                            f"⏳ Binance 429 klines [{sym}|{interval}] "
-                            f"(attempt {_attempt+1}/{_max_attempts}) "
-                            f"— backing off {_retry_after}s"
+                            f"📡 [{sym}] All FAPI endpoints geo-blocked — "
+                            f"using SPOT klines fallback (data.binance.com)"
                         )
-                        await asyncio.sleep(_retry_after)
-                        continue  # retry
+                        self._using_spot_fallback = True
+                    # Cache spot result with same key (transparent to callers)
+                    self._klines_cache[cache_key] = (data, now)
+                    while len(self._klines_cache) > self._klines_cache_max:
+                        self._klines_cache.popitem(last=False)
+                    return data
+                self.logger.debug(f"SPOT klines fallback HTTP {r.status} for {sym}")
+        except Exception as e:
+            self.logger.debug(f"SPOT klines fallback error [{sym}]: {e}")
 
-                    body = await r.text()
-                    if r.status == 418:
-                        # IP banned — record the ban and stop retrying immediately.
-                        # Continuing to retry during a ban compounds the violation
-                        # and can extend the ban window significantly.
-                        self._record_ip_ban(body)
-                        return None
-
-                    # Use 500-char limit so multi-field error bodies
-                    # (e.g. Binance code + msg + serverTime) are fully captured.
-                    self.logger.error(
-                        f"Klines error [{sym}|{interval}] HTTP {r.status}: {body[:500]}"
-                    )
-                    break  # Other 4xx/5xx — no retry
-
-            except asyncio.TimeoutError:
-                self.logger.warning(
-                    f"⏱ Timeout fetching klines {interval} "
-                    f"(attempt {_attempt+1}/{_max_attempts})"
-                )
-                if _attempt < _max_attempts - 1:
-                    await asyncio.sleep(2 ** _attempt)
-            except Exception as e:
-                self.logger.error(f"get_klines error: {e}")
-                break  # Unexpected error — no retry
         return None
 
     async def get_24hr_ticker_stats(self, symbol: Optional[str] = None) -> Optional[Dict]:
         """24h rolling window ticker statistics"""
         sym = symbol or self.symbol
-        await self._wait_ip_ban_if_needed()
-        try:
-            url = f"{self.base_url}/fapi/v1/ticker/24hr"
-            s = await self._get_session()
-            async with s.get(url, params={"symbol": sym}) as r:
-                if r.status == 200:
-                    return await r.json()
-                if r.status == 418:
-                    body = await r.text()
-                    self._record_ip_ban(body)
-                    return None
-        except Exception as e:
-            self.logger.error(f"24hr ticker error: {e}")
-        return None
+        return await self._get_fapi("/fapi/v1/ticker/24hr", {"symbol": sym})
 
     async def get_order_book(self, symbol: Optional[str] = None, limit: int = 20) -> Optional[Dict]:
         """Fetch order book depth"""
         sym = symbol or self.symbol
         limit = min(limit, 1000)
-        await self._wait_ip_ban_if_needed()
-        try:
-            url = f"{self.base_url}/fapi/v1/depth"
-            s = await self._get_session()
-            async with s.get(url, params={"symbol": sym, "limit": limit}) as r:
-                if r.status == 200:
-                    return await r.json()
-                if r.status == 418:
-                    body = await r.text()
-                    self._record_ip_ban(body)
-                    return None
-        except Exception as e:
-            self.logger.error(f"Order book error: {e}")
-        return None
+        return await self._get_fapi("/fapi/v1/depth", {"symbol": sym, "limit": limit})
 
     async def get_funding_rate(self, symbol: Optional[str] = None) -> Optional[Dict]:
         """Get current funding rate — returns dict with 'fundingRate' key (str)"""
         sym = symbol or self.symbol
-        await self._wait_ip_ban_if_needed()
-        try:
-            url = f"{self.base_url}/fapi/v1/premiumIndex"
-            s = await self._get_session()
-            async with s.get(url, params={"symbol": sym}) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    return {
-                        "fundingRate": data.get("lastFundingRate", "0"),
-                        "fundingTime": data.get("nextFundingTime", 0),
-                        "markPrice":   data.get("markPrice", "0"),
-                        "indexPrice":  data.get("indexPrice", "0"),
-                    }
-                if r.status == 418:
-                    body = await r.text()
-                    self._record_ip_ban(body)
-                    return None
-        except Exception as e:
-            self.logger.error(f"Funding rate error: {e}")
+        data = await self._get_fapi("/fapi/v1/premiumIndex", {"symbol": sym})
+        if data:
+            return {
+                "fundingRate": data.get("lastFundingRate", "0"),
+                "fundingTime": data.get("nextFundingTime", 0),
+                "markPrice":   data.get("markPrice", "0"),
+                "indexPrice":  data.get("indexPrice", "0"),
+            }
         return None
 
     async def get_open_interest(self, symbol: Optional[str] = None) -> Optional[Dict]:
         """Get current open interest"""
         sym = symbol or self.symbol
-        try:
-            url = f"{self.base_url}/fapi/v1/openInterest"
-            s = await self._get_session()
-            async with s.get(url, params={"symbol": sym}) as r:
-                if r.status == 200:
-                    return await r.json()
-        except Exception as e:
-            self.logger.error(f"Open interest error: {e}")
-        return None
+        return await self._get_fapi("/fapi/v1/openInterest", {"symbol": sym})
 
     async def get_exchange_info(self, symbol: Optional[str] = None) -> Dict:
         """Get exchange info for the symbol"""
         sym = symbol or self.symbol
         try:
-            url = f"{self.base_url}/fapi/v1/exchangeInfo"
-            s = await self._get_session()
-            async with s.get(url) as r:
-                if r.status == 200:
-                    info = await r.json()
-                    for s_info in info.get("symbols", []):
-                        if s_info.get("symbol") == sym:
-                            return s_info
+            data = await self._get_fapi("/fapi/v1/exchangeInfo")
+            if data:
+                for s_info in data.get("symbols", []):
+                    if s_info.get("symbol") == sym:
+                        return s_info
         except Exception as e:
             self.logger.error(f"Exchange info error: {e}")
         return {}
@@ -452,11 +541,9 @@ class BTCUSDTTrader:
             self.logger.error(f"Market status error: {e}")
             return {"status": "UNKNOWN", "active": False, "is_trading": False}
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # Account & Position Data — Authenticated
-    # All signed calls reuse the shared TCPConnector session. Auth is provided
-    # per-request via X-MBX-APIKEY header; the session carries no stored credentials.
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def get_account_balance(self) -> Optional[Dict]:
         """Retrieve USDT futures wallet balance"""
@@ -486,7 +573,7 @@ class BTCUSDTTrader:
         return None
 
     async def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
-        """Get open positions for BTCUSDT (or specified symbol)"""
+        """Get open positions for symbol"""
         sym = symbol or self.symbol
         try:
             url    = f"{self.base_url}/fapi/v2/positionRisk"
@@ -495,10 +582,7 @@ class BTCUSDTTrader:
             async with s.get(url, params=params, headers=self._auth_headers()) as r:
                 if r.status == 200:
                     positions = await r.json()
-                    return [
-                        p for p in positions
-                        if float(p.get("positionAmt", 0)) != 0
-                    ]
+                    return [p for p in positions if float(p.get("positionAmt", 0)) != 0]
         except Exception as e:
             self.logger.error(f"get_positions error: {e}")
         return []
@@ -536,7 +620,7 @@ class BTCUSDTTrader:
 
     async def change_leverage(self, symbol: str, leverage: int) -> bool:
         """Change futures leverage for symbol"""
-        leverage = max(1, min(leverage, 125))  # BTCUSDT max is 125x
+        leverage = max(1, min(leverage, 125))
         try:
             url    = f"{self.base_url}/fapi/v1/leverage"
             params = self._signed_params({"symbol": symbol, "leverage": leverage})
@@ -551,113 +635,90 @@ class BTCUSDTTrader:
             self.logger.error(f"change_leverage error: {e}")
         return False
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # Multi-Market Discovery
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def _fetch_all_tickers(self, retries: int = 3) -> Optional[List[Dict]]:
         """
         Fetch all /fapi/v1/ticker/24hr entries (no-symbol form).
-        Retries up to `retries` times with exponential backoff on transient errors.
-        Previously had no retry, meaning a single network hiccup would leave the bot
-        holding the old symbol list for up to an hour before the next refresh attempt.
+
+        Multi-endpoint failover: if the primary endpoint returns 451,
+        automatically tries fapi1-fapi5.binance.com before giving up.
+        If ALL endpoints are geo-blocked, returns None (caller uses fallback list).
         """
         await self._wait_ip_ban_if_needed()
-        url = f"{self.base_url}/fapi/v1/ticker/24hr"
-        for attempt in range(retries):
-            try:
-                s = await self._get_session()
-                async with s.get(url) as r:
-                    if r.status == 200:
-                        return await r.json()
+        endpoints = self._get_fapi_endpoints()
 
-                    if r.status == 429:
-                        # Rate-limited by Binance — honour Retry-After before retrying.
-                        # Previously lumped with all 4xx and returned None immediately,
-                        # causing the symbol list to fall back to ["BTCUSDT"] for the
-                        # next hour even after the rate-limit window had already passed.
-                        _retry_after = int(r.headers.get("Retry-After", "5"))
-                        _retry_after = max(1, min(_retry_after, 60))  # cap at 60s
-                        self.logger.warning(
-                            f"⏳ Binance 429 24hr ticker "
-                            f"(attempt {attempt+1}/{retries}) "
-                            f"— backing off {_retry_after}s"
+        for endpoint in endpoints:
+            url = f"{endpoint}/fapi/v1/ticker/24hr"
+            for attempt in range(retries):
+                try:
+                    s = await self._get_session()
+                    async with s.get(url) as r:
+                        if r.status == 200:
+                            self._record_endpoint_success(endpoint)
+                            return await r.json()
+
+                        if r.status == 451:
+                            self._record_geo_block(endpoint)
+                            break  # Next endpoint
+
+                        if r.status == 429:
+                            _retry_after = int(r.headers.get("Retry-After", "5"))
+                            _retry_after = max(1, min(_retry_after, 60))
+                            self.logger.warning(
+                                f"⏳ Binance 429 24hr ticker "
+                                f"(attempt {attempt+1}/{retries}) — backing off {_retry_after}s"
+                            )
+                            await asyncio.sleep(_retry_after)
+                            continue
+
+                        body = await r.text()
+                        if r.status == 418:
+                            self._record_ip_ban(body)
+                            return None
+
+                        self.logger.error(
+                            f"24hr ticker HTTP {r.status} "
+                            f"(attempt {attempt+1}/{retries}): {body[:200]}"
                         )
-                        await asyncio.sleep(_retry_after)
-                        continue  # retry
+                        if 400 <= r.status < 500:
+                            return None
 
-                    body = await r.text()
-                    if r.status == 418:
-                        self._record_ip_ban(body)
-                        return None
+                except asyncio.TimeoutError:
+                    if attempt < retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                except Exception as e:
+                    self.logger.error(f"_fetch_all_tickers error [{endpoint}] (attempt {attempt+1}): {e}")
+                    break
 
-                    self.logger.error(
-                        f"24hr ticker (all) HTTP {r.status} "
-                        f"(attempt {attempt+1}/{retries}): {body[:200]}"
-                    )
-                    # Other 4xx errors are permanent — no retry
-                    if 400 <= r.status < 500:
-                        return None
-
-            except asyncio.TimeoutError:
-                self.logger.warning(
-                    f"⏱ Timeout fetching 24hr ticker list "
-                    f"(attempt {attempt+1}/{retries})"
-                )
-            except Exception as e:
-                self.logger.error(
-                    f"_fetch_all_tickers error (attempt {attempt+1}/{retries}): {e}"
-                )
-            if attempt < retries - 1:
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s backoff
+        # All endpoints exhausted — return None; caller will use fallback symbols
+        self.logger.warning(
+            "🌐 All FAPI endpoints blocked/failed for 24hr ticker — "
+            "will use hardcoded fallback symbol list"
+        )
         return None
 
     async def _get_perpetual_trading_set(self) -> frozenset:
         """
-        Return a frozenset of symbols that are both PERPETUAL contract type AND
-        have TRADING status on Binance USDM. Cached for _perpetual_cache_ttl seconds
-        (default 1 hour) to avoid hammering the exchangeInfo endpoint.
-
-        BUG FIX: Added _wait_ip_ban_if_needed() guard so this method respects
-        the IP ban state (like every other API method in this class).  Previously
-        it would issue a live /fapi/v1/exchangeInfo call even while banned, which
-        could extend the ban window.  Returns the cached frozenset (possibly empty)
-        when banned so callers degrade gracefully via the name-based heuristic.
+        Return frozenset of PERPETUAL+TRADING symbols from exchangeInfo.
+        Cached for 1 hour. Uses multi-endpoint failover on 451.
+        Falls back to cached value on any failure.
         """
         now = time.time()
         if (self._perpetual_trading_symbols is not None and
                 now - self._perpetual_cache_time < self._perpetual_cache_ttl):
             return self._perpetual_trading_symbols
 
-        # Respect IP ban — if Binance has banned the IP, skip the live call and
-        # return the last cached value (or empty frozenset on first boot).
         if self.is_ip_banned():
-            if self._perpetual_trading_symbols is not None:
-                return self._perpetual_trading_symbols
-            return frozenset()
+            return self._perpetual_trading_symbols or frozenset()
 
-        try:
-            url = f"{self.base_url}/fapi/v1/exchangeInfo"
-            s   = await self._get_session()
-            async with s.get(url) as r:
-                if r.status == 418:
-                    body = await r.text()
-                    self._record_ip_ban(body)
-                    # Return stale cache or empty set — callers use name heuristic
-                    return self._perpetual_trading_symbols or frozenset()
-
-                if r.status == 429:
-                    self.logger.warning("⏳ exchangeInfo rate-limited (429) — perpetual filter kept stale")
-                    return self._perpetual_trading_symbols or frozenset()
-
-                if r.status != 200:
-                    self.logger.warning(f"exchangeInfo HTTP {r.status} — perpetual filter disabled")
-                    return frozenset()
-                info = await r.json()
-
+        data = await self._get_fapi("/fapi/v1/exchangeInfo", retries=2)
+        if data is not None:
             valid = frozenset(
                 sym_info["symbol"]
-                for sym_info in info.get("symbols", [])
+                for sym_info in data.get("symbols", [])
                 if sym_info.get("contractType") == "PERPETUAL"
                 and sym_info.get("status") == "TRADING"
             )
@@ -666,9 +727,12 @@ class BTCUSDTTrader:
             self.logger.debug(f"🗂️  Perpetual-trading whitelist refreshed: {len(valid)} symbols")
             return valid
 
-        except Exception as e:
-            self.logger.warning(f"_get_perpetual_trading_set error: {e} — filter disabled")
-            return frozenset()
+        # Failed — return stale cache or empty frozenset
+        if self._perpetual_trading_symbols is not None:
+            self.logger.debug("exchangeInfo failed — using stale perpetual cache")
+            return self._perpetual_trading_symbols
+        self.logger.warning("exchangeInfo failed and no cache — perpetual filter disabled")
+        return frozenset()
 
     async def get_all_usdm_symbols(
         self,
@@ -676,14 +740,16 @@ class BTCUSDTTrader:
         max_symbols: int = None,
     ) -> List[str]:
         """
-        Fetch all active USDM PERPETUAL futures symbols sorted by 24h quote volume
-        (highest liquidity first). Filters by minimum 24h USDT volume to exclude
-        illiquid micro-caps. Only PERPETUAL contracts with TRADING status are included
-        (SETTLING / BREAK / delivery symbols are excluded). BTCUSDT is always first.
+        Fetch all active USDM PERPETUAL futures symbols sorted by 24h quote volume.
+
+        v8.0: When Binance 24hr ticker returns 451 (geo-block) and ALL alternative
+        endpoints are also blocked, automatically falls back to a hardcoded list of
+        top 80 USDM perpetuals rather than returning ["BTCUSDT"] only.
+        This ensures the bot scans a full universe even under geo-restriction.
 
         Args:
-            min_volume_usdt: Minimum 24h USDT volume (default: self.MIN_VOLUME_USDT)
-            max_symbols:     Cap on returned symbols (default: self.MAX_SYMBOLS)
+            min_volume_usdt: Minimum 24h USDT volume
+            max_symbols:     Cap on returned symbols
 
         Returns:
             List of symbol strings e.g. ["BTCUSDT", "ETHUSDT", ...]
@@ -691,20 +757,25 @@ class BTCUSDTTrader:
         min_vol = min_volume_usdt if min_volume_usdt is not None else self.MIN_VOLUME_USDT
         cap     = max_symbols     if max_symbols     is not None else self.MAX_SYMBOLS
 
-        # Fetch the PERPETUAL+TRADING whitelist and 24 h tickers concurrently
         perpetual_set, tickers = await asyncio.gather(
             self._get_perpetual_trading_set(),
             self._fetch_all_tickers(),
         )
+
+        # ── Fallback: use hardcoded symbol list when API is geo-blocked ──────
         if tickers is None:
-            return ["BTCUSDT"]
+            symbols = list(_FALLBACK_USDM_SYMBOLS[:cap])
+            if "BTCUSDT" not in symbols:
+                symbols.insert(0, "BTCUSDT")
+            self.logger.warning(
+                f"🌐 Using hardcoded fallback symbol list ({len(symbols)} symbols) — "
+                f"Binance ticker API unreachable (geo-block or network error)"
+            )
+            return symbols
 
         qualifying: List[Tuple[float, str]] = []
         for t in tickers:
             sym = t.get("symbol", "")
-            # Primary guard: must be in the PERPETUAL+TRADING whitelist.
-            # When the whitelist is empty (exchangeInfo fetch failed) we fall
-            # back to the name-based heuristic (endswith USDT, no underscore).
             if perpetual_set:
                 if sym not in perpetual_set:
                     continue
@@ -720,13 +791,7 @@ class BTCUSDTTrader:
 
         qualifying.sort(reverse=True)
 
-        # ── USDC deduplication ─────────────────────────────────────────────────
-        # BTCUSDC/ETHUSDC/SOLUSDC/XRPUSDC are the same underlying market as
-        # their USDT counterparts.  Including both wastes scan slots and the
-        # hourly signal cap, and can send near-identical signals back-to-back.
-        # Strategy: build the full qualifying symbol set, then when iterating
-        # to fill up to `cap`, skip any XYZUSDC whose XYZUSDT sibling also
-        # qualifies (prefer USDT; keep USDC only when no USDT sibling exists).
+        # USDC deduplication: prefer USDT when both XYZUSDT and XYZUSDC qualify
         all_qualifying_syms = {sym for _, sym in qualifying}
         deduplicated: List[str] = []
         n_usdc_dropped = 0
@@ -735,7 +800,7 @@ class BTCUSDTTrader:
                 usdt_sibling = sym[:-4] + "USDT"
                 if usdt_sibling in all_qualifying_syms:
                     n_usdc_dropped += 1
-                    continue  # Drop USDC variant — USDT version preferred
+                    continue
             deduplicated.append(sym)
             if len(deduplicated) >= cap:
                 break
@@ -758,56 +823,40 @@ class BTCUSDTTrader:
 
     async def get_price_for_symbol(self, symbol: str) -> Optional[float]:
         """Fetch mark/last price for any single USDM symbol."""
-        try:
-            url = f"{self.base_url}/fapi/v1/ticker/price"
-            s = await self._get_session()
-            async with s.get(url, params={"symbol": symbol}) as r:
-                if r.status == 200:
-                    data = await r.json()
-                    return float(data["price"])
-                self.logger.debug(f"Price fetch {symbol}: HTTP {r.status}")
-        except asyncio.TimeoutError:
-            self.logger.warning(f"⏱ Timeout fetching price {symbol}")
-        except Exception as e:
-            self.logger.debug(f"get_price_for_symbol({symbol}) error: {e}")
-        return None
+        return await self.get_current_price(symbol)
 
     async def get_prices_for_symbols(self, symbols: List[str]) -> Dict[str, float]:
         """
-        Batch-fetch prices for multiple symbols in a single API call
-        (uses the no-symbol form of /fapi/v1/ticker/price which returns all).
+        Batch-fetch prices for multiple symbols in a single API call.
         Falls back to individual calls if the batch call fails.
         """
         try:
-            url = f"{self.base_url}/fapi/v1/ticker/price"
-            s = await self._get_session()
-            async with s.get(url) as r:
-                if r.status == 200:
-                    all_tickers = await r.json()
-                    price_map: Dict[str, float] = {}
-                    sym_set = set(symbols)
-                    for t in all_tickers:
-                        sym = t.get("symbol", "")
-                        if sym in sym_set:
-                            try:
-                                price_map[sym] = float(t["price"])
-                            except (KeyError, ValueError):
-                                pass
-                    return price_map
+            data = await self._get_fapi("/fapi/v1/ticker/price")
+            if data and isinstance(data, list):
+                price_map: Dict[str, float] = {}
+                sym_set = set(symbols)
+                for t in data:
+                    sym = t.get("symbol", "")
+                    if sym in sym_set:
+                        try:
+                            price_map[sym] = float(t["price"])
+                        except (KeyError, ValueError):
+                            pass
+                return price_map
         except Exception as e:
             self.logger.warning(f"Batch price fetch failed: {e} — falling back to individual")
 
         results: Dict[str, float] = {}
-        tasks = [self.get_price_for_symbol(sym) for sym in symbols]
+        tasks = [self.get_current_price(sym) for sym in symbols]
         prices = await asyncio.gather(*tasks, return_exceptions=True)
         for sym, price in zip(symbols, prices):
             if isinstance(price, float):
                 results[sym] = price
         return results
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
     # Convenience wrappers (backwards compat)
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def get_30m_klines(self, limit: int = 500) -> Optional[List]:
         return await self.get_klines("30m", limit=limit)

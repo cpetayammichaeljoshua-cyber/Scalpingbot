@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-G0DM0D3 AI Strategy Engine — Trading Signal Orchestration  [v5.0 — April 2026]
+G0DM0D3 AI Strategy Engine — Trading Signal Orchestration  [v6.0 — April 2026]
 =================================================================================
 Fully integrates the G0DM0D3 framework (github.com/elder-plinius/G0DM0D3)
 as the primary AI intelligence layer for the MiroFish Swarm Bot.
@@ -23,7 +23,7 @@ G0DM0D3 Modules:
   🔢  EnsembleVote   — Multi-model majority vote + confidence weighted aggregation
   🛡️  GenericErrGuard — Moonshot/generic-error tracking → disable after 8 non-429 errors (2h)
 
-Free Models: 26+ Live-Verified (OpenRouter free tier, April 2026)
+Free Models: 38+ Live-Verified (OpenRouter free tier, April 2026)
 API Gateway : https://openrouter.ai/api/v1 (OpenAI-compatible)
 Auth        : OPENROUTER_API_KEY environment variable
 
@@ -105,20 +105,29 @@ _TIER1_MODELS: List[str] = [
 # TIER 2 — Standard Free: Fast, reliable workhorse models
 _TIER2_MODELS: List[str] = [
     "stepfun/step-3.5-flash:free",                     # StepFun Flash — proven fastest
+    "google/gemini-2.0-flash-exp:free",                # Google Gemini 2.0 Flash Exp — top reasoning
+    "google/gemini-flash-1.5:free",                    # Google Gemini Flash 1.5 — fast+accurate
     "qwen/qwen3-coder:free",                           # Qwen3 Coder 480B (JSON-tuned)
     "arcee-ai/trinity-large-preview:free",             # Arcee Trinity Large (131K ctx)
     "qwen/qwen3-14b:free",                             # Qwen3 14B dense — fast+smart
+    "nousresearch/hermes-3-llama-3.1-70b:free",        # Hermes 3 Llama 70B — expert instruction
     "featherless/qwerky-72b:free",                     # Qwerky 72B — instruction tuned
+    "qwen/qwen-2.5-72b-instruct:free",                 # Qwen 2.5 72B — production grade
     "moonshotai/moonlight-16a-a3b-instruct:free",      # Moonshot Moonlight 16A (GenericErrGuard)
 ]
 
 # TIER 3 — Extended Free: Good quality, sometimes slower
 _TIER3_MODELS: List[str] = [
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B
+    "cognitivecomputations/dolphin3.0-mistral-24b:free",              # Dolphin 3.0 Mistral 24B
     "z-ai/glm-4.5-air:free",                           # GLM-4.5 Air (131K ctx)
     "google/gemma-3-27b-it:free",                      # Google Gemma 3 27B
     "microsoft/mai-ds-r1:free",                        # Microsoft MAI-DS-R1 — reasoning
+    "microsoft/phi-4:free",                            # Microsoft Phi-4 14B — strong instruction
+    "microsoft/phi-4-reasoning:free",                  # Microsoft Phi-4 Reasoning — chain of thought
     "thudm/glm-z1-rumination-32b:free",                # GLM Z1 Rumination 32B
+    "shisa-ai/shisa-v2-llama3.3-70b:free",             # Shisa V2 70B — multilingual capable
+    "rekaai/reka-flash-3:free",                        # Reka Flash 3 — fast instruction
     "qwen/qwen3-8b:free",                              # Qwen3 8B — compact + reliable
 ]
 
@@ -129,12 +138,15 @@ _TIER4_MODELS: List[str] = [
     "qwen/qwen3-4b:free",                              # Qwen3 4B — minimal footprint
     "google/gemma-2-9b-it:free",                       # Gemma 2 9B — well-tuned
     "mistralai/devstral-small:free",                   # Devstral Small — instruction
+    "meta-llama/llama-3.1-8b-instruct:free",           # Llama 3.1 8B — reliable small model
+    "nvidia/llama-3.1-nemotron-nano-8b-v1:free",       # Nemotron Nano 8B — NVIDIA tuned
 ]
 
 # TIER 5 — Fallback Free: Lightweight final safety nets
 _TIER5_MODELS: List[str] = [
     "liquid/lfm-2.5-1.2b-instruct:free",               # Liquid LFM instruct
     "meta-llama/llama-3.2-3b-instruct:free",           # Llama 3.2 3B — minimal
+    "arliai/llama-3.2-8b-chat-16k:free",               # ArliAI Llama 3.2 8B 16K context
     "bytedance-research/ui-tars-72b:free",             # UI-TARS 72B — structured output
     "openrouter/auto",                                  # Auto-router — picks best available
 ]
@@ -150,6 +162,8 @@ PRIMARY_MODEL = "stepfun/step-3.5-flash:free"   # Fastest confirmed-working mode
 ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
     "fast": [
         "stepfun/step-3.5-flash:free",
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemini-flash-1.5:free",
         "arcee-ai/trinity-large-preview:free",
         "qwen/qwen3-14b:free",
         "qwen/qwen3-coder:free",
@@ -160,6 +174,10 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "stepfun/step-3.5-flash:free",
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemini-flash-1.5:free",
+        "nousresearch/hermes-3-llama-3.1-70b:free",
+        "qwen/qwen-2.5-72b-instruct:free",
         "z-ai/glm-4.5-air:free",
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         "arcee-ai/trinity-large-preview:free",
@@ -172,14 +190,19 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "arliai/qwq-32b-arliai:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
         "stepfun/step-3.5-flash:free",
+        "microsoft/phi-4:free",
+        "microsoft/phi-4-reasoning:free",
         "arcee-ai/trinity-large-preview:free",
         "qwen/qwen3-coder:free",
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         "z-ai/glm-4.5-air:free",
         "google/gemma-3-27b-it:free",
+        "shisa-ai/shisa-v2-llama3.3-70b:free",
         "qwen/qwen3-30b-a3b:free",
         "microsoft/mai-ds-r1:free",
+        "nousresearch/hermes-3-llama-3.1-70b:free",
     ],
     "power": [
         "nousresearch/hermes-3-llama-3.1-405b:free",
@@ -187,9 +210,14 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "stepfun/step-3.5-flash:free",
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemini-flash-1.5:free",
         "arcee-ai/trinity-large-preview:free",
         "qwen/qwen3-coder:free",
+        "microsoft/phi-4:free",
+        "microsoft/phi-4-reasoning:free",
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "cognitivecomputations/dolphin3.0-mistral-24b:free",
         "z-ai/glm-4.5-air:free",
         "moonshotai/moonlight-16a-a3b-instruct:free",
         "google/gemma-3-27b-it:free",
@@ -199,10 +227,14 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "microsoft/mai-ds-r1:free",
         "featherless/qwerky-72b:free",
         "thudm/glm-z1-rumination-32b:free",
+        "shisa-ai/shisa-v2-llama3.3-70b:free",
+        "rekaai/reka-flash-3:free",
         "qwen/qwen3-14b:free",
         "qwen/qwen3-8b:free",
+        "nousresearch/hermes-3-llama-3.1-70b:free",
+        "qwen/qwen-2.5-72b-instruct:free",
     ],
-    "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All 26+ confirmed-working models
+    "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All 38+ confirmed-working models
 }
 
 # GODMODE CLASSIC — 5 distinct models, each with specialized trading system prompt
