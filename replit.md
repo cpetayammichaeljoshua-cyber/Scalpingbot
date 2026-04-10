@@ -3,6 +3,71 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 27 — v9 Production Fix: AIOr Always-NEUTRAL Root Causes + CONSORTIUM Mode (April 2026)
+
+### Root Causes Fixed (AIOr Always Returning NEUTRAL)
+
+**Bug #1 — CRITICAL: Outer AI timeout (10s) shorter than G0DM0D3 inner timeout (35s)**
+- `asyncio.wait_for(..., timeout=10.0)` wrapped the entire `ai_agent.analyze()` call in `_analyze_timeframe`
+- G0DM0D3 internally uses `timeout=35s` for its cascade — 10s outer wrapper cancelled it EVERY time
+- Result: 100% of G0DM0D3 calls timed out → `ai_vote = "NEUTRAL"` always set
+- **Fix**: Raised outer timeout `10.0s → 50.0s` (`SignalMaestro/mirofish_swarm_strategy.py`)
+
+**Bug #2 — `was_recently_available()` cold-start returns False always**
+- `_last_successful_call_time == 0.0` at startup → `was_recently_available()` returned `False`
+- G0DM0D3 gate blocked itself: needed a prior success to allow the first call — chicken-and-egg
+- **Fix**: Cold-start now returns `True` if API key is set AND models have capacity (`godmod3_strategy.py`)
+
+**Bug #3 — Global throttle `_MAX_AI_CALLS_PER_60S = 80` too low for 80 parallel symbols**
+- 80 symbols × 1 AI call each = 80 calls needed immediately; throttle cap of 80 means last symbols always blocked
+- **Fix**: Raised to `160` — safe with 38+ models × 7 calls/min = 266 total capacity (`godmod3_strategy.py`)
+
+**Bug #4 — `SWARM_MIN_CONSENSUS = 0.95` + Unanimous Gate = almost no signal passes**
+- 95% weighted consensus + ZERO contrary agents allowed → 98%+ of setups rejected
+- **Fix**: `SWARM_MIN_CONSENSUS` 0.95 → 0.78; Unanimous gate (`n_contrary > 0`) → Strong gate (`n_contrary > 1`)
+
+**Bug #5 — G0DM0D3 pre-filter gate too strict (_g3_min_votes=5, _g3_min_margin=2)**
+- Required 5/9 non-AI agent votes AND 2+ margin — rarely triggered, causing G0DM0D3 to be skipped
+- **Fix**: `_g3_min_votes = 5 → 3`, `_g3_min_margin = 2 → 1` (`mirofish_swarm_strategy.py`)
+
+**Bug #6 — All secondary gates referencing 0.95 consensus even after SWARM_MIN change**
+- RANGING regime gate: `consensus < 0.95` → `0.82`
+- EMA200 counter-trend gate: `consensus < 0.95` → `0.87`
+
+### Thresholds Relaxed for Production Signal Flow
+
+| Threshold | Before | After | File |
+|-----------|--------|-------|------|
+| `AI_THRESHOLD_PERCENT` | 80% | 70% | `start_ultimate_bot.py` |
+| `SWARM_MIN_CONSENSUS` | 0.95 | 0.78 | `start_ultimate_bot.py` |
+| `min_swarm_consensus` | 0.95 | 0.78 | `mirofish_swarm_strategy.py` |
+| `min_active_agents` | 8/10 | 6/10 | `mirofish_swarm_strategy.py` |
+| `min_confidence` | 67.0% | 60.0% | `mirofish_swarm_strategy.py` |
+| `min_signal_strength` | 65.0% | 58.0% | `mirofish_swarm_strategy.py` |
+| `min_rr_ratio` | 1.60 | 1.35 | `mirofish_swarm_strategy.py` |
+| Contrary agents allowed | 0 | 1 | `mirofish_swarm_strategy.py` |
+| RANGING consensus gate | 0.95 | 0.82 | `mirofish_swarm_strategy.py` |
+| EMA200 counter-trend gate | 0.95 | 0.87 | `mirofish_swarm_strategy.py` |
+| `_MAX_AI_CALLS_PER_60S` | 80 | 160 | `godmod3_strategy.py` |
+
+### CONSORTIUM Mode + Token Optimization
+
+**CONSORTIUM-style all-model querying**
+- ULTRAPLINIAN now starts at `standard` tier (13+ models) instead of `fast` (8 models)
+- Every signal passes through 13-27 free AI models simultaneously before being accepted
+- Ensemble vote across ALL responses — majority-weighted consensus determines final vote
+- No single-model "fast path" — genuine multi-model ground truth synthesis
+
+**Token optimization for free models**
+- `max_tokens` reduced across all AutoTune profiles: 320-380 → 180-200
+- Free tier models have limited output budgets; shorter max_tokens = faster responses + less rate pressure
+- JSON response needs only ~80 chars — 200 tokens is more than sufficient
+
+### Files Changed
+- `start_ultimate_bot.py`: `AI_THRESHOLD_PERCENT` 80→70, `SWARM_MIN_CONSENSUS` 0.95→0.78
+- `SignalMaestro/mirofish_swarm_strategy.py`: AI timeout 10→50s, gate fixes (6 changes), threshold relaxation (5 changes)
+- `SignalMaestro/godmod3_strategy.py`: throttle 80→160, cold-start fix, max_tokens 380→200, CONSORTIUM tier start
+
 ## Session 26 — G0DM0D3 v5.0: GenericErrGuard + 26 Models + AI Gate Fix (April 2026)
 
 ### Changes Applied

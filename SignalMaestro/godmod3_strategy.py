@@ -435,17 +435,20 @@ class AutoTuneProfile:
 
 
 AUTOTUNE_PROFILES: Dict[str, AutoTuneProfile] = {
-    "volatile":  AutoTuneProfile("volatile",  0.2, 0.85, 0.10, 0.10, 380,
+    # v9 Token Optimization: max_tokens reduced from 320-380 → 180-220.
+    # Free tier models have limited output budgets; shorter outputs = faster responses
+    # + less rate-limit pressure. Our JSON response only needs ~80 chars anyway.
+    "volatile":  AutoTuneProfile("volatile",  0.2, 0.85, 0.10, 0.10, 200,
                                  "High volatility — conservative, precise parameters"),
-    "trending":  AutoTuneProfile("trending",  0.3, 0.90, 0.00, 0.00, 320,
+    "trending":  AutoTuneProfile("trending",  0.3, 0.90, 0.00, 0.00, 180,
                                  "Trending market — balanced, momentum parameters"),
-    "ranging":   AutoTuneProfile("ranging",   0.4, 0.92, 0.15, 0.05, 320,
+    "ranging":   AutoTuneProfile("ranging",   0.4, 0.92, 0.15, 0.05, 180,
                                  "Ranging market — nuanced, mean-reversion parameters"),
-    "breakout":  AutoTuneProfile("breakout",  0.25, 0.88, 0.00, 0.00, 380,
+    "breakout":  AutoTuneProfile("breakout",  0.25, 0.88, 0.00, 0.00, 200,
                                  "Breakout imminent — decisive, conviction parameters"),
-    "news":      AutoTuneProfile("news",      0.15, 0.80, 0.20, 0.15, 350,
+    "news":      AutoTuneProfile("news",      0.15, 0.80, 0.20, 0.15, 200,
                                  "News event — ultra-conservative, cautious parameters"),
-    "default":   AutoTuneProfile("default",   0.3,  0.90, 0.00, 0.00, 320,
+    "default":   AutoTuneProfile("default",   0.3,  0.90, 0.00, 0.00, 180,
                                  "Default balanced parameters"),
 }
 
@@ -792,10 +795,10 @@ class G0DM0D3Engine:
 
     # Global per-60s AI call throttle: prevents 80-symbol parallel scans from
     # exhausting per-model rate limits. Free tier = ~8 req/min per model.
-    # With 26 working models × 7 safe calls = 182 total safe calls/min.
-    # We throttle globally at 80/min (safety backstop only — per-model buckets primary).
-    # v5.0: Raised from 50 to 80 — 26 models give 5× more headroom than before.
-    _MAX_AI_CALLS_PER_60S    = 80
+    # With 38+ working models × 7 safe calls = 266 total safe calls/min.
+    # v9: Raised from 80 to 160 — 38+ models provide 3× more capacity than v5.
+    # Per-model buckets remain the primary guard; global throttle is safety backstop only.
+    _MAX_AI_CALLS_PER_60S    = 160
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
@@ -915,7 +918,7 @@ class G0DM0D3Engine:
         This prevents the 429 storm caused by 80 parallel symbol scans each trying
         to call LLMs simultaneously — the fundamental production rate issue.
 
-        With _MAX_AI_CALLS_PER_60S = 50 and ~14 working models × 7 calls/min = 98
+        With _MAX_AI_CALLS_PER_60S = 160 and 38+ working models × 7 calls/min = 266
         safe calls available, we stay well below the aggregate rate limit.
         """
         async with self._get_throttle_lock():
@@ -974,11 +977,17 @@ class G0DM0D3Engine:
         Returns True if G0DM0D3 successfully called at least one model within
         the last `seconds` seconds. Default window: _AI_AVAILABLE_WINDOW (300s).
         Used for signal gate: no signals if AI has been dark for 5+ minutes.
+
+        v9 FIX: Cold-start case — if API key is configured and at least one model
+        is not rate-limited, allow the first call through (don't require prior success).
+        Previously this always returned False at startup, blocking all G0DM0D3 calls
+        until one had already succeeded — a chicken-and-egg problem.
         """
         if seconds is None:
             seconds = self._AI_AVAILABLE_WINDOW
         if self._last_successful_call_time == 0.0:
-            return False
+            # Cold-start: return True only if we have a valid API key and available models
+            return self.is_available() and self.has_available_models()
         return (time.monotonic() - self._last_successful_call_time) <= seconds
 
     def get_next_available_seconds(self) -> float:
@@ -1324,19 +1333,24 @@ class G0DM0D3Engine:
         Breaking news pattern detected → starts at smart tier directly.
         Tier escalation continues until a valid signal is found or all 5 tiers exhausted.
         """
+        # v9 CONSORTIUM MODE: Start at 'standard' tier (13+ models) for all signals.
+        # This ensures a multi-model ensemble vote (CONSORTIUM) rather than single-model.
+        # Previously started at 'fast' (8 models) and stopped at first winner — too few models.
+        # Now: standard tier queries 13 models in parallel → ensemble vote → genuine consensus.
+        # News context / high-volatility still escalates directly to smart/power tier.
         ctx = self._autotune.classify_context("", atr_pct)
         if ctx == "news":
             start_tier = "smart"
         elif atr_pct > 0.5:
             start_tier = "standard"
         else:
-            start_tier = "fast"
+            start_tier = "standard"  # v9: raised from 'fast' — always start with 13+ model consortium
 
         tier_sequence = {
-            "fast":     ["fast",  "standard", "smart", "power", "ultra"],
+            "fast":     ["standard", "smart", "power", "ultra"],
             "standard": ["standard", "smart", "power", "ultra"],
             "smart":    ["smart", "power", "ultra"],
-        }.get(start_tier, ["fast", "standard", "smart", "power", "ultra"])
+        }.get(start_tier, ["standard", "smart", "power", "ultra"])
 
         for tier in tier_sequence:
             winner = await self._run_ultraplinian(system_prompt, user_prompt, params, tier)
