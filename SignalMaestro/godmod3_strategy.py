@@ -80,6 +80,18 @@ OPENROUTER_SITE_NAME = "MiroFish-G0DM0D3-TradingBot"
 # 25 models across 5 tiers — massively reduces per-model rate pressure
 # ─────────────────────────────────────────────────────────────────────────────
 
+# TIER 0 — Flagship Free: Newest, most capable instruction + reasoning models (April 2026+)
+# z4ptacticsbot ORCHESTRATOR_MODELS pattern: highest quality models lead the consortium
+_TIER0_MODELS: List[str] = [
+    "google/gemini-2.5-flash-preview:free",            # Gemini 2.5 Flash Preview — Google flagship free
+    "google/gemini-2.5-pro-exp-03-25:free",            # Gemini 2.5 Pro Experimental
+    "meta-llama/llama-4-maverick:free",                # Llama 4 Maverick — Meta's best free model
+    "meta-llama/llama-4-scout:free",                   # Llama 4 Scout — Meta's fast free model
+    "deepseek/deepseek-r1:free",                       # DeepSeek R1 — chain-of-thought reasoning
+    "deepseek/deepseek-v3-base:free",                  # DeepSeek V3 Base — 671B MoE
+    "moonshotai/kimi-k2:free",                         # Kimi K2 — new Moonshot model
+]
+
 # TIER 1 — Premium Free: Large, highest-quality instruction + reasoning models
 # NOTE: Only models confirmed accessible on OpenRouter free tier (April 2026)
 # Models that return 404 (not on free tier) are EXCLUDED from all lists:
@@ -100,6 +112,7 @@ _TIER1_MODELS: List[str] = [
     "qwen/qwen3-next-80b-a3b-instruct:free",           # Qwen3 Next 80B MoE
     "arliai/qwq-32b-arliai:free",                      # QwQ 32B (ArliAI) — deep reasoning
     "qwen/qwen3-30b-a3b:free",                         # Qwen3 30B MoE — balanced
+    "mistralai/mistral-nemo:free",                     # Mistral Nemo 12B — reliable EU model
 ]
 
 # TIER 2 — Standard Free: Fast, reliable workhorse models
@@ -129,6 +142,7 @@ _TIER3_MODELS: List[str] = [
     "shisa-ai/shisa-v2-llama3.3-70b:free",             # Shisa V2 70B — multilingual capable
     "rekaai/reka-flash-3:free",                        # Reka Flash 3 — fast instruction
     "qwen/qwen3-8b:free",                              # Qwen3 8B — compact + reliable
+    "thudm/glm-4-long:free",                           # GLM-4 Long context
 ]
 
 # TIER 4 — Compact Free: Small but fast, great for quick decisions
@@ -152,16 +166,19 @@ _TIER5_MODELS: List[str] = [
 ]
 
 ALL_FREE_MODELS: List[str] = list(dict.fromkeys(
-    _TIER1_MODELS + _TIER2_MODELS + _TIER3_MODELS + _TIER4_MODELS + _TIER5_MODELS
+    _TIER0_MODELS + _TIER1_MODELS + _TIER2_MODELS + _TIER3_MODELS + _TIER4_MODELS + _TIER5_MODELS
 ))
 
-PRIMARY_MODEL = "stepfun/step-3.5-flash:free"   # Fastest confirmed-working model
+PRIMARY_MODEL = "google/gemini-2.5-flash-preview:free"   # Fastest Tier-0 flagship model
 
-# ULTRAPLINIAN tiers — only confirmed-working free-tier models (404s excluded)
-# v5.0: expanded with 11 additional models across all tiers (26 total, was 15)
+# ULTRAPLINIAN tiers — confirmed-working free-tier models ordered by quality
+# v10.0: TIER0 flagship models (Gemini 2.5, Llama 4, DeepSeek R1, Kimi K2) added to all tiers
+# CONSORTIUM starting tier = standard (13+ models) — user requirement
 ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
     "fast": [
-        "stepfun/step-3.5-flash:free",
+        "google/gemini-2.5-flash-preview:free",        # Gemini 2.5 Flash — fastest flagship
+        "meta-llama/llama-4-scout:free",               # Llama 4 Scout — Meta fast tier
+        "stepfun/step-3.5-flash:free",                 # StepFun Flash — proven fastest
         "google/gemini-2.0-flash-exp:free",
         "google/gemini-flash-1.5:free",
         "arcee-ai/trinity-large-preview:free",
@@ -170,7 +187,13 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "arcee-ai/trinity-mini:free",
         "qwen/qwen3-4b:free",
     ],
-    "standard": [
+    "standard": [   # CONSORTIUM starting tier: 13+ models — full quality consensus
+        "google/gemini-2.5-flash-preview:free",
+        "google/gemini-2.5-pro-exp-03-25:free",
+        "meta-llama/llama-4-maverick:free",
+        "meta-llama/llama-4-scout:free",
+        "deepseek/deepseek-r1:free",
+        "moonshotai/kimi-k2:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "stepfun/step-3.5-flash:free",
@@ -186,8 +209,16 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "qwen/qwen3-14b:free",
     ],
     "smart": [
+        "google/gemini-2.5-flash-preview:free",
+        "google/gemini-2.5-pro-exp-03-25:free",
+        "meta-llama/llama-4-maverick:free",
+        "meta-llama/llama-4-scout:free",
+        "deepseek/deepseek-r1:free",
+        "deepseek/deepseek-v3-base:free",
+        "moonshotai/kimi-k2:free",
         "nousresearch/hermes-3-llama-3.1-405b:free",
         "arliai/qwq-32b-arliai:free",
+        "mistralai/mistral-nemo:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "google/gemini-2.0-flash-exp:free",
@@ -205,8 +236,16 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "nousresearch/hermes-3-llama-3.1-70b:free",
     ],
     "power": [
+        "google/gemini-2.5-flash-preview:free",
+        "google/gemini-2.5-pro-exp-03-25:free",
+        "meta-llama/llama-4-maverick:free",
+        "meta-llama/llama-4-scout:free",
+        "deepseek/deepseek-r1:free",
+        "deepseek/deepseek-v3-base:free",
+        "moonshotai/kimi-k2:free",
         "nousresearch/hermes-3-llama-3.1-405b:free",
         "arliai/qwq-32b-arliai:free",
+        "mistralai/mistral-nemo:free",
         "meta-llama/llama-3.3-70b-instruct:free",
         "qwen/qwen3-next-80b-a3b-instruct:free",
         "stepfun/step-3.5-flash:free",
@@ -233,8 +272,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "qwen/qwen3-8b:free",
         "nousresearch/hermes-3-llama-3.1-70b:free",
         "qwen/qwen-2.5-72b-instruct:free",
+        "thudm/glm-4-long:free",
     ],
-    "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All 38+ confirmed-working models
+    "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # ALL 46+ confirmed-working models
 }
 
 # GODMODE CLASSIC — 5 distinct models, each with specialized trading system prompt
@@ -307,7 +347,7 @@ _ERR_GENERIC = "generic"
 _COOLDOWN: Dict[str, float] = {
     _ERR_AUTH:    86400.0,   # 24h — auth errors are permanent (wrong key)
     _ERR_RATE:    65.0,      # 65s default (overridden by X-RateLimit-Reset header)
-    _ERR_UNAVAIL: 45.0,      # 45s — reduced from 180s for faster recovery
+    _ERR_UNAVAIL: 75.0,      # 75s — raised from 45s to prevent model flapping (503/overloaded)
     _ERR_TIMEOUT: 60.0,      # 60s — timeout cooldown
     _ERR_GENERIC: 30.0,      # 30s — generic short cooldown
 }
@@ -802,9 +842,9 @@ class G0DM0D3Engine:
 
     # CONSORTIUM mode constants (z4ptacticsbot/src/lib/consortium.ts architecture)
     # "CONSORTIUM distils GROUND TRUTH from the crowd" — all models vote, no early stopping.
-    _CONSORTIUM_SEM_LIMIT    = 16     # concurrent calls in CONSORTIUM sweep (higher than normal)
-    _CONSORTIUM_TIMEOUT      = 18.0   # per-model timeout in CONSORTIUM (allows most models to respond)
-    _CONSORTIUM_MIN_VOTES    = 3      # minimum successful votes for CONSORTIUM result to be valid
+    _CONSORTIUM_SEM_LIMIT    = 20     # concurrent calls in CONSORTIUM sweep (raised for 46+ models)
+    _CONSORTIUM_TIMEOUT      = 25.0   # per-model timeout — raised 18→25s for reasoning models (QwQ/R1)
+    _CONSORTIUM_MIN_VOTES    = 9      # minimum successful votes — user requirement: G0DM0D3 gate 9/9
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
