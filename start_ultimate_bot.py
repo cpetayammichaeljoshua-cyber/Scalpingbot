@@ -75,7 +75,7 @@ SIGNALS_PER_HOUR_MIN = 5   # Global hourly floor — always emit at least 5/hour
 SIGNALS_PER_HOUR_MAX = 10  # Global hourly cap — allow up to 10 for diverse multi-market coverage
 assert SIGNALS_PER_HOUR_MIN <= SIGNALS_PER_HOUR_MAX, "SIGNALS_PER_HOUR_MIN must be <= SIGNALS_PER_HOUR_MAX"
 
-AI_THRESHOLD_PERCENT = 70  # Minimum confidence % required to send a signal (post-boost)
+AI_THRESHOLD_PERCENT = 80  # Minimum confidence % required to send a signal (post-boost)
 assert 0 <= AI_THRESHOLD_PERCENT <= 100, f"AI_THRESHOLD_PERCENT must be 0-100, got {AI_THRESHOLD_PERCENT}"
 
 TP_ALLOCATION = (45, 35, 20)  # TP1/TP2/TP3 percentage allocations
@@ -94,7 +94,7 @@ assert MIN_LEVERAGE <= MAX_LEVERAGE, f"MIN_LEVERAGE ({MIN_LEVERAGE}) must be <= 
 STOP_LOSS_PERCENT   = 0.65  # BTC 15M base SL %
 TAKE_PROFIT_PERCENT = 1.10  # BTC 15M TP1 % (TP2=2.00%, TP3=3.10%)
 
-SWARM_MIN_CONSENSUS = 0.78  # v9: relaxed from 0.95 — allows high-conviction but not unanimous signals
+SWARM_MIN_CONSENSUS = 0.95  # strict: 95% weighted consensus required — production quality gate
 
 DEFAULT_MAX_RESTARTS     = 100
 DEFAULT_RESTART_DELAY_BASE = 30

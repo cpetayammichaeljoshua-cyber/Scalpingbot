@@ -43,13 +43,23 @@ import math
 import os
 import time
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 try:
     import numpy as np
     _HAS_NUMPY = True
 except ImportError:
     _HAS_NUMPY = False
+
+try:
+    from .bitnet_optimizer import BitNetInferenceOptimizer, create_bitnet_optimizer
+    _HAS_BITNET = True
+except ImportError:
+    try:
+        from bitnet_optimizer import BitNetInferenceOptimizer, create_bitnet_optimizer
+        _HAS_BITNET = True
+    except ImportError:
+        _HAS_BITNET = False
 
 WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 
@@ -577,12 +587,36 @@ class NeuralSignalTrainer:
         # Loss pattern analyzer
         self.loss_analyzer = LossPatternAnalyzer()
 
+        # BitNet-inspired ternary inference optimizer (optional acceleration layer)
+        # Loads after weights are available; provides fast ternary inference + MC-Dropout
+        # Reference: https://github.com/microsoft/BitNet
+        self._bitnet: Optional["BitNetInferenceOptimizer"] = None
+        if _HAS_BITNET:
+            try:
+                self._bitnet = create_bitnet_optimizer(input_dim=INPUT_DIM)
+            except Exception:
+                self._bitnet = None
+
         if not _HAS_NUMPY:
             self.logger.warning("⚠️  numpy not found — NeuralSignalTrainer disabled")
             return
 
         self._xavier_init()
         self._load_weights()
+
+        # Post-load: sync BitNet optimizer with restored float weights
+        if self._bitnet is not None and self.trained:
+            try:
+                loaded = self._bitnet.load_from_trainer(self)
+                if loaded:
+                    stats = self._bitnet.get_stats()
+                    self.logger.info(
+                        f"🔢 BitNet optimizer synced | "
+                        f"avg_sparsity={sum(stats['sparsity'].values())/len(stats['sparsity']):.0%} "
+                        f"| quantization=ternary_absmean"
+                    )
+            except Exception as e:
+                self.logger.debug(f"BitNet post-load sync failed: {e}")
 
     # ── Weight initialisation ─────────────────────────────────────────────
 
@@ -1216,6 +1250,14 @@ class NeuralSignalTrainer:
 
             self._save_weights()
 
+            # Sync BitNet optimizer with updated float weights after training
+            if self._bitnet is not None and self.trained:
+                try:
+                    self._bitnet.load_from_trainer(self)
+                    self.logger.debug("🔢 BitNet optimizer re-synced after training")
+                except Exception:
+                    pass
+
             elapsed = time.time() - t0
             self.logger.info(
                 f"🧠 NN trained: {len(trades)} samples | {elapsed:.1f}s | "
@@ -1435,6 +1477,12 @@ class NeuralSignalTrainer:
                     f"w_win={self._w_win:.2f}x w_loss={self._w_loss:.2f}x | "
                     f"danger_zones={len(self.loss_analyzer.danger_zones)}"
                 )
+                # Sync BitNet optimizer with freshly restored float weights
+                if self._bitnet is not None:
+                    try:
+                        self._bitnet.load_from_trainer(self)
+                    except Exception:
+                        pass
             else:
                 self.logger.info(
                     f"🧠 NN weights loaded but quality gate not met — "
@@ -1452,6 +1500,13 @@ class NeuralSignalTrainer:
         age_h   = (time.time() - self.last_train_time) / 3600
         dz      = len(self.loss_analyzer.danger_zones)
         win_acc = getattr(self, "last_win_rate", 0.0)
+
+        bitnet_str = ""
+        if self._bitnet is not None and self._bitnet.is_ready:
+            s = self._bitnet.get_stats()
+            avg_sp = sum(s["sparsity"].values()) / max(1, len(s["sparsity"]))
+            bitnet_str = f" | BitNet=ternary(sparsity={avg_sp:.0%})"
+
         return (
             f"NN: trained | {self.n_samples_trained} samples | "
             f"acc={self.last_accuracy:.1%} | "
@@ -1460,6 +1515,7 @@ class NeuralSignalTrainer:
             f"thresh={self._opt_threshold:.3f} | "
             f"danger_zones={dz} | "
             f"last trained {age_h:.1f}h ago"
+            + bitnet_str
         )
 
     def update_online(self, trade: Dict, n_steps: int = 5,

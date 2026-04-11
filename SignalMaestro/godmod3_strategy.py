@@ -783,14 +783,14 @@ class G0DM0D3Engine:
       • Adaptive delay      — inter-call delay increases under rate pressure
     """
 
-    _AI_TIMEOUT              = 20.0   # seconds per individual model call (raised from 18)
-    _RACE_SEM_LIMIT          = 4      # concurrent model calls per race (raised from 2)
-    _GLOBAL_CONCURRENT_LIMIT = 6      # max concurrent OpenRouter calls globally (raised from 3)
-    _MODEL_ERROR_THRESHOLD   = 5      # consecutive failures before disabling model (raised from 3)
+    _AI_TIMEOUT              = 20.0   # seconds per individual model call
+    _RACE_SEM_LIMIT          = 4      # concurrent model calls per ULTRAPLINIAN race
+    _GLOBAL_CONCURRENT_LIMIT = 12     # max concurrent OpenRouter calls globally (raised 6→12 for CONSORTIUM)
+    _MODEL_ERROR_THRESHOLD   = 5      # consecutive failures before disabling model
     _GENERIC_ERR_THRESHOLD   = 8      # consecutive non-429 generic errors → 2h disable (GenericErrGuard)
     _GENERIC_ERR_DISABLE_S   = 7200.0 # 2 hours disable for models with systematic generic errors
-    _INTER_CALL_DELAY_BASE   = 0.5    # seconds between successive API calls (base, reduced from 0.8)
-    _INTER_CALL_DELAY_MAX    = 2.5    # maximum inter-call delay under pressure (reduced from 3.0)
+    _INTER_CALL_DELAY_BASE   = 0.3    # seconds between successive API calls (reduced for CONSORTIUM speed)
+    _INTER_CALL_DELAY_MAX    = 2.0    # maximum inter-call delay under pressure
     _AI_AVAILABLE_WINDOW     = 300.0  # seconds: recent-success window for signal gate
 
     # Global per-60s AI call throttle: prevents 80-symbol parallel scans from
@@ -800,6 +800,12 @@ class G0DM0D3Engine:
     # Per-model buckets remain the primary guard; global throttle is safety backstop only.
     _MAX_AI_CALLS_PER_60S    = 160
 
+    # CONSORTIUM mode constants (z4ptacticsbot/src/lib/consortium.ts architecture)
+    # "CONSORTIUM distils GROUND TRUTH from the crowd" — all models vote, no early stopping.
+    _CONSORTIUM_SEM_LIMIT    = 16     # concurrent calls in CONSORTIUM sweep (higher than normal)
+    _CONSORTIUM_TIMEOUT      = 18.0   # per-model timeout in CONSORTIUM (allows most models to respond)
+    _CONSORTIUM_MIN_VOTES    = 3      # minimum successful votes for CONSORTIUM result to be valid
+
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
         self._api_key    = os.getenv("OPENROUTER_API_KEY", "").strip()
@@ -808,8 +814,9 @@ class G0DM0D3Engine:
         self._parseltongue = Parseltongue()
 
         # Semaphores (lazy init — must be created in async context)
-        self._race_sem:   Optional[asyncio.Semaphore] = None
-        self._global_sem: Optional[asyncio.Semaphore] = None
+        self._race_sem:       Optional[asyncio.Semaphore] = None
+        self._global_sem:     Optional[asyncio.Semaphore] = None
+        self._consortium_sem: Optional[asyncio.Semaphore] = None   # CONSORTIUM: higher concurrency
 
         # Per-model token bucket: prevents 429 storms by checking BEFORE API calls
         self._rate_limiter = _PerModelRateLimiter(max_calls_per_min=_MODEL_MAX_CALLS_PER_MIN)
@@ -904,6 +911,13 @@ class G0DM0D3Engine:
         if self._global_sem is None:
             self._global_sem = asyncio.Semaphore(self._GLOBAL_CONCURRENT_LIMIT)
         return self._global_sem
+
+    @property
+    def _csem(self) -> asyncio.Semaphore:
+        """CONSORTIUM semaphore — higher concurrency than race sem for all-model sweep."""
+        if self._consortium_sem is None:
+            self._consortium_sem = asyncio.Semaphore(self._CONSORTIUM_SEM_LIMIT)
+        return self._consortium_sem
 
     def _get_throttle_lock(self) -> asyncio.Lock:
         if self._global_throttle_lock is None:
@@ -1414,6 +1428,284 @@ class G0DM0D3Engine:
         )
         return winner
 
+    async def _call_model_consortium(
+        self,
+        model:        str,
+        system_prompt: str,
+        user_prompt:  str,
+        params:       AutoTuneProfile,
+    ) -> ModelRaceResult:
+        """
+        CONSORTIUM variant of _call_model.
+
+        Uses the CONSORTIUM semaphore (_csem, limit=16) instead of the race sem (limit=4)
+        to allow higher concurrency during the all-model sweep. Per-model timeouts are
+        enforced by the asyncio.wait_for in _run_consortium_mode().
+
+        Pre-flight checks (disabled + rate bucket) are identical to _call_model().
+        """
+        if self._is_model_disabled(model):
+            return ModelRaceResult(
+                model=model, combo_id="CONSORTIUM",
+                response_raw="", response_clean="", parsed=None,
+                score=0.0, latency_ms=0.0, success=False,
+                error="model_disabled")
+
+        if not await self._rate_limiter.can_call(model):
+            self._call_stats["rate_skipped"] += 1
+            return ModelRaceResult(
+                model=model, combo_id="CONSORTIUM",
+                response_raw="", response_clean="", parsed=None,
+                score=0.0, latency_ms=0.0, success=False,
+                error="local_rate_limit")
+
+        await self._rate_limiter.record_call(model)
+
+        t0 = time.monotonic()
+        try:
+            async with self._gsem:
+                async with self._csem:   # CONSORTIUM sem (16 concurrent) instead of race sem (4)
+                    response = await asyncio.wait_for(
+                        self._openai_client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user",   "content": user_prompt},
+                            ],
+                            temperature=params.temperature,
+                            top_p=params.top_p,
+                            presence_penalty=params.presence_penalty,
+                            frequency_penalty=params.frequency_penalty,
+                            max_tokens=params.max_tokens,
+                        ),
+                        timeout=self._CONSORTIUM_TIMEOUT,
+                    )
+                await asyncio.sleep(self._adaptive_inter_call_delay())
+
+            raw        = (response.choices[0].message.content or "").strip()
+            latency_ms = (time.monotonic() - t0) * 1000.0
+
+            clean  = self._stm.clean_json_response(raw)
+            clean  = self._stm.apply(clean, ["think_stripper", "hedge_reducer"])
+            parsed = None
+            try:
+                parsed = json.loads(clean)
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            self._record_model_success(model)
+
+            result = ModelRaceResult(
+                model=model, combo_id="CONSORTIUM",
+                response_raw=raw, response_clean=clean,
+                parsed=parsed, score=0.0,
+                latency_ms=latency_ms,
+                success=(parsed is not None),
+            )
+            result.score = score_trading_response(result, raw)
+            return result
+
+        except asyncio.TimeoutError:
+            latency_ms = (time.monotonic() - t0) * 1000.0
+            self._record_model_error(model, _ERR_TIMEOUT)
+            return ModelRaceResult(
+                model=model, combo_id="CONSORTIUM",
+                response_raw="", response_clean="", parsed=None,
+                score=0.0, latency_ms=latency_ms, success=False,
+                error="consortium_timeout")
+
+        except Exception as e:
+            latency_ms = (time.monotonic() - t0) * 1000.0
+            err_str    = str(e)
+            err_lower  = err_str.lower()
+
+            if any(p in err_lower for p in ("401", "invalid_api_key", "authentication")):
+                self._disable_model_immediate(model, _ERR_AUTH, _COOLDOWN[_ERR_AUTH])
+            elif any(p in err_lower for p in ("429", "rate_limit", "rate limit", "quota", "too many")):
+                reset_wait = _parse_ratelimit_reset_ms(err_str)
+                cooldown   = reset_wait if reset_wait is not None else _COOLDOWN[_ERR_RATE]
+                self._record_model_error(model, _ERR_RATE, cooldown)
+                self._recent_429_count += 1
+            elif any(p in err_lower for p in ("503", "unavailable", "overloaded", "gateway")):
+                self._record_model_error(model, _ERR_UNAVAIL)
+            elif "404" in err_lower:
+                self._disable_model_immediate(model, "soft", 3600.0)
+            else:
+                self._record_generic_error(model)
+
+            return ModelRaceResult(
+                model=model, combo_id="CONSORTIUM",
+                response_raw="", response_clean="", parsed=None,
+                score=0.0, latency_ms=latency_ms, success=False,
+                error=err_str[:100])
+
+    async def _run_consortium_mode(
+        self,
+        system_prompt: str,
+        user_prompt:   str,
+        params:        AutoTuneProfile,
+    ) -> Optional[ModelRaceResult]:
+        """
+        TRUE CONSORTIUM MODE — z4ptacticsbot/src/lib/consortium.ts architecture.
+
+        "CONSORTIUM distils GROUND TRUTH from the crowd." — unlike ULTRAPLINIAN
+        which picks the BEST single voice, CONSORTIUM queries ALL 38+ free models
+        simultaneously and synthesizes ground truth via weighted ensemble vote.
+
+        Pipeline:
+          1. COLLECTION  — All available models queried simultaneously via asyncio.gather
+          2. SCORING     — Quality-score each response (same scorer as ULTRAPLINIAN)
+          3. SYNTHESIS   — Weighted ensemble vote across ALL successful responses
+          4. RESPONSE    — Return synthesised result + full vote provenance metadata
+
+        Strictly no early stopping:
+          ALL models are queried before a result is returned.
+          Signal is blocked (returns None) if fewer than _CONSORTIUM_MIN_VOTES respond.
+
+        Architecture note:
+          Uses _csem (limit=16) for higher CONSORTIUM concurrency vs _sem (limit=4).
+          Models that are rate-limited or auth-banned are skipped pre-flight.
+          Per-model timeout: _CONSORTIUM_TIMEOUT (18s) — shorter than normal to
+          allow the full sweep to complete within the 50s outer gate in mirofish.
+
+        Reference: z4ptacticsbot artifacts/api-server/src/lib/consortium.ts
+        Integrated from: https://github.com/cpetayammichaeljoshua-cyber/z4ptacticsbot.git
+        """
+        # Gather ALL available models — skip auth-banned and hard-disabled only
+        available_models = [
+            m for m in ALL_FREE_MODELS
+            if not self._is_model_auth_banned(m) and not self._is_model_disabled(m)
+        ]
+
+        if not available_models:
+            self.logger.warning("🏛️ CONSORTIUM: no available models — all disabled or auth-banned")
+            return None
+
+        n_total     = len(ALL_FREE_MODELS)
+        n_available = len(available_models)
+        self.logger.info(
+            f"🏛️ CONSORTIUM MODE: querying {n_available}/{n_total} available free models "
+            f"simultaneously — ALL must vote before signal accepted"
+        )
+
+        # Auto-reset soft-disabled models if most are down
+        self._auto_reset_soft_disabled(available_models, "consortium_all")
+
+        # Launch ALL model calls simultaneously — asyncio.gather starts them concurrently.
+        # They queue through _csem (16 concurrent) and _gsem (12 concurrent) for rate control.
+        consortium_tasks = [
+            asyncio.wait_for(
+                self._call_model_consortium(m, system_prompt, user_prompt, params),
+                timeout=self._CONSORTIUM_TIMEOUT + 3.0,   # outer guard per task
+            )
+            for m in available_models
+        ]
+
+        raw_results = await asyncio.gather(*consortium_tasks, return_exceptions=True)
+
+        # Collect valid (successful + parsed JSON) responses
+        valid: List[ModelRaceResult] = []
+        n_rate_limited = 0
+        n_timeout      = 0
+        n_error        = 0
+
+        for r in raw_results:
+            if isinstance(r, ModelRaceResult):
+                if r.success and r.parsed is not None:
+                    valid.append(r)
+                elif r.error == "local_rate_limit":
+                    n_rate_limited += 1
+                elif "timeout" in str(r.error or ""):
+                    n_timeout += 1
+                else:
+                    n_error += 1
+            elif isinstance(r, (Exception, asyncio.TimeoutError)):
+                n_error += 1
+
+        n_responded = len(valid)
+        self.logger.info(
+            f"🏛️ CONSORTIUM collection: {n_responded}/{n_available} responded "
+            f"| rate_limited={n_rate_limited} timeout={n_timeout} error={n_error}"
+        )
+
+        if n_responded < self._CONSORTIUM_MIN_VOTES:
+            self.logger.warning(
+                f"🏛️ CONSORTIUM: insufficient votes ({n_responded} < {self._CONSORTIUM_MIN_VOTES} min) "
+                f"— signal blocked (CONSORTIUM requires multi-model consensus)"
+            )
+            return None
+
+        # ── SYNTHESIS: weighted ensemble vote across ALL successful responses ──
+        # Weight = (model score / 100) × (confidence / 100)
+        # Higher-scoring, higher-confidence models have more influence on the verdict.
+        e_vote, e_conf = ensemble_vote(valid)
+        self._call_stats["ensemble_votes"] += 1
+
+        # Vote breakdown — full provenance for logging and signal metadata
+        vote_counts: Dict[str, int] = {"BUY": 0, "SELL": 0, "NEUTRAL": 0}
+        vote_conf_sum: Dict[str, float] = {"BUY": 0.0, "SELL": 0.0, "NEUTRAL": 0.0}
+        for r in valid:
+            if r.parsed:
+                raw_v = str(r.parsed.get("vote", "NEUTRAL")).upper()
+                v = raw_v if raw_v in vote_counts else "NEUTRAL"
+                vote_counts[v] += 1
+                try:
+                    vote_conf_sum[v] += float(r.parsed.get("confidence", 65.0))
+                except (TypeError, ValueError):
+                    vote_conf_sum[v] += 65.0
+
+        # Agreement rate — fraction of models agreeing with ensemble direction
+        agreement_rate = vote_counts[e_vote] / n_responded if n_responded > 0 else 0.0
+
+        # Average confidence of agreeing models
+        avg_agreeing_conf = (
+            vote_conf_sum[e_vote] / vote_counts[e_vote]
+            if vote_counts[e_vote] > 0 else e_conf
+        )
+
+        # Boost ensemble confidence when strong agreement exists
+        if agreement_rate >= 0.80:
+            e_conf = min(e_conf + 5.0, 95.0)   # +5pt for 80%+ agreement
+        elif agreement_rate >= 0.65:
+            e_conf = min(e_conf + 2.0, 95.0)   # +2pt for 65%+ agreement
+        elif agreement_rate < 0.50:
+            e_conf = max(e_conf - 5.0, 50.0)   # -5pt for weak agreement
+
+        self.logger.info(
+            f"🏛️ CONSORTIUM VERDICT: {e_vote} @ {e_conf:.1f}% | "
+            f"BUY={vote_counts['BUY']} SELL={vote_counts['SELL']} NEUTRAL={vote_counts['NEUTRAL']} | "
+            f"Agreement={agreement_rate:.0%} | AvgConf={avg_agreeing_conf:.0f}% | "
+            f"{n_responded}/{n_available} models voted"
+        )
+
+        # ── REPRESENTATIVE: highest-scoring model that agrees with ensemble ──
+        # (z4ptacticsbot pattern: synthesis speaks as if generated from first principles)
+        agreeing = [
+            r for r in valid
+            if r.parsed and str(r.parsed.get("vote", "")).upper() == e_vote
+        ]
+        if not agreeing:
+            agreeing = valid   # rare: use all if none agree exactly (rounding edge case)
+
+        representative = max(agreeing, key=lambda r: r.score)
+
+        # Inject CONSORTIUM verdict into representative's parsed data
+        if representative.parsed is not None:
+            representative.parsed["vote"]       = e_vote
+            representative.parsed["confidence"] = round(e_conf, 1)
+            orig_narrative = str(representative.parsed.get("narrative", ""))
+            representative.parsed["narrative"]  = (
+                f"[CONSORTIUM {n_responded}M: "
+                f"BUY={vote_counts['BUY']} SELL={vote_counts['SELL']} "
+                f"NEUTRAL={vote_counts['NEUTRAL']}, agree={agreement_rate:.0%}] "
+                + orig_narrative
+            )[:200]
+
+        # Score reflects agreement quality (strong consensus = high score)
+        representative.score = min(100.0, representative.score * (0.5 + agreement_rate * 0.5))
+
+        return representative
+
     async def analyze(
         self,
         prompt:   str,
@@ -1509,8 +1801,30 @@ class G0DM0D3Engine:
 
         winner: Optional[ModelRaceResult] = None
 
-        # ── Step 3: ULTRAPLINIAN with 5-tier escalation ──
-        if mode in ("ultraplinian", "auto"):
+        # ── Step 3: TRUE CONSORTIUM MODE (primary — no early stopping) ──────────
+        # "CONSORTIUM distils GROUND TRUTH from the crowd" (z4ptacticsbot pattern).
+        # ALL 38+ free models are queried simultaneously via asyncio.gather.
+        # No early stopping — ALL models must vote before signal is accepted.
+        # Result is ensemble-weighted across ALL successful responses.
+        # Reference: z4ptacticsbot/artifacts/api-server/src/lib/consortium.ts
+        try:
+            winner = await self._run_consortium_mode(system_prompt, perturbed, params)
+            if winner:
+                trace["strategy"]     = f"CONSORTIUM_{params.context.upper()}"
+                trace["winner_model"] = winner.model
+                trace["winner_score"] = winner.score
+                trace["ai_available"] = True
+                # Extract CONSORTIUM vote counts from narrative for trace
+                if winner.parsed and "CONSORTIUM" in str(winner.parsed.get("narrative", "")):
+                    trace["consortium"]   = True
+        except Exception as e:
+            self.logger.warning(f"⚠️ CONSORTIUM failed: {e}")
+
+        # ── Step 3b: ULTRAPLINIAN (only if CONSORTIUM failed completely) ─────────
+        # ULTRAPLINIAN with 5-tier escalation as a graceful degradation path.
+        # This runs only when CONSORTIUM has zero available models (all rate-limited).
+        # Normally CONSORTIUM should always succeed if any models are available.
+        if winner is None and mode in ("ultraplinian", "auto"):
             try:
                 winner = await self._run_ultraplinian_with_escalation(
                     system_prompt, perturbed, params, atr_pct)
@@ -1519,10 +1833,14 @@ class G0DM0D3Engine:
                     trace["winner_model"]  = winner.model
                     trace["winner_score"]  = winner.score
                     trace["ai_available"]  = True
+                    self._call_stats["fallbacks"] += 1
+                    self.logger.info(
+                        f"⚡ [{symbol}] CONSORTIUM failed → falling back to ULTRAPLINIAN"
+                    )
             except Exception as e:
-                self.logger.warning(f"⚠️ ULTRAPLINIAN failed: {e}")
+                self.logger.warning(f"⚠️ ULTRAPLINIAN fallback failed: {e}")
 
-        # ── Step 4: GODMODE CLASSIC fallback ──
+        # ── Step 4: GODMODE CLASSIC (only if both CONSORTIUM + ULTRAPLINIAN failed) ──
         if winner is None:
             try:
                 winner = await self._run_godmode_classic(perturbed, params)
@@ -1535,7 +1853,7 @@ class G0DM0D3Engine:
             except Exception as e:
                 self.logger.warning(f"⚠️ GODMODE CLASSIC failed: {e}")
 
-        # ── Step 5: Direct cascade — tries up to 8 non-auth-banned models ──
+        # ── Step 5: Direct cascade — last resort (8 models one-by-one) ──────────
         if winner is None:
             fallback_models = [
                 m for m in ALL_FREE_MODELS

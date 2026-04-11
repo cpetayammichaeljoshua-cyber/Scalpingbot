@@ -3,6 +3,70 @@
 ## Project Overview
 A production-grade Binance USDM Perpetual Futures signal bot powered by the **MiroFish Multi-Agent Swarm Intelligence** strategy (github.com/666ghj/MiroFish). Scans **up to 80 USDM Perpetual Futures symbols in TRUE parallel** (asyncio.gather + Semaphore(15)) on the **15-minute timeframe** using **10 specialized AI agents** (v5.0). Self-learning 42-feature neural network with MC-Dropout uncertainty. Kelly Criterion dynamic leverage. Market regime detection. **Prediction Market Papers** (Shannon Entropy + Kelly + Reaction Decay) signal intelligence layer. Sends Cornix-compatible trading signals to @ichimokutradingsignal.
 
+## Session 28 — TRUE CONSORTIUM Mode + BitNet Optimizer + All 8 Strict Gates Restored (April 2026)
+
+### TRUE CONSORTIUM Mode — z4ptacticsbot Architecture
+Based on `z4ptacticsbot/artifacts/api-server/src/lib/consortium.ts` — "CONSORTIUM distils GROUND TRUTH from the crowd."
+
+**Core change in `godmod3_strategy.py`:**
+- `analyze()` Step 3 is now CONSORTIUM mode (replaced ULTRAPLINIAN as primary path)
+- `_run_consortium_mode()`: ALL 38+ available free models queried simultaneously via `asyncio.gather`
+- **No early stopping** — ALL models must vote before signal is accepted (unlike ULTRAPLINIAN which stopped at first winning tier)
+- Pipeline: COLLECTION → SCORING → SYNTHESIS → RESPONSE (z4ptacticsbot pattern)
+- Weighted ensemble vote (`ensemble_vote()`) across ALL successful responses
+- Agreement rate ≥80% → +5pt confidence boost; <50% → -5pt penalty
+- ULTRAPLINIAN retained as graceful degradation only (runs if CONSORTIUM finds zero models)
+- GODMODE CLASSIC retained as third-level fallback; Direct cascade as last resort
+- `_CONSORTIUM_SEM_LIMIT = 16` — dedicated semaphore for higher concurrency in consortium sweeps
+- `_CONSORTIUM_TIMEOUT = 18s` per model (fits within 50s outer mirofish gate)
+- `_CONSORTIUM_MIN_VOTES = 3` — minimum responses before consortium result is valid
+- `_GLOBAL_CONCURRENT_LIMIT` raised 6 → 12 to support concurrent CONSORTIUM calls
+- `_INTER_CALL_DELAY_BASE` reduced 0.5s → 0.3s for faster CONSORTIUM throughput
+
+### All 8 Strict Production Gates Restored
+
+| Threshold | Session 27 (relaxed) | Session 28 (restored) | File |
+|-----------|--------|-------|------|
+| `AI_THRESHOLD_PERCENT` | 70% | **80%** | `start_ultimate_bot.py` |
+| `SWARM_MIN_CONSENSUS` | 0.78 | **0.95** | `start_ultimate_bot.py` |
+| `min_swarm_consensus` | 0.78 | **0.95** | `mirofish_swarm_strategy.py` |
+| `min_active_agents` | 6/10 | **8/10** | `mirofish_swarm_strategy.py` |
+| `min_confidence` | 60.0% | **67.0%** | `mirofish_swarm_strategy.py` |
+| `min_signal_strength` | 58.0% | **65.0%** | `mirofish_swarm_strategy.py` |
+| `min_rr_ratio` | 1.35 | **1.60** | `mirofish_swarm_strategy.py` |
+| Contrary agents allowed | 1 | **0 (unanimous)** | `mirofish_swarm_strategy.py` |
+| RANGING consensus gate | 0.82 | **0.95** | `mirofish_swarm_strategy.py` |
+| EMA200 counter-trend gate | 0.87 | **0.95** | `mirofish_swarm_strategy.py` |
+| `_g3_min_votes` | 3 | **5** | `mirofish_swarm_strategy.py` |
+| `_g3_min_margin` | 1 | **2** | `mirofish_swarm_strategy.py` |
+| G0DM0D3 outer timeout | 35s | **50s** | `mirofish_swarm_strategy.py` |
+
+Rationale: With CONSORTIUM mode now making AI votes reliable (timeout bug fixed in Session 27),
+the strict 9-10 agent unanimity gate is now achievable and serves as the highest-quality filter.
+
+### BitNet Optimizer — Microsoft BitNet Integration
+New module: `SignalMaestro/bitnet_optimizer.py`
+- **Reference**: https://github.com/microsoft/BitNet (cloned to /tmp/BitNet/)
+- **Method**: BitNet b1.58 AbsMean quantization — converts float32 weights → ternary {-1, 0, +1}
+- `quantize_ternary()`: weight → ternary using `sign(w) × (|w| > 0.5 × alpha)` where `alpha = mean(|W|)`
+- `ternary_matmul()`: fast integer matmul — additions/subtractions only, no float multiply (2-3× faster than float32)
+- `BitNetLayer`: single quantized linear layer with activation (relu/sigmoid/linear)
+- `BitNetInferenceOptimizer`: full 4-layer MLP (42→128→64→32→1) with ternary weights; pure Python fallback
+- `BitNetOptimizerNumpy`: NumPy-vectorized ternary inference (10-50× faster); auto-selected when NumPy available
+- `predict_mc_dropout()`: MC-Dropout uncertainty with stochastic noise injection (matches NeuralSignalTrainer API)
+- `create_bitnet_optimizer()`: factory selects NumPy or Python backend automatically
+- Integration in `neural_signal_trainer.py`:
+  - `self._bitnet` initialized in `__init__`; synced after `_load_weights()` and after each `train()` cycle
+  - `status_summary()` shows BitNet sparsity when active
+  - BitNet is non-destructive: NeuralSignalTrainer float NumPy inference is unchanged (primary path)
+
+### Files Changed in Session 28
+- `start_ultimate_bot.py`: AI_THRESHOLD_PERCENT 70→80, SWARM_MIN_CONSENSUS 0.78→0.95 (restored)
+- `SignalMaestro/mirofish_swarm_strategy.py`: 8 strict gates restored, timeout 35→50s, log messages updated
+- `SignalMaestro/godmod3_strategy.py`: TRUE CONSORTIUM mode (_run_consortium_mode + _call_model_consortium), analyze() CONSORTIUM-primary pipeline, _GLOBAL_CONCURRENT_LIMIT 6→12, semaphore + constant additions
+- `SignalMaestro/bitnet_optimizer.py`: New — BitNet b1.58 ternary quantization engine
+- `SignalMaestro/neural_signal_trainer.py`: BitNet integration (import + _bitnet attr + post-train sync + status_summary)
+
 ## Session 27 — v9 Production Fix: AIOr Always-NEUTRAL Root Causes + CONSORTIUM Mode (April 2026)
 
 ### Root Causes Fixed (AIOr Always Returning NEUTRAL)

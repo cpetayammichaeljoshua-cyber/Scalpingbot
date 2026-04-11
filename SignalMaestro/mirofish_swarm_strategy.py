@@ -2332,8 +2332,8 @@ class AIOrchestrationAgent:
         #
         # Rationale: With 26 free models and per-model buckets, we have far more AI capacity.
         # A lower gate means more AI calls, but the per-model rate limiter handles throttling.
-        _g3_min_votes = 3   # v9: 3/9 = 33% non-AI consensus is enough to trigger AI analysis
-        _g3_min_margin = 1  # v9: any directional margin triggers AI — more AI coverage
+        _g3_min_votes = 5   # strict: 5/9 = 56% non-AI consensus required to trigger CONSORTIUM AI
+        _g3_min_margin = 2  # strict: 2-vote directional margin ensures clear directional bias
         _g3_should_call = (
             (buy_votes >= _g3_min_votes or sell_votes >= _g3_min_votes)
             and abs(buy_votes - sell_votes) >= _g3_min_margin
@@ -2344,8 +2344,8 @@ class AIOrchestrationAgent:
                 _g3_start = time.time()
                 _g3_vote, _g3_conf, _g3_narrative, _g3_trace = await asyncio.wait_for(
                     self._godmod3.analyze(prompt, atr_pct=_atr_pct, symbol=symbol),
-                    timeout=35.0,  # 35s: G0DM0D3 can take 23s+ with full 5-tier cascade
-                                   # v5.0: was _AI_TIMEOUT + 5.0 = 20s — too short for cascade
+                    timeout=50.0,  # 50s: CONSORTIUM queries 38+ models simultaneously — needs time
+                                   # v9: raised from 35s to accommodate full CONSORTIUM sweep
                 )
                 _g3_ms = (time.time() - _g3_start) * 1000
 
@@ -2974,12 +2974,12 @@ class MiroFishSwarmStrategy:
         self.timeframes     = ["15m"]
         self.primary_timeframe = "15m"
 
-        # Pre-boost signal gates — calibrated for quality over quantity
-        self.min_signal_strength = 58.0     # v9: relaxed from 65.0 — allows strong but not perfect signals
-        self.min_confidence      = 60.0     # v9: relaxed from 67.0 — AI models rarely exceed 80 on free tier
-        self.min_swarm_consensus = 0.78     # v9: relaxed from 0.95 — 78% consensus is already very high conviction
-        self.min_active_agents   = 6        # v9: relaxed from 8 — 6/10 agents is solid quorum
-        self.min_rr_ratio        = 1.35     # v9: relaxed from 1.60 — 1.35 R:R is still profitable
+        # Pre-boost signal gates — production strict values for high win-rate filtering
+        self.min_signal_strength = 65.0     # strict: 65% signal strength — high-quality setups only
+        self.min_confidence      = 67.0     # strict: 67% agent confidence — avoids marginal calls
+        self.min_swarm_consensus = 0.95     # strict: 95% weighted consensus — near-unanimous conviction
+        self.min_active_agents   = 8        # strict: 8/10 agents must be active — full quorum required
+        self.min_rr_ratio        = 1.60     # strict: 1.6 risk/reward — ensures positive expectancy
 
         # ── Initialize all 10 agents (v5: +FLOOPAgent) ──
         self.trend_agent      = TrendAgent()
@@ -3347,16 +3347,15 @@ class MiroFishSwarmStrategy:
             else:
                 weighted_conf = 50.0
 
-            # ── STRONG CONSENSUS GATE (v9.0) ─────────────────────────────────
-            # v9: Relaxed from UNANIMOUS (0 contrary allowed) to STRONG (≤1 contrary).
-            # Previously zero contrary agents were allowed — this was too strict and
-            # rejected 98%+ of setups. Real markets rarely produce 10/10 unanimity.
-            # Allowing 1 dissent still ensures 9/10 agreement — extremely high conviction.
-            # Multiple contrary agents (>1) → hard reject to protect quality.
+            # ── UNANIMOUS CONSENSUS GATE ──────────────────────────────────────
+            # Production strict: ZERO contrary agents allowed.
+            # All active voting agents must agree on direction.
+            # With CONSORTIUM AI now voting non-NEUTRAL reliably (timeout fixed),
+            # 9-10 agent unanimity is achievable and is the highest-quality gate.
             n_aligned  = len(aligned_agents)
             n_contrary = len(contrary_agents)
 
-            if n_contrary > 1:
+            if n_contrary > 0:
                 self.logger.debug(
                     f"⚠️ [{symbol}|{tf}] STRONG CONSENSUS GATE: "
                     f"{n_contrary} contrary agent(s) "
@@ -3744,13 +3743,13 @@ class MiroFishSwarmStrategy:
                         else:
                             confidence = max(confidence - 2.0, 50.0)
                     else:
-                        # RANGING market — require strong consensus or reject.
-                        # v9: Relaxed from 0.95 → 0.82 to match relaxed unanimous gate.
-                        # 0.82 is still high-conviction (82%+) — avoids chop without being too strict.
-                        if consensus < 0.82:
+                        # RANGING market — require near-unanimous consensus or reject.
+                        # Ranging markets are the most dangerous for trend-following:
+                        # only proceed if swarm is essentially unanimous (≥95%).
+                        if consensus < 0.95:
                             self.logger.debug(
-                                f"⚠️ [{symbol}|{tf}] RANGING regime + consensus={consensus:.0%} < 82% "
-                                f"— low-conviction ranging signal rejected"
+                                f"⚠️ [{symbol}|{tf}] RANGING regime + consensus={consensus:.0%} < 95% "
+                                f"— low-conviction ranging signal rejected (strict gate)"
                             )
                             return None
                         confidence = max(confidence - 1.5, 50.0)
@@ -3947,13 +3946,14 @@ class MiroFishSwarmStrategy:
                             (action == "SELL" and not _price_above_ema200)
                         )
                         if not _ema200_aligned:
-                            # v9: Relaxed from 0.95 → 0.87: counter-trend EMA200 trades
-                            # require strong swarm consensus (87%+) but not unanimous.
-                            if consensus < 0.87:
+                            # Counter-trend EMA200 trades require near-unanimous (≥95%) consensus.
+                            # Research: trading against major trend reduces win rate 15-25%.
+                            # Only allow with essentially unanimous swarm agreement.
+                            if consensus < 0.95:
                                 self.logger.debug(
                                     f"⚠️ [{symbol}|{tf}] Against EMA200 trend "
                                     f"(price {'above' if _price_above_ema200 else 'below'} EMA200={_ema200:.4g}) "
-                                    f"consensus={consensus:.0%} < 87% — signal rejected"
+                                    f"consensus={consensus:.0%} < 95% — counter-trend rejected (strict gate)"
                                 )
                                 return None
                             else:
