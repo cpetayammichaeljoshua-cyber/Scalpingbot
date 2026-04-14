@@ -2978,7 +2978,7 @@ class MiroFishSwarmStrategy:
         self.min_signal_strength = 65.0     # strict: 65% signal strength — high-quality setups only
         self.min_confidence      = 67.0     # strict: 67% agent confidence — avoids marginal calls
         self.min_swarm_consensus = 0.95     # strict: 95% weighted consensus — near-unanimous conviction
-        self.min_active_agents   = 9        # strict: 9/10 agents must be active (raised from 8 for higher quality)
+        self.min_active_agents   = 8        # strict: 8/10 agents must be active — full quorum required
         self.min_rr_ratio        = 1.60     # strict: 1.6 risk/reward — ensures positive expectancy
 
         # ── Initialize all 10 agents (v5: +FLOOPAgent) ──
