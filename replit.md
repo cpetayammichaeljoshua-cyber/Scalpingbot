@@ -1172,3 +1172,54 @@ TP -1.1%/-2.0%/-3.1% · SL -0.7% · Tr:S Mo:S Vo:S Vl:S OF:S Se:S Fn:N AI:S · 1
   name-based lookup could return a UUID that no longer existed in `_nodes`, causing
   `_find_node_by_name` to return a ghost reference. Fixed: `_prune_nodes` now calls
   `self._node_name_index.pop((node.name, node.entity_type), None)` for each evicted node.
+
+---
+
+## AEGIS GEX v1.0 — Separate Workflow (April 2026)
+
+### Overview
+A **completely standalone** Gamma Exposure (GEX) Dealer Flow Engine bot. Runs in its own isolated workflow (`AEGIS GEX v1.0`) and **does not share any code or state** with the MiroFish Swarm or any other strategy.
+
+### Strategy: GEX Flip Entry + Dynamic TP
+Based on the **AEGIS GEX DEALER FLOW ENGINE** (TradingView: T1zYSBd7).
+
+| Phase | Rule |
+|-------|------|
+| **Entry** | Price crosses a GEX flip level RIGHT NOW → immediate entry at that flip price |
+| **Take-Profit** | The NEXT GEX flip level in the direction of the trade (updated dynamically as new flips appear) |
+| **Stop-Loss** | ATR × 1.5 buffer beyond the entry flip level |
+
+### GEX Flip Calculation (Crypto Proxy)
+Since Binance perpetuals have no options data, GEX is proxied from:
+- **ATR-spaced 21-strike grid** (±10 ATR around current price)
+- **Gaussian-weighted OI distribution** across strikes
+- **Funding rate polarity** (dealer bias direction)
+- **OI velocity delta** (active hedging level weight)
+- **Volume Profile VPOC** (1.5× boost for high-volume "strikes")
+
+**GEX Flip** = price where the sign of the net dealer gamma proxy crosses zero.
+
+### Architecture
+```
+Symbol Universe (up to 80 USDM perps)
+  ↓ parallel asyncio.gather + Semaphore(20)
+GEX Engine (1h primary + 4h confirmation, per symbol)
+  ↓ snapshot comparison (prev vs curr)
+GEX Flip Detection → confidence gate (≥60%)
+  ↓ rate limiter (12/hr, 60s global gap, 5min/symbol)
+Telegram Broadcaster (Cornix-compatible, @ichimokutradingsignal)
+```
+
+### Files
+| File | Purpose |
+|------|---------|
+| `aegis_gex/gex_engine.py` | Core GEX flip engine — all calculations |
+| `aegis_gex/aegis_gex_bot.py` | Bot orchestrator — scan, detect, broadcast |
+| `start_aegis_gex_bot.py` | Production entry point with auto-restart |
+
+### Workflow
+- **Name**: `AEGIS GEX v1.0`
+- **Command**: `python3 start_aegis_gex_bot.py`
+- **Scan interval**: 60s (env: `GEX_SCAN_INTERVAL_SEC`)
+- **Primary timeframe**: 1h (env: `GEX_PRIMARY_TF`)
+- **Confirmation timeframe**: 4h (env: `GEX_CONFIRM_TF`)
