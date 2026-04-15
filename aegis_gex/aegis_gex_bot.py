@@ -426,7 +426,8 @@ def format_aegis_signal(sig: GEXSignal) -> str:
     # Volume / StochRSI context
     vol_str = ""
     if snap.vol_spike:
-        vol_str = f"⚡ Vol Spike: {snap.vol_last/max(snap.vol_avg, 1):.1f}×avg\n"
+        vol_ratio = snap.vol_last / max(snap.vol_avg, 1.0)   # float division always
+        vol_str = f"⚡ Vol Spike: {vol_ratio:.1f}×avg\n"
     stoch_str = f"RSI: {snap.rsi:.1f}  |  Stoch %K: {snap.stoch_k:.1f}\n"
 
     opex_str = "\n⚠️ OPEX WEEK — reduced confidence\n" if snap.is_opex_week else ""

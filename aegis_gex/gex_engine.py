@@ -378,24 +378,33 @@ def _vol_avg(volumes: List[float], period: int = 20) -> float:
 
 
 def _fmt_price(v: float) -> str:
-    """Format price with appropriate precision."""
-    if v == 0:
+    """Format price with appropriate precision.
+    Handles all magnitudes including sub-dollar and negative values safely.
+    """
+    if not math.isfinite(v):
         return "0"
-    if v >= 100_000:
-        return f"{v:.2f}"
-    if v >= 10_000:
-        return f"{v:.2f}"
-    if v >= 1_000:
-        return f"{v:.3f}"
-    if v >= 100:
-        return f"{v:.4f}"
-    if v >= 10:
-        return f"{v:.5f}"
-    if v >= 1:
-        return f"{v:.6f}"
-    # Sub-dollar (meme coins etc.)
-    sig = max(4, -int(math.floor(math.log10(abs(v)))) + 3) if v > 0 else 8
-    return f"{v:.{min(sig, 10)}f}"
+    sign = "-" if v < 0 else ""
+    av   = abs(v)
+    if av == 0:
+        return "0"
+    if av >= 100_000:
+        return f"{sign}{av:.2f}"
+    if av >= 10_000:
+        return f"{sign}{av:.2f}"
+    if av >= 1_000:
+        return f"{sign}{av:.3f}"
+    if av >= 100:
+        return f"{sign}{av:.4f}"
+    if av >= 10:
+        return f"{sign}{av:.5f}"
+    if av >= 1:
+        return f"{sign}{av:.6f}"
+    # Sub-dollar (meme/nano coins) — use significant-digit precision
+    try:
+        sig = max(4, -int(math.floor(math.log10(av))) + 3)
+    except (ValueError, OverflowError):
+        sig = 8
+    return f"{sign}{av:.{min(sig, 10)}f}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1017,17 +1026,22 @@ class AEGISGEXEngine:
         dom = max(bull, bear) / tot if tot > 0 else 0.5
         base_conf = 45.0 + dom * 55.0
 
-        if len(true_flips) >= 3:    base_conf = min(base_conf + 8.0, 96.0)
-        if len(true_flips) >= 2:    base_conf = min(base_conf + 4.0, 96.0)
+        # True flip count bonus — mutually exclusive tiers (elif prevents double-add)
+        if len(true_flips) >= 3:    base_conf = min(base_conf + 10.0, 96.0)
+        elif len(true_flips) >= 2:  base_conf = min(base_conf + 5.0,  96.0)
+        elif len(true_flips) >= 1:  base_conf = min(base_conf + 2.0,  96.0)
+
         if in_comp:                  base_conf = min(base_conf + 6.0, 96.0)
         if regime == "FLIP ZONE":   base_conf = min(base_conf + 4.0, 96.0)
         if opex:                     base_conf = max(base_conf - 8.0, 40.0)
         if dgrp_score > 60:          base_conf = min(base_conf + 6.0, 96.0)
-        elif dgrp_score < 30:        base_conf -= 6.0
+        elif dgrp_score < 30:        base_conf  = max(base_conf - 6.0, 40.0)  # floored at 40
         if vol_spike:                base_conf = min(base_conf + 3.0, 96.0)
-        # Stochastic overbought/oversold alignment
+        # Stochastic overbought/oversold alignment bonus
         if stoch_k < 20 and bias == "BULLISH":  base_conf = min(base_conf + 3.0, 96.0)
         if stoch_k > 80 and bias == "BEARISH":  base_conf = min(base_conf + 3.0, 96.0)
+        # Final clamp
+        base_conf = max(30.0, min(96.0, base_conf))
 
         return GEXSnapshot(
             symbol=symbol,
