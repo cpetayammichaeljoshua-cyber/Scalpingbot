@@ -1,28 +1,24 @@
 #!/usr/bin/env python3
 """
-AEGIS GEX v1.0 — Production Telegram Signal Bot  (Complete Rebuild)
-=====================================================================
+AEGIS GEX v1.0 — Production Telegram Signal Bot  (v3 — Full Dashboard)
+========================================================================
 Standalone — zero shared state with any other strategy.
+Primary TF: 5m  |  Confirmation TF: 15m  |  Scan: 30s
 
-Signal Logic (strict, from AEGIS GEX DEALER FLOW ENGINE):
-  Entry  : Price CROSSES a GEX flip level in real-time (uses mark price, not candle close)
-  TP     : The NEXT GEX flip level in the direction of trade
-           Dynamically updated each cycle as new flip levels appear
-  SL     : ATR-based buffer beyond the entry flip level (invalidation zone)
+Signal Logic:
+  Entry  : Mark price CROSSES a GEX flip level in real-time
+  TP     : Next GEX flip level in trade direction (dynamic updates each cycle)
+  SL     : ATR buffer + Call/Put Wall beyond entry flip
 
-All 13 AEGIS indicator layers are integrated into:
-  - Signal generation (GEX_FLIP / VANNA_ENTRY / COMPRESSION_BREAK)
-  - Confidence scoring (all 13 layers weighted)
-  - Signal message (Dashboard Table embedded in Telegram format)
+Dashboard (exact match to TradingView AEGIS GEX v1.0):
+  Regime | DGRP Score | Candle | RV Ratio | IV Proxy Z
+  Compression | Vanna | Charm Decay | Delta Bias | Exp Move
+  Dealer Flow | GEX Regime | GEX Flip | Signal
 
-Architecture:
-  Symbol Universe (≤80 USDM perps)
-    ↓ asyncio.gather + Semaphore(20) — true parallel scan
-  GEX Engine (1h primary + 4h confirmation, mark price)
-    ↓ snapshot delta → flip crossover detection
-  13-layer confidence gate (≥60%)
-    ↓ rate limiter (12/hr, 60s global, 5min/symbol, 30min dedup)
-  Telegram Broadcaster (Cornix-compatible + GEX Dashboard)
+Chart Levels in signal:
+  GEX Flip Proxy | Call Wall | Put Wall
+  VOL TRIGGER UP | VOL TRIGGER DN
+  VWAP ±1/±2 ATR | Expected Move Bands | 50 EMA
 """
 
 from __future__ import annotations
@@ -49,26 +45,26 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fallback symbol universe
+# Fallback symbol universe (top 80 USDM perpetuals by volume)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _FALLBACK_SYMBOLS: List[str] = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
     "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
     "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "INJUSDT",
-    "NEARUSDT", "MATICUSDT", "LTCUSDT", "SEIUSDT", "TIAUSDT",
-    "ATOMUSDT", "AAVEUSDT", "UNIUSDT", "LDOUSDT", "WLDUSDT",
-    "ORDIUSDT", "RUNEUSDT", "STXUSDT", "MKRUSDT", "FETUSDT",
-    "GMXUSDT", "DYDXUSDT", "GALAUSDT", "SANDUSDT", "AXSUSDT",
-    "ICPUSDT", "FILUSDT", "TRXUSDT", "ETCUSDT", "BCHUSDT",
-    "XLMUSDT", "VETUSDT", "ALGOUSDT", "GRTUSDT", "SNXUSDT",
-    "CRVUSDT", "HBARUSDT", "MNTUSDT", "ARKMUSDT", "KASUSDT",
-    "PENDLEUSDT", "PYTHUSDT", "PEPEUSDT", "WIFUSDT", "BOMEUSDT",
-    "ENAUSDT", "JUPUSDT", "APEUSDT", "CHZUSDT", "MANAUSDT",
-    "QNTUSDT", "IMXUSDT", "AGIXUSDT", "RNDRUSDT", "FLOWUSDT",
-    "TIAUSDT", "FTMUSDT", "EGLDUSDT", "COMPUSDT", "XMRUSDT",
-    "SUSHIUSDT", "CAKEUSDT", "ENJUSDT", "ZILUSDT", "THETAUSDT",
-    "BANDUSDT", "STORJUSDT", "KNCUSDT", "CTKUSDT", "BLURUSDT",
+    "NEARUSDT", "LTCUSDT", "SEIUSDT", "ATOMUSDT", "AAVEUSDT",
+    "UNIUSDT", "LDOUSDT", "WLDUSDT", "ORDIUSDT", "RUNEUSDT",
+    "STXUSDT", "MKRUSDT", "FETUSDT", "GMXUSDT", "DYDXUSDT",
+    "GALAUSDT", "SANDUSDT", "AXSUSDT", "ICPUSDT", "FILUSDT",
+    "TRXUSDT", "ETCUSDT", "BCHUSDT", "XLMUSDT", "VETUSDT",
+    "ALGOUSDT", "GRTUSDT", "SNXUSDT", "CRVUSDT", "HBARUSDT",
+    "MNTUSDT", "ARKMUSDT", "KASUSDT", "PENDLEUSDT", "PYTHUSDT",
+    "PEPEUSDT", "WIFUSDT", "BOMEUSDT", "ENAUSDT", "JUPUSDT",
+    "APEUSDT", "CHZUSDT", "MANAUSDT", "QNTUSDT", "IMXUSDT",
+    "AGIXUSDT", "RNDRUSDT", "FLOWUSDT", "FTMUSDT", "EGLDUSDT",
+    "COMPUSDT", "SUSHIUSDT", "CAKEUSDT", "ENJUSDT", "ZILUSDT",
+    "THETAUSDT", "BANDUSDT", "STORJUSDT", "KNCUSDT", "BLURUSDT",
+    "MATICUSDT", "TIAUSDT", "XMRUSDT", "CTKUSDT", "YGGUSDT",
 ]
 
 _FAPI_ENDPOINTS: List[str] = [
@@ -83,37 +79,32 @@ _SPOT_KLINES = "https://data.binance.com/api/v3/klines"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Binance Client — public market data, multi-endpoint failover
+# Binance Client
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _BinanceClient:
-    """
-    Minimal async Binance FAPI client.
-    Public market data only — no auth, no trading.
-    Multi-endpoint geo-block failover identical to main btcusdt_trader.py.
-    """
-    MIN_VOLUME_USDT = 50_000_000
+    MIN_VOLUME_USDT = 30_000_000   # Lowered for 5m TF (more symbols qualify)
     MAX_SYMBOLS     = 80
 
     def __init__(self):
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._connector: Optional[aiohttp.TCPConnector] = None
-        self._geo_blocked: Dict[str, float] = {}
+        self._session: Optional[aiohttp.ClientSession]   = None
+        self._connector: Optional[aiohttp.TCPConnector]  = None
+        self._geo_blocked: Dict[str, float]              = {}
         self._geo_ttl     = 3600.0
         self._ip_ban_until= 0.0
-        self._cache: Dict[tuple, Tuple[float, object]] = {}
-        self._cache_ttl   = 55.0    # slightly under scan interval
+        self._cache: Dict[tuple, Tuple[float, object]]   = {}
+        self._cache_ttl   = 25.0   # 25s for 5m TF
         self.logger = logging.getLogger(f"{__name__}.BinanceClient")
 
-    async def _session_get(self) -> aiohttp.ClientSession:
+    async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._connector = aiohttp.TCPConnector(
-                limit=120, limit_per_host=40,
+                limit=150, limit_per_host=50,
                 ttl_dns_cache=300, ssl=False,
             )
             self._session = aiohttp.ClientSession(
                 connector=self._connector,
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=12),
             )
         return self._session
 
@@ -123,7 +114,7 @@ class _BinanceClient:
         if self._connector:
             await self._connector.close()
 
-    def _live_endpoints(self) -> List[str]:
+    def _live_eps(self) -> List[str]:
         now = time.time()
         av  = [ep for ep in _FAPI_ENDPOINTS if now >= self._geo_blocked.get(ep, 0)]
         if not av:
@@ -133,74 +124,62 @@ class _BinanceClient:
         return av
 
     async def _get(self, path: str, params: dict = None,
-                   cache_key: tuple = None) -> Optional[object]:
-        # Check IP ban
+                   ck: tuple = None) -> Optional[object]:
         now = time.time()
         if now < self._ip_ban_until:
-            w = self._ip_ban_until - now
-            await asyncio.sleep(min(w, 30))
+            await asyncio.sleep(min(self._ip_ban_until - now, 30))
             return None
-
-        # Check cache
-        if cache_key:
-            hit = self._cache.get(cache_key)
-            if hit:
-                ts, data = hit
-                if now - ts < self._cache_ttl:
-                    return data
+        if ck:
+            hit = self._cache.get(ck)
+            if hit and now - hit[0] < self._cache_ttl:
+                return hit[1]
 
         params = params or {}
-        for ep in self._live_endpoints():
-            url = f"{ep}{path}"
+        for ep in self._live_eps():
             try:
-                s = await self._session_get()
-                async with s.get(url, params=params) as r:
+                s = await self._get_session()
+                async with s.get(f"{ep}{path}", params=params) as r:
                     if r.status == 200:
                         self._geo_blocked.pop(ep, None)
                         data = await r.json()
-                        if cache_key:
-                            self._cache[cache_key] = (time.time(), data)
-                            # LRU eviction
-                            if len(self._cache) > 1000:
-                                oldest_k = min(self._cache, key=lambda k: self._cache[k][0])
-                                del self._cache[oldest_k]
+                        if ck:
+                            self._cache[ck] = (time.time(), data)
+                            if len(self._cache) > 1200:
+                                old = min(self._cache, key=lambda k: self._cache[k][0])
+                                del self._cache[old]
                         return data
                     if r.status == 451:
                         self._geo_blocked[ep] = time.time() + self._geo_ttl
-                        self.logger.debug(f"Geo-blocked: {ep}")
-                        break   # Try next endpoint
+                        break
                     if r.status == 418:
                         self._ip_ban_until = time.time() + 120
                         return None
                     if r.status == 429:
-                        retry = int(r.headers.get("Retry-After", "5"))
-                        await asyncio.sleep(min(retry, 60))
+                        ra = int(r.headers.get("Retry-After", "5"))
+                        await asyncio.sleep(min(ra, 60))
                         continue
                     if 400 <= r.status < 500:
                         return None
             except asyncio.TimeoutError:
-                self.logger.debug(f"Timeout: {ep}{path}")
                 continue
             except Exception as e:
-                self.logger.debug(f"_get({path}) [{ep}]: {e}")
+                self.logger.debug(f"_get {path}: {e}")
                 continue
         return None
 
     async def get_klines(self, symbol: str, interval: str,
-                         limit: int = 200) -> Optional[list]:
-        ck = ("klines", symbol, interval, limit)
-        data = await self._get(
-            "/fapi/v1/klines",
-            {"symbol": symbol, "interval": interval, "limit": limit},
-            cache_key=ck,
-        )
+                         limit: int = 500) -> Optional[list]:
+        ck   = ("klines", symbol, interval, limit)
+        data = await self._get("/fapi/v1/klines",
+                               {"symbol": symbol, "interval": interval, "limit": limit},
+                               ck=ck)
         if data:
             return data
-        # Spot klines fallback
         try:
-            s = await self._session_get()
+            s = await self._get_session()
             async with s.get(_SPOT_KLINES,
-                             params={"symbol": symbol, "interval": interval, "limit": limit}) as r:
+                             params={"symbol": symbol, "interval": interval,
+                                     "limit": limit}) as r:
                 if r.status == 200:
                     spot = await r.json()
                     self._cache[ck] = (time.time(), spot)
@@ -210,38 +189,26 @@ class _BinanceClient:
         return None
 
     async def get_funding_rate(self, symbol: str) -> Optional[dict]:
-        data = await self._get(
-            "/fapi/v1/premiumIndex", {"symbol": symbol},
-            cache_key=("funding", symbol),
-        )
+        data = await self._get("/fapi/v1/premiumIndex", {"symbol": symbol},
+                               ck=("funding", symbol))
         if data:
-            return {
-                "fundingRate": data.get("lastFundingRate", "0"),
-                "markPrice":   data.get("markPrice", "0"),
-                "indexPrice":  data.get("indexPrice", "0"),
-                "nextFundingTime": data.get("nextFundingTime", 0),
-            }
+            return {"fundingRate": data.get("lastFundingRate", "0"),
+                    "markPrice":   data.get("markPrice", "0")}
         return None
 
     async def get_premium_index(self, symbol: str) -> Optional[dict]:
-        """Real-time mark price + funding via premiumIndex (separate from cached funding)."""
-        data = await self._get("/fapi/v1/premiumIndex", {"symbol": symbol})
-        return data   # no cache — we want real-time mark price
+        """Real-time mark price — no cache."""
+        return await self._get("/fapi/v1/premiumIndex", {"symbol": symbol})
 
     async def get_open_interest(self, symbol: str) -> Optional[dict]:
-        return await self._get(
-            "/fapi/v1/openInterest", {"symbol": symbol},
-            cache_key=("oi", symbol),
-        )
+        return await self._get("/fapi/v1/openInterest", {"symbol": symbol},
+                               ck=("oi", symbol))
 
     async def get_24hr_ticker_stats(self, symbol: str) -> Optional[dict]:
-        return await self._get(
-            "/fapi/v1/ticker/24hr", {"symbol": symbol},
-            cache_key=("ticker24h", symbol),
-        )
+        return await self._get("/fapi/v1/ticker/24hr", {"symbol": symbol},
+                               ck=("ticker24", symbol))
 
     async def _get_fapi(self, path: str, params: dict = None) -> Optional[object]:
-        """Alias for GEX engine OI history calls."""
         return await self._get(path, params)
 
     def is_ip_banned(self) -> bool:
@@ -253,9 +220,7 @@ class _BinanceClient:
             self._get("/fapi/v1/exchangeInfo"),
             return_exceptions=True,
         )
-
         if isinstance(tickers, Exception) or not tickers or not isinstance(tickers, list):
-            self.logger.warning("Symbol fetch failed — using fallback list")
             return list(_FALLBACK_SYMBOLS)
 
         perp_set: set = set()
@@ -264,7 +229,7 @@ class _BinanceClient:
                 if s.get("contractType") == "PERPETUAL" and s.get("status") == "TRADING":
                     perp_set.add(s["symbol"])
 
-        qualifying = []
+        q = []
         for t in tickers:
             sym = t.get("symbol", "")
             if not sym.endswith("USDT") or "_" in sym:
@@ -274,12 +239,12 @@ class _BinanceClient:
             try:
                 v = float(t.get("quoteVolume", 0))
                 if v >= self.MIN_VOLUME_USDT:
-                    qualifying.append((v, sym))
+                    q.append((v, sym))
             except (ValueError, TypeError):
                 pass
 
-        qualifying.sort(reverse=True)
-        syms = [s for _, s in qualifying[:self.MAX_SYMBOLS]]
+        q.sort(reverse=True)
+        syms = [s for _, s in q[:self.MAX_SYMBOLS]]
         if "BTCUSDT" in syms:
             syms.remove("BTCUSDT")
         syms.insert(0, "BTCUSDT")
@@ -292,42 +257,36 @@ class _BinanceClient:
 
 class _RateLimiter:
     def __init__(self):
-        self._sym_last:   Dict[str, float]         = {}
-        self._sym_dir:    Dict[str, Tuple[str, float]] = {}
-        self._global_ts:  deque                    = deque(maxlen=100)
-        self._lock = asyncio.Lock()
+        self._sym_last: Dict[str, float]            = {}
+        self._sym_dir:  Dict[str, Tuple[str, float]]= {}
+        self._global_ts: deque                      = deque(maxlen=100)
 
-        self.SYM_GAP_SEC   = int(os.getenv("GEX_SYMBOL_GAP_SEC", "300"))
-        self.GLOBAL_GAP_SEC= int(os.getenv("GEX_GLOBAL_GAP_SEC", "60"))
-        self.MAX_PER_HOUR  = int(os.getenv("GEX_MAX_PER_HOUR", "12"))
-        self.DEDUP_MIN     = int(os.getenv("GEX_DEDUP_MINUTES", "30"))
+        self.SYM_GAP    = int(os.getenv("GEX_SYMBOL_GAP_SEC",  "180"))  # 3min for 5m TF
+        self.GLOBAL_GAP = int(os.getenv("GEX_GLOBAL_GAP_SEC",  "30"))   # 30s for 5m TF
+        self.MAX_HR     = int(os.getenv("GEX_MAX_PER_HOUR",    "20"))   # 20/hr for 5m TF
+        self.DEDUP_MIN  = int(os.getenv("GEX_DEDUP_MINUTES",   "15"))   # 15min dedup for 5m
 
     def can_send(self, symbol: str, action: str) -> Tuple[bool, str]:
         now_ts = time.time()
         now_dt = datetime.now()
 
-        # Per-symbol gap
         gap = now_ts - self._sym_last.get(symbol, 0)
-        if gap < self.SYM_GAP_SEC:
-            return False, f"sym-gap {self.SYM_GAP_SEC-gap:.0f}s"
+        if gap < self.SYM_GAP:
+            return False, f"sym-gap {self.SYM_GAP-gap:.0f}s"
 
-        # Same-direction dedup
         if symbol in self._sym_dir:
             d, ts = self._sym_dir[symbol]
             if d == action and now_ts - ts < self.DEDUP_MIN * 60:
                 return False, f"dedup/{action}"
 
-        # Hourly cap
         cutoff = now_dt - timedelta(hours=1)
-        recent = sum(1 for t in self._global_ts if t > cutoff)
-        if recent >= self.MAX_PER_HOUR:
-            return False, f"cap {self.MAX_PER_HOUR}/hr"
+        if sum(1 for t in self._global_ts if t > cutoff) >= self.MAX_HR:
+            return False, f"cap {self.MAX_HR}/hr"
 
-        # Global gap
         if self._global_ts:
             g = (now_dt - self._global_ts[-1]).total_seconds()
-            if g < self.GLOBAL_GAP_SEC:
-                return False, f"global-gap {self.GLOBAL_GAP_SEC-g:.0f}s"
+            if g < self.GLOBAL_GAP:
+                return False, f"global-gap {self.GLOBAL_GAP-g:.0f}s"
 
         return True, "ok"
 
@@ -339,103 +298,112 @@ class _RateLimiter:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Signal Formatter — Cornix-compatible + GEX Dashboard
+# Signal Formatter — Cornix-compatible + AEGIS GEX Dashboard Table
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _fmt(v: float) -> str:
-    """Auto-precision formatter."""
-    if v >= 10000:  return f"{v:.2f}"
-    if v >= 1000:   return f"{v:.3f}"
-    if v >= 100:    return f"{v:.4f}"
-    if v >= 10:     return f"{v:.5f}"
+    if v >= 10000: return f"{v:.2f}"
+    if v >= 1000:  return f"{v:.3f}"
+    if v >= 100:   return f"{v:.4f}"
+    if v >= 10:    return f"{v:.5f}"
     return f"{v:.6f}"
 
 def _pct(a: float, b: float) -> float:
     return abs(a - b) / b * 100.0 if b else 0.0
 
-def _sig_type_label(st: str) -> str:
-    return {
-        "GEX_FLIP":          "GEX Flip",
-        "VANNA_ENTRY":       "Vanna Entry",
-        "COMPRESSION_BREAK": "Compression Break",
-    }.get(st, st)
+def _sig_label(st: str) -> str:
+    return {"GEX_FLIP": "GEX Flip", "VANNA_ENTRY": "Vanna Entry",
+            "COMPRESSION_BREAK": "Compression Break"}.get(st, st)
 
 def format_aegis_signal(sig: GEXSignal) -> str:
     """
-    Full Cornix-compatible signal message with embedded AEGIS GEX Dashboard.
+    Cornix-compatible signal + full AEGIS GEX Dashboard Table.
 
-    Layout:
-      [Direction header — Cornix parses this]
-      [Entry / TP targets / Stop — Cornix format]
-      [GEX Dashboard Table — all 13 indicator layers summarized]
+    Dashboard matches the TradingView AEGIS GEX v1.0 indicator exactly:
+      Regime | DGRP | Candle | RV Ratio | IV Proxy Z
+      Compression | Vanna | Charm Decay | Delta Bias | Exp Move
+      Dealer Flow | GEX Regime | GEX Flip ± | Signal
     """
-    d_emoji  = "🟢" if sig.action == "BUY" else "🔴"
-    sym_tag  = f"#{sig.symbol}"
+    snap = sig.snapshot
+    d_e  = "🟢" if sig.action == "BUY" else "🔴"
+    e, tp1, tp2, tp3, sl = (sig.entry_price, sig.tp1, sig.tp2, sig.tp3, sig.sl)
+    lev  = sig.leverage
 
-    e   = sig.entry_price
-    tp1 = sig.tp1
-    tp2 = sig.tp2
-    tp3 = sig.tp3
-    sl  = sig.sl
-    lev = sig.leverage
-
-    tp1p = _pct(tp1, e)
-    tp2p = _pct(tp2, e)
-    tp3p = _pct(tp3, e)
-    slp  = _pct(sl, e)
+    tp1p = _pct(tp1, e); tp2p = _pct(tp2, e)
+    tp3p = _pct(tp3, e); slp  = _pct(sl, e)
 
     ts   = datetime.utcnow().strftime("%H:%M")
     date = datetime.utcnow().strftime("%b %d")
 
+    # ── Dashboard Table ───────────────────────────────────────────────────────
+    fund_str = f"{sig.funding_rate*100:+.4f}%"
+    oi_str   = f"{sig.oi_delta_pct:+.1f}%"
+
+    # Format dealer flow: +.1M, -.2M etc.
+    df_abs = abs(snap.dealer_flow_m)
+    df_sign= "+" if snap.dealer_flow_m >= 0 else "-"
+    if df_abs >= 1000:
+        df_str = f"{df_sign}{df_abs/1000:.1f}B"
+    elif df_abs >= 1:
+        df_str = f"{df_sign}{df_abs:.1f}M"
+    else:
+        df_str = f"{df_sign}{df_abs*1000:.0f}K"
+
+    # Format exp_move: ± value
+    em_str = f"± {_fmt(snap.exp_move)}"
+
+    # Format GEX flip with band: $price ± band
+    gf_str = f"{_fmt(snap.gex_flip)} ± {_fmt(snap.gex_flip_band)}"
+
+    # Regime color indicator
+    regime_icon = {
+        "FLIP ZONE": "🟡", "POSITIVE": "🟢",
+        "NEGATIVE":  "🔴", "NEUTRAL":  "⚪",
+    }.get(snap.regime, "⚪")
+
+    gex_reg_icon = "🟢" if snap.gex_regime == "LONG GAMMA" else "🔴"
+
+    bias_e = "🐂" if sig.bias == "BULLISH" else ("🐻" if sig.bias == "BEARISH" else "⚖️")
+
+    # ── Signal label ──────────────────────────────────────────────────────────
+    st_label = _sig_label(sig.signal_type)
     zone_arrow = "↑" if sig.action == "BUY" else "↓"
     gex_zone   = f"GEX {sig.gex_zone_from[:3]}{zone_arrow}{sig.gex_zone_to[:3]}"
-    st_label   = _sig_type_label(sig.signal_type)
-    bias_emoji = "🐂" if sig.bias == "BULLISH" else ("🐻" if sig.bias == "BEARISH" else "⚖️")
 
-    # ── GEX Dashboard (13 layers) ─────────────────────────────────────────────
-    snap = sig.snapshot
-    fund_str  = f"{sig.funding_rate*100:+.4f}%"
-    oi_str    = f"{sig.oi_delta_pct:+.1f}%"
-    charm_str = f"{sig.charm_decay:.2f}"
+    # ── Chart levels ─────────────────────────────────────────────────────────
+    cw_str = _fmt(snap.call_wall) if snap.call_wall else "—"
+    pw_str = _fmt(snap.put_wall)  if snap.put_wall  else "—"
+    vt_up  = _fmt(snap.vol_trigger_up)
+    vt_dn  = _fmt(snap.vol_trigger_dn)
 
-    ema_pos = ""
+    # VWAP bands
+    vwap_pos = "above" if e > snap.vwap else "below"
+    vwap_b1  = f"[{_fmt(snap.vwap_minus1_atr)} – {_fmt(snap.vwap_plus1_atr)}]"
+    vwap_b2  = f"[{_fmt(snap.vwap_minus2_atr)} – {_fmt(snap.vwap_plus2_atr)}]"
+
+    # EMA
+    ema_str = ""
     if sig.ema50:
-        ema_pos = f"{'>' if e > sig.ema50 else '<'} EMA50({_fmt(sig.ema50)})"
+        ema_str = f"EMA50: {'>' if e > sig.ema50 else '<'} {_fmt(sig.ema50)}\n"
 
-    vwap_pos = f"{'above' if e > sig.vwap else 'below'} VWAP({_fmt(sig.vwap)})"
-    vwap_b1  = f"±1ATR [{_fmt(snap.vwap_minus1_atr)}–{_fmt(snap.vwap_plus1_atr)}]"
-    vwap_b2  = f"±2ATR [{_fmt(snap.vwap_minus2_atr)}–{_fmt(snap.vwap_plus2_atr)}]"
+    # Nearest flip levels
+    nf_up = _fmt(snap.nearest_flip_up)  if snap.nearest_flip_up  else "—"
+    nf_dn = _fmt(snap.nearest_flip_down) if snap.nearest_flip_down else "—"
+    all_fl = sorted(set(_fmt(fl.price) for fl in snap.all_flip_levels[:6]))
 
-    exp_up   = _fmt(sig.expected_move_upper)
-    exp_dn   = _fmt(sig.expected_move_lower)
-
-    flip_up_str  = _fmt(snap.nearest_flip_up)   if snap.nearest_flip_up   else "—"
-    flip_dn_str  = _fmt(snap.nearest_flip_down) if snap.nearest_flip_down else "—"
-    gfp_str      = _fmt(sig.gamma_flip_proxy)
-
-    opex_str  = "⚠️OPEX WEEK" if snap.is_opex_week else ""
-    sess_str  = f"Session+{snap.session_open_minute}min"
-
-    walls_str = ""
-    if snap.gamma_walls:
-        top3 = sorted(snap.gamma_walls, key=lambda w: w.strength, reverse=True)[:3]
-        walls_str = " | ".join(f"{'BULL' if 'BULL' in w.zone_type else 'BEAR'}@{_fmt(w.mid)}" for w in top3)
-
-    comp_str = ""
+    # Compression / Vanna info
+    extra = ""
     if snap.compression_zones:
         cz = snap.compression_zones[0]
-        comp_str = f"COIL [{_fmt(cz.price_low)}–{_fmt(cz.price_high)}] → {_fmt(cz.target) if cz.target else '?'}"
-
-    vanna_str = ""
+        extra += f"Compression: [{_fmt(cz.price_low)} – {_fmt(cz.price_high)}] → {_fmt(cz.target) if cz.target else '?'}\n"
     if sig.vanna_entry:
-        vanna_str = f"Vanna Line @ {_fmt(sig.vanna_entry)}"
+        extra += f"Vanna Entry Line: {_fmt(sig.vanna_entry)}\n"
 
-    flip_levels_all = sorted(
-        set([_fmt(fl.price) for fl in snap.all_flip_levels[:6]])
-    )
+    opex_str = "\n⚠️ OPEX WEEK — reduced confidence\n" if snap.is_opex_week else ""
+    sess_str = f"Session+{snap.session_open_minute}min"
 
     msg = (
-        f"{d_emoji} {sym_tag} {sig.direction}\n"
+        f"{d_e} #{sig.symbol} {sig.direction}\n"
         f"Exchange: Binance Futures\n"
         f"Leverage: Cross {lev}x\n\n"
         f"Entry Targets:\n1) {_fmt(e)}\n\n"
@@ -444,42 +412,52 @@ def format_aegis_signal(sig: GEXSignal) -> str:
         f"2) {_fmt(tp2)}\n"
         f"3) {_fmt(tp3)}\n\n"
         f"Stop Targets:\n1) {_fmt(sl)}\n\n"
-        f"── AEGIS GEX Dashboard ─────────────\n"
-        f"Signal: {st_label} | {gex_zone} | {bias_emoji}{sig.bias}\n"
-        f"Conf: {sig.confidence:.0f}% | R:R 1:{sig.rr_ratio:.1f} | Lev: {lev}x\n"
-        f"TP: +{tp1p:.1f}%/+{tp2p:.1f}%/+{tp3p:.1f}% | SL: -{slp:.1f}%\n\n"
-        f"GEX Flip Proxy: {gfp_str}\n"
-        f"GEX Flip ↑: {flip_up_str} | ↓: {flip_dn_str}\n"
-        f"All Flips: {', '.join(flip_levels_all)}\n"
+        f"━━ AEGIS GEX v1.0 Dashboard ━━━━━━━━━\n"
+        f"Regime:       {regime_icon} {snap.regime}\n"
+        f"DGRP Score:   {snap.dgrp_score:.0f} / 100\n"
+        f"Candle:       {snap.candle_state}\n"
+        f"RV Ratio:     {snap.rv_ratio:.2f}\n"
+        f"IV Proxy Z:   {snap.iv_proxy_z:+.2f}\n"
+        f"Compression:  {snap.compression_state}\n"
+        f"Vanna:        {snap.vanna_state}\n"
+        f"Charm Decay:  {snap.charm_state}\n"
+        f"Delta Bias:   {snap.delta_bias}\n"
+        f"Exp Move:     {em_str}\n"
+        f"Dealer Flow:  {df_str}\n"
+        f"GEX Regime:   {gex_reg_icon} {snap.gex_regime}\n"
+        f"GEX Flip:     ${gf_str}\n"
+        f"Signal:       {st_label} {gex_zone}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Chart Levels:\n"
+        f"GEX Flip Proxy:    {_fmt(snap.gamma_flip_proxy)}\n"
+        f"Call Wall:         {cw_str}\n"
+        f"Put Wall:          {pw_str}\n"
+        f"VOL Trigger UP:    {vt_up}\n"
+        f"VOL Trigger DN:    {vt_dn}\n"
+        f"GEX Flip ↑: {nf_up}  |  ↓: {nf_dn}\n"
+        f"All GEX Flips:     {', '.join(all_fl)}\n"
+        f"\n"
+        f"VWAP ({_fmt(snap.vwap)}):  {vwap_pos}\n"
+        f"VWAP ±1 ATR:  {vwap_b1}\n"
+        f"VWAP ±2 ATR:  {vwap_b2}\n"
+        f"Exp Move Bands: [{_fmt(snap.expected_move_lower)} – {_fmt(snap.expected_move_upper)}]\n"
     )
 
-    if walls_str:
-        msg += f"Gamma Walls: {walls_str}\n"
-    if comp_str:
-        msg += f"Compression: {comp_str}\n"
-    if vanna_str:
-        msg += f"{vanna_str}\n"
+    if ema_str:
+        msg += ema_str
+    if extra:
+        msg += extra
 
     msg += (
         f"\n"
-        f"VWAP: {vwap_pos}\n"
-        f"{vwap_b1} | {vwap_b2}\n"
-        f"Exp Move: [{exp_dn} – {exp_up}]\n"
+        f"Confidence: {sig.confidence:.0f}%  |  R:R 1:{sig.rr_ratio:.1f}  |  Lev: {lev}x\n"
+        f"TP: +{tp1p:.1f}%/+{tp2p:.1f}%/+{tp3p:.1f}%  |  SL: -{slp:.1f}%\n"
+        f"Funding: {fund_str}  |  OI∆: {oi_str}\n"
+        f"ATR: {_fmt(snap.atr)}  |  {sess_str}  |  {sig.timeframe} TF\n"
+        f"{date} {ts} UTC  |  {bias_e} {sig.bias}"
+        f"{opex_str}\n"
+        f"📡 @ichimokutradingsignal | AEGIS GEX v1.0"
     )
-
-    if ema_pos:
-        msg += f"EMA50: {ema_pos}\n"
-
-    msg += (
-        f"\n"
-        f"Funding: {fund_str} | OI∆: {oi_str}\n"
-        f"Charm Decay: {charm_str} | ATR: {_fmt(sig.atr)}\n"
-        f"{sess_str} | {sig.timeframe} TF | {date} {ts} UTC\n"
-    )
-    if opex_str:
-        msg += f"{opex_str}\n"
-
-    msg += f"📡 @ichimokutradingsignal | AEGIS GEX v1.0"
     return msg
 
 
@@ -491,18 +469,17 @@ class AEGISGEXBot:
     """
     AEGIS GEX v1.0 — Production Signal Bot
 
-    Scan every 60s (configurable).
-    All 80 symbols in parallel via asyncio.gather + Semaphore.
-    Uses real-time mark price for GEX flip crossover detection.
+    Primary TF: 5m | Confirmation TF: 15m | Scan: 30s
+    All 80 USDM symbols in true parallel (asyncio.gather + Semaphore).
     """
 
-    SCAN_INTERVAL   = int(os.getenv("GEX_SCAN_INTERVAL_SEC", "60"))
-    PARALLEL_LIMIT  = int(os.getenv("GEX_PARALLEL_LIMIT",    "20"))
-    SYM_REFRESH_SEC = int(os.getenv("GEX_SYMBOL_REFRESH_SEC","3600"))
-    MIN_CONF        = float(os.getenv("GEX_MIN_CONFIDENCE",  "60.0"))
-    PRIMARY_TF      = os.getenv("GEX_PRIMARY_TF",  "1h")
-    CONFIRM_TF      = os.getenv("GEX_CONFIRM_TF",  "4h")
-    TG_SEND_GAP     = 2.0
+    SCAN_INTERVAL   = int(os.getenv("GEX_SCAN_INTERVAL_SEC",  "30"))   # 30s for 5m TF
+    PARALLEL_LIMIT  = int(os.getenv("GEX_PARALLEL_LIMIT",     "25"))   # 25 concurrent
+    SYM_REFRESH_SEC = int(os.getenv("GEX_SYMBOL_REFRESH_SEC", "3600"))
+    MIN_CONF        = float(os.getenv("GEX_MIN_CONFIDENCE",   "60.0"))
+    PRIMARY_TF      = os.getenv("GEX_PRIMARY_TF",  "5m")    # 5m primary
+    CONFIRM_TF      = os.getenv("GEX_CONFIRM_TF",  "15m")   # 15m confirm
+    TG_SEND_GAP     = 1.5
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -513,9 +490,9 @@ class AEGISGEXBot:
 
         _ch = os.getenv("TELEGRAM_CHANNEL_ID", "").strip()
         _ct = (os.getenv("TELEGRAM_CHAT_ID", "") or "").strip()
-        self.channel_id   = _ch if _ch else (_ct if _ct.startswith("-") else "-1002453842816")
-        self.admin_chat   = os.getenv("ADMIN_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
-        self.base_url     = f"https://api.telegram.org/bot{self.bot_token}"
+        self.channel_id = _ch if _ch else (_ct if _ct.startswith("-") else "-1002453842816")
+        self.admin_chat = os.getenv("ADMIN_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
+        self.base_url   = f"https://api.telegram.org/bot{self.bot_token}"
 
         self._tg_sess: Optional[aiohttp.ClientSession] = None
         self._tg_lock = asyncio.Lock()
@@ -525,22 +502,23 @@ class AEGISGEXBot:
         self.engine  = AEGISGEXEngine()
         self.limiter = _RateLimiter()
 
-        self._sem          = asyncio.Semaphore(self.PARALLEL_LIMIT)
+        self._sem         = asyncio.Semaphore(self.PARALLEL_LIMIT)
         self._prev: Dict[str, GEXSnapshot] = {}
-        self._syms:        List[str]  = []
-        self._syms_ts:     float      = 0.0
-        self._start        = datetime.now()
-        self._signals_sent = 0
-        self._cycles       = 0
+        self._syms: List[str] = []
+        self._syms_ts = 0.0
+        self._start   = datetime.now()
+        self._signals = 0
+        self._cycles  = 0
 
         self.logger.info(
-            f"🛡️ AEGIS GEX v1.0 ready | CH:{self.channel_id} | "
-            f"TF:{self.PRIMARY_TF}+{self.CONFIRM_TF} | MinConf:{self.MIN_CONF:.0f}%"
+            f"🛡️ AEGIS GEX v1.0 | CH:{self.channel_id} | "
+            f"TF:{self.PRIMARY_TF}+{self.CONFIRM_TF} | Scan:{self.SCAN_INTERVAL}s | "
+            f"MinConf:{self.MIN_CONF:.0f}%"
         )
 
     # ── Telegram ──────────────────────────────────────────────────────────────
 
-    async def _tg_session(self) -> aiohttp.ClientSession:
+    async def _tg_sess_get(self) -> aiohttp.ClientSession:
         if self._tg_sess is None or self._tg_sess.closed:
             self._tg_sess = aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(ssl=False),
@@ -565,7 +543,7 @@ class AEGISGEXBot:
 
         for attempt in range(retries):
             try:
-                s = await self._tg_session()
+                s = await self._tg_sess_get()
                 async with s.post(url, json=body) as r:
                     if r.status == 200:
                         res = await r.json()
@@ -579,8 +557,7 @@ class AEGISGEXBot:
                             pb = {"chat_id": chat_id, "text": plain,
                                   "link_preview_options": {"is_disabled": True}}
                             async with s.post(url, json=pb) as r2:
-                                r2j = await r2.json()
-                                return r2j.get("ok", False)
+                                return (await r2.json()).get("ok", False)
                     elif r.status == 400:
                         try:
                             bd = await r.json()
@@ -596,7 +573,7 @@ class AEGISGEXBot:
             except asyncio.TimeoutError:
                 await asyncio.sleep(2 ** attempt)
             except Exception as e:
-                self.logger.error(f"send_message (attempt {attempt+1}): {e}")
+                self.logger.error(f"send_message attempt {attempt+1}: {e}")
                 await asyncio.sleep(2 ** attempt)
         return False
 
@@ -613,7 +590,7 @@ class AEGISGEXBot:
                 self._syms_ts = now
                 self.logger.info(f"🌐 {len(syms)} symbols active")
         except Exception as e:
-            self.logger.warning(f"Symbol refresh error: {e}")
+            self.logger.warning(f"Symbol refresh: {e}")
             if not self._syms:
                 self._syms = list(_FALLBACK_SYMBOLS)
 
@@ -621,12 +598,13 @@ class AEGISGEXBot:
 
     async def _scan(self, symbol: str) -> bool:
         """
-        Scan one symbol for GEX flip signals.
-        Uses real-time mark price (via premiumIndex) for crossover detection.
-        Returns True if a signal was sent.
+        GEX flip scan for one symbol.
+        1. Compute 5m + 15m GEX snapshots (parallel)
+        2. 15m confirmation filter (zone + bias alignment)
+        3. Compare mark prices → detect crossover
+        4. 13-layer confidence gate → rate limit → broadcast
         """
         try:
-            # Fetch primary (1h) and confirmation (4h) snapshots in parallel
             primary, confirm = await asyncio.gather(
                 self.engine.compute_gex_snapshot(self.client, symbol, self.PRIMARY_TF),
                 self.engine.compute_gex_snapshot(self.client, symbol, self.CONFIRM_TF),
@@ -637,61 +615,58 @@ class AEGISGEXBot:
                 return False
 
             prev = self._prev.get(symbol)
-            self._prev[symbol] = primary      # Store current as next cycle's prev
+            self._prev[symbol] = primary
 
             if prev is None:
-                return False  # Need 2 cycles to detect crossover
+                return False  # Need 2 cycles for crossover detection
 
-            # ── 4h Confirmation filter ────────────────────────────────────────
-            # Suppress signals that contradict the 4h GEX bias
+            # ── 15m Confirmation filter ───────────────────────────────────────
             if not isinstance(confirm, Exception) and confirm is not None:
+                # Direction must not contradict 15m bias
                 if confirm.bias != "NEUTRAL":
                     if confirm.bias == "BULLISH" and primary.bias == "BEARISH":
-                        return False  # 4h and 1h bias conflict
+                        return False
                     if confirm.bias == "BEARISH" and primary.bias == "BULLISH":
                         return False
-
-                # 4h GEX zone must support the trade direction
-                # (don't go long in 4h NEGATIVE zone unless strong signal)
-                conf_zone_ok = True
-                if confirm.current_gex_zone == "NEGATIVE" and primary.bias == "BULLISH":
-                    # Only allow if primary confidence is very high
-                    if primary.confidence < self.MIN_CONF + 10:
-                        conf_zone_ok = False
-                if not conf_zone_ok:
+                # 15m GEX regime must not actively oppose signal direction
+                # (SHORT GAMMA on 15m = trending → allow any direction)
+                # (LONG GAMMA on 15m = pinned → need extra confidence)
+                if confirm.gex_regime == "LONG GAMMA" and primary.confidence < self.MIN_CONF + 8:
                     return False
 
-            # ── Detect GEX flip crossover ─────────────────────────────────────
+            # ── Detect signal ─────────────────────────────────────────────────
             sig = self.engine.detect_signal(prev, primary, self.MIN_CONF)
             if sig is None:
                 return False
 
-            # ── Rate limiting gate ────────────────────────────────────────────
+            # ── Rate limiter ──────────────────────────────────────────────────
             ok, reason = self.limiter.can_send(symbol, sig.action)
             if not ok:
-                self.logger.debug(f"[{symbol}] Rate-limited: {reason}")
+                self.logger.debug(f"[{symbol}] rate: {reason}")
                 return False
 
-            # ── Format & broadcast ────────────────────────────────────────────
-            msg = format_aegis_signal(sig)
+            # ── Broadcast ─────────────────────────────────────────────────────
+            msg  = format_aegis_signal(sig)
             sent = await self.send_message(self.channel_id, msg)
 
             if sent:
                 self.limiter.record(symbol, sig.action)
-                self._signals_sent += 1
+                self._signals += 1
                 self.logger.info(
                     f"📡 {symbol} {sig.direction} | {sig.signal_type} | "
-                    f"Entry:{sig.entry_price:.6g} | TP1:{sig.tp1:.6g} | "
-                    f"SL:{sig.sl:.6g} | Conf:{sig.confidence:.0f}% | R:R 1:{sig.rr_ratio:.1f}"
+                    f"DGRP:{sig.snapshot.dgrp_score:.0f} | Regime:{sig.snapshot.regime} | "
+                    f"Entry:{sig.entry_price:.6g} TP1:{sig.tp1:.6g} SL:{sig.sl:.6g} | "
+                    f"Conf:{sig.confidence:.0f}% RR:{sig.rr_ratio:.1f}"
                 )
-                # Admin ping (concise)
                 if self.admin_chat and str(self.admin_chat) != str(self.channel_id):
                     d_e = "🟢" if sig.action == "BUY" else "🔴"
+                    snap = sig.snapshot
                     await self.send_message(
                         self.admin_chat,
-                        f"{d_e} AEGIS GEX: {symbol} {sig.direction}\n"
-                        f"Type: {sig.signal_type} | Conf: {sig.confidence:.0f}%\n"
-                        f"Entry: {sig.entry_price:.6g} → TP1: {sig.tp1:.6g} | SL: {sig.sl:.6g}",
+                        f"{d_e} AEGIS GEX: {symbol} {sig.direction} ({sig.signal_type})\n"
+                        f"Regime: {snap.regime} | DGRP: {snap.dgrp_score:.0f} | GEX: {snap.gex_regime}\n"
+                        f"Entry: {sig.entry_price:.6g} → TP1: {sig.tp1:.6g} | SL: {sig.sl:.6g}\n"
+                        f"Conf: {sig.confidence:.0f}% | R:R 1:{sig.rr_ratio:.1f} | Lev: {sig.leverage}x",
                     )
                 return True
 
@@ -699,10 +674,9 @@ class AEGISGEXBot:
             self.logger.error(f"[{symbol}] scan error: {e}", exc_info=False)
         return False
 
-    # ── Parallel scan cycle ───────────────────────────────────────────────────
+    # ── Parallel scan ─────────────────────────────────────────────────────────
 
     async def scan_all(self) -> int:
-        """Scan all symbols in true parallel. Returns signals sent count."""
         if not self._syms:
             return 0
 
@@ -710,21 +684,15 @@ class AEGISGEXBot:
             if self.client.is_ip_banned():
                 return False
             async with self._sem:
-                if self.client.is_ip_banned():
-                    return False
                 try:
-                    return await asyncio.wait_for(self._scan(sym), timeout=50.0)
+                    return await asyncio.wait_for(self._scan(sym), timeout=28.0)
                 except asyncio.TimeoutError:
-                    self.logger.debug(f"[{sym}] scan timeout (50s)")
                     return False
-                except Exception as exc:
-                    self.logger.debug(f"[{sym}] scan exc: {exc}")
+                except Exception:
                     return False
 
-        results = await asyncio.gather(
-            *[_gate(s) for s in self._syms],
-            return_exceptions=True,
-        )
+        results = await asyncio.gather(*[_gate(s) for s in self._syms],
+                                       return_exceptions=True)
         sent   = sum(1 for r in results if r is True)
         errors = sum(1 for r in results if isinstance(r, Exception))
         self.logger.info(
@@ -733,22 +701,22 @@ class AEGISGEXBot:
         )
         return sent
 
-    # ── Startup message ───────────────────────────────────────────────────────
+    # ── Startup ───────────────────────────────────────────────────────────────
 
     async def _send_startup(self):
         msg = (
-            f"🛡️ AEGIS GEX v1.0 — Started\n\n"
-            f"Engine: GEX Dealer Flow (13 layers)\n"
-            f"Entry: GEX Flip | TP: Next GEX Flip | SL: ATR Buffer\n"
-            f"Signal Types: GEX Flip / Vanna Entry / Compression Break\n"
+            f"🛡️ AEGIS GEX v1.0 — Live\n\n"
+            f"Timeframe: {self.PRIMARY_TF} primary + {self.CONFIRM_TF} confirm\n"
+            f"Scan interval: {self.SCAN_INTERVAL}s\n"
+            f"Signal types: GEX Flip | Vanna Entry | Compression Break\n"
             f"Universe: ≤{_BinanceClient.MAX_SYMBOLS} USDM Perpetuals\n"
-            f"TF: {self.PRIMARY_TF} primary + {self.CONFIRM_TF} confirm\n"
             f"Min Confidence: {self.MIN_CONF:.0f}%\n"
-            f"Scan: every {self.SCAN_INTERVAL}s | Max: {self.limiter.MAX_PER_HOUR}/hr\n\n"
-            f"Layers: Gamma Walls | Compression | Vanna Unwind\n"
-            f"        Exp Move | VWAP ±ATR | GEX Flip | Charm Decay\n"
-            f"        Strike Centers | Vanna Entry | Dashboard\n"
-            f"        Session Open | OPEX Detection | 50 EMA\n\n"
+            f"Max signals: {self.limiter.MAX_HR}/hr\n\n"
+            f"Dashboard: Regime | DGRP | Candle | RV Ratio | IV Proxy Z\n"
+            f"           Compression | Vanna | Charm | Delta Bias | Exp Move\n"
+            f"           Dealer Flow | GEX Regime | GEX Flip ± Band\n\n"
+            f"Chart: GEX Flip | Call Wall | Put Wall\n"
+            f"       VOL Triggers | VWAP ±ATR | EMA50 | Expected Move\n\n"
             f"📡 @ichimokutradingsignal | AEGIS GEX v1.0"
         )
         await self.send_message(self.channel_id, msg)
@@ -764,9 +732,8 @@ class AEGISGEXBot:
         await self.send_message(
             self.admin_chat,
             f"💓 AEGIS GEX v1.0 Heartbeat\n"
-            f"Uptime: {hrs}h {mns}m | Cycles: {self._cycles}\n"
-            f"Symbols: {len(self._syms)} | Signals: {self._signals_sent}\n"
-            f"Limits: {self.limiter.MAX_PER_HOUR}/hr | {self.limiter.GLOBAL_GAP_SEC}s gap",
+            f"Up: {hrs}h {mns}m | Cycles: {self._cycles} | Signals: {self._signals}\n"
+            f"Syms: {len(self._syms)} | TF: {self.PRIMARY_TF}+{self.CONFIRM_TF}",
         )
 
     # ── Main loop ─────────────────────────────────────────────────────────────
@@ -777,7 +744,7 @@ class AEGISGEXBot:
         await self._refresh_syms()
 
         last_hb = time.time()
-        HB_INTERVAL = 3600
+        HB_SEC  = 3600
 
         while True:
             t0 = time.time()
@@ -786,15 +753,15 @@ class AEGISGEXBot:
                 self._cycles += 1
                 await self.scan_all()
 
-                if time.time() - last_hb >= HB_INTERVAL:
+                if time.time() - last_hb >= HB_SEC:
                     await self._send_heartbeat()
                     last_hb = time.time()
 
             except asyncio.CancelledError:
-                self.logger.info("🛑 AEGIS GEX shutdown")
+                self.logger.info("🛑 Shutdown")
                 break
             except Exception as e:
-                self.logger.error(f"Main loop error: {e}", exc_info=True)
+                self.logger.error(f"Main loop: {e}", exc_info=True)
                 await asyncio.sleep(15)
 
             sleep = max(0.0, self.SCAN_INTERVAL - (time.time() - t0))
@@ -804,4 +771,3 @@ class AEGISGEXBot:
         await self.client.close()
         if self._tg_sess and not self._tg_sess.closed:
             await self._tg_sess.close()
-        self.logger.info("✅ AEGIS GEX v1.0 stopped")

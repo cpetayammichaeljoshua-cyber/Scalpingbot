@@ -1,46 +1,50 @@
 #!/usr/bin/env python3
 """
-AEGIS GEX v1.0 — Dealer Flow Engine  (Complete Rebuild)
-=========================================================
-Pure-Python, zero-dependency GEX Dealer Flow Engine for Binance USDM perpetuals.
+AEGIS GEX v1.0 — Dealer Flow Engine  (v3 — Full Dashboard Implementation)
+===========================================================================
 Based on: AEGIS GEX DEALER FLOW ENGINE (TradingView: T1zYSBd7)
 
-All 13 indicator layers from the original TradingView script are implemented:
-  1.  Gamma Wall Boxes          — Price zones with peak OI concentration
-  2.  Compression Boxes         — Two gamma walls close together (pre-breakout coil)
-  3.  Vanna Unwind Zones        — dGamma/dVol zones; dealers rehedge aggressively here
-  4.  Expected Move Bands       — IV-derived ±1 StdDev price range
-  5.  VWAP + Bands              — VWAP ±1 ATR, ±2 ATR bands
-  6.  Gamma Flip Proxy Line     — Primary GEX zero-crossing line
-  7.  Charm Decay Intensity     — Time-decay effect on dealer delta hedging
-  8.  Strike Center Lines       — Centroid of each gamma strike cluster
-  9.  Compression Mid + Target  — Mid-point and breakout target of compression zones
-  10. Vanna Entry Line          — Secondary entry signal from Vanna positioning
-  11. GEX Flip Line + Band      — The main entry signal with ATR band
-  12. Dashboard Table           — Summary of all key levels (embedded in signal message)
-  13. Session Open Minute logic — Recalibrate GEX at session open + 30min mark
+Dashboard Table (exact match to TradingView indicator):
+  Regime        — FLIP ZONE | POSITIVE | NEGATIVE | NEUTRAL
+  DGRP Score    — 0-100 composite Dealer GEX Regime Proxy score
+  Candle        — Flip Zone | Compression | Vanna Active | Normal
+  RV Ratio      — ATR(14)/ATR(28) — current vs historical realized vol
+  IV Proxy Z    — Z-score of ATR% vs 50-period mean (normalized IV proxy)
+  Compression   — Free | Compressed | Extreme
+  Vanna         — Stable | Unstable | Active
+  Charm Decay   — ACTIVE | Moderate | Low
+  Delta Bias    — Net Bullish | Net Bearish | Neutral
+  Exp Move      — ± value in price units (±1 std dev move)
+  Dealer Flow   — Net dealer hedging flow in $M (+ = long, - = short)
+  GEX Regime    — LONG GAMMA | SHORT GAMMA
+  GEX Flip      — $price ± band_width
 
-Critical bug fixes vs v1:
-  - Use REAL-TIME mark price (not candle close) for GEX flip crossover detection
-  - 41-level strike grid (was 21) for more granular flip detection
-  - Vanna proxy computed from funding rate velocity × OI acceleration
-  - Charm Decay computed from time-to-next-funding × |funding_rate|
-  - Compression zones from paired gamma walls < 2 ATR apart
-  - VWAP bands filter: entry only valid if price is on VWAP band side
-  - 50 EMA trend filter: suppress counter-trend entries
-  - OPEX awareness: reduce confidence near monthly options expiration
-  - Confidence scoring uses all 13 layers (was 4 signals)
+Chart Levels:
+  GEX Flip Proxy Line  — primary zero-crossing entry level
+  Call Wall            — strongest gamma wall ABOVE price
+  Put Wall             — strongest gamma wall BELOW price
+  VOL TRIGGER UP       — upper volatility expansion trigger
+  VOL TRIGGER DN       — lower volatility expansion trigger
+  VWAP ±1/±2 ATR bands
+  Expected Move Bands
+  50 EMA
+  Compression Boxes
+  Vanna Unwind Zones
+
+Timeframe: 5m primary (per user specification), 15m confirmation
 """
 
 from __future__ import annotations
 
 import asyncio
+import calendar as _cal
 import logging
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -51,76 +55,108 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GEXLevel:
-    """A single Gamma Exposure level (flip point or gamma wall)."""
+    """Single Gamma Exposure level — flip, wall, or strike center."""
     price: float
-    gex_value: float        # Net GEX proxy (positive = long gamma, negative = short gamma)
-    is_flip: bool           # True = sign-change zero-crossing
-    strength: float         # 0–100 strength score
-    level_type: str         # "FLIP_UP"|"FLIP_DOWN"|"WALL_BULL"|"WALL_BEAR"|"STRIKE_CENTER"
+    gex_value: float
+    is_flip: bool
+    strength: float         # 0–100
+    level_type: str         # "FLIP_UP"|"FLIP_DOWN"|"WALL_BULL"|"WALL_BEAR"
     timeframe: str
 
 
 @dataclass
 class GEXZone:
-    """A price zone (gamma wall box or compression box)."""
+    """Price zone — Gamma Wall Box, Compression Box, or Vanna Zone."""
     price_low: float
     price_high: float
-    zone_type: str          # "GAMMA_WALL_BULL"|"GAMMA_WALL_BEAR"|"COMPRESSION"
-    strength: float         # 0–100
-    mid: float              # (price_low + price_high) / 2
-    target: Optional[float] # For compression: breakout target
+    zone_type: str          # "GAMMA_WALL_BULL"|"GAMMA_WALL_BEAR"|"COMPRESSION"|"VANNA_UNWIND"
+    strength: float
+    mid: float
+    target: Optional[float]
 
 
 @dataclass
 class GEXSnapshot:
-    """Complete GEX picture for one symbol at a moment in time."""
+    """Complete AEGIS GEX picture — all dashboard fields + chart levels."""
     symbol: str
     timestamp: float
-    mark_price: float           # Real-time mark price (NOT candle close)
-    current_gex_zone: str       # "POSITIVE" | "NEGATIVE" | "NEUTRAL"
+    mark_price: float
+
+    # ── Dashboard Table fields (exact match to TradingView AEGIS GEX v1.0) ──
+    regime: str                  # "FLIP ZONE" | "POSITIVE" | "NEGATIVE" | "NEUTRAL"
+    dgrp_score: float            # 0–100 DGRP score
+    candle_state: str            # "Flip Zone" | "Compression" | "Vanna Active" | "Normal"
+    rv_ratio: float              # ATR(14) / ATR(28) — current/historical vol
+    iv_proxy_z: float            # Z-score of ATR% from mean
+    compression_state: str       # "Free" | "Compressed" | "Extreme"
+    vanna_state: str             # "Stable" | "Unstable" | "Active"
+    charm_state: str             # "ACTIVE" | "Moderate" | "Low"
+    delta_bias: str              # "Net Bullish" | "Net Bearish" | "Neutral"
+    exp_move: float              # Expected move in price units (±)
+    dealer_flow_m: float         # Dealer flow in $M (+ = long, - = short)
+    gex_regime: str              # "LONG GAMMA" | "SHORT GAMMA"
+    gex_flip: float              # Primary GEX flip price
+    gex_flip_band: float         # ± band width around the flip
+    signal_state: str            # "Signal" | "No Signal"
+
+    # ── GEX core ──────────────────────────────────────────────────────────────
+    current_gex_zone: str        # "POSITIVE" | "NEGATIVE" | "NEUTRAL"
     net_gex: float
     nearest_flip_up: Optional[float]
     nearest_flip_down: Optional[float]
     all_flip_levels: List[GEXLevel]
+
+    # ── Chart zones ───────────────────────────────────────────────────────────
     gamma_walls: List[GEXZone]
     compression_zones: List[GEXZone]
-    vanna_unwind_up: Optional[float]     # Vanna unwind level above
-    vanna_unwind_down: Optional[float]   # Vanna unwind level below
-    vanna_entry: Optional[float]         # Vanna entry line
-    expected_move_upper: float           # VWAP + expected move
-    expected_move_lower: float           # VWAP - expected move
+    call_wall: Optional[float]      # Strongest gamma wall ABOVE price
+    put_wall: Optional[float]       # Strongest gamma wall BELOW price
+    vol_trigger_up: float           # Upper volatility expansion trigger
+    vol_trigger_dn: float           # Lower volatility expansion trigger
+
+    # ── Greek layers ──────────────────────────────────────────────────────────
+    vanna_unwind_up: Optional[float]
+    vanna_unwind_down: Optional[float]
+    vanna_entry: Optional[float]
+    charm_decay: float              # 0–1 raw intensity
+
+    # ── Indicator levels ──────────────────────────────────────────────────────
+    expected_move_upper: float
+    expected_move_lower: float
     vwap: float
     vwap_plus1_atr: float
     vwap_minus1_atr: float
     vwap_plus2_atr: float
     vwap_minus2_atr: float
     ema50: Optional[float]
-    gamma_flip_proxy: float              # Primary GEX flip level (Gamma Flip Proxy Line)
-    charm_decay: float                   # 0–1 charm decay intensity
+    gamma_flip_proxy: float
+
+    # ── Market data ───────────────────────────────────────────────────────────
     atr: float
+    atr_slow: float                 # ATR(28) for RV Ratio
     funding_rate: float
     open_interest: float
     oi_delta_pct: float
     volume_24h: float
-    bias: str                            # "BULLISH"|"BEARISH"|"NEUTRAL"
-    confidence: float                    # 0–100
-    is_opex_week: bool                   # Near monthly options expiration
-    session_open_minute: int             # Minutes since session open
+    bias: str                       # "BULLISH" | "BEARISH" | "NEUTRAL"
+    confidence: float               # 0–100
+    is_opex_week: bool
+    session_open_minute: int
 
 
 @dataclass
 class GEXSignal:
-    """A trading signal produced by the AEGIS GEX engine."""
+    """Trading signal from the AEGIS GEX engine."""
     symbol: str
     action: str             # "BUY" | "SELL"
     direction: str          # "LONG" | "SHORT"
     signal_type: str        # "GEX_FLIP" | "VANNA_ENTRY" | "COMPRESSION_BREAK"
-    entry_price: float      # The GEX flip level that was crossed
+    entry_price: float
     entry_flip_level: float
-    tp1: float              # Next GEX flip in direction (primary dynamic TP)
-    tp2: float              # Second flip (extended TP)
-    tp3: float              # Third flip (runner TP)
-    sl: float               # ATR buffer beyond entry flip
+    tp1: float
+    tp2: float
+    tp3: float
+    sl: float
     confidence: float
     timeframe: str
     gex_zone_from: str
@@ -150,7 +186,7 @@ class GEXSignal:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Pure-Python Indicator Helpers (zero external dependencies)
+# Pure-Python Indicator Math (zero external deps)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _ema(data: List[float], period: int) -> Optional[float]:
@@ -162,22 +198,8 @@ def _ema(data: List[float], period: int) -> Optional[float]:
         e = v * k + e * (1 - k)
     return e
 
-def _ema_series(data: List[float], period: int) -> List[Optional[float]]:
-    """Full EMA series for all bars."""
-    if len(data) < period:
-        return [None] * len(data)
-    k = 2.0 / (period + 1)
-    e = sum(data[:period]) / period
-    out: List[Optional[float]] = [None] * (period - 1)
-    out.append(e)
-    for v in data[period:]:
-        e = v * k + e * (1 - k)
-        out.append(e)
-    return out
-
 def _atr(closes: List[float], highs: List[float], lows: List[float],
          period: int = 14) -> float:
-    """Wilder's ATR with true range (prev_close correction)."""
     n = min(len(closes), len(highs), len(lows))
     if n < 2:
         return max(abs(closes[-1] * 0.005), 1e-8) if closes else 1.0
@@ -187,19 +209,21 @@ def _atr(closes: List[float], highs: List[float], lows: List[float],
             abs(lows[i]  - closes[i-1]))
         for i in range(1, n)
     ]
+    if not trs:
+        return 1.0
     if len(trs) < period:
-        return sum(trs) / len(trs) if trs else 1.0
-    atr = sum(trs[:period]) / period
+        return sum(trs) / len(trs)
+    a = sum(trs[:period]) / period
     for tr in trs[period:]:
-        atr = (atr * (period - 1) + tr) / period
-    return atr
+        a = (a * (period - 1) + tr) / period
+    return a
 
 def _vwap(closes: List[float], highs: List[float],
           lows: List[float], volumes: List[float]) -> Optional[float]:
     n = min(len(closes), len(highs), len(lows), len(volumes))
     if n == 0:
         return None
-    tv = sum((highs[i]+lows[i]+closes[i])/3 * volumes[i] for i in range(n))
+    tv = sum((highs[i] + lows[i] + closes[i]) / 3 * volumes[i] for i in range(n))
     sv = sum(volumes[:n])
     return tv / sv if sv > 0 else None
 
@@ -214,16 +238,22 @@ def _rsi(closes: List[float], period: int = 14) -> float:
     ag = sum(gains[:period]) / period
     al = sum(losses[:period]) / period
     for i in range(period, len(gains)):
-        ag = (ag * (period-1) + gains[i]) / period
-        al = (al * (period-1) + losses[i]) / period
-    return 100.0 if al == 0 else 100 - 100 / (1 + ag/al)
+        ag = (ag * (period - 1) + gains[i]) / period
+        al = (al * (period - 1) + losses[i]) / period
+    return 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
 
 def _stdev(data: List[float], period: int) -> float:
     if len(data) < period:
         return 0.0
     w = data[-period:]
     mu = sum(w) / period
-    return math.sqrt(sum((x - mu)**2 for x in w) / period)
+    v  = sum((x - mu) ** 2 for x in w) / period
+    return math.sqrt(v) if v > 0 else 0.0
+
+def _sma(data: List[float], period: int) -> Optional[float]:
+    if len(data) < period:
+        return None
+    return sum(data[-period:]) / period
 
 def _gaussian(distance: float, sigma: float) -> float:
     if sigma <= 0:
@@ -233,7 +263,6 @@ def _gaussian(distance: float, sigma: float) -> float:
 def _vpoc(closes: List[float], highs: List[float],
           lows: List[float], volumes: List[float],
           bins: int = 100) -> Optional[float]:
-    """Volume Profile Point of Control."""
     n = min(len(closes), len(highs), len(lows), len(volumes))
     if n < 10:
         return None
@@ -241,119 +270,108 @@ def _vpoc(closes: List[float], highs: List[float],
     if hi <= lo:
         return None
     bsz = (hi - lo) / bins
-    vol_bins = [0.0] * bins
+    vb  = [0.0] * bins
     for i in range(n):
         mid = (highs[i] + lows[i] + closes[i]) / 3.0
         idx = min(int((mid - lo) / bsz), bins - 1)
-        vol_bins[idx] += volumes[i]
-    pk = vol_bins.index(max(vol_bins))
+        vb[idx] += volumes[i]
+    pk = vb.index(max(vb))
     return lo + (pk + 0.5) * bsz
 
 def _is_opex_week() -> bool:
-    """
-    Detect monthly options expiration week.
-    Standard OPEX = 3rd Friday of each month.
-    Returns True if today is within 3 days of OPEX Friday.
-    """
-    import calendar as _cal
+    """True if within 3 calendar days of the 3rd Friday (standard OPEX)."""
     now = datetime.now(timezone.utc)
-    # Find 3rd Friday: calendar.monthcalendar returns rows of weeks
-    month_cal = _cal.monthcalendar(now.year, now.month)
-    fridays = [week[4] for week in month_cal if week[4] != 0]  # weekday index 4 = Friday
-    if len(fridays) < 3:
+    mc  = _cal.monthcalendar(now.year, now.month)
+    frs = [week[4] for week in mc if week[4] != 0]
+    if len(frs) < 3:
         return False
-    opex_day = fridays[2]
-    opex_date = now.date().replace(day=opex_day)
-    delta = abs((now.date() - opex_date).days)
-    return delta <= 3
+    opex = now.date().replace(day=frs[2])
+    return abs((now.date() - opex).days) <= 3
 
 def _session_open_minute() -> int:
-    """Minutes elapsed since the closest major session open (00:00, 08:00, 16:00 UTC)."""
+    """Minutes since most recent major session open (00:00 / 08:00 / 16:00 UTC)."""
     now = datetime.now(timezone.utc)
-    minute_of_day = now.hour * 60 + now.minute
-    opens = [0, 480, 960]   # 00:00, 08:00, 16:00 UTC
-    return min((minute_of_day - o) % 1440 for o in opens)
+    m   = now.hour * 60 + now.minute
+    return min((m - o) % 1440 for o in [0, 480, 960])
 
 def _interpolate_zero(x1: float, x2: float, y1: float, y2: float) -> float:
-    """Linear interpolation to the zero-crossing between two points."""
     if y1 == y2:
         return (x1 + x2) / 2
     return x1 + (x2 - x1) * (-y1 / (y2 - y1))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AEGIS GEX Engine — Full Rebuild
+# AEGIS GEX Engine v3
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AEGISGEXEngine:
     """
-    AEGIS GEX Dealer Flow Engine v1.0 — Complete Implementation
+    AEGIS GEX Dealer Flow Engine v1.0 — Complete Dashboard Implementation
 
-    All 13 indicator layers implemented.
-    Uses real-time mark price for crossover detection (critical bug fix).
+    Primary TF: 5m (per user specification, configurable via GEX_PRIMARY_TF)
+    Confirmation TF: 15m (configurable via GEX_CONFIRM_TF)
     """
 
-    # Strike grid
-    STRIKE_COUNT     = 41          # 41 levels = ±20 ATR (was 21 — doubled resolution)
-    ATR_PERIOD       = 14
-    ATR_MULT         = 0.75        # Strike spacing = 0.75 ATR (tighter grid)
-    SIGMA_MULT       = 4.0         # Gaussian sigma = 4 ATR (wider distribution)
-    FLIP_MIN_STR     = 10.0        # Min strength for a flip level
-    WALL_MIN_STR     = 20.0        # Min strength for a gamma wall
-    COMPRESS_MAX_GAP = 2.0         # Max ATR gap between walls to form compression
+    # Strike grid parameters
+    STRIKE_COUNT      = 41          # 41 strikes = ±20 levels @ 0.75 ATR each
+    ATR_PERIOD        = 14
+    ATR_SLOW_PERIOD   = 28          # For RV Ratio calculation
+    ATR_MULT          = 0.75        # Strike spacing
+    SIGMA_MULT        = 4.0         # Gaussian distribution width
+    FLIP_MIN_STR      = 10.0
+    WALL_MIN_STR      = 18.0
+    COMPRESS_MAX_GAP  = 2.0         # ATR gap for compression detection
 
-    # Session open minute (from screenshot: default 30)
-    SESSION_OPEN_MINUTE = int(
-        __import__("os").getenv("GEX_SESSION_OPEN_MINUTE", "30")
-    )
+    SESSION_OPEN_MIN  = int(os.getenv("GEX_SESSION_OPEN_MINUTE", "30"))
 
     LOOKBACK = {
-        "15m": 300, "30m": 200,
-        "1h":  200, "4h":  200, "1d": 100,
+        "1m": 500, "3m": 500, "5m": 500, "15m": 400,
+        "30m": 300, "1h": 200, "4h": 200, "1d": 100,
     }
     OI_HIST_PERIOD = {
-        "15m": "5m", "30m": "15m",
-        "1h":  "1h", "4h":  "4h", "1d": "1d",
+        "1m": "5m", "3m": "5m", "5m": "5m", "15m": "15m",
+        "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d",
+    }
+    # Expected move horizon (bars per trading session)
+    HORIZON = {
+        "1m": 480, "3m": 160, "5m": 96, "15m": 32,
+        "30m": 16, "1h": 8, "4h": 2, "1d": 1,
     }
 
     def __init__(self):
         self.logger = logging.getLogger(f"{__name__}.GEXEngine")
         self._cache: Dict[str, Tuple[float, GEXSnapshot]] = {}
-        self._cache_ttl = 55.0   # slightly under scan interval to stay fresh
+        self._cache_ttl = 25.0   # 25s for 5m TF (under scan interval)
 
-    # ─── Public: compute snapshot ────────────────────────────────────────────
+    # ─── Public API ──────────────────────────────────────────────────────────
 
     async def compute_gex_snapshot(
         self,
         client,
         symbol: str,
-        timeframe: str = "1h",
+        timeframe: str = "5m",
     ) -> Optional[GEXSnapshot]:
-        """
-        Compute a complete AEGIS GEX snapshot for one symbol.
-        ─ Uses real-time mark price (not last candle close) for crossover.
-        ─ Caches for 55 seconds to avoid redundant Binance calls.
-        """
+        """Compute full AEGIS GEX snapshot. Uses real-time mark price."""
         ck = f"{symbol}_{timeframe}"
-        cached = self._cache.get(ck)
-        if cached:
-            ts, snap = cached
+        hit = self._cache.get(ck)
+        if hit:
+            ts, snap = hit
             if time.time() - ts < self._cache_ttl:
                 return snap
 
         try:
-            limit = self.LOOKBACK.get(timeframe, 200)
+            limit = self.LOOKBACK.get(timeframe, 500)
 
-            klines, funding, oi_now, ticker, mark_price_data = await asyncio.gather(
+            klines, funding, oi_now, ticker, mark_data = await asyncio.gather(
                 client.get_klines(symbol, timeframe, limit),
                 client.get_funding_rate(symbol),
                 client.get_open_interest(symbol),
                 client.get_24hr_ticker_stats(symbol),
-                client.get_premium_index(symbol),     # real-time mark price
+                client.get_premium_index(symbol),
                 return_exceptions=True,
             )
 
-            if isinstance(klines, Exception) or not klines or len(klines) < 30:
+            if isinstance(klines, Exception) or not klines or len(klines) < 50:
                 return None
 
             closes  = [float(k[4]) for k in klines]
@@ -361,37 +379,34 @@ class AEGISGEXEngine:
             lows    = [float(k[3]) for k in klines]
             volumes = [float(k[5]) for k in klines]
 
-            # ── Real-time mark price (critical: not candle close) ───────────
-            mark_price = closes[-1]   # fallback
-            if isinstance(mark_price_data, dict):
-                try:
-                    mp = float(mark_price_data.get("markPrice", 0) or 0)
-                    if mp > 0:
-                        mark_price = mp
-                except (ValueError, TypeError):
-                    pass
-            elif isinstance(funding, dict):
-                try:
-                    mp = float(funding.get("markPrice", 0) or 0)
-                    if mp > 0:
-                        mark_price = mp
-                except (ValueError, TypeError):
-                    pass
+            # ── Real-time mark price ─────────────────────────────────────────
+            mark_price = closes[-1]
+            for src in (mark_data, funding):
+                if isinstance(src, dict):
+                    try:
+                        mp = float(src.get("markPrice", 0) or 0)
+                        if mp > 0:
+                            mark_price = mp
+                            break
+                    except (ValueError, TypeError):
+                        pass
 
-            # ── Parse funding rate ──────────────────────────────────────────
+            # ── Funding rate ─────────────────────────────────────────────────
             fund_rate = 0.0
-            if isinstance(funding, dict):
-                try:
-                    fund_rate = float(funding.get("fundingRate", 0) or 0)
-                except (ValueError, TypeError):
-                    pass
-            elif isinstance(mark_price_data, dict):
-                try:
-                    fund_rate = float(mark_price_data.get("lastFundingRate", 0) or 0)
-                except (ValueError, TypeError):
-                    pass
+            for src in (funding, mark_data):
+                if isinstance(src, dict):
+                    for key in ("fundingRate", "lastFundingRate"):
+                        try:
+                            v = float(src.get(key, 0) or 0)
+                            if v != 0:
+                                fund_rate = v
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                    if fund_rate != 0:
+                        break
 
-            # ── Parse open interest ─────────────────────────────────────────
+            # ── OI ───────────────────────────────────────────────────────────
             oi = 0.0
             if isinstance(oi_now, dict):
                 try:
@@ -399,7 +414,7 @@ class AEGISGEXEngine:
                 except (ValueError, TypeError):
                     pass
 
-            # ── Parse 24h volume ────────────────────────────────────────────
+            # ── 24h volume ───────────────────────────────────────────────────
             vol_24h = 0.0
             if isinstance(ticker, dict):
                 try:
@@ -410,7 +425,6 @@ class AEGISGEXEngine:
             # ── OI delta ────────────────────────────────────────────────────
             oi_delta = await self._oi_delta(client, symbol, timeframe, oi)
 
-            # ── Build & cache ────────────────────────────────────────────────
             snap = self._build(
                 symbol, mark_price, closes, highs, lows, volumes,
                 fund_rate, oi, oi_delta, vol_24h, timeframe,
@@ -419,28 +433,26 @@ class AEGISGEXEngine:
             return snap
 
         except Exception as e:
-            self.logger.error(f"[{symbol}/{timeframe}] snapshot error: {e}")
+            self.logger.error(f"[{symbol}/{timeframe}] snapshot: {e}")
             return None
 
-    # ─── OI delta ────────────────────────────────────────────────────────────
-
-    async def _oi_delta(self, client, symbol, timeframe, current_oi) -> float:
+    async def _oi_delta(self, client, symbol, tf, cur_oi) -> float:
         try:
-            period = self.OI_HIST_PERIOD.get(timeframe, "1h")
+            period = self.OI_HIST_PERIOD.get(tf, "5m")
             hist = await client._get_fapi(
                 "/futures/data/openInterestHist",
-                {"symbol": symbol, "period": period, "limit": 6},
+                {"symbol": symbol, "period": period, "limit": 8},
             )
             if hist and isinstance(hist, list) and len(hist) >= 2:
-                old = float(hist[0].get("sumOpenInterest", current_oi) or current_oi)
-                new = float(hist[-1].get("sumOpenInterest", current_oi) or current_oi)
+                old = float(hist[0].get("sumOpenInterest", cur_oi) or cur_oi)
+                new = float(hist[-1].get("sumOpenInterest", cur_oi) or cur_oi)
                 if old > 0:
                     return (new - old) / old * 100.0
         except Exception:
             pass
         return 0.0
 
-    # ─── Core snapshot builder ────────────────────────────────────────────────
+    # ─── Core Snapshot Builder ────────────────────────────────────────────────
 
     def _build(
         self,
@@ -458,291 +470,437 @@ class AEGISGEXEngine:
     ) -> GEXSnapshot:
 
         price = mark_price
-        atr   = _atr(closes, highs, lows, self.ATR_PERIOD)
-        if atr <= 0:
-            atr = max(price * 0.002, 1e-8)
+        n     = len(closes)
 
-        # ── 1. Build 41-level ATR-spaced strike grid ─────────────────────────
-        half    = self.STRIKE_COUNT // 2
-        sigma   = atr * self.SIGMA_MULT
-        strikes = [price + (i - half) * atr * self.ATR_MULT
-                   for i in range(self.STRIKE_COUNT)]
+        # ── ATR (fast + slow for RV Ratio) ────────────────────────────────────
+        atr14 = _atr(closes, highs, lows, self.ATR_PERIOD)
+        atr28 = _atr(closes, highs, lows, self.ATR_SLOW_PERIOD)
+        if atr14 <= 0: atr14 = max(price * 0.002, 1e-8)
+        if atr28 <= 0: atr28 = atr14
 
-        # ── 2. Volume Profile VPOC ───────────────────────────────────────────
+        # ── RV Ratio: ATR(14) / ATR(28) ───────────────────────────────────────
+        rv_ratio = atr14 / atr28 if atr28 > 0 else 1.0
+
+        # ── IV Proxy Z-score ──────────────────────────────────────────────────
+        # atr_pct series over last 50 bars, then z-score the current value
+        atr_pct_series = []
+        for i in range(max(15, n - 50), n):
+            sub_c = closes[max(0, i-15):i+1]
+            sub_h = highs [max(0, i-15):i+1]
+            sub_l = lows  [max(0, i-15):i+1]
+            if len(sub_c) >= 2 and closes[i] > 0:
+                a = _atr(sub_c, sub_h, sub_l, min(14, len(sub_c)-1))
+                atr_pct_series.append(a / closes[i])
+
+        iv_proxy_z = 0.0
+        if len(atr_pct_series) >= 10:
+            cur_iv = atr14 / price if price > 0 else 0
+            mu  = sum(atr_pct_series) / len(atr_pct_series)
+            sd  = _stdev(atr_pct_series, min(20, len(atr_pct_series)))
+            iv_proxy_z = (cur_iv - mu) / sd if sd > 0 else 0.0
+            iv_proxy_z = max(-3.0, min(3.0, iv_proxy_z))
+
+        # ── VPOC ──────────────────────────────────────────────────────────────
         vpoc = _vpoc(closes, highs, lows, volumes, bins=100)
 
-        # ── 3. GEX proxy at each strike ──────────────────────────────────────
-        #  Full AEGIS GEX formula (all components):
-        #    GEX(S) = OI_reference
-        #           × Gaussian_weight(dist, sigma)        ← concentration
-        #           × Gamma_sign(S)                       ← call/put side
-        #           × Funding_factor                      ← dealer bias
-        #           × OI_delta_factor                     ← active hedging
-        #           × VPOC_boost                          ← high-volume strike
-        #           × Skew_factor(S)                      ← asymmetric gamma skew
-        #           × Session_factor                      ← session open proximity
+        # ── Session / Funding factors ─────────────────────────────────────────
+        session_min    = _session_open_minute()
+        session_factor = 1.25 if session_min <= self.SESSION_OPEN_MIN else 1.0
+        fund_factor    = max(0.25, min(4.0, 1.0 + fund_rate * 300))
+        oi_delta_f     = max(0.25, min(4.0, 1.0 + oi_delta / 100.0))
 
-        oi_ref          = max(oi, 1.0)
-        fund_factor     = max(0.3, min(3.0, 1.0 + fund_rate * 200))
-        oi_delta_factor = max(0.3, min(3.0, 1.0 + oi_delta / 100.0))
-        session_min     = _session_open_minute()
-        # Session factor: GEX is stronger near session open (30-min window)
-        session_factor  = 1.2 if session_min <= self.SESSION_OPEN_MINUTE else 1.0
+        # ── Strike grid + GEX proxy ───────────────────────────────────────────
+        half    = self.STRIKE_COUNT // 2
+        sigma   = atr14 * self.SIGMA_MULT
+        strikes = [price + (i - half) * atr14 * self.ATR_MULT
+                   for i in range(self.STRIKE_COUNT)]
 
+        oi_ref = max(oi, 1.0)
         gex_vals: List[float] = []
         for s in strikes:
-            dist   = abs(price - s)
-            w      = _gaussian(dist, sigma)
-            vpoc_b = 1.6 if vpoc and abs(s - vpoc) < atr * 0.75 else 1.0
-            g_sign = 1.0 if s >= price else -1.0
-            # Gamma skew: OTM puts heavier than OTM calls in fear regimes
-            # Proxy: negative funding → elevated put-side gamma
-            skew_factor = (1.0 + abs(fund_rate) * 50) if (s < price and fund_rate < 0) else 1.0
+            dist    = abs(price - s)
+            w       = _gaussian(dist, sigma)
+            vpoc_b  = 1.7 if vpoc and abs(s - vpoc) < atr14 * 0.8 else 1.0
+            g_sign  = 1.0 if s >= price else -1.0
+            # Fear-regime skew: elevated put-side gamma when funding negative
+            skew    = (1.0 + abs(fund_rate) * 80) if (s < price and fund_rate < -0.0001) else 1.0
+            # Vol expansion: high IV proxy Z → stronger gamma
+            vol_amp = 1.0 + max(0.0, iv_proxy_z * 0.1)
             gex_vals.append(
-                oi_ref * w * g_sign * fund_factor * oi_delta_factor * vpoc_b * skew_factor * session_factor
+                oi_ref * w * g_sign
+                * fund_factor * oi_delta_f
+                * vpoc_b * skew * session_factor * vol_amp
             )
 
         max_abs = max(abs(g) for g in gex_vals) or 1.0
 
-        # ── 4. GEX flip levels ───────────────────────────────────────────────
+        # ── GEX flip levels ───────────────────────────────────────────────────
         flip_levels: List[GEXLevel] = []
         for i in range(1, len(strikes)):
             g0, g1 = gex_vals[i-1], gex_vals[i]
-            if g0 * g1 < 0:          # Zero crossing
-                zp  = _interpolate_zero(strikes[i-1], strikes[i], g0, g1)
+            if g0 * g1 < 0:
+                zp   = _interpolate_zero(strikes[i-1], strikes[i], g0, g1)
                 str_ = (abs(g0) + abs(g1)) / (2 * max_abs) * 100.0
                 if str_ >= self.FLIP_MIN_STR:
-                    ltype = "FLIP_UP" if g0 < 0 else "FLIP_DOWN"
+                    lt = "FLIP_UP" if g0 < 0 else "FLIP_DOWN"
                     flip_levels.append(GEXLevel(
                         price=zp, gex_value=(g0+g1)/2, is_flip=True,
-                        strength=min(str_, 100.0), level_type=ltype, timeframe=timeframe,
+                        strength=min(str_, 100.0), level_type=lt, timeframe=timeframe,
                     ))
 
-        # Fallback: if no true flips, use highest-gradient transitions
+        # Fallback: gradient-based pseudo-flips if no zero crossings
         if not flip_levels:
-            candidates = sorted(
-                range(1, len(strikes)),
-                key=lambda i: abs(gex_vals[i] - gex_vals[i-1]),
-                reverse=True,
-            )[:5]
-            for i in candidates:
+            cands = sorted(range(1, len(strikes)),
+                           key=lambda i: abs(gex_vals[i] - gex_vals[i-1]),
+                           reverse=True)[:5]
+            for i in cands:
                 str_ = abs(gex_vals[i]) / max_abs * 100.0
                 flip_levels.append(GEXLevel(
                     price=strikes[i], gex_value=gex_vals[i], is_flip=False,
-                    strength=str_, level_type="WALL_BULL" if gex_vals[i] > 0 else "WALL_BEAR",
-                    timeframe=timeframe,
+                    strength=str_, timeframe=timeframe,
+                    level_type="WALL_BULL" if gex_vals[i] > 0 else "WALL_BEAR",
                 ))
 
         flip_levels.sort(key=lambda x: x.price)
 
-        # ── 5. Gamma Flip Proxy (primary GEX flip line) ───────────────────────
-        # The gamma flip proxy is the strongest flip level
-        flip_only = [fl for fl in flip_levels if fl.is_flip]
-        if flip_only:
-            gamma_flip_proxy = max(flip_only, key=lambda x: x.strength).price
+        # ── Primary GEX Flip Proxy (strongest true flip) ──────────────────────
+        true_flips = [fl for fl in flip_levels if fl.is_flip]
+        if true_flips:
+            gfp = max(true_flips, key=lambda x: x.strength).price
         elif flip_levels:
-            gamma_flip_proxy = min(flip_levels, key=lambda x: abs(x.price - price)).price
+            gfp = min(flip_levels, key=lambda x: abs(x.price - price)).price
         else:
-            gamma_flip_proxy = price
+            gfp = price
 
-        # ── 6. Gamma Wall Boxes ───────────────────────────────────────────────
+        # GEX flip band = half the average gap between flip levels (or ATR * 0.3)
+        if len(flip_levels) >= 2:
+            gaps = [flip_levels[i+1].price - flip_levels[i].price
+                    for i in range(len(flip_levels)-1)]
+            gfp_band = min(sum(gaps)/len(gaps)/2, atr14 * 0.5)
+        else:
+            gfp_band = atr14 * 0.3
+
+        # ── Gamma Wall Boxes ──────────────────────────────────────────────────
         gamma_walls: List[GEXZone] = []
         for fl in flip_levels:
             if fl.strength >= self.WALL_MIN_STR:
-                half_width = atr * 0.3
-                ztype = "GAMMA_WALL_BULL" if fl.gex_value >= 0 else "GAMMA_WALL_BEAR"
+                hw  = atr14 * 0.35
+                zt  = "GAMMA_WALL_BULL" if fl.gex_value >= 0 else "GAMMA_WALL_BEAR"
                 gamma_walls.append(GEXZone(
-                    price_low  = fl.price - half_width,
-                    price_high = fl.price + half_width,
-                    zone_type  = ztype,
-                    strength   = fl.strength,
-                    mid        = fl.price,
-                    target     = None,
+                    price_low=fl.price - hw,
+                    price_high=fl.price + hw,
+                    zone_type=zt,
+                    strength=fl.strength,
+                    mid=fl.price,
+                    target=None,
                 ))
 
-        # ── 7. Compression Boxes ─────────────────────────────────────────────
-        # Two gamma walls within COMPRESS_MAX_GAP ATR of each other
+        # ── Call Wall / Put Wall ──────────────────────────────────────────────
+        # Call Wall = strongest BULL gamma wall ABOVE current price
+        walls_above = [w for w in gamma_walls if w.mid > price]
+        walls_below = [w for w in gamma_walls if w.mid < price]
+        call_wall = max(walls_above, key=lambda w: w.strength).mid if walls_above else None
+        put_wall  = max(walls_below, key=lambda w: w.strength).mid if walls_below else None
+
+        # ── Compression Boxes ─────────────────────────────────────────────────
         compression_zones: List[GEXZone] = []
         sorted_walls = sorted(gamma_walls, key=lambda w: w.mid)
         for j in range(1, len(sorted_walls)):
             w0, w1 = sorted_walls[j-1], sorted_walls[j]
-            gap = (w1.mid - w0.mid) / atr
+            gap = (w1.mid - w0.mid) / atr14
             if gap < self.COMPRESS_MAX_GAP:
-                comp_mid    = (w0.mid + w1.mid) / 2
-                comp_height = w1.mid - w0.mid
-                # Breakout target = opposite wall + same distance (measured move)
-                if price >= comp_mid:
-                    target = w1.mid + comp_height
-                else:
-                    target = w0.mid - comp_height
+                comp_mid = (w0.mid + w1.mid) / 2
+                comp_h   = w1.mid - w0.mid
+                tgt      = (w1.mid + comp_h) if price >= comp_mid else (w0.mid - comp_h)
                 compression_zones.append(GEXZone(
-                    price_low  = w0.price_low,
-                    price_high = w1.price_high,
-                    zone_type  = "COMPRESSION",
-                    strength   = (w0.strength + w1.strength) / 2,
-                    mid        = comp_mid,
-                    target     = target,
+                    price_low=w0.price_low,
+                    price_high=w1.price_high,
+                    zone_type="COMPRESSION",
+                    strength=(w0.strength + w1.strength) / 2,
+                    mid=comp_mid,
+                    target=tgt,
                 ))
 
-        # ── 8. Current GEX zone at mark price ────────────────────────────────
-        price_idx   = min(range(len(strikes)), key=lambda i: abs(strikes[i] - price))
-        current_gex = gex_vals[price_idx]
-        if current_gex > max_abs * 0.08:
-            zone = "POSITIVE"
-        elif current_gex < -max_abs * 0.08:
-            zone = "NEGATIVE"
-        else:
-            zone = "NEUTRAL"
+        # ── GEX zone at mark price ─────────────────────────────────────────────
+        pi  = min(range(len(strikes)), key=lambda i: abs(strikes[i] - price))
+        cgx = gex_vals[pi]
+        if cgx > max_abs * 0.08:   zone = "POSITIVE"
+        elif cgx < -max_abs * 0.08: zone = "NEGATIVE"
+        else:                       zone = "NEUTRAL"
 
-        # ── 9. Nearest flip levels ────────────────────────────────────────────
-        flips_above = sorted([fl.price for fl in flip_levels if fl.price > price])
-        flips_below = sorted([fl.price for fl in flip_levels if fl.price < price], reverse=True)
-        nearest_flip_up   = flips_above[0]  if flips_above  else None
-        nearest_flip_down = flips_below[0]  if flips_below  else None
+        # ── Nearest flips ─────────────────────────────────────────────────────
+        fa = sorted([fl.price for fl in flip_levels if fl.price > price])
+        fb = sorted([fl.price for fl in flip_levels if fl.price < price], reverse=True)
+        nf_up = fa[0] if fa else None
+        nf_dn = fb[0] if fb else None
 
-        # ── 10. VWAP + ATR Bands ─────────────────────────────────────────────
+        # ── VWAP + ATR bands ──────────────────────────────────────────────────
         vwap_val = _vwap(closes, highs, lows, volumes) or price
-        vwap_p1  = vwap_val + atr
-        vwap_m1  = vwap_val - atr
-        vwap_p2  = vwap_val + 2 * atr
-        vwap_m2  = vwap_val - 2 * atr
+        vwap_p1  = vwap_val + atr14
+        vwap_m1  = vwap_val - atr14
+        vwap_p2  = vwap_val + 2 * atr14
+        vwap_m2  = vwap_val - 2 * atr14
 
-        # ── 11. Expected Move Bands ───────────────────────────────────────────
-        # IV proxy = annualized HV × sqrt(bars_per_day/252)
-        # Approximate with ATR-based method: EM = price × σ_pct × sqrt(horizon)
-        # For 1h candles, 1-session horizon = 8 bars
-        horizon_map = {"15m": 32, "30m": 16, "1h": 8, "4h": 2, "1d": 1}
-        horizon  = horizon_map.get(timeframe, 8)
-        hv_pct   = _stdev(closes[-30:], 20) / (price or 1) if len(closes) >= 20 else 0.015
+        # ── Expected Move ─────────────────────────────────────────────────────
+        horizon  = self.HORIZON.get(timeframe, 96)
+        # Use stdev-based vol for more accuracy
+        if n >= 20:
+            ret_series = [abs(closes[i] - closes[i-1]) / closes[i-1]
+                          for i in range(max(1, n-30), n) if closes[i-1] > 0]
+            hv_pct = sum(ret_series) / len(ret_series) if ret_series else atr14 / price
+        else:
+            hv_pct = atr14 / price if price > 0 else 0.01
         exp_move = price * hv_pct * math.sqrt(horizon)
         exp_up   = vwap_val + exp_move
-        exp_down = vwap_val - exp_move
+        exp_dn   = vwap_val - exp_move
 
-        # ── 12. 50 EMA ────────────────────────────────────────────────────────
-        ema50 = _ema(closes, 50)
+        # ── VOL TRIGGERS ─────────────────────────────────────────────────────
+        # VOL TRIGGER UP = higher of (Call Wall, VWAP+2ATR, GFP+1.5×exp_move)
+        vol_up_candidates = [vwap_p2, gfp + exp_move * 1.5]
+        if call_wall:
+            vol_up_candidates.append(call_wall + atr14)
+        vol_trigger_up = max(vol_up_candidates)
 
-        # ── 13. Vanna Proxy ───────────────────────────────────────────────────
-        # Vanna = dGamma/dVol = how gamma changes as implied vol moves
-        # Proxy: funding rate velocity × OI acceleration
-        # High Vanna → dealers rehedge aggressively when vol moves
-        fund_abs     = abs(fund_rate)
-        oi_acc       = abs(oi_delta) / 100.0
-        vanna_proxy  = fund_abs * oi_acc * max_abs
-        # Vanna unwind levels: near the ±1 expected move boundaries
-        vanna_up     = exp_up   - atr * 0.5
-        vanna_down   = exp_down + atr * 0.5
-        # Vanna entry: weighted average of flip proxy and VWAP
-        vanna_entry  = (gamma_flip_proxy * 0.6 + vwap_val * 0.4)
+        # VOL TRIGGER DN = lower of (Put Wall, VWAP-2ATR, GFP-1.5×exp_move)
+        vol_dn_candidates = [vwap_m2, gfp - exp_move * 1.5]
+        if put_wall:
+            vol_dn_candidates.append(put_wall - atr14)
+        vol_trigger_dn = min(vol_dn_candidates)
 
-        # ── 14. Charm Decay Intensity ─────────────────────────────────────────
-        # Charm = dDelta/dTime — measures how dealer hedges decay toward expiration
-        # Proxy: |funding_rate| × time_factor
-        # Funding resets every 8h; charm increases near funding time
-        now_ts     = time.time()
-        # Estimate time-to-next-funding (Binance: every 8h at 00:00/08:00/16:00 UTC)
-        hour_utc   = datetime.now(timezone.utc).hour
-        next_fund  = ((hour_utc // 8) + 1) * 8
-        hours_to_f = (next_fund - hour_utc - datetime.now(timezone.utc).minute/60)
-        charm_decay = min(1.0, fund_abs * 1000 * (1.0 / max(hours_to_f, 0.1)))
+        # ── 50 EMA ────────────────────────────────────────────────────────────
+        ema50 = _ema(closes, min(50, n - 1)) if n >= 10 else None
 
-        # ── 15. Bias scoring (all 13 layers) ─────────────────────────────────
+        # ── Vanna proxy ───────────────────────────────────────────────────────
+        fund_abs   = abs(fund_rate)
+        oi_acc     = abs(oi_delta) / 100.0
+        vanna_raw  = fund_abs * oi_acc
+        vanna_norm = min(1.0, vanna_raw * 5000)   # normalize 0–1
+        vanna_up   = exp_up  - atr14 * 0.4
+        vanna_dn   = exp_dn  + atr14 * 0.4
+        vanna_line = gfp * 0.55 + vwap_val * 0.45
+
+        if   vanna_norm > 0.6:  vanna_state = "Active"
+        elif vanna_norm > 0.3:  vanna_state = "Unstable"
+        else:                   vanna_state = "Stable"
+
+        # ── Charm Decay ───────────────────────────────────────────────────────
+        now_utc    = datetime.now(timezone.utc)
+        h_utc      = now_utc.hour + now_utc.minute / 60
+        next_fund  = ((int(h_utc) // 8) + 1) * 8
+        hrs_to_f   = max(next_fund - h_utc, 0.1)
+        charm_raw  = min(1.0, fund_abs * 1200 * (1.0 / hrs_to_f))
+
+        if   charm_raw > 0.5:  charm_state = "ACTIVE"
+        elif charm_raw > 0.2:  charm_state = "Moderate"
+        else:                  charm_state = "Low"
+
+        # ── Dealer Flow in $M ─────────────────────────────────────────────────
+        # Estimated net dealer hedging flow: fund_rate × OI × price → USD
+        # Positive = dealers net long (bullish hedging flow)
+        # Negative = dealers net short (bearish hedging flow)
+        dealer_flow_usd = fund_rate * oi * price
+        dealer_flow_m   = dealer_flow_usd / 1_000_000  # In $M
+
+        # ── Delta Bias ────────────────────────────────────────────────────────
+        # Net directional bias from all dealer Greek signals
+        delta_bull = 0.0
+        delta_bear = 0.0
+        if fund_rate < -0.0001:  delta_bull += 2.0
+        elif fund_rate > 0.0001: delta_bear += 2.0
+        if oi_delta > 1.0 and fund_rate < 0:  delta_bull += 1.5
+        if oi_delta > 1.0 and fund_rate > 0:  delta_bear += 1.5
+        if oi_delta < -1.0 and fund_rate > 0: delta_bull += 1.0
+        if price > vwap_val:                   delta_bull += 1.0
+        else:                                  delta_bear += 1.0
+        if ema50 and price > ema50:            delta_bull += 1.0
+        elif ema50 and price < ema50:          delta_bear += 1.0
+
+        if   delta_bull > delta_bear * 1.2:  delta_bias = "Net Bullish"
+        elif delta_bear > delta_bull * 1.2:  delta_bias = "Net Bearish"
+        else:                                 delta_bias = "Neutral"
+
+        # ── GEX Regime: LONG GAMMA / SHORT GAMMA ─────────────────────────────
+        gex_regime = "LONG GAMMA" if zone == "POSITIVE" else (
+                     "SHORT GAMMA" if zone == "NEGATIVE" else "FLIP ZONE")
+
+        # ── Regime: FLIP ZONE / POSITIVE / NEGATIVE / NEUTRAL ────────────────
+        dist_to_flip = abs(price - gfp)
+        if dist_to_flip < atr14 * 1.2:
+            regime = "FLIP ZONE"
+        elif zone == "POSITIVE":
+            regime = "POSITIVE"
+        elif zone == "NEGATIVE":
+            regime = "NEGATIVE"
+        else:
+            regime = "NEUTRAL"
+
+        # ── Compression state ─────────────────────────────────────────────────
+        in_comp = any(z.price_low <= price <= z.price_high for z in compression_zones)
+        if in_comp and len(compression_zones) > 1:
+            comp_state = "Extreme"
+        elif in_comp:
+            comp_state = "Compressed"
+        else:
+            comp_state = "Free"
+
+        # ── Candle state ──────────────────────────────────────────────────────
+        if regime == "FLIP ZONE":
+            candle_state = "Flip Zone"
+        elif comp_state in ("Compressed", "Extreme"):
+            candle_state = "Compression"
+        elif vanna_state == "Active":
+            candle_state = "Vanna Active"
+        else:
+            candle_state = "Normal"
+
+        # ── DGRP Score (0-100): Dealer GEX Regime Proxy ───────────────────────
+        # Composite of: flip proximity, GEX strength, RV ratio, funding intensity,
+        # OI delta, vanna, charm, delta alignment, vol trigger proximity
+        score = 0.0
+        # 1. Flip proximity (0–20): higher when price closer to GEX flip
+        flip_dist_norm = max(0.0, 1.0 - dist_to_flip / (atr14 * 3))
+        score += flip_dist_norm * 20
+
+        # 2. GEX strength at flip (0–15): stronger flip = higher DGRP
+        if true_flips:
+            best_str = max(fl.strength for fl in true_flips)
+            score += (best_str / 100.0) * 15
+
+        # 3. RV Ratio (0–15): extreme RV (high or low) = higher DGRP
+        rv_dev = abs(rv_ratio - 1.0)
+        score += min(rv_dev * 30, 15)
+
+        # 4. Funding intensity (0–15)
+        score += min(fund_abs * 30000, 15)
+
+        # 5. OI delta (0–10)
+        score += min(abs(oi_delta) * 2, 10)
+
+        # 6. Vanna activation (0–10)
+        score += vanna_norm * 10
+
+        # 7. Charm decay (0–10)
+        score += charm_raw * 10
+
+        # 8. Vol trigger proximity (0–5): near vol trigger = higher
+        dist_vol_up = abs(price - vol_trigger_up) / atr14
+        dist_vol_dn = abs(price - vol_trigger_dn) / atr14
+        vol_prox = max(0.0, 1.0 - min(dist_vol_up, dist_vol_dn) / 5)
+        score += vol_prox * 5
+
+        dgrp_score = min(100.0, max(0.0, score))
+
+        # ── Bias scoring (comprehensive, 13 layers) ───────────────────────────
         bull, bear = 0.0, 0.0
 
-        # Funding rate
-        if fund_rate < -0.0001:     bull += 2.0
+        if fund_rate < -0.0001:    bull += 2.5
         elif fund_rate < 0:         bull += 1.0
-        elif fund_rate > 0.0001:    bear += 2.0
+        elif fund_rate > 0.0001:    bear += 2.5
         else:                       bear += 0.5
 
-        # OI delta
-        if oi_delta < -1.0 and fund_rate > 0:  bull += 1.5   # shorts covering
-        elif oi_delta > 1.0 and fund_rate > 0: bear += 1.5   # new shorts
-        elif oi_delta > 1.0 and fund_rate < 0: bull += 1.0   # new longs
-        elif oi_delta < -1.0 and fund_rate < 0:bear += 1.0   # longs reducing
+        if oi_delta < -1.0 and fund_rate > 0:  bull += 2.0
+        elif oi_delta > 1.0 and fund_rate > 0: bear += 2.0
+        elif oi_delta > 1.0 and fund_rate < 0: bull += 1.5
+        elif oi_delta < -1.0 and fund_rate < 0:bear += 1.5
 
-        # VWAP position
-        if price > vwap_val + atr * 0.2:    bull += 1.5
-        elif price < vwap_val - atr * 0.2:  bear += 1.5
-        else:                                bull += 0.5; bear += 0.5
+        if price > vwap_val + atr14 * 0.15:  bull += 2.0
+        elif price < vwap_val - atr14 * 0.15:bear += 2.0
+        else:                                  bull += 0.5; bear += 0.5
 
-        # 50 EMA position
-        if ema50 and price > ema50:          bull += 1.5
-        elif ema50 and price < ema50:        bear += 1.5
+        if ema50:
+            if price > ema50:  bull += 2.0
+            else:              bear += 2.0
 
-        # RSI
         rsi = _rsi(closes, 14)
-        if rsi > 60:    bull += 1.0
-        elif rsi < 40:  bear += 1.0
+        if rsi > 62:   bull += 1.5
+        elif rsi < 38: bear += 1.5
 
-        # Nearest flip distances (asymmetry = directional pressure)
-        if nearest_flip_up and nearest_flip_down:
-            up_d = nearest_flip_up - price
-            dn_d = price - nearest_flip_down
-            if up_d < dn_d * 0.6:     bear += 1.0  # closer to upside resistance
-            elif dn_d < up_d * 0.6:   bull += 1.0  # closer to downside support
+        # Nearest flip asymmetry
+        if nf_up and nf_dn:
+            ud = nf_up - price
+            dd = price - nf_dn
+            if ud < dd * 0.5:   bear += 1.5
+            elif dd < ud * 0.5: bull += 1.5
 
         # GEX zone
-        if zone == "POSITIVE":
-            bull += 0.5; bear += 0.5   # pinned = neutral momentum
-        elif zone == "NEGATIVE" and fund_rate < 0:
-            bull += 1.0
-        elif zone == "NEGATIVE" and fund_rate > 0:
-            bear += 1.0
+        if zone == "NEGATIVE":
+            if fund_rate < 0: bull += 1.0
+            else:             bear += 1.5
+        elif zone == "POSITIVE":
+            pass   # Pinned — no directional bias
 
-        # Charm decay: high charm → dealers rehedge urgently → amplifies move
-        if charm_decay > 0.5:
-            if fund_rate < 0:  bull += 1.0
-            else:              bear += 1.0
+        # Charm
+        if charm_raw > 0.5:
+            if fund_rate < 0: bull += 1.0
+            else:             bear += 1.0
 
-        # OPEX: reduce extreme scores during expiration week
+        # OPEX week penalty
         opex = _is_opex_week()
         if opex:
-            bull *= 0.85
-            bear *= 0.85
+            bull *= 0.85; bear *= 0.85
 
-        total = bull + bear
-        if bull > bear * 1.1:   bias = "BULLISH"
-        elif bear > bull * 1.1: bias = "BEARISH"
-        else:                   bias = "NEUTRAL"
+        tot = bull + bear
+        if   bull > bear * 1.1:  bias = "BULLISH"
+        elif bear > bull * 1.1:  bias = "BEARISH"
+        else:                     bias = "NEUTRAL"
 
-        dom_score = max(bull, bear) / total if total > 0 else 0.5
-        base_conf = 45.0 + dom_score * 55.0
-        # Boost for multiple confirming flip levels
-        if len(flip_only) >= 3:   base_conf = min(base_conf + 8.0, 96.0)
-        # Boost for strong gamma wall alignment
-        wall_align = any(abs(w.mid - gamma_flip_proxy) < atr for w in gamma_walls)
-        if wall_align:             base_conf = min(base_conf + 5.0, 96.0)
-        # Boost for compression zones nearby
-        in_compression = any(z.price_low <= price <= z.price_high for z in compression_zones)
-        if in_compression:         base_conf = min(base_conf + 6.0, 96.0)
-        # Penalty for OPEX week uncertainty
-        if opex:                   base_conf = max(base_conf - 8.0, 40.0)
+        dom = max(bull, bear) / tot if tot > 0 else 0.5
+        base_conf = 45.0 + dom * 55.0
+        if len(true_flips) >= 3:  base_conf = min(base_conf + 8, 96)
+        if in_comp:               base_conf = min(base_conf + 6, 96)
+        if regime == "FLIP ZONE": base_conf = min(base_conf + 4, 96)
+        if opex:                  base_conf = max(base_conf - 8, 40)
+        # DGRP score boost: high-scoring regime = more confident
+        if dgrp_score > 60:       base_conf = min(base_conf + 5, 96)
+        elif dgrp_score < 30:     base_conf -= 5
 
         return GEXSnapshot(
             symbol=symbol,
             timestamp=time.time(),
             mark_price=price,
+            # ── Dashboard fields ──────────────────────────────────────────────
+            regime=regime,
+            dgrp_score=dgrp_score,
+            candle_state=candle_state,
+            rv_ratio=rv_ratio,
+            iv_proxy_z=iv_proxy_z,
+            compression_state=comp_state,
+            vanna_state=vanna_state,
+            charm_state=charm_state,
+            delta_bias=delta_bias,
+            exp_move=exp_move,
+            dealer_flow_m=dealer_flow_m,
+            gex_regime=gex_regime,
+            gex_flip=gfp,
+            gex_flip_band=gfp_band,
+            signal_state="No Signal",  # updated in detect_signal when a signal fires
+            # ── Core ─────────────────────────────────────────────────────────
             current_gex_zone=zone,
-            net_gex=current_gex,
-            nearest_flip_up=nearest_flip_up,
-            nearest_flip_down=nearest_flip_down,
+            net_gex=cgx,
+            nearest_flip_up=nf_up,
+            nearest_flip_down=nf_dn,
             all_flip_levels=flip_levels,
             gamma_walls=gamma_walls,
             compression_zones=compression_zones,
+            call_wall=call_wall,
+            put_wall=put_wall,
+            vol_trigger_up=vol_trigger_up,
+            vol_trigger_dn=vol_trigger_dn,
             vanna_unwind_up=vanna_up,
-            vanna_unwind_down=vanna_down,
-            vanna_entry=vanna_entry,
+            vanna_unwind_down=vanna_dn,
+            vanna_entry=vanna_line,
+            charm_decay=charm_raw,
             expected_move_upper=exp_up,
-            expected_move_lower=exp_down,
+            expected_move_lower=exp_dn,
             vwap=vwap_val,
             vwap_plus1_atr=vwap_p1,
             vwap_minus1_atr=vwap_m1,
             vwap_plus2_atr=vwap_p2,
             vwap_minus2_atr=vwap_m2,
             ema50=ema50,
-            gamma_flip_proxy=gamma_flip_proxy,
-            charm_decay=charm_decay,
-            atr=atr,
+            gamma_flip_proxy=gfp,
+            atr=atr14,
+            atr_slow=atr28,
             funding_rate=fund_rate,
             open_interest=oi,
             oi_delta_pct=oi_delta,
@@ -750,7 +908,7 @@ class AEGISGEXEngine:
             bias=bias,
             confidence=base_conf,
             is_opex_week=opex,
-            session_open_minute=_session_open_minute(),
+            session_open_minute=session_min,
         )
 
     # ─── Signal Detection ─────────────────────────────────────────────────────
@@ -762,80 +920,76 @@ class AEGISGEXEngine:
         min_confidence: float = 60.0,
     ) -> Optional[GEXSignal]:
         """
-        Detect a GEX flip crossover between two consecutive snapshots.
+        Detect GEX flip crossover between two consecutive real-time snapshots.
 
-        Uses REAL-TIME mark prices (not candle closes) for crossover detection.
-        This is the critical fix: the mark price updates every second, whereas
-        candle closes only change once per timeframe interval.
-
-        ── Signal Types ──────────────────────────────────────────────────────
-        GEX_FLIP:          Price crosses a primary GEX flip level
-        VANNA_ENTRY:       Price enters a Vanna unwind zone + GEX confirms
-        COMPRESSION_BREAK: Price breaks out of a compression box
+        Signal logic:
+          GEX_FLIP:          mark_price crosses a GEX flip level
+          COMPRESSION_BREAK: mark_price exits a compression box (measured move entry)
+          VANNA_ENTRY:       mark_price crosses the Vanna entry line
         """
         if snap_curr.confidence < min_confidence:
             return None
 
         pp = snap_prev.mark_price
         cp = snap_curr.mark_price
+        price_move = abs(cp - pp)
+
+        # Must have moved at least 0.3% to avoid noise
+        if price_move < cp * 0.001:
+            return None
+
         flips = snap_curr.all_flip_levels
+        if not flips:
+            return None
 
-        if not flips or abs(cp - pp) < snap_curr.atr * 0.01:
-            return None    # Price hasn't moved meaningfully
-
-        # ── Check GEX Flip crossover ─────────────────────────────────────────
         crossed: Optional[GEXLevel] = None
-        action: str = ""
-
-        for fl in flips:
-            fp = fl.price
-            if pp <= fp < cp:          # Crossed upward
-                crossed = fl; action = "BUY"; break
-            elif cp < fp <= pp:        # Crossed downward
-                crossed = fl; action = "SELL"; break
-
-        # ── Check Compression Breakout ───────────────────────────────────────
+        action  = ""
         sig_type = "GEX_FLIP"
         comp_hit: Optional[GEXZone] = None
 
+        # ── 1. GEX Flip ────────────────────────────────────────────────────────
+        for fl in sorted(flips, key=lambda x: x.strength, reverse=True):
+            fp = fl.price
+            if pp <= fp < cp:
+                crossed = fl; action = "BUY"; break
+            elif cp < fp <= pp:
+                crossed = fl; action = "SELL"; break
+
+        # ── 2. Compression Breakout ────────────────────────────────────────────
         if crossed is None:
             for cz in snap_curr.compression_zones:
-                if pp <= cz.price_high < cp:    # Breaking up out of compression
+                if pp <= cz.price_high < cp:
                     crossed = GEXLevel(
                         price=cz.price_high, gex_value=0, is_flip=True,
-                        strength=cz.strength, level_type="FLIP_UP", timeframe=snap_curr.all_flip_levels[0].timeframe,
+                        strength=cz.strength,
+                        level_type="FLIP_UP",
+                        timeframe=flips[0].timeframe if flips else "5m",
                     )
-                    action   = "BUY"
-                    sig_type = "COMPRESSION_BREAK"
-                    comp_hit = cz
-                    break
-                elif cp < cz.price_low <= pp:   # Breaking down out of compression
+                    action = "BUY"; sig_type = "COMPRESSION_BREAK"; comp_hit = cz; break
+                elif cp < cz.price_low <= pp:
                     crossed = GEXLevel(
                         price=cz.price_low, gex_value=0, is_flip=True,
-                        strength=cz.strength, level_type="FLIP_DOWN", timeframe=snap_curr.all_flip_levels[0].timeframe,
+                        strength=cz.strength,
+                        level_type="FLIP_DOWN",
+                        timeframe=flips[0].timeframe if flips else "5m",
                     )
-                    action   = "SELL"
-                    sig_type = "COMPRESSION_BREAK"
-                    comp_hit = cz
-                    break
+                    action = "SELL"; sig_type = "COMPRESSION_BREAK"; comp_hit = cz; break
 
-        # ── Check Vanna Entry ────────────────────────────────────────────────
+        # ── 3. Vanna Entry ─────────────────────────────────────────────────────
         if crossed is None and snap_curr.vanna_entry:
             ve = snap_curr.vanna_entry
             if pp <= ve < cp:
-                crossed = GEXLevel(
-                    price=ve, gex_value=snap_curr.net_gex, is_flip=True,
-                    strength=50.0, level_type="FLIP_UP", timeframe="1h",
-                )
-                action   = "BUY"
-                sig_type = "VANNA_ENTRY"
+                crossed = GEXLevel(price=ve, gex_value=snap_curr.net_gex,
+                                   is_flip=True, strength=50.0,
+                                   level_type="FLIP_UP",
+                                   timeframe=flips[0].timeframe if flips else "5m")
+                action = "BUY"; sig_type = "VANNA_ENTRY"
             elif cp < ve <= pp:
-                crossed = GEXLevel(
-                    price=ve, gex_value=snap_curr.net_gex, is_flip=True,
-                    strength=50.0, level_type="FLIP_DOWN", timeframe="1h",
-                )
-                action   = "SELL"
-                sig_type = "VANNA_ENTRY"
+                crossed = GEXLevel(price=ve, gex_value=snap_curr.net_gex,
+                                   is_flip=True, strength=50.0,
+                                   level_type="FLIP_DOWN",
+                                   timeframe=flips[0].timeframe if flips else "5m")
+                action = "SELL"; sig_type = "VANNA_ENTRY"
 
         if not crossed or not action:
             return None
@@ -843,106 +997,130 @@ class AEGISGEXEngine:
         entry = crossed.price
         atr   = snap_curr.atr
 
-        # ── Compute TP targets ────────────────────────────────────────────────
-        # TP = NEXT GEX flip levels in the direction of the trade
-        # (Updated dynamically each scan cycle as new flips appear)
-        all_flips_sorted = sorted([fl.price for fl in flips])
+        # ── TP: next GEX flip levels in trade direction ───────────────────────
+        all_fp = sorted(fl.price for fl in flips)
 
         if action == "BUY":
-            tp_candidates = [p for p in all_flips_sorted if p > entry + atr * 0.1]
-            tp1 = tp_candidates[0] if len(tp_candidates) > 0 else entry + atr * 2.0
-            tp2 = tp_candidates[1] if len(tp_candidates) > 1 else tp1 + atr * 2.0
-            tp3 = tp_candidates[2] if len(tp_candidates) > 2 else tp2 + atr * 2.5
-            sl  = max(entry - atr * 1.5, snap_curr.nearest_flip_down or entry - atr * 2)
+            tps = sorted([p for p in all_fp if p > entry + atr * 0.05])
+            tp1 = tps[0] if len(tps) > 0 else entry + atr * 2.0
+            tp2 = tps[1] if len(tps) > 1 else tp1 + atr * 2.0
+            tp3 = tps[2] if len(tps) > 2 else tp2 + atr * 2.5
+            # Use Call Wall as ceiling TP if it's above tp1
+            if snap_curr.call_wall and snap_curr.call_wall > tp1:
+                tp3 = max(tp3, snap_curr.call_wall)
+            sl = max(
+                entry - atr * 1.5,
+                snap_curr.nearest_flip_down or entry - atr * 2.0,
+                snap_curr.put_wall - atr * 0.3 if snap_curr.put_wall else entry - atr * 2.0,
+            )
+            gex_to = "POSITIVE"
             gex_from = snap_prev.current_gex_zone
-            gex_to   = "POSITIVE"
         else:
-            tp_candidates = sorted([p for p in all_flips_sorted if p < entry - atr * 0.1], reverse=True)
-            tp1 = tp_candidates[0] if len(tp_candidates) > 0 else entry - atr * 2.0
-            tp2 = tp_candidates[1] if len(tp_candidates) > 1 else tp1 - atr * 2.0
-            tp3 = tp_candidates[2] if len(tp_candidates) > 2 else tp2 - atr * 2.5
-            sl  = min(entry + atr * 1.5, snap_curr.nearest_flip_up or entry + atr * 2)
+            tps = sorted([p for p in all_fp if p < entry - atr * 0.05], reverse=True)
+            tp1 = tps[0] if len(tps) > 0 else entry - atr * 2.0
+            tp2 = tps[1] if len(tps) > 1 else tp1 - atr * 2.0
+            tp3 = tps[2] if len(tps) > 2 else tp2 - atr * 2.5
+            # Use Put Wall as floor TP if below tp1
+            if snap_curr.put_wall and snap_curr.put_wall < tp1:
+                tp3 = min(tp3, snap_curr.put_wall)
+            sl = min(
+                entry + atr * 1.5,
+                snap_curr.nearest_flip_up or entry + atr * 2.0,
+                snap_curr.call_wall + atr * 0.3 if snap_curr.call_wall else entry + atr * 2.0,
+            )
+            gex_to = "NEGATIVE"
             gex_from = snap_prev.current_gex_zone
-            gex_to   = "NEGATIVE"
 
-        # ── Use compression target as primary TP if applicable ───────────────
+        # Use compression measured-move target as TP1
         if sig_type == "COMPRESSION_BREAK" and comp_hit and comp_hit.target:
             tp1 = comp_hit.target
 
-        # ── Validate R:R ────────────────────────────────────────────────────
+        # ── R:R check ─────────────────────────────────────────────────────────
         risk   = abs(entry - sl)
         reward = abs(tp1 - entry)
         if risk <= 0:
             return None
         rr = reward / risk
-        if rr < 1.2:    # Minimum 1.2:1 R:R
+        if rr < 1.2:
             return None
 
-        # ── Confidence boosting with all 13 layers ────────────────────────────
+        # ── Confidence refinement with all layers ────────────────────────────
         conf = snap_curr.confidence
 
-        # Layer: crossed flip strength
-        if crossed.strength > 70:          conf = min(conf + 12, 97)
-        elif crossed.strength > 50:        conf = min(conf + 6, 97)
+        # Crossed flip quality
+        if crossed.strength > 75:  conf = min(conf + 12, 97)
+        elif crossed.strength > 50:conf = min(conf + 6, 97)
 
-        # Layer: bias alignment
-        if (action == "BUY"  and snap_curr.bias == "BULLISH") or \
+        # Bias alignment
+        if (action == "BUY" and snap_curr.bias == "BULLISH") or \
            (action == "SELL" and snap_curr.bias == "BEARISH"):
             conf = min(conf + 8, 97)
         elif snap_curr.bias == "NEUTRAL":
-            conf -= 5
+            conf -= 4
 
-        # Layer: funding rate alignment
-        if action == "BUY"  and snap_curr.funding_rate < -0.0001: conf = min(conf + 6, 97)
-        if action == "SELL" and snap_curr.funding_rate >  0.0001: conf = min(conf + 6, 97)
+        # Delta bias alignment
+        if (action == "BUY" and "Bullish" in snap_curr.delta_bias) or \
+           (action == "SELL" and "Bearish" in snap_curr.delta_bias):
+            conf = min(conf + 5, 97)
 
-        # Layer: VWAP position
-        if action == "BUY"  and cp > snap_curr.vwap:  conf = min(conf + 4, 97)
-        if action == "SELL" and cp < snap_curr.vwap:  conf = min(conf + 4, 97)
+        # Funding
+        if action == "BUY"  and snap_curr.funding_rate < -0.0001: conf = min(conf + 5, 97)
+        if action == "SELL" and snap_curr.funding_rate >  0.0001: conf = min(conf + 5, 97)
 
-        # Layer: 50 EMA trend
+        # VWAP
+        if action == "BUY"  and cp > snap_curr.vwap: conf = min(conf + 4, 97)
+        if action == "SELL" and cp < snap_curr.vwap: conf = min(conf + 4, 97)
+
+        # 50 EMA
         if snap_curr.ema50:
             if action == "BUY"  and cp > snap_curr.ema50: conf = min(conf + 4, 97)
             if action == "SELL" and cp < snap_curr.ema50: conf = min(conf + 4, 97)
-            if action == "BUY"  and cp < snap_curr.ema50: conf -= 8   # Counter-trend penalty
+            if action == "BUY"  and cp < snap_curr.ema50: conf -= 8  # counter-trend
             if action == "SELL" and cp > snap_curr.ema50: conf -= 8
 
-        # Layer: Expected Move confirmation
-        if action == "BUY"  and cp > snap_curr.expected_move_lower: conf = min(conf + 3, 97)
-        if action == "SELL" and cp < snap_curr.expected_move_upper: conf = min(conf + 3, 97)
+        # DGRP score
+        if snap_curr.dgrp_score > 60:  conf = min(conf + 5, 97)
+        elif snap_curr.dgrp_score < 30:conf -= 5
 
-        # Layer: charm decay (urgency bonus)
-        if snap_curr.charm_decay > 0.6:    conf = min(conf + 4, 97)
+        # Regime match
+        if snap_curr.regime == "FLIP ZONE":  conf = min(conf + 6, 97)
 
-        # Layer: R:R quality
+        # GEX regime match
+        if action == "BUY"  and snap_curr.gex_regime == "SHORT GAMMA": conf = min(conf + 4, 97)
+        if action == "SELL" and snap_curr.gex_regime == "LONG GAMMA":  conf = min(conf + 4, 97)
+
+        # Charm active
+        if snap_curr.charm_state == "ACTIVE":  conf = min(conf + 3, 97)
+
+        # Compression break bonus
+        if sig_type == "COMPRESSION_BREAK":  conf = min(conf + 7, 97)
+
+        # R:R quality
         if rr >= 3.0:  conf = min(conf + 5, 97)
         elif rr >= 2.0:conf = min(conf + 2, 97)
 
-        # Layer: signal type quality
-        if sig_type == "COMPRESSION_BREAK": conf = min(conf + 6, 97)
-
-        # Layer: OPEX penalty
-        if snap_curr.is_opex_week:          conf -= 6
+        # OPEX penalty
+        if snap_curr.is_opex_week:  conf -= 6
 
         conf = max(conf, 0.0)
         if conf < min_confidence:
             return None
 
-        # ── Leverage: calibrated by R:R and volatility ───────────────────────
-        if rr >= 4.0:   lev = 12
-        elif rr >= 3.0: lev = 10
-        elif rr >= 2.0: lev = 8
-        else:           lev = 5
-        lev = max(3, min(lev, 15))
+        # ── Leverage: calibrated by R:R and DGRP ─────────────────────────────
+        base_lev = 5
+        if rr >= 4.0:  base_lev = 12
+        elif rr >= 3.0:base_lev = 10
+        elif rr >= 2.0:base_lev = 8
+        if snap_curr.dgrp_score > 70: base_lev = min(base_lev + 2, 15)
+        lev = max(3, min(base_lev, 15))
 
-        # ── Nearest compression zone for signal context ────────────────────
+        tf = flips[0].timeframe if flips else timeframe
+
         nearest_comp = min(
             snap_curr.compression_zones,
             key=lambda z: abs(z.mid - entry),
             default=None,
         ) if snap_curr.compression_zones else None
-
-        tf = snap_curr.all_flip_levels[0].timeframe if snap_curr.all_flip_levels else "1h"
 
         return GEXSignal(
             symbol=snap_curr.symbol,
@@ -974,25 +1152,15 @@ class AEGISGEXEngine:
             snapshot=snap_curr,
         )
 
-    def get_dynamic_tp(
-        self,
-        entry: float,
-        direction: str,
-        snap: GEXSnapshot,
-    ) -> Optional[float]:
-        """
-        Return the current best TP target given live GEX snapshot.
-        Called each cycle to update TP as new GEX flip levels appear.
-
-        Rule: TP = nearest GEX flip level BEYOND entry in trade direction.
-        If a new flip appears that's closer, TP updates to it immediately.
-        """
-        flips = [fl.price for fl in snap.all_flip_levels]
-        if not flips:
+    def get_dynamic_tp(self, entry: float, direction: str,
+                       snap: GEXSnapshot) -> Optional[float]:
+        """Return updated TP from current flip levels (called each scan cycle)."""
+        fps = [fl.price for fl in snap.all_flip_levels]
+        if not fps:
             return None
         if direction == "LONG":
-            candidates = sorted([p for p in flips if p > entry])
-            return candidates[0] if candidates else None
+            c = sorted([p for p in fps if p > entry])
+            return c[0] if c else None
         else:
-            candidates = sorted([p for p in flips if p < entry], reverse=True)
-            return candidates[0] if candidates else None
+            c = sorted([p for p in fps if p < entry], reverse=True)
+            return c[0] if c else None
