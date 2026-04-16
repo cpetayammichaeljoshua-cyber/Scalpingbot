@@ -49,6 +49,8 @@ from aegis_gex.gex_engine import (
     _fmt_price,
     SL_PCT,
     TP1_PCT,
+    TP2_PCT,
+    TP3_PCT,
 )
 
 logger = logging.getLogger(__name__)
@@ -433,10 +435,6 @@ def format_aegis_signal(sig: GEXSignal) -> str:
     opex_str = "\n⚠️ OPEX WEEK — reduced confidence\n" if snap.is_opex_week else ""
     sess_str = f"Session+{snap.session_open_minute}min"
 
-    # ── Fixed SL / TP annotation ──────────────────────────────────────────────
-    sl_pct_ann  = SL_PCT  * 100
-    tp1_pct_ann = TP1_PCT * 100
-
     msg = (
         f"{d_e} #{sig.symbol} {sig.direction}\n"
         f"Exchange: Binance Futures\n"
@@ -489,8 +487,7 @@ def format_aegis_signal(sig: GEXSignal) -> str:
     msg += (
         f"\n"
         f"Confidence: {sig.confidence:.0f}%  |  R:R 1:{sig.rr_ratio:.1f}  |  Lev: {lev}x\n"
-        f"SL: {sl_pct_ann:.2f}%  |  TP1: {tp1_pct_ann:.2f}%  |  "
-        f"TP: +{tp1p:.2f}%/+{tp2p:.2f}%/+{tp3p:.2f}%  SL: -{slp:.2f}%\n"
+        f"SL: {SL_PCT*100:.2f}%  |  TP1: {TP1_PCT*100:.2f}%  |  TP2: {TP2_PCT*100:.2f}%  |  TP3: {TP3_PCT*100:.2f}%\n"
         f"Funding: {sig.funding_rate*100:+.4f}%  |  OI∆: {sig.oi_delta_pct:+.1f}%\n"
         f"ATR: {_fmt(snap.atr)}  |  {sess_str}  |  {sig.timeframe} TF\n"
         f"{date} {ts} UTC  |  {bias_e} {sig.bias}"
@@ -766,8 +763,8 @@ class AEGISGEXBot:
             f"Fixed SL / TP (from entry):\n"
             f"  SL:  {SL_PCT*100:.2f}%  ({SL_PCT*100:.2f}% below entry)\n"
             f"  TP1: {TP1_PCT*100:.2f}%  (3:1 R:R)\n"
-            f"  TP2: {TP1_PCT*200:.2f}%  (6:1 R:R)\n"
-            f"  TP3: {TP1_PCT*300:.2f}%  (9:1 R:R / GEX wall)\n\n"
+            f"  TP2: {TP2_PCT*100:.2f}%  (6:1 R:R)\n"
+            f"  TP3: {TP3_PCT*100:.2f}%  (9:1 R:R / GEX wall)\n\n"
             f"Quality Gates:\n"
             f"  Confidence ≥ {self.MIN_CONF:.0f}% | DGRP ≥ 40\n"
             f"  Vol spike OR DGRP ≥ 55 | Bias aligned\n"

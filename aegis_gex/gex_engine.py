@@ -624,9 +624,12 @@ class AEGISGEXEngine:
             iv_proxy_z = max(-3.0, min(3.0, iv_proxy_z))
 
         # ── Volume spike detection ─────────────────────────────────────────────
-        vol_avg_20 = _vol_avg(volumes, 20)
-        vol_last   = volumes[-1] if volumes else 0.0
-        vol_spike  = vol_last > vol_avg_20 * 1.3 if vol_avg_20 > 0 else False
+        # Use only closed candles: exclude the last (possibly open/partial) candle
+        closed_vols = volumes[:-1] if len(volumes) > 1 else volumes
+        vol_avg_20  = _vol_avg(closed_vols, 20)
+        # Compare the last COMPLETED candle against the prior 20-bar average
+        vol_last    = volumes[-2] if len(volumes) >= 2 else (volumes[-1] if volumes else 0.0)
+        vol_spike   = vol_last > vol_avg_20 * 1.4 if vol_avg_20 > 0 else False
 
         # ── RSI(14) ───────────────────────────────────────────────────────────
         rsi14 = _rsi(closes, 14)
@@ -952,6 +955,17 @@ class AEGISGEXEngine:
         if vol_spike:
             score += 5.0
 
+        # 10. IV Proxy Z-score contribution — elevated IV boosts DGRP (0–8)
+        # High absolute Z = large vol deviation = more regime significance
+        score += min(abs(iv_proxy_z) * 2.5, 8.0)
+
+        # 11. Stochastic alignment with delta bias (0–4)
+        # Aligned stoch+delta boost signal quality
+        if delta_bias == "Net Bullish" and stoch_k > 55:
+            score += min((stoch_k - 55) / 5.0, 4.0)
+        elif delta_bias == "Net Bearish" and stoch_k < 45:
+            score += min((45 - stoch_k) / 5.0, 4.0)
+
         dgrp_score = min(100.0, max(0.0, score))
 
         # ── Bias scoring (comprehensive, 15 layers) ───────────────────────────
@@ -1144,8 +1158,8 @@ class AEGISGEXEngine:
         if snap_curr.bias == "NEUTRAL":
             return None
 
-        # Volume gate: need spike OR high DGRP
-        if not snap_curr.vol_spike and snap_curr.dgrp_score < 55.0:
+        # Volume gate: need spike OR high DGRP (raised threshold for quality)
+        if not snap_curr.vol_spike and snap_curr.dgrp_score < 58.0:
             return None
 
         pp = snap_prev.mark_price
@@ -1168,8 +1182,14 @@ class AEGISGEXEngine:
         comp_hit: Optional[GEXZone] = None
 
         # ── 1. GEX Flip crossover (strongest first) ────────────────────────────
+        # AEGIS GEX v1.0 core: GEX_FLIP signals REQUIRE the FLIP ZONE regime —
+        # only fire when price is at the actual gamma boundary (high-precision entry).
+        is_flip_zone = snap_curr.regime == "FLIP ZONE"
         for fl in sorted(flips, key=lambda x: x.strength, reverse=True):
             fp = fl.price
+            # For GEX_FLIP entries require FLIP ZONE regime for best precision
+            if not is_flip_zone and fl.strength < 55.0:
+                continue
             if pp <= fp < cp:
                 crossed = fl; action = "BUY"; break
             elif cp < fp <= pp:
@@ -1222,23 +1242,46 @@ class AEGISGEXEngine:
             return None
 
         # ── 15m Confirmation alignment ─────────────────────────────────────────
+        confirm_boost = 0.0
         if confirm_snap is not None:
             if confirm_snap.bias != "NEUTRAL":
                 if action == "BUY"  and confirm_snap.bias == "BEARISH":
                     return None
                 if action == "SELL" and confirm_snap.bias == "BULLISH":
                     return None
+                # Both timeframes have same non-neutral bias: quality boost
+                if (action == "BUY"  and confirm_snap.bias == "BULLISH") or \
+                   (action == "SELL" and confirm_snap.bias == "BEARISH"):
+                    confirm_boost += 3.0
+            # 15m DGRP alignment — strong 15m DGRP boosts signal confidence
+            if confirm_snap.dgrp_score >= 55:
+                confirm_boost += 2.0
+            if confirm_snap.dgrp_score >= 70:
+                confirm_boost += 2.0
+            # 15m FLIP ZONE alignment = strongest confirmation
+            if confirm_snap.regime == "FLIP ZONE":
+                confirm_boost += 3.0
             # 15m LONG GAMMA regime = price pinned; require extra confidence
             if confirm_snap.gex_regime == "LONG GAMMA" and snap_curr.confidence < min_confidence + 8:
                 return None
+            # 15m vol spike additional quality signal
+            if confirm_snap.vol_spike:
+                confirm_boost += 2.0
 
-        # ── Stochastic extreme filter ──────────────────────────────────────────
-        # Avoid chasing extremely overbought BUY or oversold SELL
-        sk = snap_curr.stoch_k
-        if action == "BUY"  and sk > 85 and snap_curr.rsi > 72:
-            return None   # Don't buy deep overbought
-        if action == "SELL" and sk < 15 and snap_curr.rsi < 28:
-            return None   # Don't sell deep oversold
+        # ── Stochastic / RSI extreme filter ──────────────────────────────────────
+        # Avoid chasing overbought BUY or oversold SELL entries
+        sk  = snap_curr.stoch_k
+        rsi = snap_curr.rsi
+        if action == "BUY":
+            if sk > 82 and rsi > 70:
+                return None   # Deep overbought — wait for pullback
+            if rsi < 35 and snap_curr.delta_bias != "Net Bullish":
+                return None   # RSI too weak to support BUY
+        if action == "SELL":
+            if sk < 18 and rsi < 30:
+                return None   # Deep oversold — wait for bounce
+            if rsi > 65 and snap_curr.delta_bias != "Net Bearish":
+                return None   # RSI too strong to support SELL
 
         entry = cp  # Real-time mark price as entry
 
@@ -1263,12 +1306,28 @@ class AEGISGEXEngine:
             gex_to   = "NEGATIVE"
             gex_from = snap_prev.current_gex_zone
 
-        # Compression measured-move override for TP1 (if within reason)
+        # Compression measured-move override — use target to extend TP levels
+        # Always preserve strict TP ordering (TP1 < TP2 < TP3 for BUY, reversed for SELL)
         if sig_type == "COMPRESSION_BREAK" and comp_hit and comp_hit.target:
-            if action == "BUY"  and comp_hit.target > tp1:
-                tp1 = comp_hit.target
-            elif action == "SELL" and comp_hit.target < tp1:
-                tp1 = comp_hit.target
+            ct = comp_hit.target
+            if action == "BUY" and ct > entry:
+                if ct <= tp1:
+                    pass                         # Target below TP1 — keep fixed levels
+                elif ct <= tp2:
+                    tp1 = ct                     # Target between TP1 and TP2 — boost TP1
+                elif ct <= tp3:
+                    tp1, tp2 = tp2, ct           # Target between TP2 and TP3 — shift levels up
+                else:
+                    tp1, tp2, tp3 = tp2, tp3, ct # Target beyond TP3 — extend all
+            elif action == "SELL" and ct < entry:
+                if ct >= tp1:
+                    pass
+                elif ct >= tp2:
+                    tp1 = ct
+                elif ct >= tp3:
+                    tp1, tp2 = tp2, ct
+                else:
+                    tp1, tp2, tp3 = tp2, tp3, ct
 
         # ── R:R validation ─────────────────────────────────────────────────────
         risk   = abs(entry - sl)
@@ -1279,11 +1338,14 @@ class AEGISGEXEngine:
         if rr < 2.5:   # Should be ~3.0 from fixed %, allow slight float variance
             return None
 
+        # ── Final confidence (5m base + 15m confirmation boost) ───────────────
+        final_conf = min(96.0, snap_curr.confidence + confirm_boost)
+
         # ── Leverage (confidence / regime based) ──────────────────────────────
-        conf = snap_curr.confidence
-        if conf >= 85:   lev = 20
-        elif conf >= 78: lev = 15
-        elif conf >= 72: lev = 12
+        conf = final_conf
+        if conf >= 88:   lev = 20
+        elif conf >= 80: lev = 15
+        elif conf >= 74: lev = 12
         elif conf >= 68: lev = 10
         else:            lev = 8
         # Reduce leverage in OPEX week
@@ -1292,6 +1354,9 @@ class AEGISGEXEngine:
         # Reduce leverage in FLIP ZONE (higher uncertainty)
         if snap_curr.regime == "FLIP ZONE" and lev > 12:
             lev = 12
+        # Cap leverage based on IV proxy Z — high IV = more risk
+        if abs(snap_curr.iv_proxy_z) > 2.0 and lev > 10:
+            lev = 10
 
         return GEXSignal(
             symbol=snap_curr.symbol,
@@ -1304,7 +1369,7 @@ class AEGISGEXEngine:
             tp2=tp2,
             tp3=tp3,
             sl=sl,
-            confidence=snap_curr.confidence,
+            confidence=final_conf,
             timeframe=flips[0].timeframe if flips else "5m",
             gex_zone_from=gex_from,
             gex_zone_to=gex_to,

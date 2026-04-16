@@ -84,11 +84,14 @@ externalPort = 5173
 
 [[ports]]
 localPort = 8000
-externalPort = 8000
 
 [[ports]]
 localPort = 8080
 externalPort = 8080
+
+[[ports]]
+localPort = 9080
+externalPort = 9000
 
 [deployment]
 run = ["sh", "-c", "python dynamic_comprehensive_error_fixer.py && python bot_health_check.py && python main.py"]
