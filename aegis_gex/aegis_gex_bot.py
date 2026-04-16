@@ -340,18 +340,26 @@ def _sig_label(st: str) -> str:
 
 def format_aegis_signal(sig: GEXSignal) -> str:
     """
-    Cornix-compatible signal + full AEGIS GEX Dashboard Table.
+    Strictly Cornix-compatible signal + full AEGIS GEX v1.0 Dashboard.
 
-    Dashboard matches the TradingView AEGIS GEX v1.0 indicator exactly:
-      Regime | DGRP | Candle | RV Ratio | IV Proxy Z
-      Compression | Vanna | Charm Decay | Delta Bias | Exp Move
-      Dealer Flow | GEX Regime | GEX Flip ± | Signal
+    Cornix parsing rules obeyed:
+      • Entry / Take-Profit / Stop Targets sections contain ONLY plain prices
+      • No inline annotations on price lines (Cornix reads first number after "N)")
+      • Emoji prefix on header line is allowed and ignored by Cornix
+      • All dashboard content appears AFTER the Stop Targets section
+
+    SL / TP (strictly fixed from entry — 5m scalp):
+      SL  = 0.18 %     TP1 = 0.54 % (3:1)
+      TP2 = 1.08 %     TP3 = 1.62 % or nearest GEX wall
+
+    Dashboard matches TradingView AEGIS GEX v1.0 exactly.
     """
     snap = sig.snapshot
     d_e  = "🟢" if sig.action == "BUY" else "🔴"
     e, tp1, tp2, tp3, sl = sig.entry_price, sig.tp1, sig.tp2, sig.tp3, sig.sl
     lev  = sig.leverage
 
+    # Compute percentages for dashboard display (not on price lines)
     tp1p = _pct(tp1, e)
     tp2p = _pct(tp2, e)
     tp3p = _pct(tp3, e)
@@ -400,15 +408,18 @@ def format_aegis_signal(sig: GEXSignal) -> str:
     vt_up  = _fmt(snap.vol_trigger_up)
     vt_dn  = _fmt(snap.vol_trigger_dn)
 
-    # VWAP position
-    vwap_pos = "above" if e > snap.vwap else "below"
-    vwap_b1  = f"[{_fmt(snap.vwap_minus1_atr)} – {_fmt(snap.vwap_plus1_atr)}]"
-    vwap_b2  = f"[{_fmt(snap.vwap_minus2_atr)} – {_fmt(snap.vwap_plus2_atr)}]"
+    # VWAP position — label from the price's perspective
+    # e > vwap  → "price is ABOVE VWAP"
+    # e < vwap  → "price is BELOW VWAP"
+    vwap_pos = "price above" if e > snap.vwap else "price below"
+    vwap_b1  = f"[{_fmt(snap.vwap_minus1_atr)} — {_fmt(snap.vwap_plus1_atr)}]"
+    vwap_b2  = f"[{_fmt(snap.vwap_minus2_atr)} — {_fmt(snap.vwap_plus2_atr)}]"
 
     # 50 EMA
     ema_str = ""
     if sig.ema50 and sig.ema50 > 0:
-        ema_str = f"EMA50: {'>' if e > sig.ema50 else '<'} {_fmt(sig.ema50)}\n"
+        ema_rel = "above" if e > sig.ema50 else "below"
+        ema_str = f"EMA50:         {_fmt(sig.ema50)}  ({ema_rel} price)\n"
 
     # Nearest flip levels
     nf_up  = _fmt(snap.nearest_flip_up)   if snap.nearest_flip_up   else "—"
@@ -419,33 +430,52 @@ def format_aegis_signal(sig: GEXSignal) -> str:
     extra = ""
     if snap.compression_zones:
         cz    = snap.compression_zones[0]
-        tgt_s = _fmt(cz.target) if cz.target else "?"
-        extra += (f"Compression: [{_fmt(cz.price_low)} – {_fmt(cz.price_high)}]"
+        tgt_s = _fmt(cz.target) if cz.target else "—"
+        extra += (f"Compression:   [{_fmt(cz.price_low)} — {_fmt(cz.price_high)}]"
                   f" → {tgt_s}\n")
     if sig.vanna_entry:
-        extra += f"Vanna Entry Line: {_fmt(sig.vanna_entry)}\n"
+        extra += f"Vanna Entry:   {_fmt(sig.vanna_entry)}\n"
 
-    # Volume / StochRSI context
+    # Volume context
     vol_str = ""
     if snap.vol_spike:
-        vol_ratio = snap.vol_last / max(snap.vol_avg, 1.0)   # float division always
-        vol_str = f"⚡ Vol Spike: {vol_ratio:.1f}×avg\n"
-    stoch_str = f"RSI: {snap.rsi:.1f}  |  Stoch %K: {snap.stoch_k:.1f}\n"
+        vol_ratio = snap.vol_last / max(snap.vol_avg, 1.0)
+        vol_str = f"Vol Spike:     {vol_ratio:.1f}x avg\n"
 
-    opex_str = "\n⚠️ OPEX WEEK — reduced confidence\n" if snap.is_opex_week else ""
+    opex_str = "OPEX WEEK — reduced confidence\n" if snap.is_opex_week else ""
     sess_str = f"Session+{snap.session_open_minute}min"
 
+    # ── TP3 annotation: show if extended beyond fixed 1.62% ──────────────────
+    tp3_note = ""
+    if tp3p > TP3_PCT * 100 + 0.05:
+        tp3_note = f"  (GEX wall ext.)"
+
+    # =========================================================================
+    # CORNIX-COMPATIBLE BLOCK  —  PURE PRICES ONLY on target lines
+    # Cornix reads: first decimal number after "N)" on each target line
+    # =========================================================================
     msg = (
         f"{d_e} #{sig.symbol} {sig.direction}\n"
         f"Exchange: Binance Futures\n"
-        f"Leverage: Cross {lev}x\n\n"
-        f"Entry Targets:\n1) {_fmt(e)}\n\n"
+        f"Leverage: Cross {lev}x\n"
+        f"\n"
+        f"Entry Targets:\n"
+        f"1) {_fmt(e)}\n"
+        f"\n"
         f"Take-Profit Targets:\n"
-        f"1) {_fmt(tp1)}  (+{tp1p:.2f}%)\n"
-        f"2) {_fmt(tp2)}  (+{tp2p:.2f}%)\n"
-        f"3) {_fmt(tp3)}  (+{tp3p:.2f}%)\n\n"
-        f"Stop Targets:\n1) {_fmt(sl)}  (-{slp:.2f}%)\n\n"
-        f"━━ AEGIS GEX v1.0 Dashboard ━━━━━━━━━\n"
+        f"1) {_fmt(tp1)}\n"
+        f"2) {_fmt(tp2)}\n"
+        f"3) {_fmt(tp3)}{tp3_note}\n"
+        f"\n"
+        f"Stop Targets:\n"
+        f"1) {_fmt(sl)}\n"
+    )
+    # =========================================================================
+    # AEGIS GEX v1.0 DASHBOARD  —  below stop loss (Cornix ignores this block)
+    # =========================================================================
+    msg += (
+        f"\n"
+        f"— AEGIS GEX v1.0 Dashboard\n"
         f"Regime:       {regime_icon} {snap.regime}\n"
         f"DGRP Score:   {snap.dgrp_score:.0f} / 100\n"
         f"Candle:       {snap.candle_state}\n"
@@ -458,22 +488,23 @@ def format_aegis_signal(sig: GEXSignal) -> str:
         f"Exp Move:     {em_str}\n"
         f"Dealer Flow:  {df_str}\n"
         f"GEX Regime:   {gex_reg_icon} {snap.gex_regime}\n"
-        f"GEX Flip:     ${gf_str}\n"
+        f"GEX Flip:     {gf_str}\n"
         f"Signal:       {st_label} {gex_zone}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Chart Levels:\n"
-        f"GEX Flip Proxy:    {_fmt(snap.gamma_flip_proxy)}\n"
-        f"Call Wall:         {cw_str}\n"
-        f"Put Wall:          {pw_str}\n"
-        f"VOL Trigger UP:    {vt_up}\n"
-        f"VOL Trigger DN:    {vt_dn}\n"
-        f"GEX Flip ↑: {nf_up}  |  ↓: {nf_dn}\n"
-        f"All GEX Flips:     {', '.join(all_fl)}\n"
         f"\n"
-        f"VWAP ({_fmt(snap.vwap)}):  {vwap_pos}\n"
-        f"VWAP ±1 ATR:  {vwap_b1}\n"
-        f"VWAP ±2 ATR:  {vwap_b2}\n"
-        f"Exp Move Bands: [{_fmt(snap.expected_move_lower)} – {_fmt(snap.expected_move_upper)}]\n"
+        f"Chart Levels:\n"
+        f"GEX Flip:      {_fmt(snap.gamma_flip_proxy)}\n"
+        f"Call Wall:     {cw_str}\n"
+        f"Put Wall:      {pw_str}\n"
+        f"VOL Trig UP:   {vt_up}\n"
+        f"VOL Trig DN:   {vt_dn}\n"
+        f"GEX Flip Up:   {nf_up}\n"
+        f"GEX Flip Dn:   {nf_dn}\n"
+        f"All GEX Flips: {', '.join(all_fl)}\n"
+        f"\n"
+        f"VWAP:          {_fmt(snap.vwap)}  ({vwap_pos} entry)\n"
+        f"VWAP ±1 ATR:   {vwap_b1}\n"
+        f"VWAP ±2 ATR:   {vwap_b2}\n"
+        f"Exp Move Band: [{_fmt(snap.expected_move_lower)} — {_fmt(snap.expected_move_upper)}]\n"
     )
 
     if ema_str:
@@ -483,16 +514,22 @@ def format_aegis_signal(sig: GEXSignal) -> str:
     if vol_str:
         msg += vol_str
 
-    msg += stoch_str
     msg += (
+        f"RSI:           {snap.rsi:.1f}  |  Stoch %K: {snap.stoch_k:.1f}\n"
         f"\n"
-        f"Confidence: {sig.confidence:.0f}%  |  R:R 1:{sig.rr_ratio:.1f}  |  Lev: {lev}x\n"
-        f"SL: {SL_PCT*100:.2f}%  |  TP1: {TP1_PCT*100:.2f}%  |  TP2: {TP2_PCT*100:.2f}%  |  TP3: {TP3_PCT*100:.2f}%\n"
-        f"Funding: {sig.funding_rate*100:+.4f}%  |  OI∆: {sig.oi_delta_pct:+.1f}%\n"
+        f"SL:  -{slp:.2f}%  ({SL_PCT*100:.2f}% fixed)\n"
+        f"TP1: +{tp1p:.2f}%  |  TP2: +{tp2p:.2f}%  |  TP3: +{tp3p:.2f}%\n"
+        f"R:R: 1:{sig.rr_ratio:.1f}  |  Conf: {sig.confidence:.0f}%  |  Lev: {lev}x\n"
+        f"Funding: {sig.funding_rate*100:+.4f}%  |  OI Delta: {sig.oi_delta_pct:+.1f}%\n"
         f"ATR: {_fmt(snap.atr)}  |  {sess_str}  |  {sig.timeframe} TF\n"
-        f"{date} {ts} UTC  |  {bias_e} {sig.bias}"
-        f"{opex_str}\n"
-        f"📡 @ichimokutradingsignal | AEGIS GEX v1.0"
+    )
+
+    if opex_str:
+        msg += f"OPEX: {opex_str}"
+
+    msg += (
+        f"{date} {ts} UTC  |  {bias_e} {sig.bias}\n"
+        f"@ichimokutradingsignal | AEGIS GEX v1.0"
     )
     return msg
 

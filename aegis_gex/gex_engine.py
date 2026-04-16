@@ -1268,7 +1268,29 @@ class AEGISGEXEngine:
             if confirm_snap.vol_spike:
                 confirm_boost += 2.0
 
-        # ── Stochastic / RSI extreme filter ──────────────────────────────────────
+        # ── VWAP directional filter ───────────────────────────────────────────────
+        # Price must be on the correct side of VWAP for the signal direction.
+        # Exception: FLIP ZONE signals near VWAP (within 0.5 ATR) are allowed —
+        # they are testing the VWAP flip itself.
+        vwap = snap_curr.vwap
+        atr  = snap_curr.atr
+        near_vwap = abs(cp - vwap) < atr * 0.5
+        if not near_vwap:
+            if action == "BUY"  and cp < vwap - atr * 0.15:
+                return None   # Price too far below VWAP for long
+            if action == "SELL" and cp > vwap + atr * 0.15:
+                return None   # Price too far above VWAP for short
+
+        # ── Momentum direction confirmation ───────────────────────────────────
+        # The price move between the two scan intervals must agree with action.
+        # This prevents entries on counter-trend whipsaws at the flip level.
+        price_delta = cp - pp
+        if action == "BUY"  and price_delta < 0 and abs(price_delta) > atr * 0.05:
+            return None   # Price dropping into the flip — wait for momentum
+        if action == "SELL" and price_delta > 0 and abs(price_delta) > atr * 0.05:
+            return None   # Price rising into the flip — wait for momentum
+
+        # ── Stochastic / RSI extreme filter ───────────────────────────────────
         # Avoid chasing overbought BUY or oversold SELL entries
         sk  = snap_curr.stoch_k
         rsi = snap_curr.rsi
@@ -1306,36 +1328,24 @@ class AEGISGEXEngine:
             gex_to   = "NEGATIVE"
             gex_from = snap_prev.current_gex_zone
 
-        # Compression measured-move override — use target to extend TP levels
-        # Always preserve strict TP ordering (TP1 < TP2 < TP3 for BUY, reversed for SELL)
+        # TP3 extension via compression measured-move target
+        # TP1 and TP2 are STRICTLY FIXED at 0.54% and 1.08% — never modified
+        # Only TP3 (1.62% base) can be extended if compression target is favourable
         if sig_type == "COMPRESSION_BREAK" and comp_hit and comp_hit.target:
             ct = comp_hit.target
-            if action == "BUY" and ct > entry:
-                if ct <= tp1:
-                    pass                         # Target below TP1 — keep fixed levels
-                elif ct <= tp2:
-                    tp1 = ct                     # Target between TP1 and TP2 — boost TP1
-                elif ct <= tp3:
-                    tp1, tp2 = tp2, ct           # Target between TP2 and TP3 — shift levels up
-                else:
-                    tp1, tp2, tp3 = tp2, tp3, ct # Target beyond TP3 — extend all
-            elif action == "SELL" and ct < entry:
-                if ct >= tp1:
-                    pass
-                elif ct >= tp2:
-                    tp1 = ct
-                elif ct >= tp3:
-                    tp1, tp2 = tp2, ct
-                else:
-                    tp1, tp2, tp3 = tp2, tp3, ct
+            if action == "BUY" and ct > tp2:
+                tp3 = max(tp3, ct)   # Only extend TP3 if target is beyond TP2
+            elif action == "SELL" and ct < tp2:
+                tp3 = min(tp3, ct)   # Only extend TP3 downward for SELL
 
-        # ── R:R validation ─────────────────────────────────────────────────────
+        # ── R:R validation — TP1 / SL are strictly fixed so R:R ≈ 3.0 always ──
         risk   = abs(entry - sl)
         reward = abs(tp1 - entry)
         if risk <= 0:
             return None
         rr = reward / risk
-        if rr < 2.5:   # Should be ~3.0 from fixed %, allow slight float variance
+        # Floor at 2.8 to absorb floating-point micro-rounding (true value = 3.0)
+        if rr < 2.8:
             return None
 
         # ── Final confidence (5m base + 15m confirmation boost) ───────────────
