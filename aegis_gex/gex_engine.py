@@ -55,10 +55,13 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # ── Fixed SL / TP percentages (5m scalp specification) ────────────────────────
-SL_PCT  = float(os.getenv("GEX_SL_PCT",  "0.0018"))   # 0.18 %
+SL_PCT  = float(os.getenv("GEX_SL_PCT",  "0.0018"))   # 0.18 % — hard cap / fallback
 TP1_PCT = float(os.getenv("GEX_TP1_PCT", "0.0054"))   # 0.54 % (3 × SL)
 TP2_PCT = float(os.getenv("GEX_TP2_PCT", "0.0108"))   # 1.08 % (6 × SL)
 TP3_PCT = float(os.getenv("GEX_TP3_PCT", "0.0162"))   # 1.62 % (9 × SL)
+
+# Minimum SL distance from entry — avoids noise stops closer than 0.05 %
+_SL_MIN_PCT = 0.0005   # 0.05 %
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -405,6 +408,89 @@ def _fmt_price(v: float) -> str:
     except (ValueError, OverflowError):
         sig = 8
     return f"{sign}{av:.{min(sig, 10)}f}"
+
+
+def _dynamic_sl(entry: float, action: str, snap: "GEXSnapshot") -> float:
+    """
+    Place the SL at the tightest meaningful technical level within the fixed
+    0.18 % risk budget.  Falls back to the full 0.18 % SL when no qualifying
+    level exists.
+
+    Level priority (highest win-rate anchor first):
+      1. GEX flip / gamma flip proxy — the exact level crossed to trigger the
+         signal; invalidated if price returns below it.
+      2. VWAP — strongest intraday institutional anchor.
+      3. Put wall (BUY) / Call wall (SELL) — gamma support / resistance.
+      4. VWAP ± 0.5 ATR — intermediate volatility band.
+
+    Constraints:
+      BUY  : sl_max (entry × 0.9982) ≤ SL ≤ sl_min (entry × 0.9995)
+      SELL : sl_min (entry × 1.0005) ≤ SL ≤ sl_max (entry × 1.0018)
+
+    Maximum risk is always capped at SL_PCT (0.18 %).
+    Minimum distance is _SL_MIN_PCT (0.05 %) to avoid noise stops.
+    """
+    if action == "BUY":
+        sl_max = entry * (1.0 - SL_PCT)        # floor — furthest allowed
+        sl_min = entry * (1.0 - _SL_MIN_PCT)   # ceiling — closest allowed
+
+        def _ok(p: Optional[float]) -> bool:
+            return p is not None and math.isfinite(p) and sl_max <= p <= sl_min
+
+        cands: List[float] = []
+
+        # 1. GEX flip / gamma proxy (the level that triggered the signal)
+        if _ok(snap.gex_flip):
+            cands.append(snap.gex_flip)
+        if _ok(snap.gamma_flip_proxy):
+            cands.append(snap.gamma_flip_proxy)
+
+        # 2. VWAP
+        if _ok(snap.vwap):
+            cands.append(snap.vwap)
+
+        # 3. Put wall (gamma support below price)
+        if _ok(snap.put_wall):
+            cands.append(snap.put_wall)
+
+        # 4. VWAP – 0.5 ATR
+        if snap.vwap and snap.atr:
+            vwap_half = snap.vwap - snap.atr * 0.5
+            if _ok(vwap_half):
+                cands.append(vwap_half)
+
+        return max(cands) if cands else sl_max   # tightest valid level
+
+    else:  # SELL
+        sl_max = entry * (1.0 + SL_PCT)        # ceiling — furthest allowed
+        sl_min = entry * (1.0 + _SL_MIN_PCT)   # floor   — closest allowed
+
+        def _ok(p: Optional[float]) -> bool:  # type: ignore[misc]
+            return p is not None and math.isfinite(p) and sl_min <= p <= sl_max
+
+        cands = []
+
+        # 1. GEX flip / gamma proxy
+        if _ok(snap.gex_flip):
+            cands.append(snap.gex_flip)
+        if _ok(snap.gamma_flip_proxy):
+            cands.append(snap.gamma_flip_proxy)
+
+        # 2. VWAP
+        if _ok(snap.vwap):
+            cands.append(snap.vwap)
+
+        # 3. Call wall (gamma resistance above price)
+        if _ok(snap.call_wall):
+            cands.append(snap.call_wall)
+
+        # 4. VWAP + 0.5 ATR
+        if snap.vwap and snap.atr:
+            vwap_half = snap.vwap + snap.atr * 0.5
+            if _ok(vwap_half):
+                cands.append(vwap_half)
+
+        return min(cands) if cands else sl_max   # tightest valid level
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1346,24 +1432,28 @@ class AEGISGEXEngine:
 
         entry = cp  # Real-time mark price as entry
 
-        # ── Fixed SL / TP (from entry %) ──────────────────────────────────────
+        # ── SL: dynamic anchor + fixed 0.18 % hard cap ────────────────────────
+        # TPs: strictly fixed from entry (never modified except TP3 extension)
         if action == "BUY":
-            sl  = entry * (1.0 - SL_PCT)
-            tp1 = entry * (1.0 + TP1_PCT)
-            tp2 = entry * (1.0 + TP2_PCT)
-            tp3 = entry * (1.0 + TP3_PCT)
-            # If a GEX wall / call wall is favourably above tp1, extend TP3 to it
-            if snap_curr.call_wall and snap_curr.call_wall > tp1:
-                tp3 = max(tp3, snap_curr.call_wall)
+            # SL placed at the tightest meaningful technical level ≤ 0.18 % below
+            sl  = _dynamic_sl(entry, "BUY", snap_curr)
+            tp1 = entry * (1.0 + TP1_PCT)  # 0.54 % — FIXED
+            tp2 = entry * (1.0 + TP2_PCT)  # 1.08 % — FIXED
+            tp3 = entry * (1.0 + TP3_PCT)  # 1.62 % base, may extend
+            # Extend TP3 to call wall if it is above the base TP3
+            if snap_curr.call_wall and snap_curr.call_wall > tp3:
+                tp3 = snap_curr.call_wall
             gex_to   = "POSITIVE"
             gex_from = snap_prev.current_gex_zone
         else:
-            sl  = entry * (1.0 + SL_PCT)
-            tp1 = entry * (1.0 - TP1_PCT)
-            tp2 = entry * (1.0 - TP2_PCT)
-            tp3 = entry * (1.0 - TP3_PCT)
-            if snap_curr.put_wall and snap_curr.put_wall < tp1:
-                tp3 = min(tp3, snap_curr.put_wall)
+            # SL placed at the tightest meaningful technical level ≤ 0.18 % above
+            sl  = _dynamic_sl(entry, "SELL", snap_curr)
+            tp1 = entry * (1.0 - TP1_PCT)  # 0.54 % — FIXED
+            tp2 = entry * (1.0 - TP2_PCT)  # 1.08 % — FIXED
+            tp3 = entry * (1.0 - TP3_PCT)  # 1.62 % base, may extend
+            # Extend TP3 to put wall if it is below the base TP3
+            if snap_curr.put_wall and snap_curr.put_wall < tp3:
+                tp3 = snap_curr.put_wall
             gex_to   = "NEGATIVE"
             gex_from = snap_prev.current_gex_zone
 
@@ -1377,13 +1467,14 @@ class AEGISGEXEngine:
             elif action == "SELL" and ct < tp2:
                 tp3 = min(tp3, ct)   # Only extend TP3 downward for SELL
 
-        # ── R:R validation — TP1 / SL are strictly fixed so R:R ≈ 3.0 always ──
+        # ── R:R validation ───────────────────────────────────────────────────────
+        # SL is dynamically placed (≤ 0.18 % from entry), so R:R ≥ 3.0.
+        # Floor at 2.8 absorbs floating-point edge cases on the rare fallback path.
         risk   = abs(entry - sl)
         reward = abs(tp1 - entry)
         if risk <= 0:
             return None
         rr = reward / risk
-        # Floor at 2.8 to absorb floating-point micro-rounding (true value = 3.0)
         if rr < 2.8:
             return None
 
@@ -1423,7 +1514,7 @@ class AEGISGEXEngine:
             gex_zone_from=gex_from,
             gex_zone_to=gex_to,
             leverage=lev,
-            rr_ratio=3.0,   # Always exactly 3.0 — TP1 = 3×SL by design
+            rr_ratio=round(rr, 2),   # Actual R:R — ≥3.0, higher when SL is tightened
             bias=snap_curr.bias,
             atr=snap_curr.atr,
             funding_rate=snap_curr.funding_rate,
