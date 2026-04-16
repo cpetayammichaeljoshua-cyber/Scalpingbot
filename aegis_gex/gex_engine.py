@@ -1270,25 +1270,64 @@ class AEGISGEXEngine:
 
         # ── VWAP directional filter ───────────────────────────────────────────────
         # Price must be on the correct side of VWAP for the signal direction.
-        # Exception: FLIP ZONE signals near VWAP (within 0.5 ATR) are allowed —
-        # they are testing the VWAP flip itself.
+        # Exception: signals within 0.5 ATR of VWAP are allowed — they may be
+        # crossing VWAP as part of the flip itself.
         vwap = snap_curr.vwap
         atr  = snap_curr.atr
         near_vwap = abs(cp - vwap) < atr * 0.5
         if not near_vwap:
-            if action == "BUY"  and cp < vwap - atr * 0.15:
-                return None   # Price too far below VWAP for long
-            if action == "SELL" and cp > vwap + atr * 0.15:
-                return None   # Price too far above VWAP for short
+            if action == "BUY"  and cp < vwap:
+                return None   # Price below VWAP — bias against long
+            if action == "SELL" and cp > vwap:
+                return None   # Price above VWAP — bias against short
 
         # ── Momentum direction confirmation ───────────────────────────────────
-        # The price move between the two scan intervals must agree with action.
-        # This prevents entries on counter-trend whipsaws at the flip level.
+        # The price move between scan intervals must agree with the action.
+        # Prevents entering on counter-trend whipsaws at the flip level.
         price_delta = cp - pp
         if action == "BUY"  and price_delta < 0 and abs(price_delta) > atr * 0.05:
             return None   # Price dropping into the flip — wait for momentum
         if action == "SELL" and price_delta > 0 and abs(price_delta) > atr * 0.05:
             return None   # Price rising into the flip — wait for momentum
+
+        # ── EMA50 trend alignment filter ─────────────────────────────────────
+        # Reject signals where price is significantly on the wrong side of EMA50.
+        # Allows signals within 1.0 ATR of EMA50 (crossing / testing EMA50).
+        ema50_val = snap_curr.ema50
+        if ema50_val and ema50_val > 0:
+            if action == "BUY"  and cp < ema50_val - atr * 1.0:
+                return None   # Price > 1 ATR below EMA50 — downtrend
+            if action == "SELL" and cp > ema50_val + atr * 1.0:
+                return None   # Price > 1 ATR above EMA50 — uptrend
+
+        # ── Funding rate alignment filter ─────────────────────────────────────
+        # Extreme funding against the signal direction = crowded trade,
+        # increased risk of snap-back. Threshold: 0.08% per 8h session.
+        fr = snap_curr.funding_rate
+        if action == "BUY"  and fr >  0.0008:
+            return None   # Crowded long — elevated squeeze risk
+        if action == "SELL" and fr < -0.0008:
+            return None   # Crowded short — elevated squeeze risk
+
+        # ── OI delta alignment filter ─────────────────────────────────────────
+        # Large OI drops against the signal direction indicate smart money
+        # closing positions — opposing signal conviction.
+        oi_d = snap_curr.oi_delta_pct
+        if action == "BUY"  and oi_d < -8.0:
+            return None   # Heavy long closing — bad for new long
+        if action == "SELL" and oi_d >  8.0:
+            return None   # Heavy open interest surge — short squeeze risk
+
+        # ── IV overload protection ────────────────────────────────────────────
+        # IV Proxy Z > 3.0 = explosive vol regime; entries are unpredictable
+        if abs(snap_curr.iv_proxy_z) > 3.0:
+            return None
+
+        # ── ATR overextension filter ──────────────────────────────────────────
+        # If the move between prev and curr already covers > 1.5 ATR, the
+        # entry is too late — the bulk of the move has already happened.
+        if price_move_pct > (atr / max(cp, 1e-10)) * 1.5:
+            return None
 
         # ── Stochastic / RSI extreme filter ───────────────────────────────────
         # Avoid chasing overbought BUY or oversold SELL entries
@@ -1384,7 +1423,7 @@ class AEGISGEXEngine:
             gex_zone_from=gex_from,
             gex_zone_to=gex_to,
             leverage=lev,
-            rr_ratio=rr,
+            rr_ratio=3.0,   # Always exactly 3.0 — TP1 = 3×SL by design
             bias=snap_curr.bias,
             atr=snap_curr.atr,
             funding_rate=snap_curr.funding_rate,
