@@ -7,15 +7,22 @@ Primary TF: 5m  |  Confirmation TF: 15m  |  Scan: 30s
 
 Signal Logic (AEGIS GEX v1.0 spec):
   Entry  : Mark price CROSSES a GEX flip level in real-time
-  TP1    : Entry × 1.0054  (0.54% — 3 × SL)
-  TP2    : Entry × 1.0108  (1.08% — 6 × SL)
-  TP3    : Entry × 1.0162  (1.62% — 9 × SL) or nearest GEX wall
-  SL     : Entry × 0.9982  (0.18% fixed)
+  TP1    : Entry × 1.0054  (0.54% — FIXED)
+  TP2    : Entry × 1.0108  (1.08% — FIXED)
+  TP3    : Entry × 1.0162  (1.62% base) or nearest GEX wall / compression target
+  SL     : ATR-adaptive dynamic anchor — nearest technical level within
+           [max(0.05%, 0.4×ATR), min(0.18%, 1.2×ATR)] budget.
+           Levels (priority): nearest flip → GEX proxy → VWAP → VPOC →
+           gamma wall → VWAP±0.5ATR → VWAP±1ATR.
+           Hard cap: 0.18% from entry. Fallback: full ATR-scaled budget.
 
-Quality Gates (all must pass):
-  Confidence ≥ 68 % | DGRP ≥ 40 | Vol spike or DGRP ≥ 55
-  Bias aligned with signal | 15m confirmation | R:R ≥ 3.0
-  StochRSI not extreme against direction
+Quality Gates (ALL 20 must pass):
+  Confidence ≥ 68% | DGRP ≥ 40 | Vol spike or DGRP ≥ 58 | Bias aligned
+  ATR-adaptive min price move | FLIP ZONE or strength ≥ 65
+  15m DGRP ≥ 25 | OPEX: conf ≥ 73% | 15m bias aligned
+  VWAP side (0.3 ATR exception) | Momentum direction | EMA50 trend
+  Funding not crowded | OI delta aligned | IV Z ≤ 3.0
+  ATR not overextended | StochRSI not extreme | Stoch K/D cross | R:R ≥ 2.8
 
 Dashboard (exact match to TradingView AEGIS GEX v1.0):
   Regime | DGRP Score | Candle | RV Ratio | IV Proxy Z
@@ -399,7 +406,7 @@ class AEGISGEXBot:
 
     Primary TF: 5m | Confirmation TF: 15m | Scan: 30s
     All 80 USDM symbols in true parallel (asyncio.gather + Semaphore).
-    Fixed SL/TP: 0.18% SL / 0.54% TP (3:1 R:R) on every signal.
+    SL: ATR-adaptive (0.4–1.2×ATR, hard cap 0.18%) | TP1: 0.54% FIXED | TP2: 1.08% FIXED.
     """
 
     SCAN_INTERVAL   = int(os.getenv("GEX_SCAN_INTERVAL_SEC",  "30"))
@@ -652,15 +659,15 @@ class AEGISGEXBot:
             f"Universe: ≤{_BinanceClient.MAX_SYMBOLS} USDM Perpetuals\n"
             f"Min Confidence: {self.MIN_CONF:.0f}%\n"
             f"Max signals: {self.limiter.MAX_HR}/hr\n\n"
-            f"Fixed SL / TP (from entry):\n"
-            f"  SL:  {SL_PCT*100:.2f}%  ({SL_PCT*100:.2f}% below entry)\n"
-            f"  TP1: {TP1_PCT*100:.2f}%  (3:1 R:R)\n"
-            f"  TP2: {TP2_PCT*100:.2f}%  (6:1 R:R)\n"
-            f"  TP3: {TP3_PCT*100:.2f}%  (9:1 R:R / GEX wall)\n\n"
-            f"Quality Gates:\n"
-            f"  Confidence ≥ {self.MIN_CONF:.0f}% | DGRP ≥ 40\n"
-            f"  Vol spike OR DGRP ≥ 55 | Bias aligned\n"
-            f"  15m confirmation | StochRSI filter\n\n"
+            f"SL: ATR-adaptive (0.4–1.2×ATR, hard cap {SL_PCT*100:.2f}%)\n"
+            f"  Priority: nearest flip → VWAP → VPOC → γ wall → VWAP±ATR\n"
+            f"  TP1: {TP1_PCT*100:.2f}% FIXED | TP2: {TP2_PCT*100:.2f}% FIXED\n"
+            f"  TP3: {TP3_PCT*100:.2f}% base → GEX wall / compression target\n\n"
+            f"Quality Gates (20 layers):\n"
+            f"  Conf ≥ {self.MIN_CONF:.0f}% | DGRP ≥ 40 | Vol spike OR DGRP ≥ 58\n"
+            f"  ATR-adaptive move | FLIP ZONE or flip ≥ 65 str | 15m DGRP ≥ 25\n"
+            f"  OPEX conf +5% | VWAP side | Momentum | EMA50 | Funding | OI\n"
+            f"  IV Z ≤ 3.0 | ATR overext | StochRSI | Stoch K/D | R:R ≥ 2.8\n\n"
             f"Dashboard: Regime | DGRP | Candle | RV Ratio | IV Proxy Z\n"
             f"           Compression | Vanna | Charm | Delta Bias | Exp Move\n"
             f"           Dealer Flow | GEX Regime | GEX Flip ± Band\n\n"
