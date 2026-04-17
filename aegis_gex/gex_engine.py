@@ -54,14 +54,37 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── Fixed SL / TP percentages (5m scalp specification) ────────────────────────
-SL_PCT  = float(os.getenv("GEX_SL_PCT",  "0.0018"))   # 0.18 % — hard cap / fallback
-TP1_PCT = float(os.getenv("GEX_TP1_PCT", "0.0054"))   # 0.54 % (3 × SL)
-TP2_PCT = float(os.getenv("GEX_TP2_PCT", "0.0108"))   # 1.08 % (6 × SL)
-TP3_PCT = float(os.getenv("GEX_TP3_PCT", "0.0162"))   # 1.62 % (9 × SL)
+# ── ATR-adaptive SL parameters — symbol-specific, NOT a fixed % from entry ────
+# The SL is anchored to the nearest meaningful technical level (GEX flip,
+# VWAP, VPOC, gamma wall, or VWAP±ATR band) within a per-symbol ATR-scaled
+# budget.  There is NO hard-coded 0.18 % SL.  Every symbol gets a stop that
+# matches its actual volatility profile.
+#
+# Budget rules (both are evaluated per-trade):
+#   sl_min_pct = max(_SL_ABS_FLOOR, ATR/price × _SL_FLOOR_ATR)
+#                   → never tighter than 0.4 ATR (survives micro-wicks)
+#   sl_max_pct = min(_SL_ABS_CAP,   ATR/price × _SL_BUDGET_ATR)
+#                   → never wider than 1.2 ATR (controls position risk)
+#   Hard safety cap: _SL_ABS_CAP = 0.50% prevents runaway stops on any symbol.
+_SL_ABS_FLOOR  = float(os.getenv("GEX_SL_ABS_FLOOR",  "0.0005"))  # 0.05% noise floor
+_SL_ABS_CAP    = float(os.getenv("GEX_SL_ABS_CAP",    "0.0050"))  # 0.50% hard safety cap
+_SL_FLOOR_ATR  = float(os.getenv("GEX_SL_FLOOR_ATR",  "0.40"))    # min = 0.40 × ATR
+_SL_BUDGET_ATR = float(os.getenv("GEX_SL_BUDGET_ATR", "1.20"))    # max = 1.20 × ATR
 
-# Minimum SL distance from entry — avoids noise stops closer than 0.05 %
-_SL_MIN_PCT = 0.0005   # 0.05 %
+# ── R:R ratio targets — TPs scale with actual SL risk, NOT a fixed % ──────────
+# TP1 = risk × 3.0,  TP2 = risk × 6.0,  TP3 = risk × 9.0 (or GEX wall).
+# A 0.05% SL → TP1 at 0.15%;  a 0.30% SL → TP1 at 0.90%.  Always 3:1 minimum.
+_TP_RR1 = float(os.getenv("GEX_TP_RR1", "3.0"))   # TP1 = 3 × risk
+_TP_RR2 = float(os.getenv("GEX_TP_RR2", "6.0"))   # TP2 = 6 × risk
+_TP_RR3 = float(os.getenv("GEX_TP_RR3", "9.0"))   # TP3 = 9 × risk (or GEX wall)
+
+# ── Account-risk leverage cap — protects position sizing ──────────────────────
+# Max leverage based on SL distance: lev ≤ _LEV_RISK_PCT / sl_pct
+# Example: 1.5% risk budget, SL = 0.20% → max lev = 7×
+_LEV_RISK_PCT = float(os.getenv("GEX_LEV_RISK_PCT", "0.015"))  # 1.5% max account risk
+
+# Minimum R:R threshold — signal is rejected if TP1/SL < this value
+_MIN_RR = 2.8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -417,13 +440,12 @@ def _dynamic_sl(entry: float, action: str, snap: "GEXSnapshot") -> float:
     ATR-adaptive dynamic SL anchored to the tightest meaningful technical
     level within a per-symbol volatility-scaled risk budget.
 
-    Adaptive SL boundaries (hard-capped by SL_PCT = 0.18%):
-      sl_min_pct = max(_SL_MIN_PCT, ATR/entry × 0.40) — noise floor:
-                   at least 0.4 ATR away so the stop survives micro-wicks.
-      sl_max_pct = min(SL_PCT,      ATR/entry × 1.20) — risk ceiling:
-                   no more than 1.2 ATR of risk (never exceeds 0.18%).
-      If ATR/entry > SL_PCT  : use SL_PCT (very volatile symbol)
-      If sl_min_pct ≥ sl_max_pct : fall back to sl_max_pct × 0.5 floor
+    Adaptive SL boundaries (per-symbol ATR-scaled, hard cap _SL_ABS_CAP = 0.50%):
+      sl_min_pct = max(_SL_ABS_FLOOR, ATR/entry × _SL_FLOOR_ATR)
+                   → noise floor: at least 0.4 ATR (survives micro-wicks)
+      sl_max_pct = min(_SL_ABS_CAP,   ATR/entry × _SL_BUDGET_ATR)
+                   → risk ceiling: at most 1.2 ATR (never > 0.50%)
+      If sl_min_pct ≥ sl_max_pct : sl_min_pct is floored at sl_max_pct × 0.5
 
     Level priority — tested in order; ALL qualifying levels are collected and
     the tightest (closest to entry) is returned:
@@ -438,11 +460,11 @@ def _dynamic_sl(entry: float, action: str, snap: "GEXSnapshot") -> float:
          band used as last-resort technical anchor before full-budget fallback.
     Fallback: full ATR-scaled SL (= sl_max) when no level qualifies.
     """
-    atr_pct     = snap.atr / max(entry, 1e-10)
-    # Noise floor: at least 0.4 ATR, but never below the absolute minimum
-    sl_min_pct  = max(_SL_MIN_PCT, atr_pct * 0.40)
-    # Risk ceiling: at most 1.2 ATR, always capped by the hard budget
-    sl_max_pct  = min(SL_PCT, atr_pct * 1.20)
+    atr_pct    = snap.atr / max(entry, 1e-10)
+    # Noise floor: at least _SL_FLOOR_ATR × ATR, never below absolute floor
+    sl_min_pct = max(_SL_ABS_FLOOR, atr_pct * _SL_FLOOR_ATR)
+    # Risk ceiling: at most _SL_BUDGET_ATR × ATR, never above absolute safety cap
+    sl_max_pct = min(_SL_ABS_CAP,   atr_pct * _SL_BUDGET_ATR)
     # Safety: ensure min < max so the valid window is non-empty
     if sl_min_pct >= sl_max_pct:
         sl_min_pct = sl_max_pct * 0.50
@@ -1287,10 +1309,11 @@ class AEGISGEXEngine:
           20. R:R ≥ 2.8 (≥3.0 typical with ATR-adaptive dynamic SL)
 
         SL  : ATR-adaptive dynamic SL — tightest technical level within
-              [max(0.05%, 0.4×ATR), min(0.18%, 1.2×ATR)] budget.
-        TP1 : FIXED entry × TP1_PCT (0.54%)
-        TP2 : FIXED entry × TP2_PCT (1.08%)
-        TP3 : Base 1.62%; extended to GEX wall or compression target
+              [max(_SL_ABS_FLOOR, 0.40×ATR), min(_SL_ABS_CAP, 1.20×ATR)] budget.
+              Hard safety cap: 0.50%. Fallback: full ATR-scaled budget.
+        TP1 : entry ± risk × _TP_RR1  (3× actual SL risk — always 3:1 R:R)
+        TP2 : entry ± risk × _TP_RR2  (6× actual SL risk)
+        TP3 : entry ± risk × _TP_RR3  (9× base); extended to GEX wall or comp target
         """
         if snap_curr.confidence < min_confidence:
             return None
@@ -1516,69 +1539,74 @@ class AEGISGEXEngine:
 
         entry = cp  # Real-time mark price as entry
 
-        # ── SL: dynamic anchor + fixed 0.18 % hard cap ────────────────────────
-        # TPs: strictly fixed from entry (never modified except TP3 extension)
+        # ── SL: ATR-anchored to nearest technical level (NO fixed % from entry) ──
+        # TP1/TP2/TP3: derived from actual SL risk distance via R:R multipliers.
+        #   TP1 = entry ± risk × 3.0   (3:1 R:R)
+        #   TP2 = entry ± risk × 6.0   (6:1 R:R)
+        #   TP3 = entry ± risk × 9.0   (9:1 base, extendable to GEX wall)
+        # This guarantees every signal maintains consistent R:R regardless of symbol.
         if action == "BUY":
-            # SL placed at the tightest meaningful technical level ≤ 0.18 % below
-            sl  = _dynamic_sl(entry, "BUY", snap_curr)
-            tp1 = entry * (1.0 + TP1_PCT)  # 0.54 % — FIXED
-            tp2 = entry * (1.0 + TP2_PCT)  # 1.08 % — FIXED
-            tp3 = entry * (1.0 + TP3_PCT)  # 1.62 % base, may extend
-            # Extend TP3 to call wall if it is above the base TP3
+            sl   = _dynamic_sl(entry, "BUY", snap_curr)
+            risk = abs(entry - sl)          # actual price risk distance
+            tp1  = entry + risk * _TP_RR1   # 3× risk above entry
+            tp2  = entry + risk * _TP_RR2   # 6× risk above entry
+            tp3  = entry + risk * _TP_RR3   # 9× risk base — may extend
+            # Extend TP3 to call wall only if it is a better target (higher)
             if snap_curr.call_wall and snap_curr.call_wall > tp3:
                 tp3 = snap_curr.call_wall
             gex_to   = "POSITIVE"
             gex_from = snap_prev.current_gex_zone
         else:
-            # SL placed at the tightest meaningful technical level ≤ 0.18 % above
-            sl  = _dynamic_sl(entry, "SELL", snap_curr)
-            tp1 = entry * (1.0 - TP1_PCT)  # 0.54 % — FIXED
-            tp2 = entry * (1.0 - TP2_PCT)  # 1.08 % — FIXED
-            tp3 = entry * (1.0 - TP3_PCT)  # 1.62 % base, may extend
-            # Extend TP3 to put wall if it is below the base TP3
+            sl   = _dynamic_sl(entry, "SELL", snap_curr)
+            risk = abs(entry - sl)          # actual price risk distance
+            tp1  = entry - risk * _TP_RR1   # 3× risk below entry
+            tp2  = entry - risk * _TP_RR2   # 6× risk below entry
+            tp3  = entry - risk * _TP_RR3   # 9× risk base — may extend
+            # Extend TP3 to put wall only if it is a better target (lower)
             if snap_curr.put_wall and snap_curr.put_wall < tp3:
                 tp3 = snap_curr.put_wall
             gex_to   = "NEGATIVE"
             gex_from = snap_prev.current_gex_zone
 
         # TP3 extension via compression measured-move target
-        # TP1 and TP2 are STRICTLY FIXED at 0.54% and 1.08% — never modified
-        # Only TP3 (1.62% base) can be extended if compression target is favourable
+        # TP1 and TP2 retain their R:R-derived levels — only TP3 can be pushed further
         if sig_type == "COMPRESSION_BREAK" and comp_hit and comp_hit.target:
             ct = comp_hit.target
-            if action == "BUY" and ct > tp2:
-                tp3 = max(tp3, ct)   # Only extend TP3 if target is beyond TP2
+            if action == "BUY"  and ct > tp2:
+                tp3 = max(tp3, ct)
             elif action == "SELL" and ct < tp2:
-                tp3 = min(tp3, ct)   # Only extend TP3 downward for SELL
+                tp3 = min(tp3, ct)
 
-        # ── R:R validation ───────────────────────────────────────────────────────
-        # SL is dynamically placed (≤ 0.18 % from entry), so R:R ≥ 3.0.
-        # Floor at 2.8 absorbs floating-point edge cases on the rare fallback path.
-        risk   = abs(entry - sl)
-        reward = abs(tp1 - entry)
+        # ── R:R validation ────────────────────────────────────────────────────────
+        # TP1 = risk × _TP_RR1 (3.0) so rr is always ≥ 3.0 unless risk = 0.
+        # Floor at _MIN_RR = 2.8 absorbs floating-point edge cases on fallback path.
         if risk <= 0:
             return None
-        rr = reward / risk
-        if rr < 2.8:
+        rr = abs(tp1 - entry) / risk
+        if rr < _MIN_RR:
             return None
 
         # ── Final confidence (5m base + 15m confirmation boost) ───────────────
         final_conf = min(96.0, snap_curr.confidence + confirm_boost)
 
-        # ── Leverage (confidence / regime based) ──────────────────────────────
+        # ── Leverage: confidence-tiered + SL-distance cap + regime adjustments ─
+        # Tier 1: confidence-based baseline
         conf = final_conf
         if conf >= 88:   lev = 20
         elif conf >= 80: lev = 15
         elif conf >= 74: lev = 12
         elif conf >= 68: lev = 10
         else:            lev = 8
-        # Reduce leverage in OPEX week
+        # Tier 2: SL-distance cap — preserves constant USD risk per trade
+        # lev ≤ _LEV_RISK_PCT / sl_pct_actual  (e.g., 1.5% / 0.20% = 7.5 → 7×)
+        sl_pct_actual = risk / max(entry, 1e-10)
+        lev_by_risk   = max(3, min(20, int(_LEV_RISK_PCT / max(sl_pct_actual, 1e-8))))
+        lev           = min(lev, lev_by_risk)
+        # Tier 3: regime / volatility reductions
         if snap_curr.is_opex_week:
-            lev = max(5, lev - 3)
-        # Reduce leverage in FLIP ZONE (higher uncertainty)
+            lev = max(3, lev - 2)
         if snap_curr.regime == "FLIP ZONE" and lev > 12:
             lev = 12
-        # Cap leverage based on IV proxy Z — high IV = more risk
         if abs(snap_curr.iv_proxy_z) > 2.0 and lev > 10:
             lev = 10
 

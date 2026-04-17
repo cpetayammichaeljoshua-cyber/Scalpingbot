@@ -7,14 +7,13 @@ Primary TF: 5m  |  Confirmation TF: 15m  |  Scan: 30s
 
 Signal Logic (AEGIS GEX v1.0 spec):
   Entry  : Mark price CROSSES a GEX flip level in real-time
-  TP1    : Entry × 1.0054  (0.54% — FIXED)
-  TP2    : Entry × 1.0108  (1.08% — FIXED)
-  TP3    : Entry × 1.0162  (1.62% base) or nearest GEX wall / compression target
   SL     : ATR-adaptive dynamic anchor — nearest technical level within
-           [max(0.05%, 0.4×ATR), min(0.18%, 1.2×ATR)] budget.
+           [max(0.05%, 0.40×ATR), min(0.50%, 1.20×ATR)] budget.
            Levels (priority): nearest flip → GEX proxy → VWAP → VPOC →
-           gamma wall → VWAP±0.5ATR → VWAP±1ATR.
-           Hard cap: 0.18% from entry. Fallback: full ATR-scaled budget.
+           gamma wall → VWAP±0.5ATR → VWAP±1ATR. Hard cap: 0.50%.
+  TP1    : Entry ± risk × 3.0  (3:1 R:R — scales with actual SL distance)
+  TP2    : Entry ± risk × 6.0  (6:1 R:R)
+  TP3    : Entry ± risk × 9.0  (9:1 base) or nearest GEX wall / compression target
 
 Quality Gates (ALL 20 must pass):
   Confidence ≥ 68% | DGRP ≥ 40 | Vol spike or DGRP ≥ 58 | Bias aligned
@@ -54,10 +53,14 @@ from aegis_gex.gex_engine import (
     GEXSnapshot,
     GEXZone,
     _fmt_price,
-    SL_PCT,
-    TP1_PCT,
-    TP2_PCT,
-    TP3_PCT,
+    _SL_ABS_FLOOR,
+    _SL_ABS_CAP,
+    _SL_FLOOR_ATR,
+    _SL_BUDGET_ATR,
+    _TP_RR1,
+    _TP_RR2,
+    _TP_RR3,
+    _LEV_RISK_PCT,
 )
 
 logger = logging.getLogger(__name__)
@@ -371,8 +374,8 @@ def format_aegis_signal(sig: GEXSignal) -> str:
       • Blank line between every section (required by Cornix parser)
       • Nothing after Stop Targets — Cornix signal is self-contained
 
-    SL / TP (strictly fixed from entry — 5m scalp R:R 1:3):
-      SL  = 0.18%   TP1 = 0.54%   TP2 = 1.08%   TP3 = 1.62% (or GEX wall)
+    SL / TP (ATR-adaptive per symbol — 5m scalp ≥3:1 R:R):
+      SL = ATR-anchored (0.05–0.50% range)  TP1/TP2/TP3 = SL_risk × 3/6/9
     """
     d_e = "🟢" if sig.action == "BUY" else "🔴"
     e, tp1, tp2, tp3, sl = sig.entry_price, sig.tp1, sig.tp2, sig.tp3, sig.sl
@@ -406,7 +409,7 @@ class AEGISGEXBot:
 
     Primary TF: 5m | Confirmation TF: 15m | Scan: 30s
     All 80 USDM symbols in true parallel (asyncio.gather + Semaphore).
-    SL: ATR-adaptive (0.4–1.2×ATR, hard cap 0.18%) | TP1: 0.54% FIXED | TP2: 1.08% FIXED.
+    SL: ATR-adaptive (0.40–1.20×ATR, hard cap 0.50%) | TP: 3×/6×/9× actual risk.
     """
 
     SCAN_INTERVAL   = int(os.getenv("GEX_SCAN_INTERVAL_SEC",  "30"))
@@ -450,7 +453,8 @@ class AEGISGEXBot:
             f"🛡️ AEGIS GEX v1.0 | CH:{self.channel_id} | "
             f"TF:{self.PRIMARY_TF}+{self.CONFIRM_TF} | "
             f"Scan:{self.SCAN_INTERVAL}s | MinConf:{self.MIN_CONF:.0f}% | "
-            f"SL:{SL_PCT*100:.2f}% TP:{TP1_PCT*100:.2f}%"
+            f"SL:ATR×{_SL_FLOOR_ATR:.2f}–{_SL_BUDGET_ATR:.2f} | "
+            f"TP:{_TP_RR1:.0f}/{_TP_RR2:.0f}/{_TP_RR3:.0f}×risk"
         )
 
     # ── Telegram ──────────────────────────────────────────────────────────────
@@ -608,7 +612,8 @@ class AEGISGEXBot:
                         f"GEX: {snap.gex_regime}\n"
                         f"Entry: {sig.entry_price:.6g} → "
                         f"TP1: {sig.tp1:.6g} | SL: {sig.sl:.6g}\n"
-                        f"SL: {SL_PCT*100:.2f}% | TP1: {TP1_PCT*100:.2f}% "
+                        f"SL: {abs(sig.entry_price-sig.sl)/sig.entry_price*100:.3f}% "
+                        f"| TP1: {abs(sig.tp1-sig.entry_price)/sig.entry_price*100:.3f}% "
                         f"(R:R 1:{sig.rr_ratio:.1f})\n"
                         f"Conf: {sig.confidence:.0f}% | Lev: {sig.leverage}x | "
                         f"Vol↑: {snap.vol_spike}",
@@ -659,10 +664,12 @@ class AEGISGEXBot:
             f"Universe: ≤{_BinanceClient.MAX_SYMBOLS} USDM Perpetuals\n"
             f"Min Confidence: {self.MIN_CONF:.0f}%\n"
             f"Max signals: {self.limiter.MAX_HR}/hr\n\n"
-            f"SL: ATR-adaptive (0.4–1.2×ATR, hard cap {SL_PCT*100:.2f}%)\n"
-            f"  Priority: nearest flip → VWAP → VPOC → γ wall → VWAP±ATR\n"
-            f"  TP1: {TP1_PCT*100:.2f}% FIXED | TP2: {TP2_PCT*100:.2f}% FIXED\n"
-            f"  TP3: {TP3_PCT*100:.2f}% base → GEX wall / compression target\n\n"
+            f"SL: ATR-adaptive ({_SL_FLOOR_ATR:.2f}–{_SL_BUDGET_ATR:.2f}×ATR, "
+            f"floor {_SL_ABS_FLOOR*100:.2f}%, cap {_SL_ABS_CAP*100:.2f}%)\n"
+            f"  Priority: nearest flip → GEX proxy → VWAP → VPOC → γ wall → VWAP±ATR\n"
+            f"  TP1: {_TP_RR1:.0f}×risk | TP2: {_TP_RR2:.0f}×risk | "
+            f"TP3: {_TP_RR3:.0f}×risk → GEX wall / compression target\n"
+            f"  Max account risk per trade: {_LEV_RISK_PCT*100:.1f}% | Lev scales with SL\n\n"
             f"Quality Gates (20 layers):\n"
             f"  Conf ≥ {self.MIN_CONF:.0f}% | DGRP ≥ 40 | Vol spike OR DGRP ≥ 58\n"
             f"  ATR-adaptive move | FLIP ZONE or flip ≥ 65 str | 15m DGRP ≥ 25\n"
@@ -691,7 +698,8 @@ class AEGISGEXBot:
             f"Up: {hrs}h {mns}m | Cycles: {self._cycles} | Signals: {self._signals}\n"
             f"Syms: {len(self._syms)} | TF: {self.PRIMARY_TF}+{self.CONFIRM_TF}\n"
             f"Rate/hr cap: {self.limiter.MAX_HR} | "
-            f"SL: {SL_PCT*100:.2f}% | TP1: {TP1_PCT*100:.2f}%",
+            f"SL: ATR-adaptive ({_SL_FLOOR_ATR:.2f}–{_SL_BUDGET_ATR:.2f}×ATR) | "
+            f"TP: {_TP_RR1:.0f}/{_TP_RR2:.0f}/{_TP_RR3:.0f}×risk",
         )
 
     # ── Main loop ─────────────────────────────────────────────────────────────
