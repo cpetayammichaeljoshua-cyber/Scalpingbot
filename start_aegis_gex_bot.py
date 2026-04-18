@@ -26,14 +26,10 @@ Environment Variables (all optional with sensible defaults):
   GEX_SYMBOL_GAP_SEC      — Min gap per symbol (default: 300)
   GEX_DEDUP_MINUTES       — Same-direction dedup window (default: 20)
 
-  GEX_SL_ABS_FLOOR        — Absolute SL noise floor (default: 0.0005 = 0.05%)
-  GEX_SL_ABS_CAP          — Absolute SL hard safety cap (default: 0.0050 = 0.50%)
-  GEX_SL_FLOOR_ATR        — Min SL = N × ATR (default: 0.40)
-  GEX_SL_BUDGET_ATR       — Max SL = N × ATR (default: 1.20)
-  GEX_TP_RR1              — TP1 R:R multiplier (default: 3.0 → 3× SL risk)
-  GEX_TP_RR2              — TP2 R:R multiplier (default: 6.0 → 6× SL risk)
-  GEX_TP_RR3              — TP3 R:R multiplier (default: 9.0 → 9× SL risk)
-  GEX_LEV_RISK_PCT        — Max account risk per trade for lev cap (default: 0.015 = 1.5%)
+  GEX_SL_PCT              — Stop loss % from entry (default: 0.0018 = 0.18%)
+  GEX_TP1_PCT             — TP1 % from entry (default: 0.0054 = 0.54%)
+  GEX_TP2_PCT             — TP2 % from entry (default: 0.0108 = 1.08%)
+  GEX_TP3_PCT             — TP3 % from entry (default: 0.0162 = 1.62%)
 
   GEX_HEALTH_PORT         — HTTP health check port (default: 8080)
   LOG_LEVEL               — Logging verbosity (default: INFO)
@@ -169,26 +165,18 @@ def _preflight() -> bool:
         log.error(f"❌ GEX_MIN_CONFIDENCE must be 0-100. Got: {conf_str}")
         ok = False
 
-    # ATR-adaptive SL / R:R sanity
+    # SL / TP sanity
     try:
-        sl_floor = float(os.getenv("GEX_SL_ABS_FLOOR",  "0.0005"))
-        sl_cap   = float(os.getenv("GEX_SL_ABS_CAP",    "0.0050"))
-        rr1      = float(os.getenv("GEX_TP_RR1",        "3.0"))
-        rr2      = float(os.getenv("GEX_TP_RR2",        "6.0"))
-        rr3      = float(os.getenv("GEX_TP_RR3",        "9.0"))
-        sl_f_atr = float(os.getenv("GEX_SL_FLOOR_ATR",  "0.40"))
-        sl_b_atr = float(os.getenv("GEX_SL_BUDGET_ATR", "1.20"))
-        if sl_floor <= 0 or sl_cap <= 0 or sl_floor >= sl_cap:
-            raise ValueError("SL floor must be positive and less than SL cap")
-        if rr1 < 2.0:
-            raise ValueError(f"GEX_TP_RR1={rr1} must be ≥ 2.0")
+        sl  = float(os.getenv("GEX_SL_PCT",  "0.0018"))
+        tp1 = float(os.getenv("GEX_TP1_PCT", "0.0054"))
+        if sl <= 0 or tp1 <= 0:
+            raise ValueError("SL/TP must be positive")
+        rr = tp1 / sl
         log.info(
-            f"✅ SL=ATR×{sl_f_atr:.2f}–{sl_b_atr:.2f} "
-            f"(floor {sl_floor*100:.2f}%, cap {sl_cap*100:.2f}%)  "
-            f"TP1={rr1:.1f}×risk  TP2={rr2:.1f}×risk  TP3={rr3:.1f}×risk"
+            f"✅ SL={sl*100:.2f}%  TP1={tp1*100:.2f}%  R:R={rr:.2f}:1"
         )
     except (ValueError, ZeroDivisionError) as e:
-        log.error(f"❌ ATR-adaptive SL/TP config invalid: {e}")
+        log.error(f"❌ GEX_SL_PCT / GEX_TP1_PCT invalid: {e}")
         ok = False
 
     return ok
@@ -203,7 +191,7 @@ async def main() -> None:
 
     log.info("=" * 60)
     log.info("  AEGIS GEX v1.0 — Dealer Flow Engine")
-    log.info("  5m Scalp: SL ATR-adaptive | TP 3×/6×/9× risk | ≥3:1 R:R")
+    log.info("  5m Scalp: SL 0.18% | TP 0.54% | 3:1 R:R")
     log.info("  Standalone — isolated from all other bots")
     log.info("=" * 60)
 

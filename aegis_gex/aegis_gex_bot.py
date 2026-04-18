@@ -7,21 +7,15 @@ Primary TF: 5m  |  Confirmation TF: 15m  |  Scan: 30s
 
 Signal Logic (AEGIS GEX v1.0 spec):
   Entry  : Mark price CROSSES a GEX flip level in real-time
-  SL     : ATR-adaptive dynamic anchor — nearest technical level within
-           [max(0.05%, 0.40×ATR), min(0.50%, 1.20×ATR)] budget.
-           Levels (priority): nearest flip → GEX proxy → VWAP → VPOC →
-           gamma wall → VWAP±0.5ATR → VWAP±1ATR. Hard cap: 0.50%.
-  TP1    : Entry ± risk × 3.0  (3:1 R:R — scales with actual SL distance)
-  TP2    : Entry ± risk × 6.0  (6:1 R:R)
-  TP3    : Entry ± risk × 9.0  (9:1 base) or nearest GEX wall / compression target
+  TP1    : Entry × 1.0054  (0.54% — 3 × SL)
+  TP2    : Entry × 1.0108  (1.08% — 6 × SL)
+  TP3    : Entry × 1.0162  (1.62% — 9 × SL) or nearest GEX wall
+  SL     : Entry × 0.9982  (0.18% fixed)
 
-Quality Gates (ALL 20 must pass):
-  Confidence ≥ 68% | DGRP ≥ 40 | Vol spike or DGRP ≥ 58 | Bias aligned
-  ATR-adaptive min price move | FLIP ZONE or strength ≥ 65
-  15m DGRP ≥ 25 | OPEX: conf ≥ 73% | 15m bias aligned
-  VWAP side (0.3 ATR exception) | Momentum direction | EMA50 trend
-  Funding not crowded | OI delta aligned | IV Z ≤ 3.0
-  ATR not overextended | StochRSI not extreme | Stoch K/D cross | R:R ≥ 2.8
+Quality Gates (all must pass):
+  Confidence ≥ 68 % | DGRP ≥ 40 | Vol spike or DGRP ≥ 55
+  Bias aligned with signal | 15m confirmation | R:R ≥ 3.0
+  StochRSI not extreme against direction
 
 Dashboard (exact match to TradingView AEGIS GEX v1.0):
   Regime | DGRP Score | Candle | RV Ratio | IV Proxy Z
@@ -53,14 +47,10 @@ from aegis_gex.gex_engine import (
     GEXSnapshot,
     GEXZone,
     _fmt_price,
-    _SL_ABS_FLOOR,
-    _SL_ABS_CAP,
-    _SL_FLOOR_ATR,
-    _SL_BUDGET_ATR,
-    _TP_RR1,
-    _TP_RR2,
-    _TP_RR3,
-    _LEV_RISK_PCT,
+    SL_PCT,
+    TP1_PCT,
+    TP2_PCT,
+    TP3_PCT,
 )
 
 logger = logging.getLogger(__name__)
@@ -350,53 +340,161 @@ def _sig_label(st: str) -> str:
 
 def format_aegis_signal(sig: GEXSignal) -> str:
     """
-    STRICT Cornix-compatible trading signal.
+    Cornix-compatible signal + full AEGIS GEX Dashboard Table.
 
-    Format (exactly as required for Cornix auto-execution):
-      🟢/🔴 #SYMBOL LONG/SHORT
-      Exchange: Binance Futures
-      Leverage: Cross Xx
-
-      Entry Targets:
-      1) <price>
-
-      Take-Profit Targets:
-      1) <price>
-      2) <price>
-      3) <price>
-
-      Stop Targets:
-      1) <price>
-
-    Rules:
-      • Pure decimal prices ONLY on every target line — no text, no % after price
-      • Emoji prefix on header line is recognised and displayed by Telegram/Cornix
-      • Blank line between every section (required by Cornix parser)
-      • Nothing after Stop Targets — Cornix signal is self-contained
-
-    SL / TP (ATR-adaptive per symbol — 5m scalp ≥3:1 R:R):
-      SL = ATR-anchored (0.05–0.50% range)  TP1/TP2/TP3 = SL_risk × 3/6/9
+    Dashboard matches the TradingView AEGIS GEX v1.0 indicator exactly:
+      Regime | DGRP | Candle | RV Ratio | IV Proxy Z
+      Compression | Vanna | Charm Decay | Delta Bias | Exp Move
+      Dealer Flow | GEX Regime | GEX Flip ± | Signal
     """
-    d_e = "🟢" if sig.action == "BUY" else "🔴"
+    snap = sig.snapshot
+    d_e  = "🟢" if sig.action == "BUY" else "🔴"
     e, tp1, tp2, tp3, sl = sig.entry_price, sig.tp1, sig.tp2, sig.tp3, sig.sl
-    lev = sig.leverage
+    lev  = sig.leverage
 
-    return (
+    tp1p = _pct(tp1, e)
+    tp2p = _pct(tp2, e)
+    tp3p = _pct(tp3, e)
+    slp  = _pct(sl,  e)
+
+    ts   = datetime.utcnow().strftime("%H:%M")
+    date = datetime.utcnow().strftime("%b %d")
+
+    # ── Dealer flow string ────────────────────────────────────────────────────
+    df_abs  = abs(snap.dealer_flow_m)
+    df_sign = "+" if snap.dealer_flow_m >= 0 else "-"
+    if df_abs >= 1000.0:
+        df_str = f"{df_sign}{df_abs / 1000:.1f}B"
+    elif df_abs >= 1.0:
+        df_str = f"{df_sign}{df_abs:.1f}M"
+    else:
+        df_str = f"{df_sign}{df_abs * 1000:.0f}K"
+
+    # ── Expected move string ──────────────────────────────────────────────────
+    em_str = f"± {_fmt(snap.exp_move)}"
+
+    # ── GEX flip + band string ────────────────────────────────────────────────
+    gf_str = f"{_fmt(snap.gex_flip)} ± {_fmt(snap.gex_flip_band)}"
+
+    # ── Regime icon ───────────────────────────────────────────────────────────
+    regime_icon = {
+        "FLIP ZONE": "🟡", "POSITIVE": "🟢",
+        "NEGATIVE":  "🔴", "NEUTRAL":  "⚪",
+    }.get(snap.regime, "⚪")
+
+    gex_reg_icon = "🟢" if snap.gex_regime == "LONG GAMMA" else (
+                   "🔴" if snap.gex_regime == "SHORT GAMMA" else "🟡")
+
+    bias_e = "🐂" if sig.bias == "BULLISH" else ("🐻" if sig.bias == "BEARISH" else "⚖️")
+
+    # ── Signal labels ─────────────────────────────────────────────────────────
+    st_label   = _sig_label(sig.signal_type)
+    zone_arrow = "↑" if sig.action == "BUY" else "↓"
+    from_lbl   = sig.gex_zone_from[:3] if sig.gex_zone_from else "NEU"
+    to_lbl     = sig.gex_zone_to[:3]   if sig.gex_zone_to   else "POS"
+    gex_zone   = f"GEX {from_lbl}{zone_arrow}{to_lbl}"
+
+    # ── Chart levels ──────────────────────────────────────────────────────────
+    cw_str = _fmt(snap.call_wall) if snap.call_wall else "—"
+    pw_str = _fmt(snap.put_wall)  if snap.put_wall  else "—"
+    vt_up  = _fmt(snap.vol_trigger_up)
+    vt_dn  = _fmt(snap.vol_trigger_dn)
+
+    # VWAP position
+    vwap_pos = "above" if e > snap.vwap else "below"
+    vwap_b1  = f"[{_fmt(snap.vwap_minus1_atr)} – {_fmt(snap.vwap_plus1_atr)}]"
+    vwap_b2  = f"[{_fmt(snap.vwap_minus2_atr)} – {_fmt(snap.vwap_plus2_atr)}]"
+
+    # 50 EMA
+    ema_str = ""
+    if sig.ema50 and sig.ema50 > 0:
+        ema_str = f"EMA50: {'>' if e > sig.ema50 else '<'} {_fmt(sig.ema50)}\n"
+
+    # Nearest flip levels
+    nf_up  = _fmt(snap.nearest_flip_up)   if snap.nearest_flip_up   else "—"
+    nf_dn  = _fmt(snap.nearest_flip_down) if snap.nearest_flip_down else "—"
+    all_fl = sorted(set(_fmt(fl.price) for fl in snap.all_flip_levels[:6]))
+
+    # Compression / Vanna info
+    extra = ""
+    if snap.compression_zones:
+        cz    = snap.compression_zones[0]
+        tgt_s = _fmt(cz.target) if cz.target else "?"
+        extra += (f"Compression: [{_fmt(cz.price_low)} – {_fmt(cz.price_high)}]"
+                  f" → {tgt_s}\n")
+    if sig.vanna_entry:
+        extra += f"Vanna Entry Line: {_fmt(sig.vanna_entry)}\n"
+
+    # Volume / StochRSI context
+    vol_str = ""
+    if snap.vol_spike:
+        vol_ratio = snap.vol_last / max(snap.vol_avg, 1.0)   # float division always
+        vol_str = f"⚡ Vol Spike: {vol_ratio:.1f}×avg\n"
+    stoch_str = f"RSI: {snap.rsi:.1f}  |  Stoch %K: {snap.stoch_k:.1f}\n"
+
+    opex_str = "\n⚠️ OPEX WEEK — reduced confidence\n" if snap.is_opex_week else ""
+    sess_str = f"Session+{snap.session_open_minute}min"
+
+    msg = (
         f"{d_e} #{sig.symbol} {sig.direction}\n"
         f"Exchange: Binance Futures\n"
-        f"Leverage: Cross {lev}x\n"
-        f"\n"
-        f"Entry Targets:\n"
-        f"1) {_fmt(e)}\n"
-        f"\n"
+        f"Leverage: Cross {lev}x\n\n"
+        f"Entry Targets:\n1) {_fmt(e)}\n\n"
         f"Take-Profit Targets:\n"
-        f"1) {_fmt(tp1)}\n"
-        f"2) {_fmt(tp2)}\n"
-        f"3) {_fmt(tp3)}\n"
+        f"1) {_fmt(tp1)}  (+{tp1p:.2f}%)\n"
+        f"2) {_fmt(tp2)}  (+{tp2p:.2f}%)\n"
+        f"3) {_fmt(tp3)}  (+{tp3p:.2f}%)\n\n"
+        f"Stop Targets:\n1) {_fmt(sl)}  (-{slp:.2f}%)\n\n"
+        f"━━ AEGIS GEX v1.0 Dashboard ━━━━━━━━━\n"
+        f"Regime:       {regime_icon} {snap.regime}\n"
+        f"DGRP Score:   {snap.dgrp_score:.0f} / 100\n"
+        f"Candle:       {snap.candle_state}\n"
+        f"RV Ratio:     {snap.rv_ratio:.2f}\n"
+        f"IV Proxy Z:   {snap.iv_proxy_z:+.2f}\n"
+        f"Compression:  {snap.compression_state}\n"
+        f"Vanna:        {snap.vanna_state}\n"
+        f"Charm Decay:  {snap.charm_state}\n"
+        f"Delta Bias:   {snap.delta_bias}\n"
+        f"Exp Move:     {em_str}\n"
+        f"Dealer Flow:  {df_str}\n"
+        f"GEX Regime:   {gex_reg_icon} {snap.gex_regime}\n"
+        f"GEX Flip:     ${gf_str}\n"
+        f"Signal:       {st_label} {gex_zone}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Chart Levels:\n"
+        f"GEX Flip Proxy:    {_fmt(snap.gamma_flip_proxy)}\n"
+        f"Call Wall:         {cw_str}\n"
+        f"Put Wall:          {pw_str}\n"
+        f"VOL Trigger UP:    {vt_up}\n"
+        f"VOL Trigger DN:    {vt_dn}\n"
+        f"GEX Flip ↑: {nf_up}  |  ↓: {nf_dn}\n"
+        f"All GEX Flips:     {', '.join(all_fl)}\n"
         f"\n"
-        f"Stop Targets:\n"
-        f"1) {_fmt(sl)}"
+        f"VWAP ({_fmt(snap.vwap)}):  {vwap_pos}\n"
+        f"VWAP ±1 ATR:  {vwap_b1}\n"
+        f"VWAP ±2 ATR:  {vwap_b2}\n"
+        f"Exp Move Bands: [{_fmt(snap.expected_move_lower)} – {_fmt(snap.expected_move_upper)}]\n"
     )
+
+    if ema_str:
+        msg += ema_str
+    if extra:
+        msg += extra
+    if vol_str:
+        msg += vol_str
+
+    msg += stoch_str
+    msg += (
+        f"\n"
+        f"Confidence: {sig.confidence:.0f}%  |  R:R 1:{sig.rr_ratio:.1f}  |  Lev: {lev}x\n"
+        f"SL: {SL_PCT*100:.2f}%  |  TP1: {TP1_PCT*100:.2f}%  |  TP2: {TP2_PCT*100:.2f}%  |  TP3: {TP3_PCT*100:.2f}%\n"
+        f"Funding: {sig.funding_rate*100:+.4f}%  |  OI∆: {sig.oi_delta_pct:+.1f}%\n"
+        f"ATR: {_fmt(snap.atr)}  |  {sess_str}  |  {sig.timeframe} TF\n"
+        f"{date} {ts} UTC  |  {bias_e} {sig.bias}"
+        f"{opex_str}\n"
+        f"📡 @ichimokutradingsignal | AEGIS GEX v1.0"
+    )
+    return msg
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -409,7 +507,7 @@ class AEGISGEXBot:
 
     Primary TF: 5m | Confirmation TF: 15m | Scan: 30s
     All 80 USDM symbols in true parallel (asyncio.gather + Semaphore).
-    SL: ATR-adaptive (0.40–1.20×ATR, hard cap 0.50%) | TP: 3×/6×/9× actual risk.
+    Fixed SL/TP: 0.18% SL / 0.54% TP (3:1 R:R) on every signal.
     """
 
     SCAN_INTERVAL   = int(os.getenv("GEX_SCAN_INTERVAL_SEC",  "30"))
@@ -453,8 +551,7 @@ class AEGISGEXBot:
             f"🛡️ AEGIS GEX v1.0 | CH:{self.channel_id} | "
             f"TF:{self.PRIMARY_TF}+{self.CONFIRM_TF} | "
             f"Scan:{self.SCAN_INTERVAL}s | MinConf:{self.MIN_CONF:.0f}% | "
-            f"SL:ATR×{_SL_FLOOR_ATR:.2f}–{_SL_BUDGET_ATR:.2f} | "
-            f"TP:{_TP_RR1:.0f}/{_TP_RR2:.0f}/{_TP_RR3:.0f}×risk"
+            f"SL:{SL_PCT*100:.2f}% TP:{TP1_PCT*100:.2f}%"
         )
 
     # ── Telegram ──────────────────────────────────────────────────────────────
@@ -612,8 +709,7 @@ class AEGISGEXBot:
                         f"GEX: {snap.gex_regime}\n"
                         f"Entry: {sig.entry_price:.6g} → "
                         f"TP1: {sig.tp1:.6g} | SL: {sig.sl:.6g}\n"
-                        f"SL: {abs(sig.entry_price-sig.sl)/sig.entry_price*100:.3f}% "
-                        f"| TP1: {abs(sig.tp1-sig.entry_price)/sig.entry_price*100:.3f}% "
+                        f"SL: {SL_PCT*100:.2f}% | TP1: {TP1_PCT*100:.2f}% "
                         f"(R:R 1:{sig.rr_ratio:.1f})\n"
                         f"Conf: {sig.confidence:.0f}% | Lev: {sig.leverage}x | "
                         f"Vol↑: {snap.vol_spike}",
@@ -664,17 +760,15 @@ class AEGISGEXBot:
             f"Universe: ≤{_BinanceClient.MAX_SYMBOLS} USDM Perpetuals\n"
             f"Min Confidence: {self.MIN_CONF:.0f}%\n"
             f"Max signals: {self.limiter.MAX_HR}/hr\n\n"
-            f"SL: ATR-adaptive ({_SL_FLOOR_ATR:.2f}–{_SL_BUDGET_ATR:.2f}×ATR, "
-            f"floor {_SL_ABS_FLOOR*100:.2f}%, cap {_SL_ABS_CAP*100:.2f}%)\n"
-            f"  Priority: nearest flip → GEX proxy → VWAP → VPOC → γ wall → VWAP±ATR\n"
-            f"  TP1: {_TP_RR1:.0f}×risk | TP2: {_TP_RR2:.0f}×risk | "
-            f"TP3: {_TP_RR3:.0f}×risk → GEX wall / compression target\n"
-            f"  Max account risk per trade: {_LEV_RISK_PCT*100:.1f}% | Lev scales with SL\n\n"
-            f"Quality Gates (20 layers):\n"
-            f"  Conf ≥ {self.MIN_CONF:.0f}% | DGRP ≥ 40 | Vol spike OR DGRP ≥ 58\n"
-            f"  ATR-adaptive move | FLIP ZONE or flip ≥ 65 str | 15m DGRP ≥ 25\n"
-            f"  OPEX conf +5% | VWAP side | Momentum | EMA50 | Funding | OI\n"
-            f"  IV Z ≤ 3.0 | ATR overext | StochRSI | Stoch K/D | R:R ≥ 2.8\n\n"
+            f"Fixed SL / TP (from entry):\n"
+            f"  SL:  {SL_PCT*100:.2f}%  ({SL_PCT*100:.2f}% below entry)\n"
+            f"  TP1: {TP1_PCT*100:.2f}%  (3:1 R:R)\n"
+            f"  TP2: {TP2_PCT*100:.2f}%  (6:1 R:R)\n"
+            f"  TP3: {TP3_PCT*100:.2f}%  (9:1 R:R / GEX wall)\n\n"
+            f"Quality Gates:\n"
+            f"  Confidence ≥ {self.MIN_CONF:.0f}% | DGRP ≥ 40\n"
+            f"  Vol spike OR DGRP ≥ 55 | Bias aligned\n"
+            f"  15m confirmation | StochRSI filter\n\n"
             f"Dashboard: Regime | DGRP | Candle | RV Ratio | IV Proxy Z\n"
             f"           Compression | Vanna | Charm | Delta Bias | Exp Move\n"
             f"           Dealer Flow | GEX Regime | GEX Flip ± Band\n\n"
@@ -698,8 +792,7 @@ class AEGISGEXBot:
             f"Up: {hrs}h {mns}m | Cycles: {self._cycles} | Signals: {self._signals}\n"
             f"Syms: {len(self._syms)} | TF: {self.PRIMARY_TF}+{self.CONFIRM_TF}\n"
             f"Rate/hr cap: {self.limiter.MAX_HR} | "
-            f"SL: ATR-adaptive ({_SL_FLOOR_ATR:.2f}–{_SL_BUDGET_ATR:.2f}×ATR) | "
-            f"TP: {_TP_RR1:.0f}/{_TP_RR2:.0f}/{_TP_RR3:.0f}×risk",
+            f"SL: {SL_PCT*100:.2f}% | TP1: {TP1_PCT*100:.2f}%",
         )
 
     # ── Main loop ─────────────────────────────────────────────────────────────

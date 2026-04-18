@@ -54,37 +54,11 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── ATR-adaptive SL parameters — symbol-specific, NOT a fixed % from entry ────
-# The SL is anchored to the nearest meaningful technical level (GEX flip,
-# VWAP, VPOC, gamma wall, or VWAP±ATR band) within a per-symbol ATR-scaled
-# budget.  There is NO hard-coded 0.18 % SL.  Every symbol gets a stop that
-# matches its actual volatility profile.
-#
-# Budget rules (both are evaluated per-trade):
-#   sl_min_pct = max(_SL_ABS_FLOOR, ATR/price × _SL_FLOOR_ATR)
-#                   → never tighter than 0.4 ATR (survives micro-wicks)
-#   sl_max_pct = min(_SL_ABS_CAP,   ATR/price × _SL_BUDGET_ATR)
-#                   → never wider than 1.2 ATR (controls position risk)
-#   Hard safety cap: _SL_ABS_CAP = 0.50% prevents runaway stops on any symbol.
-_SL_ABS_FLOOR  = float(os.getenv("GEX_SL_ABS_FLOOR",  "0.0005"))  # 0.05% noise floor
-_SL_ABS_CAP    = float(os.getenv("GEX_SL_ABS_CAP",    "0.0050"))  # 0.50% hard safety cap
-_SL_FLOOR_ATR  = float(os.getenv("GEX_SL_FLOOR_ATR",  "0.40"))    # min = 0.40 × ATR
-_SL_BUDGET_ATR = float(os.getenv("GEX_SL_BUDGET_ATR", "1.20"))    # max = 1.20 × ATR
-
-# ── R:R ratio targets — TPs scale with actual SL risk, NOT a fixed % ──────────
-# TP1 = risk × 3.0,  TP2 = risk × 6.0,  TP3 = risk × 9.0 (or GEX wall).
-# A 0.05% SL → TP1 at 0.15%;  a 0.30% SL → TP1 at 0.90%.  Always 3:1 minimum.
-_TP_RR1 = float(os.getenv("GEX_TP_RR1", "3.0"))   # TP1 = 3 × risk
-_TP_RR2 = float(os.getenv("GEX_TP_RR2", "6.0"))   # TP2 = 6 × risk
-_TP_RR3 = float(os.getenv("GEX_TP_RR3", "9.0"))   # TP3 = 9 × risk (or GEX wall)
-
-# ── Account-risk leverage cap — protects position sizing ──────────────────────
-# Max leverage based on SL distance: lev ≤ _LEV_RISK_PCT / sl_pct
-# Example: 1.5% risk budget, SL = 0.20% → max lev = 7×
-_LEV_RISK_PCT = float(os.getenv("GEX_LEV_RISK_PCT", "0.015"))  # 1.5% max account risk
-
-# Minimum R:R threshold — signal is rejected if TP1/SL < this value
-_MIN_RR = 2.8
+# ── Fixed SL / TP percentages (5m scalp specification) ────────────────────────
+SL_PCT  = float(os.getenv("GEX_SL_PCT",  "0.0018"))   # 0.18 %
+TP1_PCT = float(os.getenv("GEX_TP1_PCT", "0.0054"))   # 0.54 % (3 × SL)
+TP2_PCT = float(os.getenv("GEX_TP2_PCT", "0.0108"))   # 1.08 % (6 × SL)
+TP3_PCT = float(os.getenv("GEX_TP3_PCT", "0.0162"))   # 1.62 % (9 × SL)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -181,8 +155,6 @@ class GEXSnapshot:
     vol_spike: bool                 # True if last bar volume > 1.3× average
     rsi: float                      # RSI(14) at current price
     stoch_k: float                  # Stochastic %K (14,3,3)
-    stoch_d: float                  # Stochastic %D (signal line — SMA of %K)
-    vpoc: Optional[float]           # Volume Point of Control (highest-volume price)
     bias: str                       # "BULLISH" | "BEARISH" | "NEUTRAL"
     confidence: float               # 0–100
     is_opex_week: bool
@@ -435,130 +407,6 @@ def _fmt_price(v: float) -> str:
     return f"{sign}{av:.{min(sig, 10)}f}"
 
 
-def _dynamic_sl(entry: float, action: str, snap: "GEXSnapshot") -> float:
-    """
-    ATR-adaptive dynamic SL anchored to the tightest meaningful technical
-    level within a per-symbol volatility-scaled risk budget.
-
-    Adaptive SL boundaries (per-symbol ATR-scaled, hard cap _SL_ABS_CAP = 0.50%):
-      sl_min_pct = max(_SL_ABS_FLOOR, ATR/entry × _SL_FLOOR_ATR)
-                   → noise floor: at least 0.4 ATR (survives micro-wicks)
-      sl_max_pct = min(_SL_ABS_CAP,   ATR/entry × _SL_BUDGET_ATR)
-                   → risk ceiling: at most 1.2 ATR (never > 0.50%)
-      If sl_min_pct ≥ sl_max_pct : sl_min_pct is floored at sl_max_pct × 0.5
-
-    Level priority — tested in order; ALL qualifying levels are collected and
-    the tightest (closest to entry) is returned:
-      1. Nearest GEX flip below price (BUY) / above price (SELL) — the exact
-         gamma boundary that invalidates the thesis if recrossed.
-      2. GEX flip proxy / gamma flip proxy — primary AEGIS GEX zero-crossing.
-      3. VWAP — strongest real-time institutional anchor.
-      4. VPOC — Volume Point of Control; the highest-volume price node.
-      5. Put wall (BUY) / Call wall (SELL) — gamma support / resistance.
-      6. VWAP ± 0.5 × ATR — intermediate intraday volatility band.
-      7. VWAP ± 1.0 × ATR (stored vwap_minus1_atr / vwap_plus1_atr) — wider
-         band used as last-resort technical anchor before full-budget fallback.
-    Fallback: full ATR-scaled SL (= sl_max) when no level qualifies.
-    """
-    atr_pct    = snap.atr / max(entry, 1e-10)
-    # Noise floor: at least _SL_FLOOR_ATR × ATR, never below absolute floor
-    sl_min_pct = max(_SL_ABS_FLOOR, atr_pct * _SL_FLOOR_ATR)
-    # Risk ceiling: at most _SL_BUDGET_ATR × ATR, never above absolute safety cap
-    sl_max_pct = min(_SL_ABS_CAP,   atr_pct * _SL_BUDGET_ATR)
-    # Safety: ensure min < max so the valid window is non-empty
-    if sl_min_pct >= sl_max_pct:
-        sl_min_pct = sl_max_pct * 0.50
-
-    if action == "BUY":
-        # SL must be BELOW entry
-        # sl_floor  = furthest allowed (lowest price) = tightest risk budget
-        # sl_ceil   = closest allowed (highest price below entry) = noise floor
-        sl_floor  = entry * (1.0 - sl_max_pct)
-        sl_ceil   = entry * (1.0 - sl_min_pct)
-
-        def _ok_buy(p: Optional[float]) -> bool:
-            return (p is not None and math.isfinite(p)
-                    and p > 0 and sl_floor <= p <= sl_ceil)
-
-        cands: List[float] = []
-
-        # 1. Nearest flip DOWN (strongest GEX anchor just below price)
-        if _ok_buy(snap.nearest_flip_down):
-            cands.append(snap.nearest_flip_down)
-
-        # 2. GEX flip proxy / gamma flip proxy
-        for lvl in (snap.gex_flip, snap.gamma_flip_proxy):
-            if _ok_buy(lvl):
-                cands.append(lvl)
-
-        # 3. VWAP
-        if _ok_buy(snap.vwap):
-            cands.append(snap.vwap)
-
-        # 4. VPOC
-        if _ok_buy(snap.vpoc):
-            cands.append(snap.vpoc)
-
-        # 5. Put wall
-        if _ok_buy(snap.put_wall):
-            cands.append(snap.put_wall)
-
-        # 6. VWAP – 0.5 ATR
-        if snap.vwap and snap.atr:
-            if _ok_buy(snap.vwap - snap.atr * 0.5):
-                cands.append(snap.vwap - snap.atr * 0.5)
-
-        # 7. VWAP – 1.0 ATR (explicit snapshot band)
-        if _ok_buy(snap.vwap_minus1_atr):
-            cands.append(snap.vwap_minus1_atr)
-
-        # Tightest valid level = closest to entry = highest qualifying price
-        return max(cands) if cands else sl_floor
-
-    else:  # SELL — SL must be ABOVE entry
-        sl_floor  = entry * (1.0 + sl_min_pct)   # closest (lowest price above)
-        sl_ceil   = entry * (1.0 + sl_max_pct)   # furthest (highest price)
-
-        def _ok_sell(p: Optional[float]) -> bool:
-            return (p is not None and math.isfinite(p)
-                    and p > 0 and sl_floor <= p <= sl_ceil)
-
-        cands = []
-
-        # 1. Nearest flip UP
-        if _ok_sell(snap.nearest_flip_up):
-            cands.append(snap.nearest_flip_up)
-
-        # 2. GEX flip proxy / gamma flip proxy
-        for lvl in (snap.gex_flip, snap.gamma_flip_proxy):
-            if _ok_sell(lvl):
-                cands.append(lvl)
-
-        # 3. VWAP
-        if _ok_sell(snap.vwap):
-            cands.append(snap.vwap)
-
-        # 4. VPOC
-        if _ok_sell(snap.vpoc):
-            cands.append(snap.vpoc)
-
-        # 5. Call wall
-        if _ok_sell(snap.call_wall):
-            cands.append(snap.call_wall)
-
-        # 6. VWAP + 0.5 ATR
-        if snap.vwap and snap.atr:
-            if _ok_sell(snap.vwap + snap.atr * 0.5):
-                cands.append(snap.vwap + snap.atr * 0.5)
-
-        # 7. VWAP + 1.0 ATR (explicit snapshot band)
-        if _ok_sell(snap.vwap_plus1_atr):
-            cands.append(snap.vwap_plus1_atr)
-
-        # Tightest valid level = closest to entry = lowest qualifying price
-        return min(cands) if cands else sl_ceil
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # AEGIS GEX Engine v4 — Production Enhanced
 # ─────────────────────────────────────────────────────────────────────────────
@@ -580,9 +428,9 @@ class AEGISGEXEngine:
     ATR_SLOW_PERIOD   = 28          # For RV Ratio calculation
     ATR_MULT          = 0.65        # Strike spacing (tighter for precision)
     SIGMA_MULT        = 3.5         # Gaussian distribution width
-    FLIP_MIN_STR      = 8.0         # Minimum flip strength
+    FLIP_MIN_STR      = 8.0         # Minimum flip strength (lowered for more levels)
     WALL_MIN_STR      = 16.0        # Minimum wall strength
-    COMPRESS_MAX_GAP  = 1.5         # ATR gap for compression detection (tighter = higher quality)
+    COMPRESS_MAX_GAP  = 2.0         # ATR gap for compression detection
 
     # Signal quality gates
     MIN_CONFIDENCE    = float(os.getenv("GEX_MIN_CONFIDENCE", "68.0"))
@@ -781,15 +629,15 @@ class AEGISGEXEngine:
         vol_avg_20  = _vol_avg(closed_vols, 20)
         # Compare the last COMPLETED candle against the prior 20-bar average
         vol_last    = volumes[-2] if len(volumes) >= 2 else (volumes[-1] if volumes else 0.0)
-        vol_spike   = vol_last > vol_avg_20 * 1.5 if vol_avg_20 > 0 else False
+        vol_spike   = vol_last > vol_avg_20 * 1.4 if vol_avg_20 > 0 else False
 
         # ── RSI(14) ───────────────────────────────────────────────────────────
         rsi14 = _rsi(closes, 14)
 
-        # ── Stochastic (14,3,3) — both %K and %D stored ───────────────────────
+        # ── Stochastic (14,3,3) ───────────────────────────────────────────────
         stoch_k, stoch_d = _stochastic(closes, highs, lows, 14, 3, 3)
 
-        # ── VPOC (Volume Point of Control) ────────────────────────────────────
+        # ── VPOC ──────────────────────────────────────────────────────────────
         vpoc = _vpoc(closes, highs, lows, volumes, bins=120)
 
         # ── Session / Funding factors ─────────────────────────────────────────
@@ -1265,8 +1113,6 @@ class AEGISGEXEngine:
             vol_spike=vol_spike,
             rsi=rsi14,
             stoch_k=stoch_k,
-            stoch_d=stoch_d,
-            vpoc=vpoc,
             bias=bias,
             confidence=base_conf,
             is_opex_week=opex,
@@ -1286,34 +1132,21 @@ class AEGISGEXEngine:
         Detect GEX flip crossover between two consecutive real-time snapshots.
 
         Signal quality gates (ALL must pass):
-           1. Confidence ≥ min_confidence (default 68%)
-           2. DGRP Score ≥ MIN_DGRP (40)
-           3. Bias not NEUTRAL (requires directional conviction)
-           4. Vol spike OR DGRP ≥ 58 (raised from 55 for quality)
-           5. ATR-adaptive price move ≥ max(0.025%, 0.20 × ATR/price)
-           6. GEX flip crossover (≥65 strength outside FLIP ZONE)
-              OR compression break OR vanna entry
-           7. Bias alignment — signal direction must match snapshot bias
-           8. 15m DGRP ≥ 25 (multi-TF context gate)
-           9. OPEX week: confidence ≥ min_confidence + 5%
-          10. 15m confirmation bias aligned (if confirm_snap provided)
-          11. VWAP directional filter (within 0.3 ATR exception)
-          12. Momentum direction: price delta agrees with signal
-          13. EMA50 trend alignment (within 1.0 ATR exception)
-          14. Funding rate alignment (crowded-trade filter)
-          15. OI delta alignment (smart-money flow filter)
-          16. IV Z ≤ 3.0 (explosive-vol protection)
-          17. ATR overextension guard (≤ 1.5 ATR between scans)
-          18. Stoch/RSI extreme filter (no deep overbought/oversold)
-          19. Stochastic K/D cross alignment (momentum quality)
-          20. R:R ≥ 2.8 (≥3.0 typical with ATR-adaptive dynamic SL)
+          1. Confidence ≥ min_confidence (default 68%)
+          2. DGRP Score ≥ MIN_DGRP (40)
+          3. Price moved ≥ MIN_PRICE_MOVE (0.025%)
+          4. Bias not NEUTRAL (requires directional conviction)
+          5. Vol spike OR DGRP ≥ 55 (avoids low-volume fakes)
+          6. GEX flip crossover OR compression break OR vanna entry
+          7. R:R ≥ 3.0 (enforced via fixed TP/SL percentages)
+          8. 15m confirmation bias aligned (if confirm_snap provided)
+          9. StochRSI not extreme against signal direction
 
-        SL  : ATR-adaptive dynamic SL — tightest technical level within
-              [max(_SL_ABS_FLOOR, 0.40×ATR), min(_SL_ABS_CAP, 1.20×ATR)] budget.
-              Hard safety cap: 0.50%. Fallback: full ATR-scaled budget.
-        TP1 : entry ± risk × _TP_RR1  (3× actual SL risk — always 3:1 R:R)
-        TP2 : entry ± risk × _TP_RR2  (6× actual SL risk)
-        TP3 : entry ± risk × _TP_RR3  (9× base); extended to GEX wall or comp target
+        SL/TP (fixed percentages from entry):
+          SL  = entry × SL_PCT   (0.18%)
+          TP1 = entry × TP1_PCT  (0.54%)
+          TP2 = entry × TP2_PCT  (1.08%)
+          TP3 = entry × TP3_PCT  (1.62%)  — or nearest GEX wall if favourable
         """
         if snap_curr.confidence < min_confidence:
             return None
@@ -1336,11 +1169,7 @@ class AEGISGEXEngine:
             return None
 
         price_move_pct = abs(cp - pp) / pp
-        # ATR-adaptive minimum move: max(0.025%, 0.20 × ATR/price).
-        # Prevents false signals on slow-moving coins where 0.025% is noise.
-        atr_move_min = max(self.MIN_PRICE_MOVE,
-                           snap_curr.atr / max(cp, 1e-10) * 0.20)
-        if price_move_pct < atr_move_min:
+        if price_move_pct < self.MIN_PRICE_MOVE:
             return None
 
         flips = snap_curr.all_flip_levels
@@ -1358,8 +1187,8 @@ class AEGISGEXEngine:
         is_flip_zone = snap_curr.regime == "FLIP ZONE"
         for fl in sorted(flips, key=lambda x: x.strength, reverse=True):
             fp = fl.price
-            # Outside FLIP ZONE: require high-strength flip (≥65) for precision
-            if not is_flip_zone and fl.strength < 65.0:
+            # For GEX_FLIP entries require FLIP ZONE regime for best precision
+            if not is_flip_zone and fl.strength < 55.0:
                 continue
             if pp <= fp < cp:
                 crossed = fl; action = "BUY"; break
@@ -1412,18 +1241,6 @@ class AEGISGEXEngine:
         if action == "SELL" and snap_curr.bias == "BULLISH":
             return None
 
-        # ── Multi-timeframe DGRP quality gate ────────────────────────────────────
-        # If the 15m DGRP is extremely weak, the higher-TF regime provides no
-        # dealer flow context — reject to avoid low-context signals.
-        if confirm_snap is not None and confirm_snap.dgrp_score < 25.0:
-            return None
-
-        # ── OPEX week hard confidence gate ────────────────────────────────────
-        # During OPEX week, dealer repositioning creates unpredictable gamma
-        # spikes. Require 5% extra confidence above the normal threshold.
-        if snap_curr.is_opex_week and snap_curr.confidence < min_confidence + 5.0:
-            return None
-
         # ── 15m Confirmation alignment ─────────────────────────────────────────
         confirm_boost = 0.0
         if confirm_snap is not None:
@@ -1451,162 +1268,93 @@ class AEGISGEXEngine:
             if confirm_snap.vol_spike:
                 confirm_boost += 2.0
 
-        # ── VWAP directional filter ───────────────────────────────────────────────
-        # Price must be on the correct side of VWAP for the signal direction.
-        # Exception: tightened to 0.3 ATR — only allow VWAP-crossing entries
-        # (price is right at the VWAP boundary, not far on the wrong side).
-        vwap = snap_curr.vwap
-        atr  = snap_curr.atr
-        near_vwap = abs(cp - vwap) < atr * 0.3
-        if not near_vwap:
-            if action == "BUY"  and cp < vwap:
-                return None   # Price below VWAP — bias against long
-            if action == "SELL" and cp > vwap:
-                return None   # Price above VWAP — bias against short
-
-        # ── Momentum direction confirmation ───────────────────────────────────
-        # The price move between scan intervals must agree with the action.
-        # Prevents entering on counter-trend whipsaws at the flip level.
-        price_delta = cp - pp
-        if action == "BUY"  and price_delta < 0 and abs(price_delta) > atr * 0.05:
-            return None   # Price dropping into the flip — wait for momentum
-        if action == "SELL" and price_delta > 0 and abs(price_delta) > atr * 0.05:
-            return None   # Price rising into the flip — wait for momentum
-
-        # ── EMA50 trend alignment filter ─────────────────────────────────────
-        # Reject signals where price is significantly on the wrong side of EMA50.
-        # Allows signals within 1.0 ATR of EMA50 (crossing / testing EMA50).
-        ema50_val = snap_curr.ema50
-        if ema50_val and ema50_val > 0:
-            if action == "BUY"  and cp < ema50_val - atr * 1.0:
-                return None   # Price > 1 ATR below EMA50 — downtrend
-            if action == "SELL" and cp > ema50_val + atr * 1.0:
-                return None   # Price > 1 ATR above EMA50 — uptrend
-
-        # ── Funding rate alignment filter ─────────────────────────────────────
-        # Extreme funding against the signal direction = crowded trade,
-        # increased risk of snap-back. Threshold: 0.08% per 8h session.
-        fr = snap_curr.funding_rate
-        if action == "BUY"  and fr >  0.0008:
-            return None   # Crowded long — elevated squeeze risk
-        if action == "SELL" and fr < -0.0008:
-            return None   # Crowded short — elevated squeeze risk
-
-        # ── OI delta alignment filter ─────────────────────────────────────────
-        # Large OI drops against the signal direction indicate smart money
-        # closing positions — opposing signal conviction.
-        oi_d = snap_curr.oi_delta_pct
-        if action == "BUY"  and oi_d < -8.0:
-            return None   # Heavy long closing — bad for new long
-        if action == "SELL" and oi_d >  8.0:
-            return None   # Heavy open interest surge — short squeeze risk
-
-        # ── IV overload protection ────────────────────────────────────────────
-        # IV Proxy Z > 3.0 = explosive vol regime; entries are unpredictable
-        if abs(snap_curr.iv_proxy_z) > 3.0:
-            return None
-
-        # ── ATR overextension filter ──────────────────────────────────────────
-        # If the move between prev and curr already covers > 1.5 ATR, the
-        # entry is too late — the bulk of the move has already happened.
-        if price_move_pct > (atr / max(cp, 1e-10)) * 1.5:
-            return None
-
-        # ── Stochastic / RSI extreme filter ───────────────────────────────────
+        # ── Stochastic / RSI extreme filter ──────────────────────────────────────
         # Avoid chasing overbought BUY or oversold SELL entries
         sk  = snap_curr.stoch_k
-        sd  = snap_curr.stoch_d
         rsi = snap_curr.rsi
         if action == "BUY":
             if sk > 82 and rsi > 70:
                 return None   # Deep overbought — wait for pullback
             if rsi < 35 and snap_curr.delta_bias != "Net Bullish":
-                return None   # RSI too weak without strong bullish delta
+                return None   # RSI too weak to support BUY
         if action == "SELL":
             if sk < 18 and rsi < 30:
                 return None   # Deep oversold — wait for bounce
             if rsi > 65 and snap_curr.delta_bias != "Net Bearish":
-                return None   # RSI too strong without bearish delta
-
-        # ── Stochastic K/D momentum cross alignment ───────────────────────────
-        # %K must be consistent with signal direction relative to %D.
-        # A wide adverse divergence (K vs D) signals fading momentum.
-        # Tolerance of 8 points allows entries near the crossover itself.
-        if action == "BUY"  and sk < sd - 8.0 and sk < 60:
-            return None   # %K trending down through %D — momentum against long
-        if action == "SELL" and sk > sd + 8.0 and sk > 40:
-            return None   # %K trending up through %D — momentum against short
+                return None   # RSI too strong to support SELL
 
         entry = cp  # Real-time mark price as entry
 
-        # ── SL: ATR-anchored to nearest technical level (NO fixed % from entry) ──
-        # TP1/TP2/TP3: derived from actual SL risk distance via R:R multipliers.
-        #   TP1 = entry ± risk × 3.0   (3:1 R:R)
-        #   TP2 = entry ± risk × 6.0   (6:1 R:R)
-        #   TP3 = entry ± risk × 9.0   (9:1 base, extendable to GEX wall)
-        # This guarantees every signal maintains consistent R:R regardless of symbol.
+        # ── Fixed SL / TP (from entry %) ──────────────────────────────────────
         if action == "BUY":
-            sl   = _dynamic_sl(entry, "BUY", snap_curr)
-            risk = abs(entry - sl)          # actual price risk distance
-            tp1  = entry + risk * _TP_RR1   # 3× risk above entry
-            tp2  = entry + risk * _TP_RR2   # 6× risk above entry
-            tp3  = entry + risk * _TP_RR3   # 9× risk base — may extend
-            # Extend TP3 to call wall only if it is a better target (higher)
-            if snap_curr.call_wall and snap_curr.call_wall > tp3:
-                tp3 = snap_curr.call_wall
+            sl  = entry * (1.0 - SL_PCT)
+            tp1 = entry * (1.0 + TP1_PCT)
+            tp2 = entry * (1.0 + TP2_PCT)
+            tp3 = entry * (1.0 + TP3_PCT)
+            # If a GEX wall / call wall is favourably above tp1, extend TP3 to it
+            if snap_curr.call_wall and snap_curr.call_wall > tp1:
+                tp3 = max(tp3, snap_curr.call_wall)
             gex_to   = "POSITIVE"
             gex_from = snap_prev.current_gex_zone
         else:
-            sl   = _dynamic_sl(entry, "SELL", snap_curr)
-            risk = abs(entry - sl)          # actual price risk distance
-            tp1  = entry - risk * _TP_RR1   # 3× risk below entry
-            tp2  = entry - risk * _TP_RR2   # 6× risk below entry
-            tp3  = entry - risk * _TP_RR3   # 9× risk base — may extend
-            # Extend TP3 to put wall only if it is a better target (lower)
-            if snap_curr.put_wall and snap_curr.put_wall < tp3:
-                tp3 = snap_curr.put_wall
+            sl  = entry * (1.0 + SL_PCT)
+            tp1 = entry * (1.0 - TP1_PCT)
+            tp2 = entry * (1.0 - TP2_PCT)
+            tp3 = entry * (1.0 - TP3_PCT)
+            if snap_curr.put_wall and snap_curr.put_wall < tp1:
+                tp3 = min(tp3, snap_curr.put_wall)
             gex_to   = "NEGATIVE"
             gex_from = snap_prev.current_gex_zone
 
-        # TP3 extension via compression measured-move target
-        # TP1 and TP2 retain their R:R-derived levels — only TP3 can be pushed further
+        # Compression measured-move override — use target to extend TP levels
+        # Always preserve strict TP ordering (TP1 < TP2 < TP3 for BUY, reversed for SELL)
         if sig_type == "COMPRESSION_BREAK" and comp_hit and comp_hit.target:
             ct = comp_hit.target
-            if action == "BUY"  and ct > tp2:
-                tp3 = max(tp3, ct)
-            elif action == "SELL" and ct < tp2:
-                tp3 = min(tp3, ct)
+            if action == "BUY" and ct > entry:
+                if ct <= tp1:
+                    pass                         # Target below TP1 — keep fixed levels
+                elif ct <= tp2:
+                    tp1 = ct                     # Target between TP1 and TP2 — boost TP1
+                elif ct <= tp3:
+                    tp1, tp2 = tp2, ct           # Target between TP2 and TP3 — shift levels up
+                else:
+                    tp1, tp2, tp3 = tp2, tp3, ct # Target beyond TP3 — extend all
+            elif action == "SELL" and ct < entry:
+                if ct >= tp1:
+                    pass
+                elif ct >= tp2:
+                    tp1 = ct
+                elif ct >= tp3:
+                    tp1, tp2 = tp2, ct
+                else:
+                    tp1, tp2, tp3 = tp2, tp3, ct
 
-        # ── R:R validation ────────────────────────────────────────────────────────
-        # TP1 = risk × _TP_RR1 (3.0) so rr is always ≥ 3.0 unless risk = 0.
-        # Floor at _MIN_RR = 2.8 absorbs floating-point edge cases on fallback path.
+        # ── R:R validation ─────────────────────────────────────────────────────
+        risk   = abs(entry - sl)
+        reward = abs(tp1 - entry)
         if risk <= 0:
             return None
-        rr = abs(tp1 - entry) / risk
-        if rr < _MIN_RR:
+        rr = reward / risk
+        if rr < 2.5:   # Should be ~3.0 from fixed %, allow slight float variance
             return None
 
         # ── Final confidence (5m base + 15m confirmation boost) ───────────────
         final_conf = min(96.0, snap_curr.confidence + confirm_boost)
 
-        # ── Leverage: confidence-tiered + SL-distance cap + regime adjustments ─
-        # Tier 1: confidence-based baseline
+        # ── Leverage (confidence / regime based) ──────────────────────────────
         conf = final_conf
         if conf >= 88:   lev = 20
         elif conf >= 80: lev = 15
         elif conf >= 74: lev = 12
         elif conf >= 68: lev = 10
         else:            lev = 8
-        # Tier 2: SL-distance cap — preserves constant USD risk per trade
-        # lev ≤ _LEV_RISK_PCT / sl_pct_actual  (e.g., 1.5% / 0.20% = 7.5 → 7×)
-        sl_pct_actual = risk / max(entry, 1e-10)
-        lev_by_risk   = max(3, min(20, int(_LEV_RISK_PCT / max(sl_pct_actual, 1e-8))))
-        lev           = min(lev, lev_by_risk)
-        # Tier 3: regime / volatility reductions
+        # Reduce leverage in OPEX week
         if snap_curr.is_opex_week:
-            lev = max(3, lev - 2)
+            lev = max(5, lev - 3)
+        # Reduce leverage in FLIP ZONE (higher uncertainty)
         if snap_curr.regime == "FLIP ZONE" and lev > 12:
             lev = 12
+        # Cap leverage based on IV proxy Z — high IV = more risk
         if abs(snap_curr.iv_proxy_z) > 2.0 and lev > 10:
             lev = 10
 
@@ -1626,7 +1374,7 @@ class AEGISGEXEngine:
             gex_zone_from=gex_from,
             gex_zone_to=gex_to,
             leverage=lev,
-            rr_ratio=round(rr, 2),   # Actual R:R — ≥3.0, higher when SL is tightened
+            rr_ratio=rr,
             bias=snap_curr.bias,
             atr=snap_curr.atr,
             funding_rate=snap_curr.funding_rate,
