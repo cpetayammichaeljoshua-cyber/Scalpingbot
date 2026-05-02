@@ -1,0 +1,15 @@
+# Railway Nixpacks Configuration — Unity Engine v7.1
+# Used when Railway builds without the Dockerfile (pure Nixpacks path).
+# If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
+
+[phases.setup]
+nixPkgs = ["python311", "gcc", "openssl", "curl"]
+
+[phases.install]
+cmds = [
+  "pip install --upgrade pip setuptools wheel",
+  "pip install --no-cache-dir -r requirements.txt"
+]
+
+[start]
+cmd = "python3 -u start_unity_engine.py"

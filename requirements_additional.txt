@@ -1,0 +1,5 @@
+
+schedule>=1.2.0
+python-telegram-bot>=20.0
+pyrogram>=2.0.106
+telethon>=1.24.0

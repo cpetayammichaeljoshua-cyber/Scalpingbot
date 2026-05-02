@@ -1,0 +1,10 @@
+{
+  "connection_pooling": true,
+  "retry_on_failure": true,
+  "max_retries": 3,
+  "timeout_settings": {
+    "connect": 10,
+    "read": 30,
+    "total": 60
+  }
+}

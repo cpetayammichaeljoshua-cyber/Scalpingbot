@@ -1,0 +1,7 @@
+{
+  "name": "Ultimate Trading Bot",
+  "pid": 956,
+  "command": "python start_ultimate_bot.py",
+  "start_time": "2025-09-22T22:14:26.952235",
+  "critical": false
+}

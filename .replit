@@ -1,0 +1,114 @@
+modules = ["python-3.11"]
+[agent]
+expertMode = true
+integrations = ["python_openai:1.0.0"]
+stack = "FLASK_VANILLA_JS"
+
+[nix]
+channel = "stable-25_05"
+packages = ["cairo", "cargo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gmp", "gobject-introspection", "gtk3", "gumbo", "harfbuzz", "jbig2dec", "libiconv", "libjpeg_turbo", "libuv", "libxcrypt", "mupdf", "openjpeg", "openssl", "pkg-config", "postgresql", "qhull", "railway", "rustc", "swig", "ta-lib", "tcl", "tk", "xcbuild", "xsimd"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "AI Trading Signal Bot"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "mirofish_bot.py"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Unity Engine"
+
+[[workflows.workflow]]
+name = ""
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = ""
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "FLASK_PORT=8000 python mirofish_bot.py"
+mode = "sequential"
+author = 47973864
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "mirofish_bot.py"
+
+[[workflows.workflow]]
+name = "Unity Engine"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 start_unity_engine.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[[ports]]
+localPort = 5000
+externalPort = 5173
+
+[[ports]]
+localPort = 8000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 9080
+externalPort = 9000
+
+[deployment]
+run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
+deploymentTarget = "autoscale"
+ignorePorts = true
+
+[userenv]
+
+[userenv.shared]
+UNITY_ROLL_ENABLED = "1"
+UNITY_CUSUM_ENABLED = "1"
+UNITY_CUSUM_K_SIGMA = "3.0"
+UNITY_CUSUM_EVENT_TTL_SEC = "90"
+UNITY_AVWAP_ENABLED = "1"
+UNITY_AVWAP_MAX_BONUS_PTS = "8"
+UNITY_AVWAP_BAND_BPS = "30"
+UNITY_OFI_ENABLED = "1"
+UNITY_OFI_HISTORY_LEN = "300"
+UNITY_OFI_Z_BONUS_PTS = "4.0"
+UNITY_OFI_Z_VETO_SIGMA = "2.5"
+IRONS_MIN_SCORE = "62"
+UNITY_DEADZONE_HARD_VETO = "0"
+UNITY_SHADOW_MODE = "0"
+UNITY_NN_GATE = "0.35"
+UNITY_DBT_ENABLED = "1"
+UNITY_DBT_REFRESH_SEC = "1800"
+UNITY_DBT_LOOKBACK_BARS = "300"
+UNITY_DBT_MIN_TRADES = "10"
+UNITY_DBT_MAX_SYMBOLS = "50"
+UNITY_WARMSTART_RING_CAP = "20"
+UNITY_GATE_STATS_WINDOW = "200"
