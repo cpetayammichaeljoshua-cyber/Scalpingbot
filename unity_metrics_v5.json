@@ -1,15 +1,15 @@
 {
-  "total_signals_sent": 216,
-  "total_signals_evaluated": 1535,
-  "total_signals_rejected": 1225,
-  "win_count": 35,
+  "total_signals_sent": 218,
+  "total_signals_evaluated": 1538,
+  "total_signals_rejected": 1226,
+  "win_count": 36,
   "loss_count": 116,
-  "total_profit_pct": -114.07478248651913,
-  "scan_cycles": 3037,
-  "last_signal_quality": 100.0,
+  "total_profit_pct": -108.82464068277551,
+  "scan_cycles": 3074,
+  "last_signal_quality": 87.1521531284678,
   "trade_returns": [],
   "peak_equity": 100.0,
   "current_equity": 100.0,
   "max_drawdown_pct": 0.0,
-  "saved_at": "2026-05-02T08:15:33.291965"
+  "saved_at": "2026-05-02T08:28:44.944648"
 }

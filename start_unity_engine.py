@@ -302,6 +302,31 @@
 ║  • CALIBRATION — warm_start avg_rr_estimate: 1.8 → 1.85, matches MIN_RR_RATIO.     ║
 ║    Kelly warm-start was using 1.8 R:R assumption vs actual 1.85 minimum, causing    ║
 ║    fractional Kelly under-sizing on first-boot cycles.                               ║
+║                                                                                      ║
+║  v11.2 FIXES (vs v11.1)  [2026-05-02 Death-Spiral / Signal-Starvation Repair]      ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • CRITICAL FIX — AUTO_SHADOW threshold 0.35→0.18: at WR=23.2% the 0.35 floor     ║
+║    was routing ALL signals to log-only mode — zero Telegram dispatches. -114%       ║
+║    PnL cannot recover if no signals ever leave the system. 0.18 only shadows        ║
+║    during genuinely catastrophic performance (< 1-in-5 WR).                         ║
+║  • CRITICAL FIX — v11.1 double-tightening reverted: v11.1 raised BOTH              ║
+║    SIGNAL_MIN_QUALITY_GATE (55→62) AND IRONS adaptive floors (57→62) simultaneously ║
+║    while WR was already at 23%. Combined effect: any signal must score ≥62 quality  ║
+║    AND ≥62 IRONS — at WR=23% the IRONS ring is empty (avg=0), so Gate 10 always    ║
+║    fails, ring stays empty, starvation decay never fires. Full circle of death.     ║
+║    Fix: quality gate 62→55, IRONS WR<30% floor 62→54, IRONS base 62→50.            ║
+║  • CRITICAL FIX — RL effective threshold 91%→84.5%: base 88→83, WR<30% delta      ║
+║    +3→+1.5. Combined: 88+3=91 was blocking >90% of statistically valid signals.    ║
+║  • FIX — Starvation decay starts 30min→10min, full at 40min (was 90min): at 91%    ║
+║    threshold the 30min delay meant the circuit-breaker never fired fast enough.     ║
+║  • FIX — IRONS cold-start bypass: when ring < 5 entries, use floor=45 to allow     ║
+║    initial data collection; normal adaptive logic resumes after 5 data points.      ║
+║  • FIX — CUSUM event TTL 90s→300s: 90s was blocking signals in choppy regimes      ║
+║    too aggressively, contributing to the 0 signals/hr rate.                         ║
+║  • FIX — IRONS quality-override threshold 88→78: with quality gate at 55, a score  ║
+║    of 88 was never reached; 78 activates the bypass on top-third quality signals.  ║
+║  • FIX — RL 30-45% WR bucket delta +2.0→+0.5: at base=83, +2 pushed to 85.5%      ║
+║    unnecessarily; 0.5 is adequate discrimination for below-average WR periods.     ║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -415,13 +440,13 @@ SCAN_INTERVAL_MIN     = 5        # legacy compat
 SCAN_INTERVAL_MAX     = 15       # legacy compat
 
 # ── Signal quality gates ─────────────────────────────────────────────────────
-AI_THRESHOLD_PERCENT  = 88       # minimum post-boost confidence to send signal (v10.6: 90→88 — RL deadlock fix: at WR<30% delta=+3 → effective=91% vs previous 94%; still top-decile filter)
+AI_THRESHOLD_PERCENT  = 83       # minimum post-boost confidence to send signal (v11.2: 88→83 — compound fix: base was 88 but WR<30% RL delta +3 pegged effective threshold at 91%, combined with v11.1 double-tightening of quality/IRONS gates creating zero-signal death spiral; 83+1.5=84.5% effective at WR<30%)
 SWARM_MIN_CONSENSUS   = 0.95     # 95% weighted agent consensus
 MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "1.85") or 1.85)     # minimum risk-reward ratio (hard gate) [v9.8: 1.75→1.85 — at 35% WR, RR≥1.86 → EV breakeven; tighter mandates positive headroom]
 NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.35") or 0.35)     # v10.5 FIX: lowered 0.55→0.28. v11.1 MATH FIX: 0.28→0.35. The v10.5 comment "0.28=break-even at RR=1.85" was wrong: correct break-even = 1/(1+1.85)=0.351. At 0.28 Gate 4 passed signals with EV=0.28×1.85−0.72=−0.20 (guaranteed negative EV — direct root cause of WR=23.3%). 0.35 is the EV-positive floor; G-mean bypass (consensus≥0.95) and UNC soft-pass still handle miscalibrated regimes. Env-tunable via UNITY_NN_GATE.
 SYMBOL_MIN_WIN_RATE   = 0.38     # Gate 8: minimum per-symbol win rate (v9.8: 0.35→0.38 — kills bottom-quartile symbols where avg WR=22%)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
-SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "62") or 62)   # Gate 9 [v9.8: 50→55; v11.1: 55→62 — at WR=23.3% the 55-threshold was passing mid-tier signals (28-35% WR band); analysis of quality distribution shows ≥62 selects the top-quartile band (est WR≥40%)]
+SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "55") or 55)   # Gate 9 [v9.8: 50→55; v11.1: 55→62; v11.2: 62→55 — v11.1 raised this AND IRONS floors simultaneously (double-tightening) creating an impossible filter at WR=23%; reverted to 55 which gives adequate quality without starvation]
 # ── Gate 5 soft-veto quality penalties (v7.1) ────────────────────────────────
 # v7.1 KEY FIX: G5 previously hard-blocked when only ONE analyzer had data and
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
@@ -481,7 +506,7 @@ except (ValueError, TypeError):
 # (no Telegram dispatch) until WR recovers.  Preserves capital during
 # demonstrated under-performance instead of compounding losses.
 # UNITY_AUTO_SHADOW=0 disables auto-routing; UNITY_SHADOW_MODE=1 forces shadow.
-AUTO_PAPER_WR_THRESHOLD = 0.35
+AUTO_PAPER_WR_THRESHOLD = 0.18   # v11.2: 0.35→0.18 — at WR=23.2% the 0.35 threshold was routing ALL signals to shadow/log-only mode, preventing any Telegram dispatch and making -114% PnL impossible to recover from; 0.18 only shadows during catastrophic performance while allowing the filter improvements to actually produce live signals
 try:
     AUTO_SHADOW_ENABLED = os.getenv("UNITY_AUTO_SHADOW", "1").strip() not in ("0", "false", "False", "")
     FORCE_SHADOW_MODE   = os.getenv("UNITY_SHADOW_MODE", "0").strip() in ("1", "true", "True")
@@ -518,9 +543,9 @@ GEX_SNAPSHOT_MAX_AGE_SEC     = 300   # drop snapshots older than 5 minutes
 
 # ── IRONS AI Scorer gate ─────────────────────────────────────────────────────
 try:
-    IRONS_MIN_SCORE = max(0.0, float(os.getenv("IRONS_MIN_SCORE", "62")))
+    IRONS_MIN_SCORE = max(0.0, float(os.getenv("IRONS_MIN_SCORE", "50")))
 except (ValueError, TypeError):
-    IRONS_MIN_SCORE = 62.0   # Gate 10: minimum IRONS composite score base [v9.8: 55→60; v11.1: 60→62 — raises quality-override floor (max(IRONS_MIN_SCORE, adaptive-5)); adaptive buckets above drive actual gate threshold]
+    IRONS_MIN_SCORE = 50.0   # Gate 10: minimum IRONS composite score base [v9.8: 55→60; v11.1: 60→62; v11.2: 62→50 — v11.1 set base=62 which broke quality-override (max(62,adaptive-5) can never go below 62 even at full relaxation; override was dead code); 50 lets override relax to 45+ and allows IRONS ring to warm up]
 
 # ── UT Bot strategy ────────────────────────────────────────────────────────────
 UTBOT_ENABLED = os.getenv("UTBOT_ENABLED", "1").strip().lower() not in ("0", "false", "no")
@@ -672,9 +697,9 @@ try:
 except (ValueError, TypeError):
     UNITY_CUSUM_K_SIGMA      = 3.0
 try:
-    UNITY_CUSUM_EVENT_TTL_SEC = max(10, int(os.getenv("UNITY_CUSUM_EVENT_TTL_SEC", "90") or 90))
+    UNITY_CUSUM_EVENT_TTL_SEC = max(10, int(os.getenv("UNITY_CUSUM_EVENT_TTL_SEC", "300") or 300))
 except (ValueError, TypeError):
-    UNITY_CUSUM_EVENT_TTL_SEC = 90
+    UNITY_CUSUM_EVENT_TTL_SEC = 300  # v11.2: 90→300 — 90s TTL was blocking too aggressively in choppy regimes
 try:
     UNITY_CUSUM_RETURN_LEN   = max(50, int(os.getenv("UNITY_CUSUM_RETURN_LEN", "200") or 200))
 except (ValueError, TypeError):
@@ -727,12 +752,12 @@ HTF_4H_AGREE_BONUS = 8.0        # 4H agrees (stronger confirmation) → +8pts
 # ── Prompt 2 Adaptive IRONS Floor (v6.3) ─────────────────────────────────────
 # IRONS minimum auto-adjusts with running win rate instead of being hardcoded.
 # Below 30% WR: raise to 65 (tighter).  Above 55% WR: relax to 50 (more signals).
-IRONS_MIN_WR_BELOW30  = 62.0    # WR < 30%  → elevated floor (v10.6: 60→57 deadlock-fix; v11.1: 57→62 — starvation-decay now handles exploration deadlock; IRONS restored to proper quality-discrimination role)
-IRONS_MIN_WR_30_45    = 60.0    # WR 30-45% → slightly elevated (v8.1: 60→57; v11.1: 57→60 — re-calibrated with deadlock handled separately)
-IRONS_MIN_WR_45_55    = 57.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57)
-IRONS_MIN_WR_ABOVE55  = 52.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52)
+IRONS_MIN_WR_BELOW30  = 54.0    # WR < 30%  → elevated floor (v10.6: 60→57; v11.1: 57→62; v11.2: 62→54 — v11.1 raised floors AND quality gate simultaneously; at WR=23% a 62-floor means IRONS ring never fills → avg=0 → gate always fails; 54 allows quality data to accumulate while still filtering noise)
+IRONS_MIN_WR_30_45    = 53.0    # WR 30-45% → slightly elevated (v8.1: 60→57; v11.1: 57→60; v11.2: 60→53)
+IRONS_MIN_WR_45_55    = 51.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57; v11.2: 57→51)
+IRONS_MIN_WR_ABOVE55  = 47.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52; v11.2: 52→47)
 # Quality-override: if composite quality >= this AND consensus=100%, relax IRONS floor by 5 pts
-IRONS_QUALITY_OVERRIDE_THRESHOLD = 88.0   # quality score that unlocks the bypass
+IRONS_QUALITY_OVERRIDE_THRESHOLD = 78.0   # quality score that unlocks the bypass [v11.2: 88→78 — with quality gate at 55, a score of 88 was almost never reached; 78 fires on top-third quality signals]
 IRONS_QUALITY_OVERRIDE_RELAX     = 5.0    # points to subtract from effective IRONS min
 # ── ThreadPoolExecutor workers ─────────────────────────────────────────────────
 # v10.1: CPU-count-aware sizing.  os.cpu_count() returns None in restricted
@@ -745,7 +770,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 5     # wins in a row → lower threshold bonus
 CONSEC_WIN_STREAK_BONUS      = -2.0  # extra delta applied on top of RL bucket
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "11.1"
+UNITY_VERSION                = "11.2"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v8.3: Pre-compiled HTF word frozensets (module-level constants) ───────────
@@ -3570,6 +3595,20 @@ class UnitySignalFilter:
         # Requires IRONSScorer to be wired in via set_irons_scorer().
         # Falls back to pass-through with neutral quality if scorer unavailable.
         _irons_min = self.effective_irons_min   # v6.3: adaptive threshold
+
+        # v11.2 COLD-START BYPASS: when the IRONS ring has < 5 entries, the
+        # system just started and has no statistical baseline.  The ring is
+        # populated ONLY when a signal reaches Gate 10 and passes, so with
+        # floor=54 (WR<30% adaptive) and ring avg=0, Gate 10 always fails →
+        # ring never fills → permanent dead-loop.  During warm-up use floor=45
+        # to allow data collection; normal adaptive logic takes over at ≥5 pts.
+        _ring_size = len(self._irons_score_ring)
+        if _ring_size < 5 and _irons_min > 45.0:
+            self._logger.debug(
+                f"[Gate10] Cold-start: ring={_ring_size} < 5 → floor {_irons_min:.0f}→45 [v11.2]"
+            )
+            _irons_min = 45.0
+
         if self._irons_scorer is not None and _irons_min > 0:
             try:
                 # v10.8 BUG FIX: Use pre-computed IRONS score from SwarmSignal when
@@ -3749,8 +3788,8 @@ class UnityProfitBooster:
     # bot had a bad streak.  +5 max delta means worst-case threshold = 80+3+5 = 88%:
     # still meaningfully selective but not a complete signal freeze.
     _RL_BUCKETS: List[Tuple[float, float, float]] = [
-        (0.00, 0.30, +3.0),   # very bad WR  — raise threshold (v10.6: +4→+3; at base=88 → 91% cap instead of 94%; breaks exploration deadlock)
-        (0.30, 0.45, +2.0),   # below-average — slight raise (v10.6: +3→+2; 88+2=90% — exploitable range)
+        (0.00, 0.30, +1.5),   # very bad WR  — raise threshold (v10.6: +4→+3; v11.2: +3→+1.5 — with base=83, 83+1.5=84.5% effective; was 91% with base=88+3.0; breaks starvation death spiral)
+        (0.30, 0.45, +0.5),   # below-average — slight raise (v10.6: +3→+2; v11.2: +2→+0.5 — at 83+0.5=83.5%, easily exploitable with real signals)
         (0.45, 0.60, +0.0),   # near-average  — neutral (unchanged)
         (0.60, 0.72, -3.0),   # good WR       — allow more signals (unchanged)
         (0.72, 1.01, -6.0),   # excellent WR  — be aggressive (unchanged)
@@ -4015,24 +4054,27 @@ class UnityProfitBooster:
                 break
 
         # ── v9.9.2 Apex-#7: Starvation-decay (deadlock breaker) ─────────────
-        # If no fresh outcomes have arrived for >30 min, the RL ring is stale:
+        # If no fresh outcomes have arrived for >10 min, the RL ring is stale:
         # it reflects only OLD trades, but the threshold pegs at the bucket
         # cap and prevents new trades from being generated → permanent
         # exploration-exploitation deadlock.  Linearly decay the bucket-derived
         # POSITIVE delta as a function of staleness (negative deltas — i.e.
         # threshold reductions on hot streaks — are not affected, those keep
-        # exploiting confirmed winning behaviour).  Decay starts at 30 min,
-        # reaches full delta=0 at 90 min.  Fresh outcomes reset _last_outcome_ts.
+        # exploiting confirmed winning behaviour).  Decay starts at 10 min,
+        # reaches full delta=0 at 40 min.  Fresh outcomes reset _last_outcome_ts.
+        # v11.2: start 30min→10min, full at 40min vs 90min — at WR=23% with
+        # threshold=91% the 30min delay meant the starvation-fix never fired
+        # fast enough to break the deadlock before the next watchdog restart.
         try:
             _staleness = time.time() - self._last_outcome_ts
-            if _staleness > 1800.0 and delta > 0.0:
-                _decay  = max(0.0, 1.0 - (_staleness - 1800.0) / 3600.0)
+            if _staleness > 600.0 and delta > 0.0:
+                _decay  = max(0.0, 1.0 - (_staleness - 600.0) / 1800.0)
                 _orig_d = delta
                 delta   = delta * _decay
                 if abs(delta - _orig_d) > 0.1:
                     self._logger.info(
                         f"🔓 [Apex-#7] RL starvation decay: stale={_staleness/60:.1f}min "
-                        f"→ delta {_orig_d:+.1f}% → {delta:+.1f}% (factor={_decay:.2f})"
+                        f"→ delta {_orig_d:+.1f}% → {delta:+.1f}% (factor={_decay:.2f}) [v11.2: 10min start, 40min full]"
                     )
         except Exception:
             pass
