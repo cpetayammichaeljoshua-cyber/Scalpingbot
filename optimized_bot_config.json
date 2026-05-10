@@ -1,0 +1,8 @@
+{
+  "risk_percentage": 10.0,
+  "max_concurrent_trades": 3,
+  "max_leverage": 75,
+  "sl1_percent": 1.5,
+  "sl2_percent": 4.0,
+  "sl3_percent": 7.5
+}

@@ -1,0 +1,6 @@
+{
+  "cleanup_interval_minutes": 30,
+  "max_log_entries": 10000,
+  "max_trade_history": 5000,
+  "enable_garbage_collection": true
+}

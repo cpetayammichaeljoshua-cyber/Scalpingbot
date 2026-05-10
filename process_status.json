@@ -1,0 +1,30 @@
+{
+  "status": "monitoring",
+  "timestamp": "2025-08-23T00:53:24.208625",
+  "manager_pid": 720,
+  "bot_pid": 731,
+  "restart_count": 1,
+  "uptime_seconds": 66.00647,
+  "stats": {
+    "start_time": "2025-08-23T00:52:18.202165",
+    "total_restarts": 1,
+    "last_restart": "2025-08-23T00:52:21.204573",
+    "uptime_total": 0,
+    "health_checks": 3,
+    "health_failures": 0
+  },
+  "health": {
+    "healthy": true,
+    "checks": {
+      "process_running": true,
+      "memory_mb": 198.48828125,
+      "memory_ok": true,
+      "cpu_percent": 13.0,
+      "cpu_ok": true,
+      "heartbeat_age": 7.502474,
+      "heartbeat_ok": true
+    },
+    "issues": [],
+    "recommendations": []
+  }
+}
