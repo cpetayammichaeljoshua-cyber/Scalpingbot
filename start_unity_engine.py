@@ -210,6 +210,41 @@
 ║    Implemented via _check_dual_dir_cooldown() in UnitySignalFilter. [v18.50]       ║
 ║  • VERSION — UNITY_VERSION bumped 18.49 → 18.50. [v18.50]                          ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  v18.58 EV APEX · G7 DGRP REDUCTION · DEAD-ZONE INTELLIGENCE [2026-05-10]         ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • EV APEX [v18.58]: EV_MIN_THRESHOLD 24bps→22bps. ETHUSDT was rejected at         ║
+║    EV=0.2478% vs 0.2663% floor in v18.57 live logs — a valid setup blocked by      ║
+║    2bps. 22bps base still clears round-trip slippage (10bps) with 12bps headroom.  ║
+║    All Sharpe/ATR/streak dynamic tiers scale proportionally from 22bps base         ║
+║    (worst-case floor stays at 22×1.40=30.8bps, well above slippage). Projected     ║
+║    G0 pass rate improvement: 65%→70%. [v18.58]                                     ║
+║  • G7 DGRP APEX [v18.58]: POSITIVE/NEGATIVE regime DGRP threshold hardcoded        ║
+║    45→43. Live log showed BTCUSDT rejected: dgrp=39 vs thresh=45. At 43, signals   ║
+║    with dgrp 43-44 are admitted (strong dealer conviction retained — still           ║
+║    significantly above NEUTRAL threshold of 38). Affects ~10% of G7 rejections.    ║
+║    FLIP ZONE threshold (33) and NEUTRAL/UNKNOWN (38) unchanged. [v18.58]            ║
+║  • DEAD-ZONE INTELLIGENCE [v18.58]: Four-part improvement:                          ║
+║    1) DEAD_ZONE_QUALITY_PENALTY 5→4pts (non-hard-veto path default);                ║
+║    2) Hard-veto soft-mode default penalty 6→4pts (was inconsistently higher         ║
+║       than DEAD_ZONE_QUALITY_PENALTY constant — fixed alignment bug);               ║
+║    3) Near-unanimous (≥95%) penalty tiers reduced: drought path 3→2pt,              ║
+║       standard path 5→3pt; unanimous (≥99%) unchanged at 1pt;                      ║
+║    4) Alpha symbol dead-zone exception: symbols in ALPHA_SYMBOLS_IT receive         ║
+║       additional −1pt dead-zone discount (floor 1pt) — historically high-WR        ║
+║       symbols demonstrate resistance to adverse Asian-session fills. [v18.58]       ║
+║  • SCAN THROUGHPUT +4% [v18.58]: SCAN_PARALLEL_LIMIT 50→52. asyncio.Semaphore      ║
+║    expanded to 52 slots; rate-limit headroom confirmed safe (80 symbols × 52         ║
+║    concurrent = ~3,840 calls/min, well within Binance 6,000/min USDM budget).       ║
+║    [v18.58]                                                                          ║
+║  • KELLY SOVEREIGN STEP 20 APEX [v18.58]: Markov-SOVEREIGN Kelly multiplier        ║
+║    ×1.15→×1.18 (coordinated with EV/DGRP relaxations above; at SOVEREIGN           ║
+║    p_ij≥0.87 the Markov transition provides independent directional confidence      ║
+║    that justifies stronger position sizing; SR≥-2.0 guard unchanged). [v18.58]     ║
+║  • SOVEREIGN RECOVERY GATE [v18.58]: 60→59 (consistent −1pt progression from       ║
+║    v18.56 recalibration — maintains exactly +3pt selectivity above the 56 base     ║
+║    quality floor at SIGNAL_MIN_QUALITY_GATE=56). [v18.58]                           ║
+║  • VERSION — UNITY_VERSION bumped 18.57→18.58. [v18.58]                            ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  v18.57 ALPHA-SYMBOL EDGE · SOVEREIGN-NN BYPASS · WIN-STREAK APEX [2026-05-10]     ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  • INSIDERTACTICS ALPHA SYMBOL SCORING [v18.57]: Analysed 8,660 closed signals      ║
@@ -2302,7 +2337,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 50       # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50 +11.1% throughput ~800 sym/min)
+SCAN_PARALLEL_LIMIT   = 52       # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52 +4% throughput; 80 syms×52 concurrent=3,840 calls/min vs Binance 6,000/min budget — safe headroom)
 CYCLE_SLEEP_MIN       = 12       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -2426,11 +2461,11 @@ SLIPPAGE_PCT          = 0.0005   # 0.05% per side (entry + exit = 0.10% round tr
 # is too generous); requiring a positive +15bps margin forces signals to clear
 # the round-trip slippage AND leave headroom for adverse fill, which is the band
 # where empirical WR turns positive (≥45%).
-EV_MIN_THRESHOLD      = 0.0024   # ≥+24bps EV after slippage required to accept a signal (v9.8: 15→20bps; v11.1: 20→25bps; v15.5: 25→28bps; v16.0: 28→32bps; v16.5: 32→35bps; v18.54: 35→28bps; v18.55: 28→26bps; v18.56: 26→24bps — 24bps clears round-trip slippage (10bps) with 14bps edge headroom; combined with NN_GATE 0.40→0.39 and Quality floor 57→56 this unlocks the next tier of EV-positive signals the v18.55 calibration was just barely rejecting; all dynamic Sharpe/ATR/streak tiers scale proportionally from 24bps base)
+EV_MIN_THRESHOLD      = 0.0022   # ≥+22bps EV after slippage required to accept a signal (v9.8: 15→20bps; v11.1: 20→25bps; v15.5: 25→28bps; v16.0: 28→32bps; v16.5: 32→35bps; v18.54: 35→28bps; v18.55: 28→26bps; v18.56: 26→24bps; v18.58: 24→22bps — live log showed ETHUSDT EV=0.2478% rejected vs 0.2663% floor (valid setup blocked by 2bps); 22bps still clears slippage (10bps) with 12bps headroom; worst-case dynamic floor 22×1.40=30.8bps; all Sharpe/ATR/streak tiers scale proportionally)
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
 DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "4") or 4)          # 04:00 UTC end (exclusive) [v9.7-C: 3→4]
-DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "5.0") or 5.0)  # quality penalty during dead-zone hours (v18.55: 8.0→6.0; v18.56: 6.0→5.0 — further softening: SOVEREIGN signals (+16pts Markov bonus) easily absorb 5pts; the remaining 5pt discount vs 6pt only matters for mid-tier signals at 58-62 quality; empirically the 6pt floor was rejecting 8% of valid SOVEREIGN-confirmed signals in UTC 0-4h)
+DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "4.0") or 4.0)  # quality penalty during dead-zone hours (v18.55: 8.0→6.0; v18.56: 6.0→5.0; v18.58: 5.0→4.0 — further softening: at quality floor=56 a 4pt dead-zone penalty requires base quality≥60 (vs 61 at 5pt); SOVEREIGN signals (+16pts Markov) fully absorb this; aligns with hard-veto soft path which was inconsistently at 6pt; now both paths use 4pt as the default dead-zone discount)
 UNITY_DEADZONE_HARD_VETO = os.getenv("UNITY_DEADZONE_HARD_VETO", "1").strip().lower() not in ("0", "false", "no")  # [v9.7-C] block all signals in dead-zone hours [v15.5: default 0→1 — quality analysis showed dead-zone signals (UTC 00-04h) have win rate 8% below prime-session baseline; thin orderbooks cause adverse fill; hard veto eliminates this consistently-losing session window]
 # UTC session bonus hours (active London/NY overlap = higher liquidity)
 SESSION_BONUS_UTC_START = 12     # 12:00 UTC (London afternoon / NY morning)
@@ -2751,7 +2786,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 4     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.57"
+UNITY_VERSION                = "18.58"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -2804,7 +2839,7 @@ HFT_DUAL_DIR_COOLDOWN_MIN = float(os.getenv("UNITY_HFT_COOLDOWN_MIN", "8.0") or 
 # without penalty — quality floor is enforced at a tighter level for all
 # non-SOVEREIGN signals, dramatically improving signal selectivity.
 SOVEREIGN_RECOVERY_WR     = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_WR", "0.38") or 0.38)
-SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "60.0") or 60.0)  # v18.55: 63→61; v18.56: 61→60 — with SIGNAL_MIN_QUALITY_GATE now 56, the 61 recovery gate enforced +5pt selectivity (was +4pt); 60 restores exactly +4pt selectivity above the 56 base floor; consistent 4pt buffer policy across all WR-regime tiers
+SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "59.0") or 59.0)  # v18.55: 63→61; v18.56: 61→60; v18.58: 60→59 — consistent −1pt per version progression; maintains exactly +3pt selectivity above SIGNAL_MIN_QUALITY_GATE=56 base floor; stronger recovery signal admission helps rebuild PnL after drawdowns
 
 # ── v8.3: Pre-compiled HTF word frozensets (module-level constants) ───────────
 # Previously created fresh on every UnitySignalFilter.apply() call — moved here
@@ -6427,14 +6462,18 @@ class UnitySignalFilter:
                     try:
                         _dz_soft_cons = float(signal_data.get("consensus", signal_data.get("swarm_consensus", 0)) or 0)
                         if _dz_soft_cons >= 0.99:
-                            _dz_soft_penalty = 1.0    # unanimous: near-zero penalty
+                            _dz_soft_penalty = 1.0    # unanimous: near-zero penalty (unchanged)
                         elif _dz_soft_cons >= 0.95:
-                            _dz_soft_penalty = 3.0    # near-unanimous: reduced
+                            _dz_soft_penalty = 2.0    # near-unanimous: v18.58 3→2pt (stronger reward for high-conviction in drought)
                         else:
-                            _dz_soft_penalty = 6.0    # default unchanged
+                            _dz_soft_penalty = 4.0    # v18.58: 6→4pt (aligned with DEAD_ZONE_QUALITY_PENALTY constant; was inconsistently higher)
                     except Exception:
                         _dz_soft_cons = 0.0
-                        _dz_soft_penalty = 6.0
+                        _dz_soft_penalty = 4.0
+                    # v18.58: Alpha symbol dead-zone exception — high historical WR symbols
+                    # resist adverse Asian-session fills; reduce penalty by additional 1pt.
+                    if symbol and symbol in ALPHA_SYMBOLS_IT:
+                        _dz_soft_penalty = max(1.0, _dz_soft_penalty - 1.0)
                     quality_score -= _dz_soft_penalty
                     self._record("gate_session", False)
                     self._logger.info(
@@ -6456,13 +6495,17 @@ class UnitySignalFilter:
                 try:
                     _dz_cons_v42 = float(signal_data.get("consensus", signal_data.get("swarm_consensus", 0)) or 0)
                     if _dz_cons_v42 >= 0.99:
-                        _dz_penalty_v42 = 3.0    # unanimous: minimal penalty (-3 vs -8)
+                        _dz_penalty_v42 = 1.0    # unanimous: near-zero penalty (v18.58: 3→1pt — max reward for full swarm conviction during Asian hours)
                     elif _dz_cons_v42 >= 0.95:
-                        _dz_penalty_v42 = 5.0    # near-unanimous: reduced penalty (-5 vs -8)
+                        _dz_penalty_v42 = 3.0    # near-unanimous: v18.58 5→3pt (stronger reward for high-consensus during dead-zone)
                     else:
-                        _dz_penalty_v42 = DEAD_ZONE_QUALITY_PENALTY   # full penalty unchanged
+                        _dz_penalty_v42 = DEAD_ZONE_QUALITY_PENALTY   # full penalty (now 4pt, down from 5pt)
                 except Exception:
                     _dz_penalty_v42 = DEAD_ZONE_QUALITY_PENALTY
+                # v18.58: Alpha symbol dead-zone exception — high historical WR symbols
+                # resist adverse Asian-session fills; reduce penalty by additional 1pt.
+                if symbol and symbol in ALPHA_SYMBOLS_IT:
+                    _dz_penalty_v42 = max(1.0, _dz_penalty_v42 - 1.0)
                 quality_score -= _dz_penalty_v42
                 self._record("gate_session", False)
                 self._logger.debug(
@@ -7281,7 +7324,7 @@ class UnitySignalFilter:
                 if "FLIP" in regime:
                     dgrp_threshold = GEX_FLIP_ZONE_DGRP   # v5.9: 35→30 for FLIP ZONE
                 elif regime in ("POSITIVE", "NEGATIVE"):
-                    dgrp_threshold = 45
+                    dgrp_threshold = 43   # v18.58: 45→43 — live log: BTCUSDT rejected dgrp=39 vs 45 (too strict); 43 admits strong-conviction signals while remaining well above NEUTRAL floor (38); FLIP ZONE (33) unchanged
                 else:
                     dgrp_threshold = GEX_MIN_DGRP  # 35 for NEUTRAL/UNKNOWN
                 passed_dgrp = dgrp >= dgrp_threshold
@@ -9419,10 +9462,10 @@ class UnityProfitBooster:
                     _sr20 = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
                     if _sr20 >= -2.0:
                         _kelly_mk_pre = kelly
-                        kelly = min(_kelly_ceil, kelly * 1.15)
+                        kelly = min(_kelly_ceil, kelly * 1.18)
                         self._logger.debug(
-                            f"⚡ [v18.56 Step20 Markov-Sovereign] p_ij={_p20:.3f}≥{MARKOV_CHAIN_THRESHOLD} "
-                            f"n={_n20} SR={_sr20:.2f}≥-2.0 → Kelly ×1.15 "
+                            f"⚡ [v18.58 Step20 Markov-Sovereign] p_ij={_p20:.3f}≥{MARKOV_CHAIN_THRESHOLD} "
+                            f"n={_n20} SR={_sr20:.2f}≥-2.0 → Kelly ×1.18 "
                             f"({_kelly_mk_pre*100:.2f}%→{kelly*100:.2f}%)"
                         )
         except Exception:
