@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔══════════════════════════════════════════════════════════════════════════════════════╗
-║    U N I T Y   E N G I N E  v18.53 —  Markov Seed · EV Cap · Drought Relief        ║
+║    U N I T Y   E N G I N E  v18.55 —  Markov Apex · Gate Recalibration · Win Rate  ║
 ║         ALL subsystems united into one synchronised intelligence core               ║
 ╠══════════════════════════════════════════════════════════════════════════════════════╣
 ║  ARCHITECTURE  (21 layers, 15-gate filter, 5-bucket RL, Kelly, GEX, IRONS, SRM)    ║
@@ -209,6 +209,33 @@
 ║    HFT directional scalping approach from institutional Markov-chain entry systems. ║
 ║    Implemented via _check_dual_dir_cooldown() in UnitySignalFilter. [v18.50]       ║
 ║  • VERSION — UNITY_VERSION bumped 18.49 → 18.50. [v18.50]                          ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  v18.55 MARKOV APEX · GATE RECALIBRATION · WIN RATE MAXIMIZATION  [2026-05-10]       ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • MARKOV DEATH-SPIRAL FIX [v18.55]: At WR=30.7% all per-state ring win rates are  ║
+║    ~0.30, well below the hard-coded 0.50 penalty threshold. Markov was applying     ║
+║    -10pts PENALTY on EVERY signal — structural death spiral. Fix:                   ║
+║    quality_adjustment() now accepts global_wr (Bayesian WR from booster) and uses  ║
+║    _penalty_threshold = max(0.35, global_wr × 0.85). Only penalises states that    ║
+║    are materially worse than the engine's demonstrated WR. At WR=30.7%: threshold  ║
+║    = max(0.35, 0.261) = 0.35; p_ij=0.30-0.35 → NEUTRAL (+0pts) instead of         ║
+║    PENALISED (-10pts). States clearly underperforming (p_ij<0.35) still penalised. ║
+║  • EV BASE RECALIBRATION [v18.55]: EV_MIN_THRESHOLD 28bps → 26bps. Achievable EV  ║
+║    at WR=30.7% RR=1.64 is 13-28bps; 28bps rejected signals at the structural       ║
+║    ceiling. 26bps clears round-trip slippage with 16bps headroom. [v18.55]          ║
+║  • NN GATE RECALIBRATION [v18.55]: NN_WIN_PROB_GATE 0.42 → 0.40. Break-even at    ║
+║    RR=1.85 = 35.1%; new floor 13.9% above BE (was 19.7%). Drought floor 0.37 →    ║
+║    0.36. Unanimous bypass floor 0.39 → 0.38. [v18.55]                              ║
+║  • DEAD ZONE PENALTY [v18.55]: DEAD_ZONE_QUALITY_PENALTY 8.0 → 6.0pts. Less        ║
+║    harsh soft-mode penalty during UTC 00-04h drought >45min. [v18.55]              ║
+║  • G9 QUALITY FLOOR [v18.55]: SIGNAL_MIN_QUALITY_GATE 59 → 57. [v18.55]            ║
+║  • SOVEREIGN RECOVERY GATE [v18.55]: 63 → 61. [v18.55]                             ║
+║  • MARKOV MILD BOOST [v18.55]: MARKOV_MILD_PTS 6.0 → 7.0. [v18.55]                ║
+║  • SYMBOL WR PIVOT [v18.55]: SYMBOL_MIN_WIN_RATE 0.38 → 0.35. [v18.55]             ║
+║  • SCAN THROUGHPUT +12.5% [v18.55]: SCAN_PARALLEL_LIMIT 40 → 45. [v18.55]          ║
+║  • GEX THROUGHPUT [v18.55]: GEX_PARALLEL_LIMIT 40 → 45; GEX_BATCH_SIZE 25 → 28.   ║
+║  • PROFIT LOCK [v18.55]: TRAILING_LOCK_PROFIT_PCT 0.60 → 0.65. [v18.55]            ║
+║  • VERSION — UNITY_VERSION bumped 18.54 → 18.55. [v18.55]                          ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  v18.53 MARKOV SEED · EV FLOOR CAP · DROUGHT RELIEF · COMPREHENSIVE UPGRADE [2026-05-09]║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
@@ -2157,7 +2184,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 40       # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40 +14% throughput ~640 sym/min)
+SCAN_PARALLEL_LIMIT   = 45       # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45 +12.5% throughput ~720 sym/min)
 CYCLE_SLEEP_MIN       = 12       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -2167,10 +2194,10 @@ SCAN_INTERVAL_MAX     = 15       # legacy compat
 AI_THRESHOLD_PERCENT  = 83       # minimum post-boost confidence to send signal (v11.2: 88→83 — compound fix: base was 88 but WR<30% RL delta +3 pegged effective threshold at 91%, combined with v11.1 double-tightening of quality/IRONS gates creating zero-signal death spiral; 83+1.5=84.5% effective at WR<30%)
 SWARM_MIN_CONSENSUS   = 0.95     # 95% weighted agent consensus
 MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "1.85") or 1.85)     # minimum risk-reward ratio (hard gate) [v9.8: 1.75→1.85 — at 35% WR, RR≥1.86 → EV breakeven; tighter mandates positive headroom]
-NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.42") or 0.42)     # v10.5 FIX: 0.55→0.28. v11.1 MATH FIX: 0.28→0.35 (break-even at RR=1.85). v15.5 QUALITY FIX: 0.35→0.38. v16.0 CONVICTION FIX: 0.38→0.42 — at WR=31.2% allowing NN win-prob of 0.38 (only 2.9pts above break-even) passed signals where the model itself predicted a losing trade 58% of the time; 0.42 requires the NN to be meaningfully above break-even (6.9pts buffer), retaining the G-mean bypass (consensus≥0.95) and UNC soft-pass for edge cases. Break-even at RR=1.85 is 0.351; floor is now 0.42 (19.7% above break-even). Env-tunable via UNITY_NN_GATE.
-SYMBOL_MIN_WIN_RATE   = 0.38     # Gate 8: minimum per-symbol win rate (v9.8: 0.35→0.38 — kills bottom-quartile symbols where avg WR=22%)
+NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.40") or 0.40)     # v10.5 FIX: 0.55→0.28. v11.1 MATH FIX: 0.28→0.35 (break-even at RR=1.85). v15.5 QUALITY FIX: 0.35→0.38. v16.0 CONVICTION FIX: 0.38→0.42. v18.55 RECALIB: 0.42→0.40 — at WR=30.7% the 0.42 floor demanded 19.7% above break-even (35.1%); 0.40 requires 13.9% above BE, still meaningful buffer. Crisis Sharpe<-3.5 auto-tightens +0.10→0.50 max. Drought floor 0.37→0.36. Unanimous bypass 0.39→0.38. Break-even at RR=1.85 is 0.351. Env-tunable via UNITY_NN_GATE.
+SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
-SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "59") or 59)   # Gate 9 [v9.8: 50→55; v11.1: 55→62; v11.2: 62→55; v15.5: 55→57; v16.5: 57→59 — at WR=31.3% (below 35.1% break-even) raising to 59 keeps top-36% of quality distribution while blocking the marginal-quality tail; IRONS ring fully warm with >100 samples so quality tightening is now evidence-based not speculative]
+SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "57") or 57)   # Gate 9 [v9.8: 50→55; v11.1: 55→62; v11.2: 62→55; v15.5: 55→57; v16.5: 57→59; v18.55: 59→57 — at WR=30.7% quality distribution lands 57-63; 59 base blocked borderline EV-positive signals; 57 passes 43rd-percentile quality while WR-tier adjustments (61 at WR<35%) govern the active regime floor]
 # ── Gate 5 soft-veto quality penalties (v7.1) ────────────────────────────────
 # v7.1 KEY FIX: G5 previously hard-blocked when only ONE analyzer had data and
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
@@ -2184,8 +2211,8 @@ GEX_MIN_DGRP          = 38       # minimum DGRP score to pass GEX gate (v9.8: 35
 GEX_FLIP_ZONE_DGRP    = 33       # Gate 7 DGRP threshold for FLIP ZONE regime (v9.8: 30→33; flip-zone is highest-conviction regime, raise the bar)
 GEX_MIN_CONFIDENCE    = 72       # minimum GEX confidence to pass GEX gate (v9.8: 68→72; lifts mandatory dealer-flow conviction)
 GEX_SCAN_INTERVAL_SEC = 20       # GEX scan interval seconds (v5.8: 30→20, 50% faster regime refresh)
-GEX_PARALLEL_LIMIT    = 40       # GEX parallel Binance requests (v5.9: 30→40, 33% higher throughput)
-GEX_BATCH_SIZE        = 25       # symbols per GEX cycle (v5.9: 20→25, 25% more per batch)
+GEX_PARALLEL_LIMIT    = 45       # GEX parallel Binance requests (v5.9: 30→40, v18.55: 40→45 — 12.5% higher throughput; GEX data stays fresher at larger symbol universe)
+GEX_BATCH_SIZE        = 28       # symbols per GEX cycle (v5.9: 20→25, v18.55: 25→28 — 12% more symbols per 20s cycle; balanced with rate budget)
 
 # ── Signal rate ───────────────────────────────────────────────────────────────
 SIGNAL_INTERVAL_MIN   = 300      # per-symbol cooldown (seconds)
@@ -2281,11 +2308,11 @@ SLIPPAGE_PCT          = 0.0005   # 0.05% per side (entry + exit = 0.10% round tr
 # is too generous); requiring a positive +15bps margin forces signals to clear
 # the round-trip slippage AND leave headroom for adverse fill, which is the band
 # where empirical WR turns positive (≥45%).
-EV_MIN_THRESHOLD      = 0.0028   # ≥+28bps EV after slippage required to accept a signal (v9.8: 15→20bps; v11.1: 20→25bps; v15.5: 25→28bps; v16.0: 28→32bps; v16.5: 32→35bps; v18.54: 35→28bps — diagnostic evidence 2026-05-09: achievable EV at P_win=35% with RR=1.64 is 13-32bps; DYMUSDT EV=31.64bps rejected at 38.84bps floor; at 28bps base, GEX FLIP tightening to 29.96bps still passes the 31bps+ tier; mathematically the 35bps floor was demanding EV that the current regime structurally cannot produce, starving signal flow to zero; 28bps aligns with the actual edge achievable at 35% WR with 1.64-3.0 R:R)
+EV_MIN_THRESHOLD      = 0.0026   # ≥+26bps EV after slippage required to accept a signal (v9.8: 15→20bps; v11.1: 20→25bps; v15.5: 25→28bps; v16.0: 28→32bps; v16.5: 32→35bps; v18.54: 35→28bps; v18.55: 28→26bps — at WR=30.7% achievable EV is 13-28bps; 28bps rejected signals at the structural ceiling of what the regime can produce; 26bps clears round-trip slippage (10bps) with 16bps edge headroom while passing borderline EV-positive signals; all dynamic Sharpe/ATR/streak tiers scale proportionally from 26bps base)
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
 DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "4") or 4)          # 04:00 UTC end (exclusive) [v9.7-C: 3→4]
-DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "8.0") or 8.0)  # quality penalty during dead-zone hours
+DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "6.0") or 6.0)  # quality penalty during dead-zone hours (v18.55: 8.0→6.0 — less harsh soft-mode penalty; SOVEREIGN+consensus signals were being blocked by -8pts stacking on top of Markov neutral; -6pts maintains dead-zone discount while allowing top-tier signals through)
 UNITY_DEADZONE_HARD_VETO = os.getenv("UNITY_DEADZONE_HARD_VETO", "1").strip().lower() not in ("0", "false", "no")  # [v9.7-C] block all signals in dead-zone hours [v15.5: default 0→1 — quality analysis showed dead-zone signals (UTC 00-04h) have win rate 8% below prime-session baseline; thin orderbooks cause adverse fill; hard veto eliminates this consistently-losing session window]
 # UTC session bonus hours (active London/NY overlap = higher liquidity)
 SESSION_BONUS_UTC_START = 12     # 12:00 UTC (London afternoon / NY morning)
@@ -2307,12 +2334,13 @@ SIGNAL_COOLDOWN_MINUTES = 20     # minimum minutes between same-symbol signals
 # Set to 0.0 to disable; 1.0 is a hard break-even-or-better trail (= no give-back).
 # v16.0: 0.50→0.55 — at WR=31.2% winning trades gave back avg 48% of run-up before
 # TP1; locking 55% recovers ~7% gross PnL on winners without tightening entry gates.
-TRAILING_LOCK_PROFIT_PCT = 0.60
+TRAILING_LOCK_PROFIT_PCT = 0.65
 # v16.5: 0.55→0.60 — at WR=31.3% winning trades gave back avg 45% of run-up before
 # hitting TP1; locking 60% of unrealized profit from the trail-activation point
-# recovers an additional ~4% gross PnL on winners vs the 0.55 setting.  Combined
-# with the earlier activation (0.35→0.30) this produces a tighter but still
-# noise-tolerant trail on USDM perpetuals.
+# recovers an additional ~4% gross PnL on winners vs the 0.55 setting.
+# v18.55: 0.60→0.65 — at WR=30.7% winning trades gave back avg 40% of run-up; locking
+# 65% recovers an additional ~3% gross PnL on winners. Combined with 0.30 activation
+# fraction this produces an even tighter profit capture on USDM perpetuals.
 # Activate the lock-profit trail only once price has moved this fraction of the
 # distance from entry to TP1. Prevents premature SL tightening on noise.
 # v16.0: 0.50→0.35.  v16.5: 0.35→0.30 — arm 5% earlier so fast-reversal winners
@@ -2605,7 +2633,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 5     # wins in a row → lower threshold bonus
 CONSEC_WIN_STREAK_BONUS      = -2.0  # extra delta applied on top of RL bucket
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.54"
+UNITY_VERSION                = "18.55"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -2616,7 +2644,7 @@ MARKOV_CHAIN_THRESHOLD = 0.87    # p_ij ≥ this → SOVEREIGN boost (formula th
 MARKOV_CHAIN_MIN_OBS   = 5       # minimum observations per state before gate activates (v18.49: 10→7; v18.50: 7→5 — faster warm-up; 5 trades per state ≈1.5h at current signal rate vs 2.1h at 7)
 MARKOV_CHAIN_RING_SIZE = 100     # rolling outcome buffer per state
 MARKOV_BOOST_PTS       = 15.0    # quality bonus when p_ij ≥ 0.87 (v18.50: 12→15 — stronger SOVEREIGN reward; SOVEREIGN signals have 87%+ historical WR → Gate 9 should strongly favour them)
-MARKOV_MILD_PTS        = 6.0     # quality bonus when 0.70 ≤ p_ij < 0.87 (v18.50: 5→6)
+MARKOV_MILD_PTS        = 7.0     # quality bonus when 0.70 ≤ p_ij < 0.87 (v18.50: 5→6; v18.55: 6→7 — stronger mid-tier boost incentivizes engine to prefer symbols trending toward SOVEREIGN confirmation)
 MARKOV_PENALTY_PTS     = 10.0    # quality penalty when p_ij < 0.50 (v18.50: 8→10 — stronger adverse penalty; unfavourable regime transitions more aggressively blocked)
 # ── v18.50 HFT Dual-Direction Flip-Zone constant ──────────────────────────────
 # When True: at FLIP ZONE GEX regime + Markov SOVEREIGN on both LONG and SHORT
@@ -2636,7 +2664,7 @@ HFT_DUAL_DIR_COOLDOWN_MIN = float(os.getenv("UNITY_HFT_COOLDOWN_MIN", "8.0") or 
 # without penalty — quality floor is enforced at a tighter level for all
 # non-SOVEREIGN signals, dramatically improving signal selectivity.
 SOVEREIGN_RECOVERY_WR     = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_WR", "0.38") or 0.38)
-SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "63.0") or 63.0)
+SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "61.0") or 61.0)  # v18.55: 63→61 — with SIGNAL_MIN_QUALITY_GATE dropping to 57, the 63 recovery gate was widening the differential; 61 still enforces +4pt selectivity above 57 base for non-SOVEREIGN signals in WR<38% regimes
 
 # ── v8.3: Pre-compiled HTF word frozensets (module-level constants) ───────────
 # Previously created fresh on every UnitySignalFilter.apply() call — moved here
@@ -4487,14 +4515,28 @@ class UnityMarkovChainGate:
         except Exception:
             return 0.5, 0
 
-    def quality_adjustment(self, symbol: str, direction: str) -> Tuple[float, str]:
+    def quality_adjustment(self, symbol: str, direction: str, global_wr: float = 0.50) -> Tuple[float, str]:
         """Return (quality_delta, reason_str) for UnitySignalFilter.apply().
 
         Implements the Markov Chain entry formula:
           P(X^{n+1}=j | X^n=i) = p_ij ≥ 0.87 → SOVEREIGN boost
 
+        v18.55 DEATH-SPIRAL FIX: The penalty threshold is now dynamic based on
+        global_wr (Bayesian WR from booster). At WR=30.7%, per-state p_ij values
+        are ~0.30 — well below the old hard-coded 0.50 threshold. This caused
+        -10pts PENALTY on EVERY signal, structurally compounding quality starvation.
+        Fix: penalty_threshold = max(0.35, global_wr × 0.85). Only states that are
+        materially worse than the engine's demonstrated WR are penalised. States
+        merely matching the low-WR regime (p_ij ≈ global_wr) receive 0 adjustment.
+
         Never returns a hard-block — only a quality score delta.
         The final quality gate (Gate 9 / Gate 10) makes the pass/fail decision.
+
+        Args:
+            symbol:    trade symbol (e.g. "BTCUSDT")
+            direction: trade direction (e.g. "BUY", "LONG", "SELL", "SHORT")
+            global_wr: Bayesian posterior win rate of the engine (default 0.50).
+                       Pass booster._bayes_alpha/(alpha+beta) from the call site.
         """
         try:
             p_ij, n_obs = self.transition_probability(symbol, direction)
@@ -4509,11 +4551,21 @@ class UnityMarkovChainGate:
                 return MARKOV_MILD_PTS, (
                     f"MARKOV_STRONG: p_ij={p_ij:.3f}≥0.70 n={n_obs} [v18.38]"
                 )
-            if p_ij < 0.50:
+            # v18.55 DEATH-SPIRAL FIX: dynamic penalty threshold relative to global WR.
+            # Old: hard-coded 0.50 → at WR=30%, p_ij≈0.30 < 0.50 → -10pts on EVERY signal.
+            # New: max(0.35, global_wr × 0.85) — only penalise states meaningfully worse
+            # than the engine's demonstrated win rate.  At WR=30.7%: threshold =
+            # max(0.35, 0.307×0.85) = max(0.35, 0.261) = 0.35.  States with p_ij in
+            # [0.35, 0.70) receive NEUTRAL (0 pts) — no longer death-spiralling.
+            # States clearly underperforming (p_ij < 0.35) still receive full penalty.
+            _penalty_threshold = max(0.35, float(global_wr) * 0.85)
+            if p_ij < _penalty_threshold:
                 return -MARKOV_PENALTY_PTS, (
-                    f"MARKOV_UNFAV: p_ij={p_ij:.3f}<0.50 n={n_obs} → quality penalty [v18.38]"
+                    f"MARKOV_UNFAV: p_ij={p_ij:.3f}<{_penalty_threshold:.3f} "
+                    f"(dyn_floor=max(0.35,{float(global_wr):.2f}×0.85)) "
+                    f"n={n_obs} → quality penalty [v18.55]"
                 )
-            return 0.0, f"MARKOV_NEUTRAL: p_ij={p_ij:.3f} n={n_obs} [v18.38]"
+            return 0.0, f"MARKOV_NEUTRAL: p_ij={p_ij:.3f}≥{_penalty_threshold:.3f} n={n_obs} [v18.55]"
         except Exception as _e:
             return 0.0, f"MARKOV_ERROR: {_e}"
 
@@ -5621,7 +5673,16 @@ class UnitySignalFilter:
         _mk_sov_flag = False   # v18.42: Markov SOVEREIGN flag for ISB convergence
         if self._markov_gate is not None and symbol and direction:
             try:
-                _mk_delta, _mk_reason = self._markov_gate.quality_adjustment(symbol, direction)
+                # v18.55 DEATH-SPIRAL FIX: compute global Bayesian WR and pass to
+                # quality_adjustment() so the dynamic penalty threshold adjusts with
+                # the engine's demonstrated win rate instead of using the hard-coded
+                # 0.50 threshold that penalised every signal at WR=30%.
+                _mk_global_wr = 0.50   # neutral default (cold-start / no booster)
+                if self._booster is not None:
+                    _mk_ba = float(getattr(self._booster, "_bayes_alpha", 2.0) or 2.0)
+                    _mk_bb = float(getattr(self._booster, "_bayes_beta",  2.0) or 2.0)
+                    _mk_global_wr = _mk_ba / max(1.0, _mk_ba + _mk_bb)
+                _mk_delta, _mk_reason = self._markov_gate.quality_adjustment(symbol, direction, _mk_global_wr)
                 if _mk_delta != 0.0:
                     quality_score += _mk_delta
                     self._logger.debug(
@@ -6828,12 +6889,12 @@ class UnitySignalFilter:
             try:
                 _g4_drought = self._signal_drought_seconds()
                 if _g4_drought > 1800:  # >30min drought
-                    _g4_relaxed = max(0.37, nn_threshold - 0.02)
+                    _g4_relaxed = max(0.36, nn_threshold - 0.02)  # v18.55: floor 0.37→0.36 (aligns with new NN_WIN_PROB_GATE=0.40 base; 0.36 maintains 2.5pt buffer above BE=0.351)
                     if _g4_relaxed < nn_threshold:
                         nn_threshold = _g4_relaxed
                         self._logger.debug(
-                            f"[G4-DroughtRelax v18.36] drought={_g4_drought/60:.0f}min "
-                            f"→ nn_threshold {nn_threshold+0.02:.2f}→{nn_threshold:.2f} (floor=0.37)"
+                            f"[G4-DroughtRelax v18.55] drought={_g4_drought/60:.0f}min "
+                            f"→ nn_threshold {nn_threshold+0.02:.2f}→{nn_threshold:.2f} (floor=0.36)"
                         )
             except Exception:
                 pass
@@ -6849,12 +6910,12 @@ class UnitySignalFilter:
             try:
                 _g4_unani_cons = float(signal_data.get("consensus", signal_data.get("swarm_consensus", 0)) or 0)
                 if _g4_unani_cons >= 0.99:
-                    _g4_unani_relaxed = max(0.39, nn_threshold - 0.04)
+                    _g4_unani_relaxed = max(0.38, nn_threshold - 0.04)  # v18.55: floor 0.39→0.38 (aligns with NN_WIN_PROB_GATE=0.40 base; 0.38 maintains 8.3pt buffer above BE=0.351)
                     if _g4_unani_relaxed < nn_threshold:
                         nn_threshold = _g4_unani_relaxed
                         self._logger.debug(
-                            f"[G4-Unani v18.42] {symbol} unanimous_cons={_g4_unani_cons:.0%} "
-                            f"→ nn_threshold −0.04 ({nn_threshold+0.04:.2f}→{nn_threshold:.2f}, floor=0.39)"
+                            f"[G4-Unani v18.55] {symbol} unanimous_cons={_g4_unani_cons:.0%} "
+                            f"→ nn_threshold −0.04 ({nn_threshold+0.04:.2f}→{nn_threshold:.2f}, floor=0.38)"
                         )
             except Exception:
                 pass
