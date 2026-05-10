@@ -83,7 +83,7 @@ RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
 # ── Build-stage smoke-test — fail fast if forward pass is broken ───────────────
 # This catches corrupted wheels, ABI mismatches, or CDN partial downloads
 # before the image is promoted to the runtime stage.
-RUN python3 -c "\
+RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 -c "\
 import torch, torch.nn as nn; \
 layer = nn.TransformerEncoderLayer(d_model=64, nhead=4, batch_first=True, dropout=0.0); \
 enc = nn.TransformerEncoder(layer, num_layers=2); \
