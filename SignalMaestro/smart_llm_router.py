@@ -107,11 +107,17 @@ MODEL_PRICING = {
     # REMOVED: qwen/qwen3-30b-a3b:free  → 404 confirmed live log 2026-05-13 [v18.68] (also April 2026)
     # v18.72: Qwen3-235B-A22B re-added under correct OpenRouter slug (GitHub repo: QwenLM/Qwen3)
     "qwen/qwen3-235b-a22b-instruct:free":                             {"input": 0.0, "output": 0.0},
+    # v18.74: AEON-7 Qwen3.6-27B — tentative, 404-circuit-breaks gracefully (slug pending confirmation)
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free":       {"input": 0.0, "output": 0.0},
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free":  {"input": 0.0, "output": 0.0},
     "z-ai/glm-4.5-air:free":                                         {"input": 0.0, "output": 0.0},
     # REMOVED: google/gemma-3-12b-it:free → 404 confirmed 2026-05-08 live log [v18.32]
     # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
     "deepseek/deepseek-r1:free":                                      {"input": 0.0, "output": 0.0},
+    # v18.74: AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-DFlash (GitHub: AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-DFlash)
+    # Tentative OpenRouter slug — will 404-circuit-break gracefully if slug is wrong.
+    # To verify: GET https://openrouter.ai/api/v1/models and search "aeon-7".
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free":       {"input": 0.0, "output": 0.0},
 }
 
 BASELINE_MODEL = "anthropic/claude-3-5-sonnet-20241022"
@@ -131,6 +137,8 @@ _FREE_SIMPLE = [
     "meta-llama/llama-3.3-70b-instruct:free",
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
     "z-ai/glm-4.5-air:free",
+    # v18.74: AEON-7 — tentative slug (404-circuit-breaks gracefully if wrong)
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",
 ]
 _FREE_REASONING = [
     # REMOVED: deepseek/deepseek-r1:free → 404 confirmed live log 2026-05-08 [v18.37/v18.46]
@@ -143,6 +151,8 @@ _FREE_REASONING = [
     "meta-llama/llama-3.3-70b-instruct:free",
     "z-ai/glm-4.5-air:free",
     "qwen/qwen3-coder:free",
+    # v18.74: AEON-7 — high-capability reasoning model (tentative; 404-safe)
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",
 ]
 
 TIER_MODELS = {

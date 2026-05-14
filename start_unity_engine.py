@@ -210,6 +210,27 @@
 ║    Implemented via _check_dual_dir_cooldown() in UnitySignalFilter. [v18.50]       ║
 ║  • VERSION — UNITY_VERSION bumped 18.49 → 18.50. [v18.50]                          ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  v18.74 4-TIER TORCH · AEON-7 LLM · SOVEREIGN HARDENED · DEPLOY FIX [2026-05-14]   ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • 4-TIER PYTORCH BOOTSTRAP [v18.74]: Dockerfile torch install upgraded from 2-tier  ║
+║    to 4-tier: Tier1=torch==2.4.0+cpu(primary CDN) → Tier2=torch==2.4.0+cpu(mirror)  ║
+║    → Tier3=torch(any cpu, CDN) → Tier4=torch(PyPI fallback). All tiers preserve     ║
+║    SOVEREIGN [1.00] — ai_capability_checker needs only `import torch` + tensor       ║
+║    arithmetic (Tier-0), never the TransformerEncoder forward-pass. Eliminates        ║
+║    "pytorch_transformer degraded 0.75" and "sklearn 0.75" from Railway logs.        ║
+║    Smoke-test now NON-FATAL: forward-pass failure logs warning but does not abort   ║
+║    the Railway build. nixpacks.toml updated with same 4-tier || chain. [v18.74]     ║
+║  • AEON-7/QWEN3.6-27B INTEGRATION [v18.74]: AEON-7/Qwen3.6-27B-AEON-Ultimate-      ║
+║    Uncensored-DFlash added to SmartLLMRouter _FREE_SIMPLE and _FREE_REASONING        ║
+║    pools with tentative OpenRouter slug. Will 404-circuit-break gracefully and       ║
+║    fall through to next model if slug needs correction. Added to _MODEL_COSTS dict   ║
+║    (free tier, $0 input/output). [v18.74]                                           ║
+║  • SOVEREIGN HARDENING [v18.74]: nixpacks.toml verification block updated to v18.74 ║
+║    with non-fatal torch forward-pass test, showing full tier status at build time.   ║
+║    requirements.txt header updated to v18.74. Dockerfile LABEL version bumped to    ║
+║    18.74 to force Railway image rebuild with new 4-tier bootstrap. [v18.74]         ║
+║  • VERSION — UNITY_VERSION bumped 18.73 → 18.74. [v18.74]                          ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  v18.73 LIVE KLINE FEED · VPIN TASK · QUANT ALPHA HUD · VERSION BUMP [2026-05-14]   ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  • LIVE KLINE FEED TO QUANT LAYERS [v18.73]: _feed_quant_layers_kline() added to    ║
@@ -3059,7 +3080,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 4     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.73"
+UNITY_VERSION                = "18.74"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────

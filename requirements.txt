@@ -1,12 +1,14 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.71 — Production requirements.txt
+# Unity Engine v18.74 — Production requirements.txt
 # ALL versions pinned to currently-installed stable releases.
-# Last verified: 2026-05-13 (v18.71 — PyTorch 2.4.0+cpu / NumPy 2.4.4 / openai 2.34.0)
-# pytorch_transformers → SOVEREIGN [1.00] — TransformerEncoder forward-pass verified
+# Last verified: 2026-05-14 (v18.74 — PyTorch 2.4.0+cpu / NumPy 2.4.4 / openai 2.34.0)
+# pytorch_transformers → SOVEREIGN [1.00] — 4-tier bootstrap: exact→any-cpu→PyPI (v18.74)
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble (fallback_score=1.00)
 # sentiment=1.00 / market_prediction=1.00 / openai_gpt=1.00 — all SOVEREIGN tier
 # L2.5b PatternRecognizer / L7b BSGreeksEngine / L8.5b FactorICIR / L8.5c PortfolioOpt → ALL ACTIVE
 # Gate 4 NN threshold: regime-adaptive (Sharpe<-2.0 → +5pp; Sharpe<-3.5 → +10pp)
+# v18.74: 4-tier torch bootstrap; AEON-7/Qwen3.6-27B LLM; live quant layer feeds; SOVEREIGN hardened;
+# v18.73: _feed_quant_layers_kline; _vpin_aggtrade_feed_task; QuantAlpha HUD row; UnityVPINFeed;
 # v18.71: G_BLK prewarm 300→150s; EV-fail L3 1800→1200s; Asian cap 900→600s; NEARUSDT unprotected; INTERVAL 300→240s; bypass 88→86%;
 # v18.70: EV 22→20bps; IRONS BELOW30 62→60; IRONS 30-45 59→57; SLEEP SYNC 8/12→10/25; DELISTED purge;
 # v18.66: ALGO→IT_HIGH_EV(EV=7.5%,n=56); IT_LARGE_N_POSEV+2(KITE/NIGHT,+0.5pt); SCAN 64→66;
