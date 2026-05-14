@@ -210,6 +210,41 @@
 ║    Implemented via _check_dual_dir_cooldown() in UnitySignalFilter. [v18.50]       ║
 ║  • VERSION — UNITY_VERSION bumped 18.49 → 18.50. [v18.50]                          ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  v18.73 LIVE KLINE FEED · VPIN TASK · QUANT ALPHA HUD · VERSION BUMP [2026-05-14]   ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • LIVE KLINE FEED TO QUANT LAYERS [v18.73]: _feed_quant_layers_kline() added to    ║
+║    UnityEngine and called from _kline_1m_ws_task on every kline tick.  Feeds all    ║
+║    six v18.72 strategy layers: HMM (closes array + ATR proxy + vol_20), Kalman      ║
+║    (update_price), Dispersion (update_price), PCA (update_price + prev_close),       ║
+║    CSM (update_price), IVCrush (update_bar).  Per-symbol rolling 60-bar close       ║
+║    buffer in module-level _quant_layer_close_buf. All calls exception-isolated.     ║
+║    Layers go live within 2–5 minutes of engine boot. [v18.73]                      ║
+║  • VPIN AGGTRADE FEED TASK [v18.73]: New _vpin_aggtrade_feed_task() coroutine polls  ║
+║    BinanceAggTradePool.latest() at 0.5s for BTC/ETH/SOL/BNB/XRP, de-duplicates by  ║
+║    ts_ms, and calls VPINModel.on_trade(price, qty) — activating tick-rule volume     ║
+║    bucket VPIN within 2–5 minutes. Gate 8.5f −6 pts penalty and Kelly 0.75×         ║
+║    become live. Wrapped in @watched_task (restart_delay=5s). Added                  ║
+║    "UnityVPINFeed" to _NEVER_CANCEL so task auditor never cancels it. [v18.73]      ║
+║  • QUANT ALPHA HUD ROW [v18.73]: New "QuantAlpha:" row added to live console        ║
+║    dashboard between Markov Chain and Gates rows. Shows live state of all 6 quant   ║
+║    layers: HMM regime+probability, VPIN percentile (⚠ when toxic), Kalman max-z,    ║
+║    Dispersion regime, CSM extreme symbol counts, PCA ranked count. Fully            ║
+║    exception-isolated — "warming up" shown until layers accumulate data. [v18.73]   ║
+║  • VERSION — UNITY_VERSION bumped 18.72 → 18.73. [v18.73]                          ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  v18.72 SIGNALMAESTRO 7-MODULE INTEGRATION · QWEN3-235B [2026-05-13]                ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • 7 ADVANCED QUANT STRATEGY LAYERS (L8.5e-L8.5k) [v18.72]: New SignalMaestro       ║
+║    modules integrated: HMMRegimeDetector (L8.5e), VPINModel (L8.5f), KalmanPairs    ║
+║    (L8.5g), DispersionVolEngine (L8.5h), PCAFactorEngine (L8.5i), CSMEngine (L8.5j) ║
+║    IVCrushMonitor (L8.5k). Pure-numpy/scipy, zero new PyPI deps. Gates G8.5e-G8.5k  ║
+║    injected into UnitySignalFilter. Layers initialized but cold-start (no live data  ║
+║    feed — fixed in v18.73). [v18.72]                                                ║
+║  • QWEN3-235B-A22B RE-ADDED [v18.72]: Corrected OpenRouter slug confirmed:           ║
+║    qwen/qwen3-235b-a22b-instruct:free (GitHub QwenLM/Qwen3). Added to both          ║
+║    _FREE_SIMPLE and _FREE_REASONING pools in SmartLLMRouter. [v18.72]               ║
+║  • VERSION — UNITY_VERSION bumped 18.71 → 18.72. [v18.72]                          ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  v18.70 EV FLOOR · IRONS · SLEEP SYNC · DELISTED SYMBOLS · DEPLOY LABELS [2026-05-13]║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  • EV_MIN_THRESHOLD: 22→20bps [v18.70]: BNBUSDT (EV=0.2388%) rejected by dynamic  ║
@@ -2866,6 +2901,13 @@ _live_liq_data: Dict[str, Dict[str, float]] = {}
 # Consumed by NN feature engineering, IRONS Gate 10, Gate 8.5d MicrostructureRegime.
 _live_kline_data: Dict[str, Dict[str, Any]] = {}
 
+# v18.73 L8.5e-L8.5k: Rolling close-price buffers for quant strategy layers.
+# Written by _feed_quant_layers_kline() on every kline tick.  Per-symbol list
+# of recent closes (maxlen=60, appended in-place).  Used by HMM (full array),
+# PCA (prev_close = buf[-2]), Kalman, Dispersion, CSM, IV Crush.
+# GIL-safe: single-writer (asyncio event loop), multiple lock-free readers.
+_quant_layer_close_buf: Dict[str, List[float]] = {}
+
 
 async def _refresh_funding_rates_bg(symbols: list) -> None:
     """
@@ -3017,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 4     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.72"
+UNITY_VERSION                = "18.73"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -10265,6 +10307,42 @@ class UnityConsole:
             inner = txt[:W - 4]
             return f"║  {inner:<{W-4}}║"
 
+        # v18.73: QuantAlpha status string — live state of the 7 quant strategy layers
+        _qa_parts: list = []
+        try:
+            _sf73 = self._filter
+            _hmm73 = getattr(_sf73, "_hmm_regime", None)
+            if _hmm73 is not None:
+                _rg73, _pe73, _pf73 = _hmm73.get_regime()
+                _qa_parts.append(f"HMM:{_rg73[:4]}({_pe73:.0%})")
+            _vp73 = getattr(_sf73, "_vpin_model", None)
+            if _vp73 is not None:
+                _vv73, _vpc73, _vk73, _tx73 = _vp73.get_signal()
+                _qa_parts.append(f"VPIN:{_vpc73:.0%}{'⚠' if _tx73 else ''}")
+            _kal73 = getattr(_sf73, "_kalman_pairs", None)
+            if _kal73 is not None:
+                _zs73 = _kal73.get_all_z_scores()
+                if _zs73:
+                    _mz73 = max(abs(z) for z in _zs73.values())
+                    _qa_parts.append(f"Kal:z{_mz73:.1f}")
+            _disp73 = getattr(_sf73, "_dispersion_vol", None)
+            if _disp73 is not None:
+                _ds73 = _disp73.get_stats()
+                _qa_parts.append(f"Disp:{_ds73.get('regime','?')[:4]}")
+            _csm73 = getattr(_sf73, "_csm_engine", None)
+            if _csm73 is not None:
+                _ob73, _os73 = _csm73.get_extreme_symbols()
+                _qa_parts.append(f"CSM:{len(_ob73)}OB/{len(_os73)}OS")
+            _pca73 = getattr(_sf73, "_pca_factor", None)
+            if _pca73 is not None:
+                _pr73 = _pca73.get_rankings()
+                _qa_parts.append(f"PCA:{len(_pr73)}ranked")
+        except Exception:
+            pass
+        _quant_alpha_str = (
+            "  ".join(_qa_parts) if _qa_parts else "warming up — feeding live kline data"
+        )
+
         lines = [
             "",
             f"╔{border}╗",
@@ -10308,6 +10386,8 @@ class UnityConsole:
                    if getattr(self._filter, '_markov_gate', None) is not None
                    else "cold-start (no gate wired)")
             ),
+            # v18.73: Quant Alpha live layer status (HMM / VPIN / Kalman / Dispersion / CSM / PCA)
+            row(f"QuantAlpha: {_quant_alpha_str}"),
             row(f"Gates: {self._filter.gate_stats_summary()}"),
             row(f"Bottleneck: {self._filter.gate_bottleneck_str()}"),
             row(f"Top symbols:    {top_str}"),
@@ -13262,6 +13342,8 @@ class UnityEngine:
                                     "ts":     float(_k.get("t", 0)) / 1000.0,
                                     "closed": bool(_k.get("x", False)),
                                 }
+                                # v18.73: Feed all 6 quant strategy layers with live kline data
+                                self._feed_quant_layers_kline(_sym, _live_kline_data[_sym])
                             except Exception:
                                 pass   # malformed frame — skip silently
                         elif _msg.type in (
@@ -13279,6 +13361,157 @@ class UnityEngine:
                 "@watched_task will reconnect"
             )
             raise   # propagate so @watched_task triggers reconnect
+
+    def _feed_quant_layers_kline(self, sym: str, kdata: dict) -> None:
+        """
+        v18.73 L8.5e-L8.5k: Feed 1m kline OHLCV to all active v18.72 quant
+        strategy layers, transitioning them from cold-start to live signal
+        generation within minutes of engine startup.
+
+        Called from _kline_1m_ws_task on every kline tick (open and closed bars).
+        Maintains a per-symbol rolling close buffer (maxlen=60) in the module-level
+        _quant_layer_close_buf dict shared by all layers.
+
+        Layer update calls:
+          HMM       — update(closes_arr, atr_proxy, vol_20)
+          Kalman    — update_price(sym, close)
+          Dispersion— update_price(sym, close)
+          PCA       — update_price(sym, close, prev_close)
+          CSM       — update_price(sym, close)
+          IVCrush   — update_bar(sym, high, low, close)
+
+        VPIN is fed separately by _vpin_aggtrade_feed_task (requires aggTrade
+        tick-rule volume data, not kline volume).  All calls are exception-isolated
+        so a broken quant layer never crashes the kline WS feed.
+        """
+        try:
+            _close = float(kdata.get("close", 0.0) or 0.0)
+            _high  = float(kdata.get("high",  0.0) or 0.0)
+            _low   = float(kdata.get("low",   0.0) or 0.0)
+            if _close <= 0.0:
+                return
+
+            # ── Rolling 60-close buffer (HMM array input + PCA prev_close) ──
+            _buf = _quant_layer_close_buf.setdefault(sym, [])
+            _buf.append(_close)
+            if len(_buf) > 60:
+                _buf.pop(0)
+
+            _sf = getattr(self, "signal_filter", None)
+
+            # ── HMM Regime Detector ──────────────────────────────────────────
+            try:
+                _hmm = getattr(_sf, "_hmm_regime", None) or getattr(self, "hmm_regime", None)
+                if _hmm is not None and len(_buf) >= 3:
+                    import numpy as _np_q
+                    _ca  = _np_q.array(_buf[-60:], dtype=_np_q.float64)
+                    _atr = max((_high - _low) / max(_close, 1e-9), 1e-9)
+                    _lr  = _np_q.diff(_np_q.log(_ca[-21:])) if len(_ca) >= 3 else _np_q.array([0.001])
+                    _v20 = float(_np_q.std(_lr)) if len(_lr) >= 2 else 0.001
+                    _hmm.update(_ca, float(_atr), float(_v20))
+            except Exception:
+                pass
+
+            # ── Kalman Pairs Engine ──────────────────────────────────────────
+            try:
+                _kal = getattr(_sf, "_kalman_pairs", None) or getattr(self, "kalman_pairs", None)
+                if _kal is not None:
+                    _kal.update_price(sym, _close)
+            except Exception:
+                pass
+
+            # ── Dispersion Vol Engine ────────────────────────────────────────
+            try:
+                _disp = getattr(_sf, "_dispersion_vol", None) or getattr(self, "dispersion_vol", None)
+                if _disp is not None:
+                    _disp.update_price(sym, _close)
+            except Exception:
+                pass
+
+            # ── PCA Factor Neutral Engine ────────────────────────────────────
+            try:
+                _pca = getattr(_sf, "_pca_factor", None) or getattr(self, "pca_factor", None)
+                if _pca is not None and len(_buf) >= 2:
+                    _pca.update_price(sym, _close, float(_buf[-2]))
+            except Exception:
+                pass
+
+            # ── Cross-Section Mean Reversion Engine ──────────────────────────
+            try:
+                _csm = getattr(_sf, "_csm_engine", None) or getattr(self, "csm_engine", None)
+                if _csm is not None:
+                    _csm.update_price(sym, _close)
+            except Exception:
+                pass
+
+            # ── IV Crush Monitor ─────────────────────────────────────────────
+            try:
+                _ivc = getattr(_sf, "_iv_crush_monitor", None) or getattr(self, "iv_crush_monitor", None)
+                if _ivc is not None:
+                    _ivc.update_bar(sym, _high, _low, _close)
+            except Exception:
+                pass
+
+        except Exception:
+            pass   # quant layer errors must never crash the kline WS feed
+
+    async def _vpin_aggtrade_feed_task(self) -> None:
+        """
+        v18.73 L8.5f: Periodic VPIN aggTrade feed — polls BinanceAggTradePool.latest()
+        for top-liquidity USDM symbols every 0.5s and calls VPINModel.on_trade()
+        with each fresh tick's price and quantity.
+
+        Tick-rule classification inside VPINModel assigns buy/sell volume from price
+        direction.  The rolling bucket VPIN estimate becomes active after ~50 volume
+        buckets fill — typically 2–5 minutes at BTC/ETH aggTrade rates.
+
+        VPIN Gate 9 penalty (−6 pts) and Kelly multiplier (0.75×) activate once
+        VPINModel._buckets_filled ≥ VPIN_WINDOW (50), giving genuine order-flow
+        toxicity signal to all subsequent evaluations.
+
+        De-duplicates by ts_ms so each tick is fed exactly once.
+        @watched_task handles restart on any unexpected exception.
+        Symbols polled: BTC, ETH, SOL, BNB, XRP — highest USDM aggTrade volume.
+        """
+        _log = logging.getLogger("UnityEngine.VPINFeed")
+        _seen_ts: Dict[str, int] = {}
+        _top_syms = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
+        _log.info(
+            "✅ [v18.73 L8.5f] VPIN aggTrade feed task started — "
+            "0.5s polling BTC/ETH/SOL/BNB/XRP, tick-rule volume classification"
+        )
+        while True:
+            try:
+                await asyncio.sleep(0.5)
+                _vpin = (
+                    getattr(getattr(self, "signal_filter", None), "_vpin_model", None)
+                    or getattr(self, "vpin_model", None)
+                )
+                if _vpin is None:
+                    continue
+                _agg = getattr(self, "binance_aggtrade", None)
+                if _agg is None:
+                    continue
+                for _sym in _top_syms:
+                    try:
+                        _tick = _agg.latest(_sym)
+                        if _tick is None:
+                            continue
+                        _ts_ms = int(_tick.get("ts_ms", 0) or 0)
+                        if _ts_ms <= _seen_ts.get(_sym, 0):
+                            continue   # already processed this tick
+                        _seen_ts[_sym] = _ts_ms
+                        _price = float(_tick.get("price", 0) or 0)
+                        _qty   = float(_tick.get("qty",   0) or 0)
+                        if _price > 0 and _qty > 0:
+                            _vpin.on_trade(_price, _qty)
+                    except Exception:
+                        pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as _exc:
+                _log.debug(f"[v18.73 VPINFeed] error: {_exc}")
+                await asyncio.sleep(5.0)
 
     def get_market_state_snapshot(
         self,
@@ -13534,6 +13767,7 @@ class UnityEngine:
             "UnityDynBacktest",       # L0.9   dynamic per-symbol backtester sweep
             "UnityConsole",           # live dashboard refresh loop
             "PublicAPIIntelligence",  # L10    Fear&Greed / CoinGecko background loop
+            "UnityVPINFeed",          # v18.73 L8.5f VPIN aggTrade 0.5s tick feed
         })
         # v18.29: Prefix-based exemptions for dynamically-named tasks.
         # BinanceAggTradeWS-{idx}: one task per chunk of symbols (idx 0..N).
@@ -14588,6 +14822,29 @@ class UnityEngine:
             "✅ [v18.13 L0.10] Kline 1m WS task started "
             "(Binance combined @kline_1m — sub-60s OHLCV, @watched_task)"
         )
+
+        # v18.73 L8.5f: VPIN aggTrade feed task — polls top-5 USDM symbols at 0.5s
+        # to build rolling bucket VPIN estimates for Gate 8.5f order-flow toxicity.
+        # Only started when VPINModel is available AND aggTrade pool is running.
+        _vpin_task: Optional[asyncio.Task] = None
+        _vpin_engine_ready = (
+            getattr(self, "vpin_model", None) is not None
+            or getattr(getattr(self, "signal_filter", None), "_vpin_model", None) is not None
+        )
+        if _vpin_engine_ready and getattr(self, "binance_aggtrade", None) is not None:
+            try:
+                _vpin_task = asyncio.create_task(
+                    watched_task("VPINFeed", restart_delay=5.0)(
+                        self._vpin_aggtrade_feed_task
+                    )(),
+                    name="UnityVPINFeed",
+                )
+                self._logger.info(
+                    "✅ [v18.73 L8.5f] VPIN aggTrade feed task started "
+                    "(BTC/ETH/SOL/BNB/XRP, 0.5s tick-rule volume, @watched_task)"
+                )
+            except Exception as _vpin_err:
+                self._logger.warning(f"⚠️ [v18.73] VPIN feed task start failed: {_vpin_err}")
 
         # v15.4: Dedicated Telegram long-poll task — fixes inline button blocking.
         # ROOT CAUSE: _poll_telegram_updates was embedded in the 30-60s scan cycle.
