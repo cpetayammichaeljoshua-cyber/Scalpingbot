@@ -107,23 +107,23 @@ RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
 # The ai_capability_checker Tier-0 SOVEREIGN test (basic tensor arithmetic) will
 # pass at runtime even if TransformerEncoder forward-pass has issues at build time.
 # Only a genuine `import torch` failure (torch not installed) degrades to 0.75.
-RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 -c "\
-try: \
-    import torch, torch.nn as nn; \
-    layer = nn.TransformerEncoderLayer(d_model=64, nhead=4, batch_first=True, dropout=0.0); \
-    enc = nn.TransformerEncoder(layer, num_layers=2); \
-    enc.eval(); \
-    out = enc(torch.zeros(1, 8, 64)); \
-    assert out.shape == (1, 8, 64), f'shape mismatch: {out.shape}'; \
-    print(f'✅ [v18.74] torch {torch.__version__} TransformerEncoder SOVEREIGN [1.00] — forward-pass OK'); \
-except ImportError: \
-    print('❌ [v18.74] torch NOT installed — will activate sklearn SOVEREIGN fallback (score=1.00)'); \
-    raise; \
-except Exception as e: \
-    import torch; \
-    print(f'⚠️  [v18.74] torch {torch.__version__} forward-pass non-fatal: {e}'); \
-    print('✅ [v18.74] Tier-0 SOVEREIGN preserved: torch importable + tensor arithmetic OK'); \
-"
+RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 <<'SMOKE_TEST'
+try:
+    import torch, torch.nn as nn
+    layer = nn.TransformerEncoderLayer(d_model=64, nhead=4, batch_first=True, dropout=0.0)
+    enc = nn.TransformerEncoder(layer, num_layers=2)
+    enc.eval()
+    out = enc(torch.zeros(1, 8, 64))
+    assert out.shape == (1, 8, 64), f'shape mismatch: {out.shape}'
+    print(f'✅ [v18.74] torch {torch.__version__} TransformerEncoder SOVEREIGN [1.00] — forward-pass OK')
+except ImportError:
+    print('❌ [v18.74] torch NOT installed — will activate sklearn SOVEREIGN fallback (score=1.00)')
+    raise
+except Exception as e:
+    import torch
+    print(f'⚠️  [v18.74] torch {torch.__version__} forward-pass non-fatal: {e}')
+    print('✅ [v18.74] Tier-0 SOVEREIGN preserved: torch importable + tensor arithmetic OK')
+SMOKE_TEST
 
 # ── Install all remaining packages (fast PyPI wheels) ─────────────────────────
 RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
