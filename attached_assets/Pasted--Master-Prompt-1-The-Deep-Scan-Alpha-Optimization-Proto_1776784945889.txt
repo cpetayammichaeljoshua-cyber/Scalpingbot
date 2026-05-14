@@ -1,0 +1,33 @@
+‎### **Master Prompt 1: The Deep-Scan & Alpha Optimization Protocol**
+‎*Use this prompt to force the AI to ruthlessly debug, refactor, and mathematically optimize your existing codebase.*
+‎
+‎**Copy and paste this:**
+‎> "Act as a **Principal Quantitative Developer and Elite Systems Auditor**. I am providing the codebase for `start_unity_engine.py`. Execute a perfectly synchronous, multi-layered deep scan of this entire architecture.
+‎> 
+‎> **Your strict directives:**
+‎> 1. **Zero-Tolerance Debugging:** Identify and aggressively eliminate ALL syntax errors, memory leaks, infinite loops, and race conditions within the multi-parallel asynchronous processing layers.
+‎> 2. **Execution Latency:** Dynamically optimize the data handling, API routing, and AI/LLM agent integrations (OpenRouter, neural networks) for maximum multi-parallel throughput. Use O(1) complexity operations and the fastest available serialization wherever possible.
+‎> 3. **Systematic Risk & EV:** Refactor the calculation modules and GEX strategies to strictly enforce positive Expected Value (EV). Integrate rigorous mathematical risk controls, including slippage modeling, dynamic stop-losses, and position sizing algorithms (e.g., Kelly Criterion) to systematically maximize the win rate.
+‎> 
+‎> Return the fully refactored, intelligently integrated, and heavily annotated Python script optimized for the highest possible execution speed and systematic stability."
+‎
+‎---
+‎
+‎### **Master Prompt 2: The Bulletproof Production Singularity**
+‎*Use this prompt to transition your script from a local file to an unstoppable, self-healing cloud server.*
+‎
+‎**Copy and paste this:**
+‎> "Act as a **Lead Algorithmic Site Reliability Engineer (SRE)**. Take my highly optimized `start_unity_engine.py` ecosystem and engineer it strictly for a flawless, institution-grade production deployment.
+‎> 
+‎> **Your strict directives:**
+‎> 1. **Fault Tolerance & Self-Healing:** Implement advanced exception handling, jittered exponential backoff for all external API calls (LLMs, OpenRouter, GEX), and graceful shutdown sequences. The engine must systematically handle network drops and exchange outages without ever permanently crashing.
+‎> 2. **State Persistence:** Integrate perfect persistent state management (e.g., Redis or advanced local caching) so the bot retains exact memory of active calculations, agent logic, and positions if the server forces a restart.
+‎> 3. **Production Artifacts:** Generate a highly optimized, distroless `Dockerfile` tailored strictly for headless, low-latency Python execution. Include a secure `requirements.txt` and any necessary orchestration instructions to ensure this engine runs continuously.
+‎> 
+‎> Architect this bot to be an unstoppable, fully autonomous 24/7 intelligence node."
+‎
+‎Dynamically perfectly comprehensive flexible synchronous optimize systematic institution grade advanced precise fastest intelligenent enhance integrate innovate improve in multiparallel processing Integrate all of the things: calculations, agents, console, AI, LLM, APIs, neural networks, strategies, openrouter, GEX, Secrets, etcetera, united to one, call it unity engine, create a separate workflow for this: python3 start_unity_engine.py
+‎
+‎Scan, read, and analyze the codes in multiparallel scanning. Dynamically perfectly comprehensive flexible synchronous optimize systematic institution grade advanced precise fastest intelligenent enhance integrate innovate improve in multiparallel processing fix ALL the bugs, errors, issues and loops , calculations, agents, console, AI, LLM, APIs, neural networks, strategies, openrouter, GEX, Secrets, etc. , Strictly improve win rate and profitability. Base it strictly on the python3 start_unity_engine.py.
+‎
+‎Dynamically perfectly comprehensive flexible synchronous optimize systematic institution grade advanced precise fastest intelligenent enhance integrate innovate improve in multiparallel processing Integrate strictly make this bot perfect for production deployment.

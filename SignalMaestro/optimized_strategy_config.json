@@ -1,0 +1,29 @@
+{
+  "ichimoku_params": {
+    "conversion_periods": 4,
+    "base_periods": 4,
+    "lagging_span2_periods": 46,
+    "displacement": 20,
+    "ema_periods": 200,
+    "stop_loss_percent": 1.75,
+    "take_profit_percent": 3.25
+  },
+  "signal_filtering": {
+    "min_signal_strength": 75.0,
+    "min_confidence": 75.0,
+    "use_multi_timeframe": false,
+    "timeframes": [
+      "30m"
+    ],
+    "blocked_timeframes": [
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "risk_management": {
+    "max_risk_per_trade": 0.02,
+    "max_signals_per_hour": 2,
+    "min_signal_interval_minutes": 30
+  }
+}

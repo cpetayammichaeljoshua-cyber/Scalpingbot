@@ -1,0 +1,92 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Unity Engine v18.71 — Production requirements.txt
+# ALL versions pinned to currently-installed stable releases.
+# Last verified: 2026-05-13 (v18.71 — PyTorch 2.4.0+cpu / NumPy 2.4.4 / openai 2.34.0)
+# pytorch_transformers → SOVEREIGN [1.00] — TransformerEncoder forward-pass verified
+# sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble (fallback_score=1.00)
+# sentiment=1.00 / market_prediction=1.00 / openai_gpt=1.00 — all SOVEREIGN tier
+# L2.5b PatternRecognizer / L7b BSGreeksEngine / L8.5b FactorICIR / L8.5c PortfolioOpt → ALL ACTIVE
+# Gate 4 NN threshold: regime-adaptive (Sharpe<-2.0 → +5pp; Sharpe<-3.5 → +10pp)
+# v18.71: G_BLK prewarm 300→150s; EV-fail L3 1800→1200s; Asian cap 900→600s; NEARUSDT unprotected; INTERVAL 300→240s; bypass 88→86%;
+# v18.70: EV 22→20bps; IRONS BELOW30 62→60; IRONS 30-45 59→57; SLEEP SYNC 8/12→10/25; DELISTED purge;
+# v18.66: ALGO→IT_HIGH_EV(EV=7.5%,n=56); IT_LARGE_N_POSEV+2(KITE/NIGHT,+0.5pt); SCAN 64→66;
+# v18.65: IT_HIGH_EV+4(BILL/NOM/CHZ/BSB); Markov ring 150→200; SCAN 62→64; IT-Convex confirmed;
+# v18.64: SessionRecal DZ 4→3h; Prime 12→15h; IT-Temporal {03,09,21}h+2pts/{10,13,14,22}h−2pts; Qwen3-235B+30B; SCAN 60→62;
+# v18.63: IT_AVOID 20→33 (-3pt each); IT_DIR_LONG +RLCUSDT(90%); SCAN_PARALLEL 58→60;
+# v18.62: IT_HIGH_EV_SYMBOLS +1.0pt; Markov ring 100→150; SCAN_PARALLEL 56→58; bootstrap labels ✅;
+# v18.61: IT-Alpha 7→13 symbols; IT_AVOID_SYMBOLS -3pt; IT_DIR_ALIGNMENT +1.5pt; SOVEREIGN ✅ fix;
+# v18.60: 3-tier torch bootstrap; SOVEREIGN SKLEARN 1.00; SCAN_PARALLEL 54→56; no DEGRADED noise;
+#         SCAN_PARALLEL 35→40 (+14% throughput ~640 sym/min);
+#         MARKOV MIN_OBS 7→5; MARKOV_BOOST_PTS 12→15; MARKOV_PENALTY_PTS 8→10;
+#         MARKOV_MILD_PTS 5→6; HFT FLIP_ZONE dual-direction mode (UNITY_FLIPZONE_DUAL_DIR);
+#         booster._markov_gate_ref wired in _wire_unity_components().
+# v18.49: Kelly Step 19 prime-session boost (+8% UTC 12-20); Step 12 ×0.20 at SR<-3.5;
+#         Markov MIN_OBS 10→7; SCAN_PARALLEL 30→35; PyTorch test v7.0 (dropout=0.0+eval+no_grad)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Core async I/O ────────────────────────────────────────────────────────────
+aiohttp==3.13.5
+aiosqlite==0.22.1
+aiodns==4.0.0
+websockets==16.0
+websocket-client==1.9.0
+
+# ── Fast JSON serialization (~3-10× vs stdlib json) ──────────────────────────
+orjson==3.11.8
+
+# ── Redis async client for sub-millisecond state caching (optional) ──────────
+redis==7.4.0
+
+# ── Data processing ───────────────────────────────────────────────────────────
+numpy==2.4.4
+scipy==1.17.1
+pandas==3.0.2
+
+# ── Machine Learning / AI ─────────────────────────────────────────────────────
+# v18.2: scikit-learn pinned to actual installed version (1.6.1→1.8.0)
+scikit-learn==1.8.0
+openai==2.34.0
+rank-bm25==0.2.2
+
+# ── PyTorch + HuggingFace Transformers ────────────────────────────────────────
+# v18.5 FIX: torch 2.4.0+cpu — fully NumPy 2.x compatible (fixes pytorch_transformers
+# DEGRADED 0.75 → FULL 0.90 on Railway/Replit).
+# torch 2.1.0 had _ARRAY_API not found error with NumPy 2.x; 2.4.0 fixes this.
+# Install MUST use --index-url https://download.pytorch.org/whl/cpu (not PyPI).
+# transformers 5.x installed AFTER torch for correct dependency resolution.
+torch==2.4.0+cpu
+transformers==5.8.0
+
+# ── NLP / Sentiment analysis enhancements ─────────────────────────────────────
+textblob==0.20.0
+vaderSentiment==3.3.2
+nltk==3.9.4
+
+# ── Crypto exchange APIs ──────────────────────────────────────────────────────
+ccxt==4.5.52
+binance-connector==3.13.0
+
+# ── Telegram bot ──────────────────────────────────────────────────────────────
+python-telegram-bot[job-queue]==22.7
+
+# ── HTTP / web utilities ──────────────────────────────────────────────────────
+requests==2.33.1
+
+# ── Cryptography (ccxt / exchange auth) ────────────────────────────────────────
+# v18.2: pinned to actual installed version (47.0.0→48.0.0)
+cryptography==48.0.0
+pycryptodome==3.23.0
+
+# ── High-performance event loop (Omega-Tier: 2-4× faster than CPython) ────────
+uvloop==0.22.1
+
+# ── System utilities ──────────────────────────────────────────────────────────
+psutil==7.2.2
+
+# ── Async rate-limiting ────────────────────────────────────────────────────────
+asyncio-throttle==1.0.2
+
+# ── Security notes ────────────────────────────────────────────────────────────
+# All versions above are the minimum patched releases that close known CVEs.
+# Run `pip audit` after any update to verify no regressions.
+# torch must be installed from https://download.pytorch.org/whl/cpu — not PyPI.

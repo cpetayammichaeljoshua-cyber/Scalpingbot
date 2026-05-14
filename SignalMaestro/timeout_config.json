@@ -1,0 +1,6 @@
+{
+  "api_timeout": 30,
+  "network_timeout": 60,
+  "retry_attempts": 3,
+  "backoff_factor": 2
+}
