@@ -34,8 +34,8 @@ HMM_N_STATES          = 3        # expansion / transition / contraction
 HMM_MIN_OBS           = 30       # minimum observations before HMM activates
 HMM_EXPANSION_PROB    = 0.70     # P(expansion) threshold for SOVEREIGN leverage boost
 HMM_CONTRACTION_PROB  = 0.70     # P(contraction) threshold for risk-off penalty
-HMM_QUALITY_BOOST     = 6.0      # quality pts added in confirmed expansion regime
-HMM_QUALITY_PENALTY   = -8.0     # quality pts removed in confirmed contraction regime
+HMM_QUALITY_BOOST     = 8.0      # v18.75: 6.0→8.0 — stronger expansion reward (MacroGlide directive: leverage increase in low-vol expansion confirmed ≥70%)
+HMM_QUALITY_PENALTY   = -10.0   # v18.75: -8.0→-10.0 — stronger contraction penalty (high-vol contraction confirmed ≥70% → harder filter)
 HMM_WINDOW            = 200      # rolling observation window for features
 
 

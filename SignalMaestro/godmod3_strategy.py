@@ -873,13 +873,17 @@ class G0DM0D3Engine:
                                       # 12 concurrent calls: all models get 429 before any response
                                       # returns → all 8 models disabled simultaneously → AI blackout.
                                       # 4 concurrent: only 4 models called at once; cascade handles rest.
-    _MODEL_ERROR_THRESHOLD   = 7      # v5.5: 5→7 — free-tier jitter causes spurious 429s;
-                                      # 7 consecutive errors is a firmer signal of real rate pressure.
+    _MODEL_ERROR_THRESHOLD   = 5      # v18.75: 7→5 — logs show all 4+ models hitting 7 errors
+                                      # simultaneously (thundering-herd 429 storm). Lowering to 5
+                                      # disables rate-limited models faster, allowing the cascade
+                                      # to fall through to the next model sooner and reducing total
+                                      # 429 volume. Storm backoff (step=5) still escalates cooldown.
     _GENERIC_ERR_THRESHOLD   = 8      # consecutive non-429 generic errors → 2h disable (GenericErrGuard)
     _GENERIC_ERR_DISABLE_S   = 7200.0 # 2 hours disable for models with systematic generic errors
-    _INTER_CALL_DELAY_BASE   = 0.8    # v8.4: 0.5→0.8s — additional breathing room between
-                                      # consecutive model calls. At 8 active models × 1/min limit,
-                                      # 0.8s ensures no burst of calls hits a model within its window.
+    _INTER_CALL_DELAY_BASE   = 1.2    # v18.75: 0.8→1.2s — additional breathing room between
+                                      # consecutive model calls. 1.2s reduces thundering-herd
+                                      # rate-limit storms by adding 400ms more stagger between
+                                      # calls to the same model across parallel symbol scans.
     _INTER_CALL_DELAY_MAX    = 2.0    # maximum inter-call delay under pressure
     _AI_AVAILABLE_WINDOW     = 600.0  # v3.1: extended 300→600s — keeps signal gate open longer
                                       # between CONSORTIUM sweep windows when free-tier LLMs cycle

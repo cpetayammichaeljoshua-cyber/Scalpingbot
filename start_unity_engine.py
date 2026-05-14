@@ -210,6 +210,34 @@
 ║    Implemented via _check_dual_dir_cooldown() in UnitySignalFilter. [v18.50]       ║
 ║  • VERSION — UNITY_VERSION bumped 18.49 → 18.50. [v18.50]                          ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  v18.75 HMM KELLY·VPIN TIERED·RATE-LIMIT FIX·REGIME MULTIPLIER [2026-05-14]        ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
+║  • KELLY STEP 21 — HMM REGIME MULTIPLIER [v18.75]: New 21st Kelly step implements  ║
+║    the institutional MacroGlide directive: "Increase leverage ONLY when the Hidden  ║
+║    Markov Model classifies markets into low-volatility expansion regimes with       ║
+║    probability ≥70%." EXPANSION P≥0.70 + SR≥-3.0 → Kelly ×1.20 (more size in     ║
+║    confirmed low-vol expansion). CONTRACTION P≥0.70 → Kelly ×0.75 (reduced size   ║
+║    in high-vol contraction). Complements Step 20 (Markov-SOVEREIGN); both can fire ║
+║    simultaneously for maximum regime-aligned sizing. Wire-up: _wire_unity_          ║
+║    components() injects booster._hmm_regime_ref. [v18.75]                          ║
+║  • HMM QUALITY BOOST ENHANCED [v18.75]: HMM_QUALITY_BOOST 6.0→8.0 pts; penalty    ║
+║    -8.0→-10.0 pts. Gate 8.5e now applies +8pts for EXPANSION (was +6pts) and       ║
+║    -10pts for CONTRACTION (was -8pts). Combined with Kelly Step 21, confirmed       ║
+║    EXPANSION signals get +8pts quality AND ×1.20 Kelly — dual-layer reward. [v18.75]║
+║  • VPIN TIERED TOXICITY GATE [v18.75]: Gate 8.5f upgraded from single-tier to      ║
+║    3-tier penalty system per MacroGlide VPIN strategy ("reduce exposure once        ║
+║    order-flow imbalance enters historically unstable percentile ranges above 90%"):  ║
+║    pct>0.90: -6pts (base) | pct>0.95: -15pts (severe, +9pts extra) |               ║
+║    pct>0.97: -18pts (extreme, +12pts extra — near-veto for flash-crash precursors). ║
+║    Protects against informed-trading events and liquidity crashes. [v18.75]         ║
+║  • RATE-LIMIT STORM FIX [v18.75]: G0DM0D3 _MODEL_ERROR_THRESHOLD 7→5 — logs showed ║
+║    all 4 models simultaneously hitting 7 consecutive 429s (thundering herd). Lower  ║
+║    threshold disables rate-limited models after 5 errors instead of 7, allowing     ║
+║    the tier cascade to fall through faster. _INTER_CALL_DELAY_BASE 0.8→1.2s adds  ║
+║    400ms more stagger between consecutive model calls, breaking the herd pattern.  ║
+║    Storm backoff (step=5, max=1800s) unchanged — still escalates cooldown. [v18.75] ║
+║  • VERSION — UNITY_VERSION bumped 18.74 → 18.75. [v18.75]                          ║
+║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  v18.74 4-TIER TORCH · AEON-7 LLM · SOVEREIGN HARDENED · DEPLOY FIX [2026-05-14]   ║
 ║  ─────────────────────────────────────────────────────────────────────────────────  ║
 ║  • 4-TIER PYTORCH BOOTSTRAP [v18.74]: Dockerfile torch install upgraded from 2-tier  ║
@@ -3080,7 +3108,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 4     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.74"
+UNITY_VERSION                = "18.75"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -8205,11 +8233,12 @@ class UnitySignalFilter:
             except Exception:
                 pass
 
-        # ── Gate 8.5e — HMM Regime Quality Adjustment (v18.72) ───────────────
+        # ── Gate 8.5e — HMM Regime Quality Adjustment (v18.75) ───────────────
         # Hidden Markov Model regime detection feeds a quality bonus/penalty
         # based on market regime classification (EXPANSION / TRANSITION / CONTRACTION).
-        # EXPANSION (P≥0.70): +6pts quality + 1.15× leverage (low-vol expansion regime)
-        # CONTRACTION (P≥0.70): -8pts quality + 0.70× leverage (high-vol contraction)
+        # v18.75: EXPANSION (P≥0.70): +8pts quality (was +6pts; MacroGlide directive)
+        # v18.75: CONTRACTION (P≥0.70): -10pts quality (was -8pts; harder risk filter)
+        # Kelly Step 21 (booster._hmm_regime_ref) compounds: EXPANSION ×1.20 Kelly.
         # Only fires when HMM has ≥30 observations (cold-start safe).
         _hmm_ref = getattr(self, "_hmm_regime", None)
         if symbol and _hmm_ref is not None and _hmm_ref.is_ready:
@@ -8224,18 +8253,34 @@ class UnitySignalFilter:
             except Exception:
                 pass
 
-        # ── Gate 8.5f — VPIN Order-Flow Toxicity (v18.72) ────────────────────
-        # Volume-synchronized Probability of Informed Trading.
-        # VPIN > 90th percentile → toxic order flow → -6pts quality, 0.75× Kelly.
+        # ── Gate 8.5f — VPIN Order-Flow Toxicity (v18.75) ────────────────────
+        # Volume-synchronized Probability of Informed Trading (VPIN).
+        # "Reduce exposure or fade momentum once order-flow imbalance enters
+        #  historically unstable percentile ranges above 90%." — MacroGlide VPIN strategy
+        # v18.75: Tiered penalty — 3 escalating tiers based on toxicity severity:
+        #   pct > 0.90: -6pts  (base — toxic, from vpin_model.get_signal)
+        #   pct > 0.95: -15pts (severe toxicity — pre-crash / informed-trading signal)
+        #   pct > 0.97: -18pts (extreme toxicity — near-veto, flash-crash precursor)
         # Only fires when ≥50 volume buckets accumulated (cold-start safe).
         _vpin_ref = getattr(self, "_vpin_model", None)
         if symbol and _vpin_ref is not None and _vpin_ref.is_ready:
             try:
                 _vpin_val, _vpin_pct, _vpin_quality_adj, _vpin_toxic = _vpin_ref.get_signal()
+                # v18.75: Escalating VPIN toxicity tiers above 95th percentile
+                if _vpin_pct >= 0.97:
+                    _vpin_quality_adj -= 12.0   # extreme toxicity: total ≈ -18pts
+                    self._logger.debug(
+                        f"[G8.5f VPIN v18.75] {symbol} EXTREME pct={_vpin_pct:.3f}≥0.97 → extra -12pts"
+                    )
+                elif _vpin_pct >= 0.95:
+                    _vpin_quality_adj -= 9.0    # severe toxicity: total ≈ -15pts
+                    self._logger.debug(
+                        f"[G8.5f VPIN v18.75] {symbol} SEVERE pct={_vpin_pct:.3f}≥0.95 → extra -9pts"
+                    )
                 if _vpin_quality_adj != 0.0:
                     quality_score += _vpin_quality_adj
                     self._logger.debug(
-                        f"[G8.5f VPIN v18.72] {symbol} VPIN={_vpin_val:.3f} "
+                        f"[G8.5f VPIN v18.75] {symbol} VPIN={_vpin_val:.3f} "
                         f"pct={_vpin_pct:.2f} toxic={_vpin_toxic} → {_vpin_quality_adj:+.1f}pts"
                     )
             except Exception:
@@ -10086,6 +10131,38 @@ class UnityProfitBooster:
         except Exception:
             pass   # Markov-Sovereign boost is non-fatal — Kelly unchanged on error
 
+        # ── 21. v18.75 HMM Regime Kelly Multiplier ──────────────────────────────────
+        # Institutional directive (MacroGlide Hidden Markov Regime Detection strategy):
+        # "Increase leverage only when the model classifies markets into low-volatility
+        #  expansion regimes with probability above 70%."
+        # EXPANSION P≥0.70 + SR≥-3.0 → Kelly × 1.20  (confirmed low-vol expansion)
+        # CONTRACTION P≥0.70          → Kelly × 0.75  (confirmed high-vol contraction)
+        # Complements Step 20 (Markov-Sovereign): both can fire simultaneously.
+        # Wire-up: UnityEngine._wire_unity_components() sets booster._hmm_regime_ref.
+        # Guards: kelly > 0.002 | HMM ready (≥30 obs) | SR ≥ -3.0 for expansion only.
+        try:
+            _hmm21 = getattr(self, "_hmm_regime_ref", None)
+            if _hmm21 is not None and getattr(_hmm21, "is_ready", False) and kelly > 0.002:
+                _rg21, _pe21, _ = _hmm21.get_regime()
+                _sr21 = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
+                if _rg21 == "EXPANSION" and _pe21 >= 0.70 and _sr21 >= -3.0:
+                    _kelly_hmm_pre = kelly
+                    kelly = min(_kelly_ceil, kelly * 1.20)
+                    self._logger.debug(
+                        f"🧠 [v18.75 Step21 HMM] EXPANSION P={_pe21:.2f}≥0.70 "
+                        f"SR={_sr21:.2f}≥-3.0 → Kelly ×1.20 "
+                        f"({_kelly_hmm_pre*100:.2f}%→{kelly*100:.2f}%)"
+                    )
+                elif _rg21 == "CONTRACTION" and (1.0 - _pe21) >= 0.70:
+                    _kelly_hmm_pre = kelly
+                    kelly = max(0.0, kelly * 0.75)
+                    self._logger.debug(
+                        f"🧠 [v18.75 Step21 HMM] CONTRACTION P_cont={(1.0-_pe21):.2f}≥0.70 "
+                        f"→ Kelly ×0.75 ({_kelly_hmm_pre*100:.2f}%→{kelly*100:.2f}%)"
+                    )
+        except Exception:
+            pass   # HMM regime Kelly multiplier is non-fatal — Kelly unchanged on error
+
         self.last_kelly_fraction = max(0.0, min(_kelly_ceil, kelly))
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
@@ -11464,6 +11541,17 @@ class UnityEngine:
                 )
             except Exception as _mkw50:
                 self._logger.warning(f"⚠️  [v18.51] Markov→booster wiring failed (non-fatal): {_mkw50}")
+        # v18.75: Wire HMM regime reference into booster for Kelly Step 21
+        # HMM regime Kelly multiplier: EXPANSION P≥0.70 → ×1.20 | CONTRACTION P≥0.70 → ×0.75
+        if getattr(self, "booster", None) is not None and getattr(self, "hmm_regime", None) is not None:
+            try:
+                self.booster._hmm_regime_ref = self.hmm_regime
+                self._logger.info(
+                    "✅ [v18.75] HMM regime wired into booster "
+                    "(Kelly Step 21 — EXPANSION×1.20 / CONTRACTION×0.75 regime multiplier)"
+                )
+            except Exception as _hmm_wire:
+                self._logger.warning(f"⚠️  [v18.75] HMM→booster wiring failed (non-fatal): {_hmm_wire}")
         # v18.53: Seed Markov gate from historical trade outcomes — eliminates cold-start.
         # Queries trade_history.db for the last MARKOV_CHAIN_RING_SIZE outcomes per state
         # so p_ij estimates are immediately above MARKOV_CHAIN_MIN_OBS on first boot.
