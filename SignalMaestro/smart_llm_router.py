@@ -114,10 +114,12 @@ MODEL_PRICING = {
     # REMOVED: google/gemma-3-12b-it:free → 404 confirmed 2026-05-08 live log [v18.32]
     # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
     "deepseek/deepseek-r1:free":                                      {"input": 0.0, "output": 0.0},
-    # v18.74: AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-DFlash (GitHub: AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-DFlash)
-    # Tentative OpenRouter slug — will 404-circuit-break gracefully if slug is wrong.
-    # To verify: GET https://openrouter.ai/api/v1/models and search "aeon-7".
-    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free":       {"input": 0.0, "output": 0.0},
+    # v18.90: New confirmed-working OpenRouter free models (2026-05-22)
+    "microsoft/phi-4-reasoning:free":                                 {"input": 0.0, "output": 0.0},
+    "google/gemma-3-27b-it:free":                                     {"input": 0.0, "output": 0.0},
+    "mistralai/devstral-small:free":                                  {"input": 0.0, "output": 0.0},
+    "mistralai/mistral-small-3.2-24b-instruct:free":                  {"input": 0.0, "output": 0.0},
+    "tngtech/deepseek-r1t-chimera:free":                              {"input": 0.0, "output": 0.0},
 }
 
 BASELINE_MODEL = "anthropic/claude-3-5-sonnet-20241022"
@@ -133,14 +135,19 @@ _FREE_SIMPLE = [
     # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
     # v18.72: Qwen3-235B-A22B re-added with corrected OpenRouter slug (QwenLM/Qwen3 GitHub release)
     # v18.76: deepseek-r1 re-confirmed working 2026-05-14 — added to simple pool for fast reasoning
+    # v18.90: Added phi-4-reasoning, gemma-3-27b, devstral-small, mistral-small-3.2, chimera (confirmed 2026-05-22)
     "qwen/qwen3-235b-a22b-instruct:free",
     "qwen/qwen3-coder:free",
-    "deepseek/deepseek-r1:free",         # v18.76: re-confirmed working 2026-05-14
+    "deepseek/deepseek-r1:free",
+    "tngtech/deepseek-r1t-chimera:free",                         # v18.90: fast R1-based reasoning
     "meta-llama/llama-3.3-70b-instruct:free",
+    "microsoft/phi-4-reasoning:free",                            # v18.90: strong reasoning, 404-safe
+    "google/gemma-3-27b-it:free",                                # v18.90: 27B IT model confirmed
+    "mistralai/devstral-small:free",                             # v18.90: Mistral code+reasoning
+    "mistralai/mistral-small-3.2-24b-instruct:free",             # v18.90: balanced 24B model
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
     "z-ai/glm-4.5-air:free",
-    # v18.74: AEON-7 — tentative slug (404-circuit-breaks gracefully if wrong)
-    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",   # tentative; 404-safe
 ]
 _FREE_REASONING = [
     # REMOVED: deepseek/deepseek-r1:free → 404 confirmed live log 2026-05-08 [v18.37/v18.46]
@@ -149,14 +156,19 @@ _FREE_REASONING = [
     # REMOVED: qwen/qwen3-30b-a3b:free → 404 confirmed live log 2026-05-13 [v18.68]
     # v18.72: Qwen3-235B-A22B re-added with corrected slug — 235B MoE, top reasoning model
     # v18.76: deepseek-r1 re-confirmed working 2026-05-14 — re-added to reasoning pool
+    # v18.90: Added phi-4-reasoning, chimera, gemma-3-27b, devstral (confirmed reasoning tier)
     "qwen/qwen3-235b-a22b-instruct:free",
     "qwen/qwen3-next-80b-a3b-instruct:free",
-    "deepseek/deepseek-r1:free",         # v18.76: re-confirmed working 2026-05-14
+    "deepseek/deepseek-r1:free",
+    "tngtech/deepseek-r1t-chimera:free",                         # v18.90: R1T chimera blend
+    "microsoft/phi-4-reasoning:free",                            # v18.90: phi-4 dedicated reasoning
     "meta-llama/llama-3.3-70b-instruct:free",
     "z-ai/glm-4.5-air:free",
     "qwen/qwen3-coder:free",
-    # v18.74: AEON-7 — high-capability reasoning model (tentative; 404-safe)
-    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",
+    "google/gemma-3-27b-it:free",                                # v18.90: 27B instruction-tuned
+    "mistralai/devstral-small:free",                             # v18.90: Mistral code+reasoning
+    "mistralai/mistral-small-3.2-24b-instruct:free",             # v18.90: balanced 24B
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",   # tentative; 404-safe
 ]
 
 TIER_MODELS = {

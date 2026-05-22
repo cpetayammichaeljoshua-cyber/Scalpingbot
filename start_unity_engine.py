@@ -2951,12 +2951,36 @@ def _bootstrap_all_critical_packages() -> None:
                     "ℹ️  [v18.62 Bootstrap] torch install skipped (environment restriction) — "
                     "SOVEREIGN SKLEARN active (score=1.00)"
                 )
-        # Invalidate importlib caches so torch is importable in-process
+        # Invalidate importlib caches + inject user site-packages into sys.path
+        # so torch is importable in the same process after --user install.
+        # v18.90 FIX: --user installs go to ~/.local/lib/pythonX.Y/site-packages
+        # which is NOT automatically on sys.path in some Railway/Replit envs
+        # when running as non-root (unity user). Without this the bootstrap
+        # reports success (pip exit=0) but `import torch` still raises ImportError.
         if _torch_installed:
             try:
                 import importlib as _il2
                 _il2.invalidate_caches()
-                _log.debug("✅ [v18.62 Bootstrap] importlib caches invalidated after torch install")
+            except Exception:
+                pass
+            try:
+                import site as _site_mod
+                import sys as _sys_path_fix
+                _user_site = _site_mod.getusersitepackages()
+                if _user_site and _user_site not in _sys_path_fix.path:
+                    _sys_path_fix.path.insert(0, _user_site)
+                    _log.debug(
+                        f"✅ [v18.90 Bootstrap] user site-packages injected: {_user_site}"
+                    )
+                # Also check PYTHONUSERBASE override (custom Railway user installs)
+                import os as _boot_env
+                _pyuserbase = _boot_env.environ.get("PYTHONUSERBASE", "")
+                if _pyuserbase:
+                    import sys as _sys2
+                    _ver = _sys2.version_info
+                    _ub_site = f"{_pyuserbase}/lib/python{_ver.major}.{_ver.minor}/site-packages"
+                    if _ub_site not in _sys2.path:
+                        _sys2.path.insert(0, _ub_site)
             except Exception:
                 pass
 

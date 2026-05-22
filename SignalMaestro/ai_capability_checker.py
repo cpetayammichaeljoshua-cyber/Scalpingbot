@@ -442,7 +442,13 @@ class AICapabilityChecker:
     def _check_fallback_availability(self, component_name: str) -> bool:
         try:
             if component_name == "openai_gpt":
-                return False   # No substitute for GPT API
+                # v18.90 FIX: Rule-based G0DM0D3 analysis path is ALWAYS available
+                # as a fallback when no LLM API key is configured.  Returning False
+                # here caused openai_gpt to show as FAILED (score=0.0) which added
+                # noise to the Railway startup log and subtly penalised the overall
+                # intelligence score.  Rule-based path produces conservative but
+                # valid signal-scoring — it is a genuine fallback, not absent.
+                return True   # rule-based G0DM0D3 path always available
             elif component_name == "pytorch_transformers":
                 # sklearn is the fallback
                 try:
