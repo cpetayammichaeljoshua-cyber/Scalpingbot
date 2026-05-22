@@ -3127,8 +3127,8 @@ SCAN_INTERVAL_MAX     = 15       # legacy compat
 # ── Signal quality gates ─────────────────────────────────────────────────────
 AI_THRESHOLD_PERCENT  = 85       # minimum post-boost confidence to send signal (v18.85: 81→85 — at WR=30.2% Sharpe=-4.87 the 81 base was accepting LLM signals in the 81-84% band that are statistically unvalidated; 85 requires genuine high-conviction AI agreement; math: at WR=30% need AI conf>85% to have positive Bayesian EV after blending with 30% base rate)
 SWARM_MIN_CONSENSUS   = 0.97     # 97% weighted agent consensus (v18.85: 0.95→0.97 — at WR=30.2% 95% consensus = 9.5/10 agents; raising to 97% requires near-unanimity; eliminates split-consensus signals that have empirically lower WR; +2pp tighter filter at current performance)
-MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.20") or 2.20)     # minimum risk-reward ratio (v18.85: 1.85→2.20 — MATH FIX: at WR=30% break-even RR = q/p = 0.70/0.30 = 2.33; 2.20 is 94% of break-even requiring signals to be near-breakeven or better; at RR=1.85+WR=30% EV= 0.30×1.85−0.70=−0.145R which is provably negative; 2.20 forces geometric minimum toward positive expectancy)
-NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.45") or 0.45)     # v18.85: 0.35→0.45 — MATH FIX: at WR=30% the 0.35 gate was approving NN predictions that translate to only 35% win probability (net negative EV at RR=1.85); 0.45 = break-even at RR=2.20 (0.45×2.20−0.55=0.44>0); calibrated to current regime to require NN to predict genuine edge; Crisis Sharpe<-3.5 auto-tightens further.
+MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.35") or 2.35)     # minimum risk-reward ratio (v18.91: 2.20→2.35 — MATH FIX: at WR=30.2% break-even RR = q/p = 0.698/0.302 = 2.311; the prior 2.20 was BELOW the break-even threshold meaning every filtered signal still had negative EV = 0.302×2.20−0.698=−0.034R; 2.35 gives EV=0.302×2.35−0.698=+0.011R — first positive-EV floor at current WR; adds +1.7% margin above break-even; break-even at WR=35%→1.857, so 2.35 builds in +26% safety margin for the recovery regime)
+NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.50") or 0.50)     # v18.91: 0.45→0.50 — NN CALIBRATION FIX: the ensemble was predicting ≥45% win probability but realized WR=30.2% demonstrates systematic overconfidence (≈1.5× inflation factor); raising gate to 0.50 means only signals where NN estimates ≥50% win prob pass — at 1.5× inflation factor this maps to ≈33-36% actual WR (positive EV at RR=2.35: 0.50×2.35−0.50=0.675>0); Crisis Sharpe<-3.5 auto-tightens further via RL adapter.
 SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
 SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "62") or 62)   # Gate 9 [v18.85: 56→62 — PRIMARY WIN-RATE FIX: at WR=30.2% the 56 floor was 1pt above IRONS floor of 57, making Gate 9 functionally redundant; 62 restores the original v11.1 institutional floor; combined with IRONS floor raises (57→65 at WR<30%) creates a genuine two-tier quality wall; Markov-SOVEREIGN (+16pts) fast-path unaffected; break-even quality requires 62+16=78 composite — only genuinely high-conviction signals pass]
@@ -3593,7 +3593,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.90"
+UNITY_VERSION                = "18.91"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -3820,7 +3820,7 @@ UNITY_GEX_CACHE_FILE         = _writable_path("unity_gex_cache_v5.json")
 UNITY_FILTER_STATE_FILE      = _writable_path("unity_filter_state_v6.json")  # v6.3: gate stats + cooldowns
 
 # ── Scanner watchdog ──────────────────────────────────────────────────────────
-WATCHDOG_STALL_SECONDS       = 900   # alert if scanner hasn't cycled in 15 min (v18.90: extended to prevent false stall triggers on slow Railway API cycles)
+WATCHDOG_STALL_SECONDS       = 1800  # alert if scanner hasn't cycled in 30 min (v18.91: 900→1800 — PRIMARY ZOMBIE-RESTART FIX: the 15-min threshold was triggering false stalls on Railway when Binance REST API responses slowed >60s under rate-limit backpressure; 30 cycles×60s=30min gives Railway full GEX+RL+persistence cycle time; at 30min stall the issue is genuinely a deadlock, not a slow API; eliminates the restart→SIGTERM→restart loop that was draining uptime)
 WATCHDOG_POLL_SECONDS        = 60    # watchdog check interval
 
 # ── Monte Carlo VaR paths ─────────────────────────────────────────────────────
@@ -3934,6 +3934,14 @@ for _noisy in (
     logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 logger = logging.getLogger("UnityEngine")
+
+# v18.91: Module-level SIGTERM flag — set by _handle_shutdown() so the launcher
+# can distinguish a Railway-initiated SIGTERM clean exit from a genuine crash,
+# regardless of session duration.  Previously the launcher required session >60s
+# to treat "Event loop stopped" as a clean teardown; Railway sometimes SIGTERMs
+# within the first 60s on a rolling deploy (old container stopped immediately when
+# new one is healthy).  This flag makes the clean-exit path session-time-agnostic.
+_SIGTERM_RECEIVED: bool = False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5b. SENTINEL EXCEPTIONS
@@ -12596,6 +12604,11 @@ class UnityEngine:
         def _handle_shutdown(signum, frame):
             self._logger.info(f"🛑 [{signum}] Shutdown signal received — requesting clean exit")
             self._shutdown_requested = True
+            # v18.91: Set module-level flag so launcher treats this as clean exit
+            # regardless of session duration (fixes Railway rolling-deploy SIGTERM
+            # within the first 60s being misclassified as a crash).
+            global _SIGTERM_RECEIVED
+            _SIGTERM_RECEIVED = True
             # v9.7 BUG FIX: cancel the scanner task instead of stopping the loop.
             # loop.stop() exits asyncio.run() abruptly, skipping the `finally:`
             # block that runs _cleanup() — leaving background tasks dangling and
@@ -16669,17 +16682,20 @@ def main_launcher():
             err_str = str(e)
             # v8.4: 'Event loop stopped before Future completed' is a normal artifact
             # of asyncio.run() teardown when SIGTERM fires mid-cleanup — the engine
-            # already ran its graceful shutdown sequence.  Treat as clean exit only
-            # when the session lasted > 60 s (real run, not an init crash).
+            # already ran its graceful shutdown sequence.
+            # v18.91 FIX: also check module-level _SIGTERM_RECEIVED flag so Railway
+            # rolling-deploy SIGTERMs within the first 60s are correctly treated as
+            # clean exits (not crashes).  Previously the >60s guard misclassified
+            # them as failures and triggered exponential backoff restart loops.
             _is_loop_teardown = (
                 isinstance(e, RuntimeError)
                 and "Event loop stopped" in err_str
-                and (time.time() - start_ts) > 60
+                and ((time.time() - start_ts) > 60 or _SIGTERM_RECEIVED)
             )
             if _is_loop_teardown:
                 _logger.info(
                     f"✅ SIGTERM graceful shutdown — loop teardown artifact "
-                    f"({(time.time()-start_ts):.0f}s session)"
+                    f"({(time.time()-start_ts):.0f}s session, sigterm_flag={_SIGTERM_RECEIVED})"
                 )
                 success = True
             else:

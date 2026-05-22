@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.90 — Production requirements.txt
+# Unity Engine v18.91 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-05-22 (v18.90 — comprehensive dependency singularity)
+# Last verified: 2026-05-22 (v18.91 — zombie-restart fix, gate calibration, SOVEREIGN stamp)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # ZERO DEGRADED 0.75 guarantee — nuclear DEGRADED blocker active on all paths
