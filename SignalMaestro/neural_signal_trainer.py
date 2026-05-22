@@ -1754,6 +1754,17 @@ class NeuralSignalTrainer:
             y_all = np.array([y for _, y, _ in filtered_triples], dtype=np.float32).reshape(-1, 1)
             _train_actions = [a for _, _, a in filtered_triples]  # for direction calibration
 
+            # v18.92: Time-decay sample weights — assumes trades are ordered oldest→newest.
+            # Exponential schedule: w_i = exp(ln(2) * i/(n-1)) → oldest=1.00×, newest=2.00×.
+            # Normalised so mean=1.0, preserving total gradient magnitude.
+            # Effect: the most-recent 30% of trades contribute ~1.5× more to gradient than
+            # the oldest 30%, allowing the model to track regime shifts within 2h windows.
+            _n_raw = len(filtered_triples)
+            _sw_raw = np.exp(
+                np.log(2.0) * np.arange(_n_raw, dtype=np.float32) / max(_n_raw - 1, 1)
+            )
+            _sw_raw = (_sw_raw / float(_sw_raw.mean())).astype(np.float32)  # mean=1.0
+
             wins   = int(np.sum(y_all == 1))
             losses = int(np.sum(y_all == 0))
 
@@ -1821,6 +1832,7 @@ class NeuralSignalTrainer:
             split = max(10, int(n * 0.85))
             X_tr_raw, y_tr = X_all[idx[:split]],  y_all[idx[:split]]
             X_va_raw, y_va = X_all[idx[split:]],   y_all[idx[split:]]
+            sw_tr = _sw_raw[idx[:split]]  # v18.92: time-decay weights for training split
 
             # FIX 4: Fit z-score normaliser on TRAINING data only to prevent
             # validation/test data leakage into the normalisation statistics.
@@ -1868,6 +1880,9 @@ class NeuralSignalTrainer:
                     extra_X = (extra_X + jitter).astype(np.float32)
                     X_tr = np.concatenate([X_tr, extra_X], axis=0)
                     y_tr = np.concatenate([y_tr, extra_y], axis=0)
+                    # v18.92: propagate time-decay weights to oversampled minority copies
+                    _sw_minority = sw_tr[minority_mask]
+                    sw_tr = np.concatenate([sw_tr, _sw_minority[sampled_idx]], axis=0)
                     self.logger.info(
                         f"⚖️  Minority oversampling: replicated "
                         f"{deficit} samples (class={'WIN' if n_pos<n_neg else 'LOSS'}) "
@@ -1900,10 +1915,12 @@ class NeuralSignalTrainer:
 
                 perm = np.random.permutation(len(X_tr))
                 X_sh, y_sh = X_tr[perm], y_tr[perm]
+                sw_sh = sw_tr[perm]  # v18.92: shuffle time-decay weights with data
 
                 for s in range(0, len(X_sh), batch_size):
                     Xb = X_sh[s: s + batch_size]
                     yb = y_sh[s: s + batch_size]
+                    sw_b = sw_sh[s: s + batch_size].reshape(-1, 1)  # v18.92: per-sample decay
                     m  = len(Xb)
 
                     Z1, A1, mask1, Z2, A2, mask2, Z3, A3, Z4, A4 = self._forward(
@@ -1918,7 +1935,7 @@ class NeuralSignalTrainer:
 
                     p    = np.clip(A4, _eps, 1.0 - _eps)
                     p_t  = np.where(yb == 1, p, 1.0 - p)
-                    wt   = np.where(yb == 1, self._w_win, self._w_loss)
+                    wt   = np.where(yb == 1, self._w_win, self._w_loss) * sw_b  # v18.92: class×time-decay
                     focal_w = (1.0 - p_t) ** γ  # precomputed — reused below to avoid redundant pow
 
                     # d(focal_BCE)/d(A4): chain rule through focal weight
