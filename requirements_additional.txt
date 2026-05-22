@@ -1,0 +1,9 @@
+
+# Unity Engine — Additional / optional dependencies
+# Security-hardened lower bounds (v17.3 — closes GitHub CVE alerts):
+#   python-telegram-bot <22.7 → old API, missing security patches
+#   telethon <1.36.0         → authentication bypass CVEs in older versions
+
+schedule>=1.2.2
+python-telegram-bot>=22.7
+telethon>=1.36.0

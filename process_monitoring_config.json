@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "check_interval_seconds": 30,
+  "auto_restart_failed_processes": true,
+  "max_restart_attempts_per_process": 5,
+  "critical_processes": [
+    "continuous_signal_pusher.py",
+    "fix_bot_continuation_system.py"
+  ],
+  "health_endpoints": [
+    "http://localhost:8080/health",
+    "http://localhost:8083/health"
+  ],
+  "notification_on_failure": true,
+  "log_process_metrics": true
+}

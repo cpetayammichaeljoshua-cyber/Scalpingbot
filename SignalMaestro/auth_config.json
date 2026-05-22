@@ -1,0 +1,6 @@
+{
+  "token_validation": true,
+  "auto_refresh": true,
+  "fallback_credentials": true,
+  "error_recovery": true
+}

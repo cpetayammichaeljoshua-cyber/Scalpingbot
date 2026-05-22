@@ -1,0 +1,35 @@
+{
+  "status": "monitoring",
+  "timestamp": "2025-09-22T13:20:53.320750",
+  "manager_pid": 2487,
+  "bot_pid": 2493,
+  "bot_name": "Ultimate Trading Bot V3",
+  "restart_count": 1,
+  "uptime_seconds": 2889.581623,
+  "consecutive_failures": 0,
+  "metrics": {
+    "total_starts": 1,
+    "total_restarts": 0,
+    "uptime_seconds": 2883.580749,
+    "health_checks_passed": 92,
+    "health_checks_failed": 2,
+    "last_successful_start": "2025-09-22T12:32:48.797474",
+    "last_failure": null,
+    "consecutive_uptime_record": 2888.580909
+  },
+  "running": true,
+  "health": {
+    "healthy": true,
+    "checks": {
+      "bot_running": true,
+      "memory_mb": 199.81,
+      "memory_ok": true,
+      "cpu_percent": 4.0,
+      "cpu_ok": true,
+      "uptime_seconds": 2889.780581,
+      "uptime_healthy": true
+    },
+    "issues": [],
+    "recommendations": []
+  }
+}

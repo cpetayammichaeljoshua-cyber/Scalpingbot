@@ -1,0 +1,127 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Unity Engine v8.2 — docker-compose.yml
+# Production fault-tolerant local deployment (Railway uses railway.json instead)
+#
+# Usage:
+#   cp .env.example .env        # fill in secrets
+#   docker-compose up -d        # start detached
+#   docker-compose logs -f      # follow logs
+#   docker-compose down         # graceful shutdown (SIGTERM honoured)
+#
+# v8.2 changes vs v7.2:
+#   • Image tag updated to unity-engine:8.2
+#   • Redis service added — provides sub-millisecond state caching for
+#     win/loss counters, adaptive IRONS floor, gate stats, and cooldowns.
+#     The engine falls back gracefully to local JSON files if Redis is down.
+#   • REDIS_URL reference variable wired from the redis service
+# ═══════════════════════════════════════════════════════════════════════════════
+version: "3.9"
+
+services:
+
+  # ── Redis state cache — optional but strongly recommended ──────────────────
+  # Provides sub-millisecond persist/restore for metrics, gate stats, IRONS
+  # calibration, and per-symbol cooldowns across Railway/Docker restarts.
+  # The engine degrades gracefully to local JSON files when Redis is absent.
+  redis:
+    image: redis:7.2-alpine
+    container_name: unity_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - unity_redis:/data
+    networks:
+      - unity_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  unity_engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: unity-engine:8.2
+    container_name: unity_engine
+    restart: unless-stopped          # auto-restart on crash; stop with docker-compose down
+    depends_on:
+      redis:
+        condition: service_healthy   # wait for Redis to be healthy before starting
+
+    # ── Secrets & environment ──────────────────────────────────────────────────
+    env_file:
+      - .env                         # place TELEGRAM_BOT_TOKEN etc. here (never commit .env)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - UNITY_ENV=production
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Wire Redis URL from the service name — engine reads this to connect
+      - REDIS_URL=redis://unity_redis:6379
+
+    # ── Persistent state ───────────────────────────────────────────────────────
+    # Trade history DB, BM25 memory, NN weights, metrics JSON survive restarts
+    volumes:
+      - unity_data:/app/SignalMaestro        # all DBs + model weights live here
+      - unity_logs:/app/logs                 # engine file logs
+      - unity_checkpoints:/app               # unity_metrics_v5.json, unity_symbols_v5.json, etc.
+
+    # ── Health + monitoring port ───────────────────────────────────────────────
+    ports:
+      - "${HEALTH_PORT:-8080}:8080"
+
+    healthcheck:
+      # Use /healthz (k8s liveness probe) — returns 503 if engine stalled
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s                      # allow all 13 layers to initialise (~9s)
+
+    # ── Resource limits (tune to your cloud VM) ────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    # ── Graceful shutdown — honour SIGTERM (launcher already handles it) ───────
+    stop_grace_period: 30s
+    stop_signal: SIGTERM
+
+    # ── Logging (stdout + stderr, no file bloat in docker) ────────────────────
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    # ── Network isolation ──────────────────────────────────────────────────────
+    networks:
+      - unity_net
+
+# ── Named volumes (persist across container rebuilds) ─────────────────────────
+volumes:
+  unity_data:
+    driver: local
+  unity_logs:
+    driver: local
+  unity_checkpoints:
+    driver: local
+  unity_redis:
+    driver: local
+
+# ── Private network (add Prometheus / Grafana here later) ─────────────────────
+networks:
+  unity_net:
+    driver: bridge
