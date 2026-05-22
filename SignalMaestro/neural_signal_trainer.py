@@ -879,10 +879,15 @@ class TorchTransformerPredictor:
     # ── Train ────────────────────────────────────────────────────────────────
 
     def fit(self, X_norm: "np.ndarray", y: "np.ndarray",
-            epochs: int = 100, batch_size: int = 32, lr: float = 3e-4) -> bool:
+            epochs: int = 100, batch_size: int = 32, lr: float = 3e-4,
+            sample_weight: "Optional[np.ndarray]" = None) -> bool:
         """
         Train on normalised (N, 55) feature matrix + binary labels (0/1).
         Uses same 80/20 train/val split as numpy MLP (15% val).
+
+        v18.92: sample_weight (N,) — per-sample importance weights (e.g. time-decay).
+        Weights are normalised so their mean = 1.0 before use. Validation loss is
+        always unweighted so the early-stopping metric reflects true data distribution.
         Returns True on success.
         """
         if not _HAS_TORCH or self._model is None:
@@ -898,17 +903,31 @@ class TorchTransformerPredictor:
             X_tr, X_va = X_norm[:-n_val], X_norm[-n_val:]
             y_tr, y_va = y[:-n_val].flatten(), y[-n_val:].flatten()
 
+            # v18.92: Build training sample weights tensor (time-decay or uniform)
+            if sample_weight is not None and len(sample_weight) == len(X_norm):
+                _sw_tr = sample_weight[:-n_val].astype("float32")
+                _sw_tr = _sw_tr / float(_sw_tr.mean() + 1e-8)   # normalise mean=1.0
+                sw_tr_t = _torch.tensor(_sw_tr, dtype=_torch.float32)
+            else:
+                sw_tr_t = None  # uniform weights — fall back to plain mean
+
             Xtr = _torch.tensor(X_tr, dtype=_torch.float32)
             ytr = _torch.tensor(y_tr, dtype=_torch.float32)
             Xva = _torch.tensor(X_va, dtype=_torch.float32)
             yva = _torch.tensor(y_va, dtype=_torch.float32)
 
             def focal_bce(pred: "_torch.Tensor", tgt: "_torch.Tensor",
+                          sw: "_torch.Tensor | None" = None,
                           gamma: float = 2.0) -> "_torch.Tensor":
+                """Focal BCE. If sw given, returns importance-weighted average."""
                 eps = 1e-7
                 p   = pred.clamp(eps, 1.0 - eps)
                 pt  = _torch.where(tgt == 1, p, 1.0 - p)
-                return (-((1.0 - pt) ** gamma) * pt.log()).mean()
+                loss_per_sample = -((1.0 - pt) ** gamma) * pt.log()
+                if sw is not None:
+                    # weighted mean: sum(sw * loss) / sum(sw) — preserves gradient scale
+                    return (loss_per_sample * sw).sum() / (sw.sum() + 1e-8)
+                return loss_per_sample.mean()
 
             opt = _torch.optim.AdamW(
                 self._model.parameters(), lr=lr, weight_decay=1e-4
@@ -926,7 +945,9 @@ class TorchTransformerPredictor:
                 perm = _torch.randperm(len(Xtr))
                 for s in range(0, len(Xtr), batch_size):
                     idx  = perm[s: s + batch_size]
-                    loss = focal_bce(self._model(Xtr[idx]), ytr[idx])
+                    # v18.92: pass per-sample weights for this mini-batch
+                    _sw_batch = sw_tr_t[idx] if sw_tr_t is not None else None
+                    loss = focal_bce(self._model(Xtr[idx]), ytr[idx], sw=_sw_batch)
                     opt.zero_grad()
                     loss.backward()
                     _nn.utils.clip_grad_norm_(self._model.parameters(), 1.0)
@@ -934,9 +955,10 @@ class TorchTransformerPredictor:
                 sched.step()
                 n_epochs_run = epoch + 1
 
+                # Validation always unweighted — reflects true data distribution
                 self._model.eval()
                 with _torch.no_grad():
-                    vl = focal_bce(self._model(Xva), yva).item()
+                    vl = focal_bce(self._model(Xva), yva, sw=None).item()
 
                 if vl < best_val - 1e-5:
                     best_val = vl
@@ -950,8 +972,9 @@ class TorchTransformerPredictor:
             self._model.load_state_dict(best_sd)
             self.trained = True
             self._save()
+            _sw_tag = " time-decay✅" if sw_tr_t is not None else ""
             self._logger.info(
-                f"🔮 PyTorch Transformer trained | n={len(X_norm)} "
+                f"🔮 PyTorch Transformer trained | n={len(X_norm)}{_sw_tag} "
                 f"val_loss={best_val:.4f} epochs={n_epochs_run}"
             )
             return True
@@ -2134,7 +2157,10 @@ class NeuralSignalTrainer:
             # v11.0: Train PyTorch Transformer ensemble (non-blocking; MLP results unaffected)
             if _HAS_TORCH and self.trained and self._torch_predictor is not None:
                 try:
-                    self._torch_predictor.fit(X_all_norm, y_all)
+                    # v18.92: pass time-decay sample weights to PyTorch Transformer
+                    # _sw_raw was computed at top of train() — same exponential schedule
+                    # as numpy MLP (oldest=1.0×, newest=2.0×, mean=1.0).
+                    self._torch_predictor.fit(X_all_norm, y_all, sample_weight=_sw_raw)
                 except Exception as _te:
                     self.logger.debug(f"Transformer training skipped: {_te}")
 

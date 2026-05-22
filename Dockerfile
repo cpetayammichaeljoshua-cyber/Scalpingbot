@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.91 — Multi-stage Production Dockerfile
+# Unity Engine v18.92 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
 # Build:  docker build -t unity-engine:18.91 .
@@ -15,7 +15,7 @@
 #   pre-built manylinux wheels for every package in requirements.txt and builds
 #   in < 3 min on Railway's free tier.
 # ────────────────────────────────────────────────────────────────────────────────
-# v18.91 changes:
+# v18.92 changes:
 #   • requirements.txt sync — all versions bumped to nixpacks-aligned releases:
 #     aiohttp 3.13.5 | aiosqlite 0.22.1 | numpy 2.4.4 | scipy 1.17.1 |
 #     pandas 3.0.2 | scikit-learn 1.8.0 | openai 2.34.0 | ccxt 4.5.52 |
@@ -125,13 +125,13 @@ except Exception as e:
 SMOKE_TEST
 
 # ── Install all remaining packages (fast PyPI wheels, no torch/transformers) ──
-# requirements.txt v18.91: torch/transformers EXCLUDED — installed above separately.
+# requirements.txt v18.92: torch/transformers EXCLUDED — installed above separately.
 # --extra-index-url included as fallback only (no conflict since torch absent here).
 COPY requirements.txt .
 RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
     --timeout 300 --retries 3 \
     -r requirements.txt \
-    && echo "OK requirements.txt installed (v18.91)"
+    && echo "OK requirements.txt installed (v18.92)"
 
 # ── Verify critical packages post-install ─────────────────────────────────────
 RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 -c "
@@ -140,7 +140,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v18.91 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v18.92 — SOVEREIGN [1.00] dependency singularity verified')
 "
 
 
@@ -149,7 +149,7 @@ FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
       version="18.91"               \
-      description="Unity Engine v18.91 — 28-layer SOVEREIGN | 4-tier torch CDN | HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush | MVO/BL/Kelly/PBO | OpenRouter 38+ models | ZERO DEGRADED 0.75"
+      description="Unity Engine v18.92 — 28-layer SOVEREIGN | 4-tier torch CDN | HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush | MVO/BL/Kelly/PBO | OpenRouter 38+ models | ZERO DEGRADED 0.75"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

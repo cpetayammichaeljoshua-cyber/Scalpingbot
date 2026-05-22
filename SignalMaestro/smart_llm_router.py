@@ -145,6 +145,7 @@ _FREE_SIMPLE = [
     "google/gemma-3-27b-it:free",                                # v18.90: 27B IT model confirmed
     "mistralai/devstral-small:free",                             # v18.90: Mistral code+reasoning
     "mistralai/mistral-small-3.2-24b-instruct:free",             # v18.90: balanced 24B model
+    "qwen/qwen3-14b:free",                                       # v18.92: Qwen3 14B — same family as confirmed 235B; efficient smaller sibling
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
     "z-ai/glm-4.5-air:free",
     "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",   # tentative; 404-safe
@@ -168,6 +169,7 @@ _FREE_REASONING = [
     "google/gemma-3-27b-it:free",                                # v18.90: 27B instruction-tuned
     "mistralai/devstral-small:free",                             # v18.90: Mistral code+reasoning
     "mistralai/mistral-small-3.2-24b-instruct:free",             # v18.90: balanced 24B
+    "qwen/qwen3-14b:free",                                       # v18.92: Qwen3 14B — confirmed same family as 235B
     "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",   # tentative; 404-safe
 ]
 

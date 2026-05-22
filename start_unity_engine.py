@@ -893,7 +893,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.91"
+UNITY_VERSION                = "18.92"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5903,7 +5903,7 @@ class UnitySignalFilter:
                         # strategy is not in-sample overfitted (WFR≥0.50, PBO<0.55, DSR>0).
                         _pbo_clean_bonus = 0.0
                         if _pbo_lbl == "CLEAN" and _wfr >= 0.55 and _dsr > 0.0:
-                            _pbo_clean_bonus = 3.0   # v18.76: raised from 2.5 → 3.0; WFR threshold 0.50→0.55 (stricter OOS requirement per Bailey & Lopez de Prado; 1000-rep bootstrap improves PBO confidence)
+                            _pbo_clean_bonus = 3.5   # v18.92: 3.0→3.5pts — 1000-rep PBO bootstrap gives tighter confidence intervals; WFR≥0.55 + DSR>0 together imply genuine out-of-sample edge; +0.5pt increase rewards signals with provably non-overfitted backtest results; at WR=30% a CLEAN backtest is a meaningful positive prior for live edge
                             quality_score += _pbo_clean_bonus
                         _pbo_bonus_tag = (
                             f" +PBO_CLEAN={_pbo_clean_bonus:+.1f}pts" if _pbo_clean_bonus else ""
