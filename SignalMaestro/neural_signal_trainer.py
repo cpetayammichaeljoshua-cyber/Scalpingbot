@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 55 features → 11 tokens × 5 dims (55 = 11 × 5)
-_TORCH_N_TOKENS  = 11
+# Transformer tokenisation: reshape 60 features → 12 tokens × 5 dims (60 = 12 × 5)
+_TORCH_N_TOKENS  = 12
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -92,7 +92,8 @@ PC_FEATURE_COUNT    = 1  # v5 (PriceConsensus): 7-model ensemble direction tilt
 HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-reverting classifier
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
-INPUT_DIM          = 55  # v8 (B+OFI+PC+HRS+EWMA+RSK): 42+8+1+1+1+1+1 = 55
+GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
+INPUT_DIM          = 60  # v9 (GEX): 55 + 5 GEX features = 60
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -336,9 +337,49 @@ def _extract_ofi(trade: Dict) -> float:
     return v
 
 
+def _extract_gex_features(trade: Dict) -> List[float]:
+    """
+    v9: 5 Deribit GEX regime features (56-60) from BTC GEX snapshot context.
+    Returns zeros when gex data is absent (legacy trades, cold-start).  All
+    five features are bounded to [-1, +1] or [0, 1] for well-conditioned
+    gradient flow.  Stamped onto signal dicts by Unity Engine before NN inference.
+
+    F56 — BTC GEX regime encoded: NEGATIVE=-1  FLIP ZONE=0  POSITIVE=+1
+    F57 — BTC GEX confidence [0, 1]   (Deribit confidence score / 100)
+    F58 — BTC net GEX log-scaled [-1,+1]  sign×log1p(|net|/1000)/7
+           reaches ±1 at ~$7B net GEX (beyond observed extremes)
+    F59 — Multi-asset FLIP count [0, 1]  (BTC+ETH+SOL flip count / 3)
+           0.0=no FLIP, 0.33=BTC alone, 0.67=2/3, 1.0=all three
+    F60 — Spot-to-flip proximity [-1,+1]  (spot−flip)/spot × 20, capped ±1
+           >0 = spot above flip level (dealer long gamma)
+           <0 = spot below flip level (dealer short gamma)
+    """
+    try:
+        regime = str(trade.get("gex_btc_regime", "") or "").upper()
+        if "POSITIVE" in regime:    regime_enc = 1.0
+        elif "NEGATIVE" in regime:  regime_enc = -1.0
+        else:                        regime_enc = 0.0   # FLIP ZONE or unknown → neutral
+        conf    = min(1.0, float(trade.get("gex_btc_conf", 0.0) or 0.0) / 100.0)
+        net     = float(trade.get("gex_btc_net", 0.0) or 0.0)
+        net_enc = (math.copysign(math.log1p(abs(net) / 1_000.0) / 7.0, net)
+                   if net != 0.0 else 0.0)
+        net_enc = max(-1.0, min(1.0, net_enc))
+        flip_cnt = min(1.0, float(trade.get("gex_flip_count", 0) or 0) / 3.0)
+        flip_px  = float(trade.get("gex_btc_flip_price", 0.0) or 0.0)
+        entry_px = float(trade.get("entry_price_for_gex", 0.0) or
+                         trade.get("entry_price", 0.0) or 0.0)
+        if flip_px > 0.0 and entry_px > 0.0:
+            prox = max(-1.0, min(1.0, (entry_px - flip_px) / entry_px * 20.0))
+        else:
+            prox = 0.0
+        return [regime_enc, conf, net_enc, flip_cnt, prox]
+    except Exception:
+        return [0.0, 0.0, 0.0, 0.0, 0.0]
+
+
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    55-feature normalised vector from a trade record dict (v8 — full quant feature set).
+    60-feature normalised vector from a trade record dict (v9 — full quant feature set + GEX).
 
     v3 change: 8 sequential lag price-return features appended (43-50) to give
     the MLP short-term temporal/momentum context without an LSTM. INPUT_DIM 42→50.
@@ -351,6 +392,9 @@ def build_features(trade: Dict) -> "np.ndarray":
     v6 change: Hurst fractal regime signal appended (53). INPUT_DIM 52→53.
     v7 change: EWMA-Vol regime signal appended (54). INPUT_DIM 53→54.
     v8 change: Realized-Skewness signal appended (55). INPUT_DIM 54→55.
+    v9 change: 5 Deribit GEX regime features appended (56-60). INPUT_DIM 55→60.
+              Transformer retokenized: 11×5 → 12×5 (12 tokens, 5 dims each = 60).
+              Backwards compatible: legacy trades without gex_data → zero padding.
     v10.4 BUG FIX: docstring now matches implementation (was falsely documented as 51).
 
     Features 1-12:  scalar signal quality indicators
@@ -574,6 +618,17 @@ def build_features(trade: Dict) -> "np.ndarray":
     # trade['realized_skew']; the MLP learns asymmetric direction-conditional
     # win-prob (e.g. "trust BUYs more when RS > 0").
     f.append(_extract_realized_skew(trade))                              # 55
+
+    # ── v9 Deribit GEX regime features (56-60) — institutional dealer positioning ─
+    # Five macro-structure features derived from Deribit GEX snapshot stamped at
+    # signal time by Unity Engine.  Captures the dominant dealer gamma regime
+    # (FLIP/POSITIVE/NEGATIVE), confidence strength, log-scaled net GEX (dealer
+    # directional positioning magnitude), multi-asset FLIP coordination (0=isolated,
+    # 1=all BTC+ETH+SOL simultaneously), and spot-to-gamma-flip proximity.
+    # The MLP learns regime-conditional win-prob: e.g. "BUY signals when all three
+    # macro assets are in FLIP ZONE have measurably lower WR — penalise accordingly".
+    # Backwards compatible: legacy trade records without gex_data → zeros (benign).
+    f.extend(_extract_gex_features(trade))                              # 56-60
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
@@ -1433,6 +1488,13 @@ class NeuralSignalTrainer:
                 "session":            getattr(signal, "market_session", "US"),
                 "agent_votes_json":   json.dumps(signal.agent_votes or {}),
                 "leverage":           getattr(signal, "leverage", 10),
+                # v9: GEX regime features — stamped by engine before inference
+                "gex_btc_regime":     getattr(signal, "gex_btc_regime",    ""),
+                "gex_btc_conf":       getattr(signal, "gex_btc_conf",     0.0),
+                "gex_btc_net":        getattr(signal, "gex_btc_net",      0.0),
+                "gex_flip_count":     getattr(signal, "gex_flip_count",     0),
+                "gex_btc_flip_price": getattr(signal, "gex_btc_flip_price",0.0),
+                "entry_price_for_gex":signal.entry_price,
             }
             X_raw = build_features(rec).reshape(1, -1)
             base_prob = float(self.predict_batch(X_raw)[0])
@@ -1523,6 +1585,12 @@ class NeuralSignalTrainer:
                                         signal_data.get("agent_votes_json") or "{}"
                                     ),
                 leverage          = int(signal_data.get("leverage") or 10),
+                # v9: GEX regime features — pass through from signal_data if present
+                gex_btc_regime    = str(signal_data.get("gex_btc_regime",    "") or ""),
+                gex_btc_conf      = float(signal_data.get("gex_btc_conf",   0.0) or 0.0),
+                gex_btc_net       = float(signal_data.get("gex_btc_net",    0.0) or 0.0),
+                gex_flip_count    = int(signal_data.get("gex_flip_count",     0) or 0),
+                gex_btc_flip_price= float(signal_data.get("gex_btc_flip_price",0.0) or 0.0),
             )
             # v16.2: Use MC-Dropout (50 passes) so _last_uncertainty is populated
             # and the engine's G4_UNC_SOFT bypass has real σ data to act on.
@@ -1666,6 +1734,13 @@ class NeuralSignalTrainer:
                 "hurst_signal":       hurst_signal,                     # v6: Hurst-regime classifier
                 "ewma_vol_signal":    ewma_vol_signal,                  # v7: RiskMetrics EWMA vol regime
                 "realized_skew":      realized_skew,                    # v8: Neuberger 2012 realized skewness
+                # v9: GEX regime features — stamped by engine before inference
+                "gex_btc_regime":     getattr(signal, "gex_btc_regime",    ""),
+                "gex_btc_conf":       getattr(signal, "gex_btc_conf",     0.0),
+                "gex_btc_net":        getattr(signal, "gex_btc_net",      0.0),
+                "gex_flip_count":     getattr(signal, "gex_flip_count",     0),
+                "gex_btc_flip_price": getattr(signal, "gex_btc_flip_price",0.0),
+                "entry_price_for_gex":signal.entry_price,
             }
             X_raw  = build_features(rec).reshape(1, -1)
             X_norm = self._normalise(X_raw)

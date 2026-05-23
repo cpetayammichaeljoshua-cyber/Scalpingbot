@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.96 — Production requirements.txt
+# Unity Engine v18.97 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-05-23 (v18.96 — G9 FlipFloor+3pts, F&G 60s cache, LLM free-tier fast-path)
+# Last verified: 2026-05-23 (v18.97 — NN v9 60-feat GEX, G1 GEX RR overlay, F&G consec escalation)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # ZERO DEGRADED 0.75 guarantee — nuclear DEGRADED blocker active on all paths

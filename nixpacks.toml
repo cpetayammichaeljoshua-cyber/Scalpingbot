@@ -1,6 +1,11 @@
-# Railway Nixpacks Configuration — Unity Engine v18.96
+# Railway Nixpacks Configuration — Unity Engine v18.97
 # Used when Railway builds without the Dockerfile (pure Nixpacks path).
 # If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
+# v18.97 changes [2026-05-23]:
+#   • NN v9: 5 Deribit GEX features added (56-60) → INPUT_DIM 55→60, tokens 11→12.
+#   • Gate 1 GEX RR overlay: +0.15 RR floor for 3/3 FLIP ZONE, +0.08 for 2/3.
+#   • GEX feature stamping on signal_data before NN inference (Gate 4 path).
+#   • F&G consecutive Extreme Fear escalation: ×0.80^1-2, ×0.60 at consec≥3.
 # v18.96 changes [2026-05-23]:
 #   • G9 compound floor: when 3/3 BTC/ETH/SOL in FLIP ZONE, floor +3pts (to 65+).
 #   • Kelly Step 22 F&G: TTL 60s cache on get_market_summary() call.
