@@ -21,7 +21,7 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L6:   Market Analysis         — ATAS (15 indicators) + Bookmap order flow
   L7:   Risk Engine             — Sortino+Calmar+Kelly institutional risk calculus
   L8:   AI Orchestrator         — Sentiment + Market Prediction + RL
-  L8.5e-k: Quant Layers         — HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush
+  L8.5e-m: Quant Layers         — HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/HMMflip/BTCmacroGEX
   L8.5V: Vibe Agents            — 12-agent sentiment/regime consensus
   L9:   Memory Systems          — TradeMemory (SQLite) + BM25 + GraphState
   L10:  Public API Intel        — Fear&Greed + CoinGecko + CoinCap
@@ -30,9 +30,10 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v18.93): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
+KEY GATES (v18.94): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
   IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
-  G8.5j:HMM_FLIP_COOL=900s | G2.5c:VOL3.5×=+5pts | NN_RETRAIN=1h |
+  G8.5L:HMM_FLIP_COOL=900s | G8.5m:BTC_GEX_MACRO±2pts | G2.5c:VOL3.5×=+5pts |
+  CALMAR_SLOPE=0.50/3.0(floor=0.50) | NN_RETRAIN=1h |
   SOVEREIGN [1.00]: torch 2.4.0+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
 
 Railway deployment: Dockerfile (python:3.11-slim, 4-tier torch CDN) or nixpacks.toml.
@@ -894,7 +895,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.93"
+UNITY_VERSION                = "18.94"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6107,8 +6108,8 @@ class UnitySignalFilter:
                     _flip_penalty = -4.0 * (900.0 - _flip_secs) / 900.0
                     quality_score += _flip_penalty
                     self._logger.debug(
-                        f"[G8.5j HMM-FLIP v18.93] {symbol} regime flipped {_flip_secs:.0f}s ago "
-                        f"→ {_flip_penalty:+.2f}pts cooldown penalty (fades at 900s) [v18.93]"
+                        f"[G8.5L HMM-FLIP v18.94] {symbol} regime flipped {_flip_secs:.0f}s ago "
+                        f"→ {_flip_penalty:+.2f}pts cooldown penalty (fades at 900s) [v18.94]"
                     )
         except Exception:
             pass
@@ -6244,6 +6245,75 @@ class UnitySignalFilter:
                     )
             except Exception:
                 pass
+
+        # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
+        # Deribit BTC GEX net direction vs signal direction quality adjustment.
+        # When dealer net GEX is strongly negative (short-gamma regime), LONGs
+        # face amplified adverse volatility from dealers hedging against the move.
+        # When dealer net GEX is positive (long-gamma regime), LONGs benefit from
+        # dealer re-hedging dampening volatility — the "gamma pin" stabilises price.
+        # Net thresholds: |net| > $500M before applying (filters micro-noise).
+        # Confidence guard: only fires when Deribit conf ≥ 30.
+        # Symbol exemption: BTCUSDT / ETHUSDT have their own per-symbol GEX already.
+        # Age guard: BTC GEX snapshot must be < 90s old (live stream guarantee).
+        #   FLIP ZONE:                 −1.5pts (regime uncertainty, all directions)
+        #   net < −$500M + LONG:       −2.0pts (dealer short-gamma opposes LONG)
+        #   net < −$500M + SHORT:      +1.5pts (dealer short-gamma supports SHORT)
+        #   net > +$500M + LONG:       +1.5pts (dealer long-gamma supports LONG)
+        #   net > +$500M + SHORT:      −2.0pts (dealer long-gamma opposes SHORT)
+        try:
+            _g85m_sym = (symbol or "").upper()
+            if _g85m_sym not in ("BTCUSDT", "ETHUSDT"):
+                _g85m_snaps = getattr(self, "_engine_gex_snapshots", None)
+                if _g85m_snaps is not None:
+                    _g85m_entry = _g85m_snaps.get("BTCUSDT")
+                    if _g85m_entry is not None:
+                        _g85m_snap, _g85m_ts = (
+                            (_g85m_entry[0], _g85m_entry[1])
+                            if isinstance(_g85m_entry, tuple)
+                            else (_g85m_entry, 0.0)
+                        )
+                        _g85m_age = time.time() - float(_g85m_ts or 0.0)
+                        if _g85m_age < 90.0 and _g85m_snap is not None:
+                            _g85m_net   = float(getattr(_g85m_snap, "net_gex", 0.0)   or 0.0)
+                            _g85m_regime = str(getattr(_g85m_snap, "regime",  "") or "").upper()
+                            _g85m_conf  = float(getattr(_g85m_snap, "confidence", 0) or 0)
+                            _g85m_dir   = (direction or "").upper()
+                            if _g85m_conf >= 30:
+                                if _g85m_regime == "FLIP ZONE":
+                                    quality_score -= 1.5
+                                    self._logger.debug(
+                                        f"[G8.5m BTC-GEX v18.94] {symbol} BTC FLIP ZONE "
+                                        f"conf={_g85m_conf} → -1.5pts macro uncertainty"
+                                    )
+                                elif _g85m_net < -500_000_000.0:
+                                    if _g85m_dir == "LONG":
+                                        quality_score -= 2.0
+                                        self._logger.debug(
+                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
+                                            f"NEGATIVE_GEX + LONG → -2.0pts (dealer short-gamma)"
+                                        )
+                                    elif _g85m_dir == "SHORT":
+                                        quality_score += 1.5
+                                        self._logger.debug(
+                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
+                                            f"NEGATIVE_GEX + SHORT → +1.5pts (aligned with dealer)"
+                                        )
+                                elif _g85m_net > 500_000_000.0:
+                                    if _g85m_dir == "LONG":
+                                        quality_score += 1.5
+                                        self._logger.debug(
+                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
+                                            f"POSITIVE_GEX + LONG → +1.5pts (gamma pin supports)"
+                                        )
+                                    elif _g85m_dir == "SHORT":
+                                        quality_score -= 2.0
+                                        self._logger.debug(
+                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
+                                            f"POSITIVE_GEX + SHORT → -2.0pts (against gamma pin)"
+                                        )
+        except Exception:
+            pass
 
         # ── Gate 8.5V — Vibe-Trading Multi-Agent Consensus (v18.40) ──────────
         # Three specialized agents (Trend, Flow, Macro) evaluate the signal from
@@ -7648,12 +7718,18 @@ class UnityProfitBooster:
             try:
                 _cal = _cal_cached = self.calmar_ratio   # v18.27: cache for reuse at step 9
                 if _cal < -1.5:
-                    # Linear: Cal=-1.5 → ×1.0 (no change), Cal=-4.5 → ×0.60
-                    _cal_scale = max(0.60, 1.0 + (_cal + 1.5) * (0.40 / 3.0))
+                    # v18.94: Tightened slope 0.40/3.0 → 0.50/3.0, floor 0.60 → 0.50.
+                    # At Calmar=-2.321 (live): was 0.891× → now 0.863× (2.8% extra cut).
+                    # At Calmar=-4.5 (extreme): was 0.60× → now 0.50× (full 50% cut).
+                    # Rationale: Calmar=-2.321 is sustained drawdown; prior slope of
+                    # 0.40/3.0 was calibrated for Calmar=-4.5 worst-case, leaving the
+                    # moderate-drawdown band (−1.5 to −3.0) under-penalised by ~3-5%.
+                    # New slope matches the Sharpe Step-12 sensitivity at Sharpe=-2.0.
+                    _cal_scale = max(0.50, 1.0 + (_cal + 1.5) * (0.50 / 3.0))
                     _kelly_cal_pre = kelly
                     kelly *= _cal_scale
                     self._logger.debug(
-                        f"📊 [v17.0] Calmar overlay: Cal={_cal:.2f}<-1.5 "
+                        f"📊 [v18.94] Calmar overlay: Cal={_cal:.2f}<-1.5 "
                         f"→ Kelly ×{_cal_scale:.2f} "
                         f"({_kelly_cal_pre*100:.1f}%→{kelly*100:.1f}%)"
                     )
@@ -9706,7 +9782,10 @@ class UnityEngine:
                 _try_setattr(self.signal_filter, "_csm_engine", self.csm_engine)
             if self.iv_crush_monitor is not None:
                 _try_setattr(self.signal_filter, "_iv_crush_monitor", self.iv_crush_monitor)
-            self._logger.info("✅ [v11.0/v18.72] Quant layers + HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush wired into UnitySignalFilter")
+            # v18.94: Wire engine GEX snapshots dict into signal filter for G8.5m
+            # (dict is mutated in-place by _gex_scanner_task — always current)
+            _try_setattr(self.signal_filter, "_engine_gex_snapshots", self._gex_snapshots)
+            self._logger.info("✅ [v11.0/v18.94] Quant layers + HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/BTCmacroGEX wired into UnitySignalFilter")
 
         # v18.6: Wire Sovereign Risk Matrix into booster for Kelly Step 14
         if getattr(self, "booster", None) is not None and self.sovereign_rm is not None:
@@ -9765,7 +9844,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"22-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5V:VibeAgents) · "
+            f"24-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5V:VibeAgents) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-20·UMI·SRM·SovFloor·MkSov·PrimeSess) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · PerSymbol · SmartSLTP · "
@@ -9784,7 +9863,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (28 layers, 22-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-21·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76 v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (28 layers, 24-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-21·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L-HMMflip·G8.5m-BTCmacroGEX v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

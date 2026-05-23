@@ -1,6 +1,11 @@
-# Railway Nixpacks Configuration — Unity Engine v18.93
+# Railway Nixpacks Configuration — Unity Engine v18.94
 # Used when Railway builds without the Dockerfile (pure Nixpacks path).
 # If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
+# v18.94 changes [2026-05-23]:
+#   • G8.5m BTCmacroGEX alignment gate: ±1.5-2.0pts vs BTC dealer net GEX.
+#   • G8.5L HMM-flip cooldown renamed (was mislabeled G8.5j, conflict with CSM).
+#   • Kelly Step 8 Calmar slope tightened 0.40→0.50/3.0, floor 0.60→0.50.
+#   • 24-gate filter (was 22-gate) — added G8.5L + G8.5m.
 # v18.93 changes [2026-05-22]:
 #   • requirements.txt synced to nixpacks versions — ZERO version-conflict.
 #   • torch/transformers removed from requirements.txt (installed via CDN below).
