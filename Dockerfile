@@ -134,14 +134,14 @@ RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
     && echo "OK requirements.txt installed (v18.97)"
 
 # ── Verify critical packages post-install ─────────────────────────────────────
-RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 -c "
+RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 <<'VERIFY'
 import sklearn, numpy, pandas, openai, scipy, aiosqlite, hmmlearn
 print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmmlearn=%s' % (
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
 print('OK Unity Engine v18.93 — SOVEREIGN [1.00] dependency singularity verified')
-"
+VERIFY
 
 
 # ── Stage 2: minimal runtime image ────────────────────────────────────────────
