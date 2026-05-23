@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.91 — Production requirements.txt
+# Unity Engine v18.93 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-05-22 (v18.91 — zombie-restart fix, gate calibration, SOVEREIGN stamp)
+# Last verified: 2026-05-23 (v18.93 — HMM flip cooldown G8.5j, vol 3.5× tier, PBO_CLEAN 3.5pts)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # ZERO DEGRADED 0.75 guarantee — nuclear DEGRADED blocker active on all paths

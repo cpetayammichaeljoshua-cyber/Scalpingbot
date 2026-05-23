@@ -30,8 +30,9 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v18.91): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
-  IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s |
+KEY GATES (v18.93): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
+  IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
+  G8.5j:HMM_FLIP_COOL=900s | G2.5c:VOL3.5×=+5pts | NN_RETRAIN=1h |
   SOVEREIGN [1.00]: torch 2.4.0+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
 
 Railway deployment: Dockerfile (python:3.11-slim, 4-tier torch CDN) or nixpacks.toml.
@@ -893,7 +894,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.92"
+UNITY_VERSION                = "18.93"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5247,19 +5248,23 @@ class UnitySignalFilter:
         # Additive with IRONS vol-confirmation score (independent signal dimension).
         try:
             _vcr = float(signal_data.get("volume_ratio", 1.0) or 1.0)
-            if _vcr > 2.0:          # 2×+ average: strong institutional flow confirmed
+            if _vcr > 3.5:          # 3.5×+ average: extreme institutional surge — v18.93 conviction-spike tier
+                quality_score += 5.0
+            elif _vcr > 2.0:        # 2–3.5×: strong institutional flow confirmed
                 quality_score += 3.0
             elif _vcr > 1.5:        # 1.5–2×: moderate participation boost
                 quality_score += 2.0
             elif _vcr > 1.2:        # 1.2–1.5×: mild confirmation
                 quality_score += 1.0
+            elif _vcr < 0.5:        # <50% average: dangerously thin — v18.93 elevated noise penalty
+                quality_score -= 3.0
             elif _vcr < 0.7:        # <70% average: thin volume — elevated noise risk
                 quality_score -= 1.5
             if _vcr != 1.0 and abs(_vcr - 1.0) > 0.1:
+                _vcr_pts = (5.0 if _vcr > 3.5 else (3.0 if _vcr > 2.0 else (2.0 if _vcr > 1.5 else (1.0 if _vcr > 1.2 else (-3.0 if _vcr < 0.5 else (-1.5 if _vcr < 0.7 else 0.0))))))
                 self._logger.debug(
-                    f"📊 [G2.5c][{symbol}] vol_ratio={_vcr:.2f}× "
-                    f"→ quality {'+'  if _vcr > 1.0 else ''}"
-                    f"{3.0 if _vcr > 2.0 else (2.0 if _vcr > 1.5 else (1.0 if _vcr > 1.2 else (-1.5 if _vcr < 0.7 else 0.0))):.1f}pts [v18.19]"
+                    f"📊 [G2.5c v18.93][{symbol}] vol_ratio={_vcr:.2f}× "
+                    f"→ quality {'+' if _vcr_pts >= 0 else ''}{_vcr_pts:.1f}pts [v18.93]"
                 )
         except Exception:
             pass
@@ -6080,6 +6085,33 @@ class UnitySignalFilter:
                     )
             except Exception:
                 pass
+
+        # ── Gate 8.5j — HMM Regime-Flip Cooldown (v18.93) ───────────────────
+        # When HMM transitions between regimes (EXPANSION↔CONTRACTION or any
+        # state ↔ TRANSITION), the first 15 minutes carry elevated false-signal
+        # risk — the model is extrapolating from limited posterior evidence
+        # on a freshly-updated emission distribution.
+        # Apply a linearly-decaying quality penalty of -4pts at the flip moment,
+        # fading to 0 over 900 seconds:
+        #   penalty = -4.0 × (900 − flip_age_sec) / 900
+        # Example: flip 5 min ago → -4.0 × 600/900 = -2.67pts.
+        # This does NOT veto signals — it creates headroom so only high-conviction
+        # signals clear the quality gate during the regime uncertainty window.
+        # Complements G8.5e (TRANSITION penalty) by also penalising confirmed-regime
+        # signals that arose immediately after a flip (momentum chasers).
+        try:
+            _hmm_flip_ref = getattr(self, "_hmm_regime", None)
+            if _hmm_flip_ref is not None and _hmm_flip_ref.is_ready:
+                _flip_secs = _hmm_flip_ref.regime_flip_seconds_ago()
+                if _flip_secs < 900:
+                    _flip_penalty = -4.0 * (900.0 - _flip_secs) / 900.0
+                    quality_score += _flip_penalty
+                    self._logger.debug(
+                        f"[G8.5j HMM-FLIP v18.93] {symbol} regime flipped {_flip_secs:.0f}s ago "
+                        f"→ {_flip_penalty:+.2f}pts cooldown penalty (fades at 900s) [v18.93]"
+                    )
+        except Exception:
+            pass
 
         # ── Gate 8.5f — VPIN Order-Flow Toxicity (v18.75) ────────────────────
         # Volume-synchronized Probability of Informed Trading (VPIN).

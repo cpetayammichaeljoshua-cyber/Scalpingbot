@@ -76,6 +76,7 @@ class HMMRegimeDetector:
         self._state_probs: np.ndarray = np.array([0.333, 0.334, 0.333])
         self._ready: bool = False
         self._last_regime: str = "TRANSITION"
+        self._regime_flip_ts: float = 0.0   # v18.93: epoch-time of last regime transition
         self._n_iter: int = 0
         self._use_hmmlearn: bool = _HMMLEARN_AVAILABLE
         self._hmm_model = None  # hmmlearn model (fitted lazily)
@@ -214,6 +215,9 @@ class HMMRegimeDetector:
             regime = "TRANSITION"
             quality_adj = 0.0
 
+        if regime != self._last_regime:   # v18.93: record transition timestamp
+            import time as _time_hmm
+            self._regime_flip_ts = _time_hmm.time()
         self._last_regime = regime
         return regime, p_exp, quality_adj
 
@@ -231,6 +235,17 @@ class HMMRegimeDetector:
         elif p_cont >= HMM_CONTRACTION_PROB:
             return 0.70
         return 1.0
+
+    def regime_flip_seconds_ago(self) -> float:
+        """v18.93: Seconds elapsed since last confirmed regime transition.
+
+        Returns float('inf') when no flip has been recorded yet (cold start)
+        so the G8.5j cooldown gate is never incorrectly triggered on boot.
+        """
+        import time as _time_hmm
+        if self._regime_flip_ts == 0.0:
+            return float("inf")
+        return _time_hmm.time() - self._regime_flip_ts
 
     @property
     def is_ready(self) -> bool:
