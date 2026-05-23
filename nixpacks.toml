@@ -1,6 +1,15 @@
-# Railway Nixpacks Configuration — Unity Engine v18.97
+# Railway Nixpacks Configuration — Unity Engine v18.98
 # Used when Railway builds without the Dockerfile (pure Nixpacks path).
 # If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
+# v18.98 changes [2026-05-23]:
+#   • G8.5m BUG FIX: direction checked "LONG"/"SHORT" (never matched "BUY"/"SELL") — now fixed.
+#     Previously ±2pts net-GEX directional adjustments NEVER fired. Now fully active.
+#   • G8.5m NEW: GEX flip-level directional alignment ±2.0/−3.5pts when in FLIP ZONE.
+#   • G8.5e NEW: HMM directional confirmation ±2.5/−3.0pts (EXPANSION/CONTRACTION).
+#   • Gate 4 cold-start fix: NN threshold raised to 0.53 when <50 labeled samples.
+#   • Kelly Step 23: GEX dealer-regime direction ×0.80 contra + 3/3 FLIP ×0.85.
+#   • Booster GEX wire-up: _gex_snaps_ref set for Kelly Step 23.
+#   • Headless scanner: scan_cycles++ prevents false watchdog STALL_DETECTED.
 # v18.97 changes [2026-05-23]:
 #   • NN v9: 5 Deribit GEX features added (56-60) → INPUT_DIM 55→60, tokens 11→12.
 #   • Gate 1 GEX RR overlay: +0.15 RR floor for 3/3 FLIP ZONE, +0.08 for 2/3.

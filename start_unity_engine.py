@@ -30,12 +30,13 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v18.97): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
+KEY GATES (v18.98): MIN_RR=2.35 | NN_WIN_PROB=0.50(cold>0.53) | EV_MIN=28bps |
   IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
-  G8.5L:HMM_FLIP_COOL=900s | G8.5m:BTC_GEX_MACRO±2pts | G8.5n:MULTI_FLIP−2pts |
-  G1_GEX_RR:3/3→+0.15 2/3→+0.08 | G9_FULLFLIP_FLOOR:3/3→+3pts |
-  Kelly22:F&G×0.80(60s-cache,consec3→×0.60) |
-  NN_v9:60feat(+5GEX) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=1h |
+  G8.5L:HMM_FLIP_COOL=900s | G8.5m:BTC_GEX±2pts+FLIP_DIR±3.5pts(BUGFIX:BUY/SELL) |
+  G8.5n:MULTI_FLIP−2pts | G8.5e:HMM_DIR±2.5/−3pts | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
+  G9_FULLFLIP_FLOOR:3/3→+3pts | Kelly22:F&G×0.80(consec3→×0.60) |
+  Kelly23:GEX_DIR×0.80+3FLIP×0.85 | NN_v9:60feat(+5GEX) |
+  LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=1h |
   SOVEREIGN [1.00]: torch 2.4.0+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
 
 Railway deployment: Dockerfile (python:3.11-slim, 4-tier torch CDN) or nixpacks.toml.
@@ -897,7 +898,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.97"
+UNITY_VERSION                = "18.98"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5392,6 +5393,15 @@ class UnitySignalFilter:
                 # the gate from becoming a rubber-stamp at very low confidence.
                 _raw_opt = float(getattr(nn_trainer, "_opt_threshold", NN_WIN_PROB_GATE))
                 nn_threshold = max(NN_WIN_PROB_GATE, min(0.55, _raw_opt))
+                # v18.98: Cold-start tightening — untrained/early NN returns exactly 0.5.
+                # With threshold = 0.50, p=0.5 ≥ 0.50 means ALL signals pass G4 during
+                # cold-start (rubber stamp).  Raise to 0.53 when <50 labeled samples so
+                # the NN must be distinctly above neutral before passing — prevents the
+                # untrained model from being a non-gate.  After 50+ samples the
+                # G-mean-optimal threshold from training takes over.
+                _nn_n_cold = int(getattr(nn_trainer, "n_samples_trained", 0) or 0)
+                if _nn_n_cold < 50:
+                    nn_threshold = max(nn_threshold, 0.53)
                 # v18.59: Record successful NN inference for health telemetry.
                 # Keeps LayerStatus.success_rate ≥ 0.90 (✅) when predictions work,
                 # surfaces the real sr in the console HUD and circuit-breaker logic.
@@ -6150,6 +6160,30 @@ class UnitySignalFilter:
                         f"[G8.5e HMM v18.87] {symbol} TRANSITION P(exp)={_hmm_p_exp:.2f}"
                         f" → {_hmm_trans_penalty:.1f}pts regime-uncertainty penalty [v18.87]"
                     )
+                # v18.98: HMM directional confirmation — second-order signal beyond
+                # the regime quality adjustment already in _hmm_quality_adj.
+                # EXPANSION regime has HMM-confirmed upward momentum: BUYs are
+                # trend-aligned (+2.5pts), SELLs fight the regime (-3.0pts).
+                # CONTRACTION is inverse.  Does NOT fire for TRANSITION (already penalized).
+                # The combination of regime quality adj (G8.5e primary) + directional
+                # alignment (here) creates up to +4.5pts for aligned signals and -5.0pts
+                # for contra-regime signals — a strong but not veto-level filter.
+                elif _hmm_regime_str in ("EXPANSION", "CONTRACTION"):
+                    _hmm_dir = str(direction or "").upper()
+                    if ((_hmm_regime_str == "EXPANSION"   and _hmm_dir == "BUY") or
+                            (_hmm_regime_str == "CONTRACTION" and _hmm_dir == "SELL")):
+                        quality_score += 2.5
+                        self._logger.debug(
+                            f"[G8.5e HMM-DIR v18.98] {symbol} {_hmm_regime_str}+{_hmm_dir} "
+                            f"aligned → +2.5pts direction-confirmation"
+                        )
+                    elif ((_hmm_regime_str == "EXPANSION"   and _hmm_dir == "SELL") or
+                              (_hmm_regime_str == "CONTRACTION" and _hmm_dir == "BUY")):
+                        quality_score -= 3.0
+                        self._logger.debug(
+                            f"[G8.5e HMM-DIR v18.98] {symbol} {_hmm_regime_str}+{_hmm_dir} "
+                            f"contra-regime → -3.0pts direction-misalignment"
+                        )
             except Exception:
                 pass
 
@@ -6352,31 +6386,67 @@ class UnitySignalFilter:
                                         f"[G8.5m BTC-GEX v18.94] {symbol} BTC FLIP ZONE "
                                         f"conf={_g85m_conf} → -1.5pts macro uncertainty"
                                     )
+                                    # v18.98: GEX Flip-Level Directional Alignment.
+                                    # BUG FIX: was checking "LONG"/"SHORT" (never matched "BUY"/"SELL").
+                                    # When BTC is in FLIP ZONE, the direction of spot relative to
+                                    # the gamma-flip level predicts dealer hedge direction:
+                                    #   spot > flip_price → dealer long gamma → trending regime → favour BUYs
+                                    #   spot < flip_price → dealer short gamma → bearish pressure → favour SELLs
+                                    # +2.0pts for direction-aligned trades; -3.5pts for contra-flip trades.
+                                    # Guards: conf ≥ 35, flip_price > 0, entry_price > 0.
+                                    if _g85m_conf >= 35:
+                                        _g85m_flip_px  = float(getattr(_g85m_snap, "flip_price", 0.0) or 0.0)
+                                        _g85m_entry_px = float(
+                                            (signal_data if isinstance(signal_data, dict) else {}).get(
+                                                "entry_price",
+                                                (signal_data if isinstance(signal_data, dict) else {}).get("entry", 0.0)
+                                            ) or 0.0
+                                        )
+                                        if _g85m_flip_px > 0.0 and _g85m_entry_px > 0.0:
+                                            _g85m_above = _g85m_entry_px > _g85m_flip_px
+                                            _g85m_aligned = (
+                                                (_g85m_dir == "BUY"  and _g85m_above) or
+                                                (_g85m_dir == "SELL" and not _g85m_above)
+                                            )
+                                            if _g85m_aligned:
+                                                quality_score += 2.0
+                                                self._logger.debug(
+                                                    f"[G8.5m-DIR v18.98] {symbol} {_g85m_dir} aligned "
+                                                    f"entry={_g85m_entry_px:.0f} {'>' if _g85m_above else '<'} "
+                                                    f"flip={_g85m_flip_px:.0f} → +2.0pts"
+                                                )
+                                            else:
+                                                quality_score -= 3.5
+                                                self._logger.debug(
+                                                    f"[G8.5m-DIR v18.98] {symbol} {_g85m_dir} contra-flip "
+                                                    f"entry={_g85m_entry_px:.0f} {'<' if not _g85m_above else '>'} "
+                                                    f"flip={_g85m_flip_px:.0f} → -3.5pts"
+                                                )
                                 elif _g85m_net < -500_000_000.0:
-                                    if _g85m_dir == "LONG":
+                                    if _g85m_dir == "BUY":   # v18.98 BUG FIX: was "LONG" (never matched)
                                         quality_score -= 2.0
                                         self._logger.debug(
-                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
-                                            f"NEGATIVE_GEX + LONG → -2.0pts (dealer short-gamma)"
+                                            f"[G8.5m BTC-GEX v18.98] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
+                                            f"NEGATIVE_GEX + BUY → -2.0pts (dealer short-gamma)"
                                         )
-                                    elif _g85m_dir == "SHORT":
+                                    elif _g85m_dir == "SELL":  # v18.98 BUG FIX: was "SHORT" (never matched)
                                         quality_score += 1.5
                                         self._logger.debug(
-                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
-                                            f"NEGATIVE_GEX + SHORT → +1.5pts (aligned with dealer)"
+                                            f"[G8.5m BTC-GEX v18.98] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
+                                            f"NEGATIVE_GEX + SELL → +1.5pts (aligned with dealer)"
                                         )
                                 elif _g85m_net > 500_000_000.0:
-                                    if _g85m_dir == "LONG":
+                                    if _g85m_dir == "BUY":   # v18.98 BUG FIX: was "LONG" (never matched)
                                         quality_score += 1.5
                                         self._logger.debug(
-                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
-                                            f"POSITIVE_GEX + LONG → +1.5pts (gamma pin supports)"
+                                            f"[G8.5m BTC-GEX v18.98] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
+                                            f"POSITIVE_GEX + BUY → +1.5pts (gamma pin supports)"
                                         )
-                                    elif _g85m_dir == "SHORT":
+                                    elif _g85m_dir == "SELL":  # v18.98 BUG FIX: was "SHORT" (never matched)
                                         quality_score -= 2.0
                                         self._logger.debug(
-                                            f"[G8.5m BTC-GEX v18.94] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
-                                            f"POSITIVE_GEX + SHORT → -2.0pts (against gamma pin)"
+                                            f"[G8.5m BTC-GEX v18.98] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
+                                            f"POSITIVE_GEX + SELL → -2.0pts (against gamma pin)"
                                         )
         except Exception:
             pass
@@ -8329,6 +8399,55 @@ class UnityProfitBooster:
             except Exception:
                 pass   # F&G Kelly step is non-fatal — Kelly unchanged on error
 
+        # ── Kelly Step 23: GEX Dealer-Regime Direction Alignment (v18.98) ────
+        # When BTC's net GEX strongly opposes the signal direction (dealer short-gamma
+        # + BUY, or dealer long-gamma + SELL), the trade fights systematic options market
+        # hedging pressure.  Apply Kelly × 0.80 to cap size on contra-GEX trades.
+        # Compound: when all 3 macro assets (BTC+ETH+SOL) are in FLIP ZONE simultaneously,
+        # apply Kelly × 0.85 — maximum coordinated macro uncertainty.
+        # Requires _gex_snaps_ref wired into booster by _wire_unity_components().
+        # Non-fatal: Kelly unchanged on any error.
+        try:
+            _k23_snaps = getattr(self, "_gex_snaps_ref", None)
+            if _k23_snaps is not None:
+                _k23_btc = _k23_snaps.get("BTCUSDT")
+                if _k23_btc is not None:
+                    _k23_s, _k23_t = (
+                        (_k23_btc[0], _k23_btc[1]) if isinstance(_k23_btc, tuple)
+                        else (_k23_btc, 0.0)
+                    )
+                    if _k23_s is not None and (time.time() - float(_k23_t or 0.0)) < 120.0:
+                        _k23_net  = float(getattr(_k23_s, "net_gex",   0.0) or 0.0)
+                        _k23_conf = float(getattr(_k23_s, "confidence",  0) or 0.0)
+                        _k23_dir  = str(getattr(self, "_last_direction", "BUY") or "BUY").upper()
+                        if _k23_conf >= 30:
+                            if ((_k23_net < -500_000_000.0 and _k23_dir == "BUY") or
+                                    (_k23_net > 500_000_000.0 and _k23_dir == "SELL")):
+                                kelly = max(0.0, kelly * 0.80)
+                                _log.debug(
+                                    f"📊 [v18.98 Step23 GEX] {_k23_dir} contra "
+                                    f"net_gex=${_k23_net/1e6:.0f}M → Kelly ×0.80"
+                                )
+                # Compound: all 3 in FLIP ZONE → ×0.85
+                _k23_flip3 = 0
+                for _k23_sym3 in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+                    _k23_e3 = _k23_snaps.get(_k23_sym3)
+                    if _k23_e3 is not None:
+                        _k23_s3, _k23_t3 = (
+                            (_k23_e3[0], _k23_e3[1]) if isinstance(_k23_e3, tuple)
+                            else (_k23_e3, 0.0)
+                        )
+                        if (_k23_s3 is not None and
+                                (time.time() - float(_k23_t3 or 0.0)) < 120.0 and
+                                str(getattr(_k23_s3, "regime", "") or "").upper() == "FLIP ZONE" and
+                                float(getattr(_k23_s3, "confidence", 0) or 0) >= 25):
+                            _k23_flip3 += 1
+                if _k23_flip3 >= 3:
+                    kelly = max(0.0, kelly * 0.85)
+                    _log.debug(f"📊 [v18.98 Step23 GEX] 3/3 FLIP ZONE → Kelly ×0.85")
+        except Exception:
+            pass   # GEX Kelly step is non-fatal — Kelly unchanged on error
+
         self.last_kelly_fraction = max(0.0, min(_kelly_ceil, kelly))
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
@@ -9956,7 +10075,10 @@ class UnityEngine:
             # v18.94: Wire engine GEX snapshots dict into signal filter for G8.5m
             # (dict is mutated in-place by _gex_scanner_task — always current)
             _try_setattr(self.signal_filter, "_engine_gex_snapshots", self._gex_snapshots)
-            self._logger.info("✅ [v11.0/v18.94] Quant layers + HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/BTCmacroGEX wired into UnitySignalFilter")
+            # v18.98: Wire GEX snaps into booster for Kelly Step 23 (same live dict)
+            if getattr(self, "booster", None) is not None:
+                _try_setattr(self.booster, "_gex_snaps_ref", self._gex_snapshots)
+            self._logger.info("✅ [v11.0/v18.94/v18.98] Quant layers + HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/BTCmacroGEX wired into UnitySignalFilter + booster GEX Kelly23")
 
         # v18.6: Wire Sovereign Risk Matrix into booster for Kelly Step 14
         if getattr(self, "booster", None) is not None and self.sovereign_rm is not None:
@@ -10038,7 +10160,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (28 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-22·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·G9FlipFloor·G1-GEX-RR·NN-v9-60feat·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (28 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-23·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·G9FlipFloor·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·NN-v9-60feat·NN-ColdStart·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -12093,6 +12215,7 @@ class UnityEngine:
                     _last_heartbeat = _now
 
                 # Keep background tasks alive — sleep between scan cycles
+                self.metrics.scan_cycles += 1   # v18.98: update watchdog heartbeat — prevents false STALL_DETECTED in headless mode
                 await asyncio.sleep(max(CYCLE_SLEEP_MIN, 10))
 
             except asyncio.CancelledError:
