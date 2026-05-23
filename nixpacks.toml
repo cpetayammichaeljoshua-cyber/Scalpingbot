@@ -1,6 +1,11 @@
-# Railway Nixpacks Configuration — Unity Engine v18.95
+# Railway Nixpacks Configuration — Unity Engine v18.96
 # Used when Railway builds without the Dockerfile (pure Nixpacks path).
 # If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
+# v18.96 changes [2026-05-23]:
+#   • G9 compound floor: when 3/3 BTC/ETH/SOL in FLIP ZONE, floor +3pts (to 65+).
+#   • Kelly Step 22 F&G: TTL 60s cache on get_market_summary() call.
+#   • LLM free-tier fast-path: after first paid model quarantined, :free models prioritised.
+#   • Wire-up summary corrected to Kelly(Steps1-22).
 # v18.95 changes [2026-05-23]:
 #   • G8.5n MultiFlip gate: -2pts when 2+ of BTC/ETH/SOL simultaneously in FLIP ZONE.
 #   • Kelly Step 22: Fear&Greed×0.80 at Extreme Fear (≤20), ×0.90 at Extreme Greed (≥80).

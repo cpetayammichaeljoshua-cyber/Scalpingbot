@@ -30,11 +30,11 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v18.95): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
+KEY GATES (v18.96): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
   IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
   G8.5L:HMM_FLIP_COOL=900s | G8.5m:BTC_GEX_MACRO±2pts | G8.5n:MULTI_FLIP−2pts |
-  G2.5c:VOL3.5×=+5pts | CALMAR_SLOPE=0.50/3.0(floor=0.50) | Kelly22:F&G×0.80 |
-  LLM_AUTO_QUARANTINE:3fail→1h | NN_RETRAIN=1h |
+  G9_FULLFLIP_FLOOR:3/3→+3pts | Kelly22:F&G×0.80(60s-cache) |
+  LLM_FREETIER_FASTPATH | LLM_AUTO_QUARANTINE:3fail→1h | NN_RETRAIN=1h |
   SOVEREIGN [1.00]: torch 2.4.0+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
 
 Railway deployment: Dockerfile (python:3.11-slim, 4-tier torch CDN) or nixpacks.toml.
@@ -896,7 +896,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.95"
+UNITY_VERSION                = "18.96"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6326,10 +6326,12 @@ class UnitySignalFilter:
         # Penalty: −2.0pts (compounds with G8.5m's per-asset BTC penalty when
         # BTC itself is also in FLIP ZONE, giving up to −3.5pts total on LONGs).
         # Guards: at least 2 snapshots must be < 120s old; conf ≥ 25 on each.
+        # v18.96: _multiflip_count exposed outside try-block for G9 compound floor.
+        _multiflip_count: int = 0   # v18.96: used by G9 floor compound
         try:
             _g85n_snaps = getattr(self, "_engine_gex_snapshots", None)
             if _g85n_snaps is not None:
-                _g85n_flip_count = 0
+                _g85n_cnt = 0
                 for _g85n_sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
                     _g85n_entry = _g85n_snaps.get(_g85n_sym)
                     if _g85n_entry is not None:
@@ -6342,11 +6344,12 @@ class UnitySignalFilter:
                             _g85n_reg  = str(getattr(_g85n_s, "regime",     "") or "").upper()
                             _g85n_conf = float(getattr(_g85n_s, "confidence", 0) or 0)
                             if _g85n_reg == "FLIP ZONE" and _g85n_conf >= 25:
-                                _g85n_flip_count += 1
-                if _g85n_flip_count >= 2:
+                                _g85n_cnt += 1
+                _multiflip_count = _g85n_cnt   # expose for G9 compound floor
+                if _g85n_cnt >= 2:
                     quality_score -= 2.0
                     self._logger.debug(
-                        f"[G8.5n MultiFlip v18.95] {symbol} {_g85n_flip_count}/3 assets "
+                        f"[G8.5n MultiFlip v18.95] {symbol} {_g85n_cnt}/3 assets "
                         f"in FLIP ZONE → -2.0pts macro regime uncertainty"
                     )
         except Exception:
@@ -6541,6 +6544,20 @@ class UnitySignalFilter:
                         _g9_floor = max(SIGNAL_MIN_QUALITY_GATE - 1.0, _g9_floor - 1.0)
         except Exception:
             pass
+        # v18.96: G9 compound floor when ALL 3 macro assets in FLIP ZONE.
+        # When _multiflip_count==3 (BTC+ETH+SOL all FLIP ZONE simultaneously),
+        # raise the effective quality floor by +3pts (capped at 71).
+        # Combined with G8.5n's −2pts penalty, a signal must score 67+ base
+        # quality to pass G9 during full FLIP ZONE — a +5pt compound filter
+        # that enforces strict selectivity during the most uncertain macro regime.
+        # _multiflip_count is set by G8.5n above; defaults to 0 if G8.5n didn't fire.
+        if _multiflip_count == 3:
+            _g9_floor = min(71.0, _g9_floor + 3.0)
+            self._logger.debug(
+                f"[G9-FlipFloor v18.96] {symbol} 3/3 FLIP ZONE → G9 floor +3pts "
+                f"({_g9_floor - 3.0:.0f}→{_g9_floor:.0f})"
+            )
+
         # v18.35: Drought softening — Gate 9 adaptive floor was the only floor
         # that did NOT adapt to signal-starvation drought. EV floor (Gate 0),
         # Sortino quality penalty (G0.5) and RL threshold are all drought-aware.
@@ -8195,36 +8212,41 @@ class UnityProfitBooster:
         except Exception:
             pass   # HMM regime Kelly multiplier is non-fatal — Kelly unchanged on error
 
-        # ── 22. v18.95 Fear & Greed Macro Sentiment Kelly ────────────────────
+        # ── 22. v18.95/v18.96 Fear & Greed Macro Sentiment Kelly ────────────
         # The Fear & Greed index (range 0–100) is a composite macro sentiment
         # indicator.  Extreme Fear (≤20) signals capitulation or panic — the
         # dominant price action is directional flush-outs that inflict rapid
         # losses on momentum positions.  Extreme Greed (≥80) signals FOMO
         # exhaustion — the dominant action is sharp reversals from overbought.
-        # In both extreme regimes, expected slippage and adverse fill probability
-        # increases above their neutral-regime baseline, warranting a proportional
-        # Kelly reduction as a macro-sentiment overlay.
-        # Requires public_api reference wired via _wire_unity_components() and
-        # ≥15 PnL samples (cold-start safe).  Non-fatal on any access error.
-        #   F&G ≤ 20 (Extreme Fear):  Kelly × 0.80 — panic regime, higher flush risk
-        #   F&G ≥ 80 (Extreme Greed): Kelly × 0.90 — FOMO exhaustion, reversal risk
+        # v18.96: Result is TTL-cached for 60s on self to prevent repeated
+        # get_market_summary() HTTP calls on every 30s console-triggered Kelly
+        # recalculation.  Cache stored as (_fg22_cached_val, _fg22_cached_ts).
         if kelly > 0.0 and len(self._pnl_ring) >= 15:
             try:
                 _pa22 = getattr(self, "_public_api_ref", None)
                 if _pa22 is not None:
-                    _fg22 = int((_pa22.get_market_summary() or {}).get("fear_greed", 50) or 50)
+                    _now22       = time.monotonic()
+                    _fg22_ts     = float(getattr(self, "_fg22_cached_ts",  0.0) or 0.0)
+                    _fg22_cached = int(getattr(self, "_fg22_cached_val", 50)   or 50)
+                    if (_now22 - _fg22_ts) >= 60.0:
+                        # Cache miss or expired — fetch fresh value
+                        _fg22_fresh = int((_pa22.get_market_summary() or {}).get("fear_greed", 50) or 50)
+                        self._fg22_cached_val = _fg22_fresh
+                        self._fg22_cached_ts  = _now22
+                        _fg22_cached = _fg22_fresh
+                    _fg22 = _fg22_cached
                     if _fg22 <= 20:
                         _kelly_fg_pre = kelly
                         kelly = max(0.0, kelly * 0.80)
                         self._logger.debug(
-                            f"📊 [v18.95 Step22 F&G] Extreme Fear F&G={_fg22}≤20 "
+                            f"📊 [v18.96 Step22 F&G] Extreme Fear F&G={_fg22}≤20 "
                             f"→ Kelly ×0.80 ({_kelly_fg_pre*100:.2f}%→{kelly*100:.2f}%)"
                         )
                     elif _fg22 >= 80:
                         _kelly_fg_pre = kelly
                         kelly = max(0.0, kelly * 0.90)
                         self._logger.debug(
-                            f"📊 [v18.95 Step22 F&G] Extreme Greed F&G={_fg22}≥80 "
+                            f"📊 [v18.96 Step22 F&G] Extreme Greed F&G={_fg22}≥80 "
                             f"→ Kelly ×0.90 ({_kelly_fg_pre*100:.2f}%→{kelly*100:.2f}%)"
                         )
             except Exception:
@@ -9923,7 +9945,7 @@ class UnityEngine:
             f"25-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5V:VibeAgents) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
-            f"Kelly(Steps1-20·UMI·SRM·SovFloor·MkSov·PrimeSess) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · PerSymbol · SmartSLTP · "
+            f"Kelly(Steps1-22·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · PerSymbol · SmartSLTP · "
             f"AIOrchestrator · MarketIntel · OutcomeTracker · NNRetrain({NN_RETRAIN_INTERVAL_SEC//3600}h) · "
             f"LLM-AutoRoute · SignalRate · HealthServer · ThreadPool={THREAD_POOL_WORKERS}w · "
             f"L11-NonFatal · BootstrapCacheFix · v{UNITY_VERSION} active."
@@ -9939,7 +9961,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (28 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-22·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQuarantine v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (28 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-22·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·G9FlipFloor·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

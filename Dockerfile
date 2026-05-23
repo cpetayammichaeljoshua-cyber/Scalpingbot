@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.95 — Multi-stage Production Dockerfile
+# Unity Engine v18.96 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
 # Build:  docker build -t unity-engine:18.91 .
@@ -125,13 +125,13 @@ except Exception as e:
 SMOKE_TEST
 
 # ── Install all remaining packages (fast PyPI wheels, no torch/transformers) ──
-# requirements.txt v18.95: torch/transformers EXCLUDED — installed above separately.
+# requirements.txt v18.96: torch/transformers EXCLUDED — installed above separately.
 # --extra-index-url included as fallback only (no conflict since torch absent here).
 COPY requirements.txt .
 RUN pip install --prefix=/install --no-cache-dir --root-user-action=ignore \
     --timeout 300 --retries 3 \
     -r requirements.txt \
-    && echo "OK requirements.txt installed (v18.95)"
+    && echo "OK requirements.txt installed (v18.96)"
 
 # ── Verify critical packages post-install ─────────────────────────────────────
 RUN PYTHONPATH=/install/lib/python3.11/site-packages python3 -c "

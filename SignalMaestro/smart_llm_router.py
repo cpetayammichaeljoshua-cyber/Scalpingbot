@@ -253,6 +253,11 @@ class SmartLLMRouter:
         self._total_requests = 0
         self._total_savings = 0.0
         self._available_models = available_models or []
+        # v18.96: Free-tier fast-path flag.  Set True when first quarantine fires
+        # (indicates API key has no paid credits).  Causes _select_model() to
+        # skip paid models and prefer free-tier (:free suffix) models first,
+        # eliminating the 3-failure burn-in cycle for each paid model per session.
+        self._free_tier_mode: bool = False
         logger.info(
             f"🧭 SmartLLMRouter initialized — "
             f"ClawRouter-inspired multi-dimensional routing | "
@@ -346,9 +351,17 @@ class SmartLLMRouter:
             if h.failures == 3 and h.successes == 0 and not h.permanently_disabled:
                 h.disabled_until = time.time() + 3600.0
                 logger.info(
-                    f"[SmartLLM v18.95] Auto-quarantine: '{model}' "
+                    f"[SmartLLM v18.96] Auto-quarantine: '{model}' "
                     f"→ 3 failures / 0 successes → disabled 1h (endpoint dead or rate-limited)"
                 )
+                # v18.96: Enable free-tier fast-path when first paid model is quarantined.
+                # This signals the key has no paid credits → skip paid model burn-ins.
+                if not self._free_tier_mode and not model.endswith(":free"):
+                    self._free_tier_mode = True
+                    logger.info(
+                        f"[SmartLLM v18.96] Free-tier fast-path ACTIVATED — "
+                        f"paid model quarantined → routing will prefer :free models first"
+                    )
 
     def disable_model(self, model: str, duration_s: float = 0, permanent: bool = False):
         if model not in self._health:
@@ -475,6 +488,15 @@ class SmartLLMRouter:
     def _select_model(self, tier: str) -> Optional[str]:
         candidates = TIER_MODELS.get(tier, TIER_MODELS["MEDIUM"])
 
+        # v18.96: Free-tier fast-path — when API key has no paid credits, build
+        # a preferred list that puts :free models first to avoid 3-failure burn-in
+        # on paid models.  Falls back to the standard candidate order if no free
+        # model is available.
+        if self._free_tier_mode:
+            _free_first = [m for m in candidates if m.endswith(":free")]
+            _paid_rest  = [m for m in candidates if not m.endswith(":free")]
+            candidates  = _free_first + _paid_rest
+
         for model in candidates:
             if model not in self._available_models:
                 continue
@@ -490,13 +512,19 @@ class SmartLLMRouter:
             return model
 
         for _fallback_tier in ("SIMPLE", "MEDIUM", "COMPLEX"):
-            for model in TIER_MODELS.get(_fallback_tier, []):
+            _fb_cands = TIER_MODELS.get(_fallback_tier, [])
+            if self._free_tier_mode:
+                _fb_cands = [m for m in _fb_cands if m.endswith(":free")] + \
+                            [m for m in _fb_cands if not m.endswith(":free")]
+            for model in _fb_cands:
                 health = self._health.get(model)
                 if health and not health.is_available:
                     continue
                 return model
 
-        return candidates[0] if candidates else "gpt-4o-mini"
+        _free_fallback = [m for m in (candidates or []) if m.endswith(":free")]
+        return (_free_fallback[0] if _free_fallback else None) or \
+               (candidates[0] if candidates else "gpt-4o-mini")
 
     def _estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
         pricing = MODEL_PRICING.get(model, {"input": 3.0, "output": 15.0})
