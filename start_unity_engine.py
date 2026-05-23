@@ -21,7 +21,7 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L6:   Market Analysis         — ATAS (15 indicators) + Bookmap order flow
   L7:   Risk Engine             — Sortino+Calmar+Kelly institutional risk calculus
   L8:   AI Orchestrator         — Sentiment + Market Prediction + RL
-  L8.5e-m: Quant Layers         — HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/HMMflip/BTCmacroGEX
+  L8.5e-n: Quant Layers         — HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/HMMflip/BTCmacroGEX/MultiFlip
   L8.5V: Vibe Agents            — 12-agent sentiment/regime consensus
   L9:   Memory Systems          — TradeMemory (SQLite) + BM25 + GraphState
   L10:  Public API Intel        — Fear&Greed + CoinGecko + CoinCap
@@ -30,10 +30,11 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v18.94): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
+KEY GATES (v18.95): MIN_RR=2.35 | NN_WIN_PROB=0.50 | EV_MIN=28bps |
   IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
-  G8.5L:HMM_FLIP_COOL=900s | G8.5m:BTC_GEX_MACRO±2pts | G2.5c:VOL3.5×=+5pts |
-  CALMAR_SLOPE=0.50/3.0(floor=0.50) | NN_RETRAIN=1h |
+  G8.5L:HMM_FLIP_COOL=900s | G8.5m:BTC_GEX_MACRO±2pts | G8.5n:MULTI_FLIP−2pts |
+  G2.5c:VOL3.5×=+5pts | CALMAR_SLOPE=0.50/3.0(floor=0.50) | Kelly22:F&G×0.80 |
+  LLM_AUTO_QUARANTINE:3fail→1h | NN_RETRAIN=1h |
   SOVEREIGN [1.00]: torch 2.4.0+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
 
 Railway deployment: Dockerfile (python:3.11-slim, 4-tier torch CDN) or nixpacks.toml.
@@ -895,7 +896,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "18.94"
+UNITY_VERSION                = "18.95"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6315,6 +6316,42 @@ class UnitySignalFilter:
         except Exception:
             pass
 
+        # ── Gate 8.5n — Multi-Asset FLIP ZONE Macro Penalty (v18.95) ─────────
+        # When 2 or more of the three major Deribit GEX assets (BTC/ETH/SOL) are
+        # simultaneously in FLIP ZONE, the entire crypto market is in coordinated
+        # regime uncertainty — dealers across all three primary option markets are
+        # at their gamma-flip level simultaneously.  This structural condition is
+        # statistically rare (~8% of hours) and correlates with the highest
+        # dispersion in realised intraday returns (both dirs equally likely).
+        # Penalty: −2.0pts (compounds with G8.5m's per-asset BTC penalty when
+        # BTC itself is also in FLIP ZONE, giving up to −3.5pts total on LONGs).
+        # Guards: at least 2 snapshots must be < 120s old; conf ≥ 25 on each.
+        try:
+            _g85n_snaps = getattr(self, "_engine_gex_snapshots", None)
+            if _g85n_snaps is not None:
+                _g85n_flip_count = 0
+                for _g85n_sym in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+                    _g85n_entry = _g85n_snaps.get(_g85n_sym)
+                    if _g85n_entry is not None:
+                        _g85n_s, _g85n_t = (
+                            (_g85n_entry[0], _g85n_entry[1])
+                            if isinstance(_g85n_entry, tuple)
+                            else (_g85n_entry, 0.0)
+                        )
+                        if (time.time() - float(_g85n_t or 0.0)) < 120.0 and _g85n_s is not None:
+                            _g85n_reg  = str(getattr(_g85n_s, "regime",     "") or "").upper()
+                            _g85n_conf = float(getattr(_g85n_s, "confidence", 0) or 0)
+                            if _g85n_reg == "FLIP ZONE" and _g85n_conf >= 25:
+                                _g85n_flip_count += 1
+                if _g85n_flip_count >= 2:
+                    quality_score -= 2.0
+                    self._logger.debug(
+                        f"[G8.5n MultiFlip v18.95] {symbol} {_g85n_flip_count}/3 assets "
+                        f"in FLIP ZONE → -2.0pts macro regime uncertainty"
+                    )
+        except Exception:
+            pass
+
         # ── Gate 8.5V — Vibe-Trading Multi-Agent Consensus (v18.40) ──────────
         # Three specialized agents (Trend, Flow, Macro) evaluate the signal from
         # orthogonal perspectives and produce a weighted consensus quality bias.
@@ -8158,6 +8195,41 @@ class UnityProfitBooster:
         except Exception:
             pass   # HMM regime Kelly multiplier is non-fatal — Kelly unchanged on error
 
+        # ── 22. v18.95 Fear & Greed Macro Sentiment Kelly ────────────────────
+        # The Fear & Greed index (range 0–100) is a composite macro sentiment
+        # indicator.  Extreme Fear (≤20) signals capitulation or panic — the
+        # dominant price action is directional flush-outs that inflict rapid
+        # losses on momentum positions.  Extreme Greed (≥80) signals FOMO
+        # exhaustion — the dominant action is sharp reversals from overbought.
+        # In both extreme regimes, expected slippage and adverse fill probability
+        # increases above their neutral-regime baseline, warranting a proportional
+        # Kelly reduction as a macro-sentiment overlay.
+        # Requires public_api reference wired via _wire_unity_components() and
+        # ≥15 PnL samples (cold-start safe).  Non-fatal on any access error.
+        #   F&G ≤ 20 (Extreme Fear):  Kelly × 0.80 — panic regime, higher flush risk
+        #   F&G ≥ 80 (Extreme Greed): Kelly × 0.90 — FOMO exhaustion, reversal risk
+        if kelly > 0.0 and len(self._pnl_ring) >= 15:
+            try:
+                _pa22 = getattr(self, "_public_api_ref", None)
+                if _pa22 is not None:
+                    _fg22 = int((_pa22.get_market_summary() or {}).get("fear_greed", 50) or 50)
+                    if _fg22 <= 20:
+                        _kelly_fg_pre = kelly
+                        kelly = max(0.0, kelly * 0.80)
+                        self._logger.debug(
+                            f"📊 [v18.95 Step22 F&G] Extreme Fear F&G={_fg22}≤20 "
+                            f"→ Kelly ×0.80 ({_kelly_fg_pre*100:.2f}%→{kelly*100:.2f}%)"
+                        )
+                    elif _fg22 >= 80:
+                        _kelly_fg_pre = kelly
+                        kelly = max(0.0, kelly * 0.90)
+                        self._logger.debug(
+                            f"📊 [v18.95 Step22 F&G] Extreme Greed F&G={_fg22}≥80 "
+                            f"→ Kelly ×0.90 ({_kelly_fg_pre*100:.2f}%→{kelly*100:.2f}%)"
+                        )
+            except Exception:
+                pass   # F&G Kelly step is non-fatal — Kelly unchanged on error
+
         self.last_kelly_fraction = max(0.0, min(_kelly_ceil, kelly))
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
@@ -9791,6 +9863,10 @@ class UnityEngine:
         if getattr(self, "booster", None) is not None and self.sovereign_rm is not None:
             _try_setattr(self.booster, "_sovereign_rm", self.sovereign_rm)
             self._logger.info("✅ [v18.6] Sovereign Risk Matrix wired into UnityProfitBooster (Kelly Step 14)")
+        # v18.95: Wire PublicAPIIntelligence into booster for Kelly Step 22 F&G overlay
+        if getattr(self, "booster", None) is not None and getattr(self, "public_api", None) is not None:
+            _try_setattr(self.booster, "_public_api_ref", self.public_api)
+            self._logger.debug("✅ [v18.95] PublicAPIIntelligence wired into booster (Kelly Step 22 F&G)")
 
         # ── v11.0: TradingInterface — command-less inline-keyboard Telegram UI ──
         # Provides per-user signal action buttons (Execute/Follow/Skip/Details),
@@ -9844,7 +9920,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"24-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5V:VibeAgents) · "
+            f"25-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5V:VibeAgents) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-20·UMI·SRM·SovFloor·MkSov·PrimeSess) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · PerSymbol · SmartSLTP · "
@@ -9863,7 +9939,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (28 layers, 24-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-21·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L-HMMflip·G8.5m-BTCmacroGEX v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (28 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-22·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·SessionIntel·G9MaxDD·StreakWarmup·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQuarantine v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

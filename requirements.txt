@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v18.94 — Production requirements.txt
+# Unity Engine v18.95 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-05-23 (v18.94 — G8.5m BTCmacroGEX gate, G8.5L HMM-flip rename, Calmar slope tightened)
+# Last verified: 2026-05-23 (v18.95 — G8.5n MultiFlip, Kelly Step22 F&G, LLM auto-quarantine)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # ZERO DEGRADED 0.75 guarantee — nuclear DEGRADED blocker active on all paths

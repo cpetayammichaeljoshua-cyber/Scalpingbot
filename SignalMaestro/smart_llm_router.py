@@ -338,6 +338,17 @@ class SmartLLMRouter:
         else:
             h.failures += 1
             h.last_failure = time.time()
+            # v18.95: Auto-quarantine — at exactly 3 failures with zero successes
+            # in this session, disable the model for 1 hour to stop hammering
+            # dead endpoints (404-storm / 503 prevention).  Fires once (== 3)
+            # so the log is not repeated on every subsequent failure.
+            # Does not permanently disable — model retries on next engine start.
+            if h.failures == 3 and h.successes == 0 and not h.permanently_disabled:
+                h.disabled_until = time.time() + 3600.0
+                logger.info(
+                    f"[SmartLLM v18.95] Auto-quarantine: '{model}' "
+                    f"→ 3 failures / 0 successes → disabled 1h (endpoint dead or rate-limited)"
+                )
 
     def disable_model(self, model: str, duration_s: float = 0, permanent: bool = False):
         if model not in self._health:

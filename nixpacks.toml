@@ -1,6 +1,11 @@
-# Railway Nixpacks Configuration — Unity Engine v18.94
+# Railway Nixpacks Configuration — Unity Engine v18.95
 # Used when Railway builds without the Dockerfile (pure Nixpacks path).
 # If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
+# v18.95 changes [2026-05-23]:
+#   • G8.5n MultiFlip gate: -2pts when 2+ of BTC/ETH/SOL simultaneously in FLIP ZONE.
+#   • Kelly Step 22: Fear&Greed×0.80 at Extreme Fear (≤20), ×0.90 at Extreme Greed (≥80).
+#   • LLM auto-quarantine: model disabled 1h after 3 consecutive failures / 0 successes.
+#   • 25-gate filter (was 24-gate), Kelly Steps1-22.
 # v18.94 changes [2026-05-23]:
 #   • G8.5m BTCmacroGEX alignment gate: ±1.5-2.0pts vs BTC dealer net GEX.
 #   • G8.5L HMM-flip cooldown renamed (was mislabeled G8.5j, conflict with CSM).
