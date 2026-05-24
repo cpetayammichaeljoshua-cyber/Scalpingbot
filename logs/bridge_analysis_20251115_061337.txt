@@ -1,0 +1,38 @@
+
+================================================================================
+ENHANCED SIGNALMAESTRO + FREQTRADE BRIDGE - ANALYSIS REPORT
+================================================================================
+Analysis Date: 2025-11-15 06:13:37
+Strategies Analyzed: 3
+
+📊 STRATEGY PERFORMANCE RANKING:
+--------------------------------------------------------------------------------
+
+#1 IchimokuFreqHybrid
+   Win Rate: 0.00%
+   Total Profit: 0.00%
+   Total Trades: 0
+   Sharpe Ratio: 0.00
+   Profit Factor: 0.00
+   Best Trade: 0.00%
+   Worst Trade: 0.00%
+
+#2 ScalpingFreqHybrid
+   Win Rate: 0.00%
+   Total Profit: 0.00%
+   Total Trades: 0
+   Sharpe Ratio: 0.00
+   Profit Factor: 0.00
+   Best Trade: 0.00%
+   Worst Trade: 0.00%
+
+#3 MomentumFreqHybrid
+   Win Rate: 0.00%
+   Total Profit: 0.00%
+   Total Trades: 0
+   Sharpe Ratio: 0.00
+   Profit Factor: 0.00
+   Best Trade: 0.00%
+   Worst Trade: 0.00%
+
+================================================================================

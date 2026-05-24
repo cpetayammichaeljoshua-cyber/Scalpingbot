@@ -1,0 +1,10 @@
+{
+  "signals_per_hour": 6,
+  "min_signal_interval": 300,
+  "confidence_bypass": {
+    "enabled": true,
+    "threshold": 85.0
+  },
+  "dynamic_adjustment": true,
+  "enhanced_rate_management": true
+}

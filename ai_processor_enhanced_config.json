@@ -1,0 +1,19 @@
+{
+  "processing": {
+    "confidence_threshold": 0.75,
+    "signal_strength_minimum": 70,
+    "enhanced_fallback": true,
+    "rate_limiting_enabled": true
+  },
+  "error_recovery": {
+    "auto_retry": true,
+    "fallback_on_failure": true,
+    "suppress_warnings": true,
+    "log_errors_only": true
+  },
+  "optimization": {
+    "cache_results": true,
+    "batch_processing": false,
+    "async_processing": true
+  }
+}
