@@ -173,7 +173,7 @@ class AICapabilityChecker:
         # This stamp ensures the CURRENT build's correct scores appear at the TOP of
         # every Railway log session, before any component-level checks run.
         self.logger.info(
-            "🏆 [SOVEREIGN v19.2] Capability baseline: "
+            "🏆 [SOVEREIGN v19.3] Capability baseline: "
             "pytorch_transformer=FULL(1.00) [FIXED v18.79+ — no longer DEGRADED(0.75)] | "
             "sklearn=FULL(1.00) [FIXED v18.79 — no longer 0.75] | "
             "openrouter=FULL(zero-bare-slug quarantine fix v19.1) | "
@@ -181,7 +181,10 @@ class AICapabilityChecker:
             "G8.5sq=ACTIVE(OU/Heston/Jump/Kalman±6pts) | "
             "anti-stale heartbeat=ACTIVE(v19.0) | "
             "torch-inplace-fix=ACTIVE(v19.2 contiguous+zero_grad+enable_nested_tensor=False) | "
-            "task-auditor-fix=ACTIVE(v19.2 Task-prefix+watched_task-inner-names exempted)"
+            "task-auditor-fix=ACTIVE(v19.2 Task-prefix+watched_task-inner-names exempted) | "
+            "Kelly24-DeepDD-CB=ACTIVE(v19.3 MaxDD>40%+Calmar<0→×0.65/Sharpe<-4→×0.80) | "
+            "HMM21-recal=ACTIVE(v19.3 EXPANSION×1.25 P≥0.75+SR≥0/CONTRACTION×0.60 P≥0.65) | "
+            "IRONS-sync=ACTIVE(v19.3 WR<20%→68/WR<30%→65/WR<45%→62)"
         )
 
         component_results: Dict[str, CapabilityResult] = {}

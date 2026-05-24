@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v19.2 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v19.3 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GEX · SRM):
+ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
   L0.5: Deribit Real-GEX       — Live BTC/ETH/SOL options chain (primary)
   L0.6: OKX Real-GEX           — Cross-venue GEX redundancy
@@ -17,12 +17,12 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L2.7: UT Bot Strategy         — UT Bot Alerts + STC signal engine
   L3:   MiroFish Swarm          — 10-agent consensus intelligence
   L4:   G0DM0D3 AI v11.0        — ULTRAPLINIAN+AutoTune+STM+GODMODE | 38+ OpenRouter models
-  L5:   Neural Network          — 55-feat MLP (60%) + PyTorch Transformer 4-head (40%)
+  L5:   Neural Network          — 60-feat MLP (60%) + PyTorch Transformer 4-head (40%)
   L6:   Market Analysis         — ATAS (15 indicators) + Bookmap order flow
   L7:   Risk Engine             — Sortino+Calmar+Kelly institutional risk calculus
   L8:   AI Orchestrator         — Sentiment + Market Prediction + RL
   L8.5e-n: Quant Layers         — HMM/VPIN/Kalman/Dispersion/PCA/CSM/IVCrush/HMMflip/BTCmacroGEX/MultiFlip
-  L8.5V: Vibe Agents            — 12-agent sentiment/regime consensus
+  L8.5V: Vibe Agents            — 12-agent sentiment/regime consensus (HKUDS Vibe-Trading)
   L9:   Memory Systems          — TradeMemory (SQLite) + BM25 + GraphState
   L10:  Public API Intel        — Fear&Greed + CoinGecko + CoinCap
   L10.5: Market Microstructure  — ATAS-lite OFI + WS depth imbalance
@@ -30,19 +30,22 @@ ARCHITECTURE (28 layers · 22-gate filter · 5-bucket RL · Kelly 21-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v19.0): MIN_RR=2.35 | NN_WIN_PROB=0.50(cold>0.53) | EV_MIN=28bps |
-  IRONS_MIN=65 | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
+KEY GATES (v19.3): MIN_RR=2.35 | NN_WIN_PROB=0.50(cold>0.53) | EV_MIN=28bps |
+  IRONS_MIN=65(WR<30%)+68(WR<20%) | SIGNAL_QUALITY=62 | WATCHDOG_STALL=1800s | PBO_CLEAN=3.5pts |
   G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5L:HMM_FLIP_COOL=900s |
   G8.5m:BTC_GEX±2pts+FLIP_DIR±3.5pts | G8.5n:MULTI_FLIP−2pts |
-  G8.5e:HMM_DIR±2.5/−3pts | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
+  G8.5e:HMM_DIR±8pts(EXP≥0.75)/−10pts(CONT≥0.65) | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
   G9_FULLFLIP_FLOOR:3/3→+3pts | Kelly22:F&G×0.80(consec3→×0.60) |
-  Kelly23:GEX_DIR×0.80+3FLIP×0.85 | NN_v9:60feat(+5GEX) |
-  LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=1h |
+  Kelly23:GEX_DIR×0.80+3FLIP×0.85 | Kelly24:DeepDD_MaxDD>40%+Calmar<0→×0.65 |
+  HMM21:EXPANSION×1.25(P≥0.75,SR≥0)/CONTRACTION×0.60(P≥0.65) |
+  NN_v9:60feat(+5GEX) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=1h |
   SOVEREIGN [1.00]: torch 2.12.0+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
   v19.2 FIXES: torch-inplace-fix(contiguous+zero_grad+enable_nested_tensor=False) |
     task-auditor-fix(Task-prefix+watched_task-inner-names+TGDedicatedPoll exempted)
+  v19.3 FIXES: stale-HMM-logs(×1.25/×0.60@P≥0.75/0.65) | Kelly24-DeepDD-CB |
+    IRONS-comment-sync | Sortino-Calmar-gate | capability-stamp-sync
 
-Railway deployment: Dockerfile (python:3.11-slim, 4-tier torch CDN) or nixpacks.toml.
+Railway deployment: Dockerfile (python:3.11-slim, 5-tier torch CDN) or nixpacks.toml.
 Environment secrets: TELEGRAM_BOT_TOKEN, BINANCE_API_KEY, BINANCE_API_SECRET,
   OPENROUTER_API_KEY (+ BACKUP_1..7), REDIS_URL (optional).
 """
@@ -197,7 +200,7 @@ def _bootstrap_all_critical_packages() -> None:
     # Railway non-root user (unity) cannot write to /usr/local without --user;
     # detect and add it automatically.
     if not _can_import("torch"):
-        _log.info("⚡ [v19.2 Bootstrap] Installing torch (CPU, 5-tier fallback)...")
+        _log.info("⚡ [v19.3 Bootstrap] Installing torch (CPU, 5-tier fallback)...")
         import os as _boot_os
         _pip_user = [] if (hasattr(_boot_os, "geteuid") and _boot_os.geteuid() == 0) else ["--user"]
         _torch_installed = False
@@ -213,12 +216,12 @@ def _bootstrap_all_critical_packages() -> None:
             )
             if _tr0.returncode == 0:
                 _torch_installed = True
-                _log.info("✅ [v19.2 Bootstrap] torch==2.4.0+cpu installed (Tier-1 pinned CDN)")
+                _log.info("✅ [v19.3 Bootstrap] torch==2.4.0+cpu installed (Tier-1 pinned CDN)")
         except Exception:
             pass
         # Attempt 2: primary CDN — any CPU wheel (flexible version, CDN preferred)
         if not _torch_installed:
-            _log.info("⚡ [v19.2 Bootstrap] Tier-1 failed — trying torch (any cpu, CDN)...")
+            _log.info("⚡ [v19.3 Bootstrap] Tier-1 failed — trying torch (any cpu, CDN)...")
             try:
                 _tr = _sp.run(
                     [_sys.executable, "-m", "pip", "install", "--quiet",
@@ -230,12 +233,12 @@ def _bootstrap_all_critical_packages() -> None:
                 )
                 if _tr.returncode == 0:
                     _torch_installed = True
-                    _log.info("✅ [v19.2 Bootstrap] torch (any cpu) installed (Tier-2 CDN)")
+                    _log.info("✅ [v19.3 Bootstrap] torch (any cpu) installed (Tier-2 CDN)")
             except Exception:
                 pass
         # Attempt 3: extra-index-url CDN mirror
         if not _torch_installed:
-            _log.info("⚡ [v19.2 Bootstrap] Tier-2 failed — trying CDN mirror (extra-index-url)...")
+            _log.info("⚡ [v19.3 Bootstrap] Tier-2 failed — trying CDN mirror (extra-index-url)...")
             try:
                 _tr2 = _sp.run(
                     [_sys.executable, "-m", "pip", "install", "--quiet",
@@ -247,12 +250,12 @@ def _bootstrap_all_critical_packages() -> None:
                 )
                 if _tr2.returncode == 0:
                     _torch_installed = True
-                    _log.info("✅ [v19.2 Bootstrap] torch==2.4.0+cpu installed (Tier-3 CDN mirror)")
+                    _log.info("✅ [v19.3 Bootstrap] torch==2.4.0+cpu installed (Tier-3 CDN mirror)")
             except Exception:
                 pass
         # Attempt 4: standard PyPI (no +cpu suffix — works when CDN blocked)
         if not _torch_installed:
-            _log.info("⚡ [v19.2 Bootstrap] CDN tiers failed — trying standard PyPI...")
+            _log.info("⚡ [v19.3 Bootstrap] CDN tiers failed — trying standard PyPI...")
             try:
                 _tr3 = _sp.run(
                     [_sys.executable, "-m", "pip", "install", "--quiet",
@@ -263,16 +266,16 @@ def _bootstrap_all_critical_packages() -> None:
                 )
                 if _tr3.returncode == 0:
                     _torch_installed = True
-                    _log.info("✅ [v19.2 Bootstrap] torch installed via Tier-4 standard PyPI")
+                    _log.info("✅ [v19.3 Bootstrap] torch installed via Tier-4 standard PyPI")
                 else:
                     _log.info(
-                        "ℹ️  [v19.2 Bootstrap] torch not available in this environment — "
+                        "ℹ️  [v19.3 Bootstrap] torch not available in this environment — "
                         "SOVEREIGN SKLEARN active (sklearn MLP ensemble, score=1.00). "
                         "On Railway: nixpacks.toml installs torch at build time."
                     )
             except Exception:
                 _log.info(
-                    "ℹ️  [v19.2 Bootstrap] torch install skipped (environment restriction) — "
+                    "ℹ️  [v19.3 Bootstrap] torch install skipped (environment restriction) — "
                     "SOVEREIGN SKLEARN active (score=1.00)"
                 )
         # Invalidate importlib caches + inject user site-packages into sys.path
@@ -917,7 +920,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "19.2"
+UNITY_VERSION                = "19.3"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -3695,12 +3698,13 @@ class UnitySignalFilter:
         """v6.3/v8.1: Adjust IRONS minimum threshold based on running win rate.
 
         Schedule: called by the engine each time an outcome is recorded.
-        WR < 30%  → raise to IRONS_MIN_WR_BELOW30 (57) — aligned with 30-45% floor [v10.6: was 60; avoids double-penalising bad regimes]
-        WR 30-45% → raise to IRONS_MIN_WR_30_45   (57) — slightly elevated   [v8.1: was 60]
-        WR 45-55% → base   IRONS_MIN_WR_45_55      (54) — neutral             [v8.1: was 55]
-        WR > 55%  → relax  IRONS_MIN_WR_ABOVE55    (50) — capitalise good form
-        Rationale: neutral-market IRONS baseline is ~62 (not ~50), so thresholds
-        were recalibrated -5 pts to avoid over-filtering high-quality signals.
+        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (68) — ultra-critical crisis tier [v14.0]
+        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (65) — elevated floor [v18.85: 57→65]
+        WR 30-45% → raise to IRONS_MIN_WR_30_45      (62) — co-equal with SIGNAL_MIN_QUALITY_GATE [v18.85: 57→62]
+        WR 45-55% → base   IRONS_MIN_WR_45_55        (53) — neutral
+        WR > 55%  → relax  IRONS_MIN_WR_ABOVE55      (48) — capitalise good form
+        Rationale: G9 floor=62, G10 floor=65 at WR<30% → genuine two-tier quality wall.
+        SOVEREIGN_RECOVERY path requires IRONS≥65, matching IRONS_MIN_WR_BELOW30.
         """
         if current_wr < 0.20:
             # v14.0: ultra-critical tier — +3pts above WR<30% floor
@@ -6153,7 +6157,8 @@ class UnitySignalFilter:
         # based on market regime classification (EXPANSION / TRANSITION / CONTRACTION).
         # v18.75: EXPANSION (P≥0.70): +8pts quality (was +6pts; MacroGlide directive)
         # v18.75: CONTRACTION (P≥0.70): -10pts quality (was -8pts; harder risk filter)
-        # Kelly Step 21 (booster._hmm_regime_ref) compounds: EXPANSION ×1.20 Kelly.
+        # Kelly Step 21 (booster._hmm_regime_ref) compounds: EXPANSION ×1.25 Kelly.
+        # v19.2: EXPANSION P≥0.75+SR≥0 → ×1.25 | CONTRACTION P≥0.65 → ×0.60
         # Only fires when HMM has ≥30 observations (cold-start safe).
         _hmm_ref = getattr(self, "_hmm_regime", None)
         if symbol and _hmm_ref is not None and _hmm_ref.is_ready:
@@ -8437,11 +8442,11 @@ class UnityProfitBooster:
         # Institutional directive (MacroGlide Hidden Markov Regime Detection strategy):
         # "Increase leverage only when the model classifies markets into low-volatility
         #  expansion regimes with probability above 70%."
-        # EXPANSION P≥0.70 + SR≥-3.0 → Kelly × 1.20  (confirmed low-vol expansion)
-        # CONTRACTION P≥0.70          → Kelly × 0.75  (confirmed high-vol contraction)
+        # v19.2: EXPANSION P≥0.75 + SR≥0.0 → Kelly × 1.25  (confirmed low-vol expansion)
+        # v19.2: CONTRACTION (1-P)≥0.65    → Kelly × 0.60  (confirmed high-vol contraction)
         # Complements Step 20 (Markov-Sovereign): both can fire simultaneously.
         # Wire-up: UnityEngine._wire_unity_components() sets booster._hmm_regime_ref.
-        # Guards: kelly > 0.002 | HMM ready (≥30 obs) | SR ≥ -3.0 for expansion only.
+        # Guards: kelly > 0.002 | HMM ready (≥30 obs) | SR ≥ 0.0 for expansion only.
         try:
             _hmm21 = getattr(self, "_hmm_regime_ref", None)
             if _hmm21 is not None and getattr(_hmm21, "is_ready", False) and kelly > 0.002:
@@ -8575,6 +8580,48 @@ class UnityProfitBooster:
                     _log.debug(f"📊 [v18.98 Step23 GEX] 3/3 FLIP ZONE → Kelly ×0.85")
         except Exception:
             pass   # GEX Kelly step is non-fatal — Kelly unchanged on error
+
+        # ── Kelly Step 24: v19.3 Deep Drawdown + Negative Calmar Circuit Breaker ─
+        # When the strategy is experiencing BOTH severe drawdown (MaxDD > 40%) AND
+        # negative Calmar ratio (annual_return / MaxDD < 0), the system is in a
+        # confirmed capital destruction regime.  Apply Kelly × 0.65 to cut position
+        # sizing aggressively BEFORE further losses compound.
+        # This step fires AFTER all other Kelly steps so it acts as a hard safety
+        # floor on the final position size, not an incremental multiplier on the base.
+        # Guards:
+        #   - max_drawdown > 40% (deep loss from equity peak — institutional red flag)
+        #   - calmar_ratio < 0.0 (negative annualised return vs drawdown — no edge)
+        #   - ≥20 ring samples (cold-start safe; avoids premature restriction at boot)
+        #   - kelly > 0.002 (only meaningful to apply when size is non-trivial)
+        # Multiplier: ×0.65 — 35% position reduction in confirmed deep-DD regimes;
+        # symmetric with CONTRACTION HMM step (×0.60); combined they reduce to ×0.39.
+        try:
+            if kelly > 0.002 and len(self._pnl_ring) >= 20:
+                _dd24    = float(getattr(self, "max_drawdown",  0.0) or 0.0)
+                _cal24   = float(getattr(self, "calmar_ratio",  0.0) or 0.0)
+                _sr24    = float(getattr(self, "sharpe_ratio",  0.0) or 0.0)
+                # Deep drawdown + negative Calmar → 35% size reduction
+                if _dd24 > 0.40 and _cal24 < 0.0:
+                    _kelly24_pre = kelly
+                    kelly = max(0.0, kelly * 0.65)
+                    self._logger.debug(
+                        f"🛡️ [v19.3 Step24 DeepDD] MaxDD={_dd24*100:.1f}%>40% "
+                        f"Calmar={_cal24:.2f}<0 → Kelly ×0.65 "
+                        f"({_kelly24_pre*100:.2f}%→{kelly*100:.2f}%)"
+                    )
+                # Supplementary: extreme Sharpe < -4.0 AND MaxDD > 35% → additional ×0.80
+                # (Sharpe-driven override for prolonged negative risk-adjusted performance
+                # even when Calmar hasn't fully triggered; stacks with DD guard above)
+                elif _sr24 < -4.0 and _dd24 > 0.35:
+                    _kelly24_pre = kelly
+                    kelly = max(0.0, kelly * 0.80)
+                    self._logger.debug(
+                        f"🛡️ [v19.3 Step24 SharpeDD] Sharpe={_sr24:.2f}<-4.0 "
+                        f"MaxDD={_dd24*100:.1f}%>35% → Kelly ×0.80 "
+                        f"({_kelly24_pre*100:.2f}%→{kelly*100:.2f}%)"
+                    )
+        except Exception:
+            pass   # Deep-DD Kelly circuit breaker is non-fatal — Kelly unchanged on error
 
         self.last_kelly_fraction = max(0.0, min(_kelly_ceil, kelly))
 
@@ -9989,14 +10036,14 @@ class UnityEngine:
                 )
             except Exception as _mkw50:
                 self._logger.warning(f"⚠️  [v18.51] Markov→booster wiring failed (non-fatal): {_mkw50}")
-        # v18.75: Wire HMM regime reference into booster for Kelly Step 21
-        # HMM regime Kelly multiplier: EXPANSION P≥0.70 → ×1.20 | CONTRACTION P≥0.70 → ×0.75
+        # v18.75/v19.2: Wire HMM regime reference into booster for Kelly Step 21
+        # HMM regime Kelly multiplier: EXPANSION P≥0.75+SR≥0 → ×1.25 | CONTRACTION P≥0.65 → ×0.60
         if getattr(self, "booster", None) is not None and getattr(self, "hmm_regime", None) is not None:
             try:
                 self.booster._hmm_regime_ref = self.hmm_regime
                 self._logger.info(
-                    "✅ [v18.75] HMM regime wired into booster "
-                    "(Kelly Step 21 — EXPANSION×1.20 / CONTRACTION×0.75 regime multiplier)"
+                    "✅ [v19.2] HMM regime wired into booster "
+                    "(Kelly Step 21 — EXPANSION×1.25 P≥0.75+SR≥0 / CONTRACTION×0.60 P≥0.65)"
                 )
             except Exception as _hmm_wire:
                 self._logger.warning(f"⚠️  [v18.75] HMM→booster wiring failed (non-fatal): {_hmm_wire}")
@@ -13602,7 +13649,7 @@ class UnityEngine:
         )
         self._logger.info(
             "✅ [v18.12] Task Health Auditor started "
-            "(stall_warn=10min, zombie_cancel=30min, @watched_task)"
+            "(stall_warn=30min, zombie_cancel=30min, @watched_task)"
         )
 
         # ── v19.0 FIX: Independent scan_cycles heartbeat ───────────────────────
