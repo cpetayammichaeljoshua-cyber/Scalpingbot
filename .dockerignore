@@ -49,8 +49,16 @@ continuous_signal_pusher.py
 *.txt
 *.rst
 
+# ── Re-include requirements files needed by Dockerfile ───────────────────────
+!requirements.txt
+!requirements_additional.txt
+!requirements_charts.txt
+
 # ── Config / status JSON files (runtime regenerates these) ────────────────────
 *.json
+
+# ── Re-include config files needed at runtime ─────────────────────────────────
+!pyproject.toml
 
 # ── Test files ─────────────────────────────────────────────────────────────────
 test_*.py
