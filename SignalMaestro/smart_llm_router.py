@@ -120,6 +120,19 @@ MODEL_PRICING = {
     "mistralai/devstral-small:free":                                  {"input": 0.0, "output": 0.0},
     "mistralai/mistral-small-3.2-24b-instruct:free":                  {"input": 0.0, "output": 0.0},
     "tngtech/deepseek-r1t-chimera:free":                              {"input": 0.0, "output": 0.0},
+    # v19.3: Added MODEL_COSTS entries for all v19.2 free-tier additions
+    # (missing entries cause KeyError in cost estimator — now all free models covered)
+    "qwen/qwen3-72b:free":                                            {"input": 0.0, "output": 0.0},
+    "deepseek/deepseek-r1-0528:free":                                 {"input": 0.0, "output": 0.0},
+    "microsoft/phi-4-reasoning-plus:free":                            {"input": 0.0, "output": 0.0},
+    "google/gemma-3-12b-it:free":                                     {"input": 0.0, "output": 0.0},
+    "meta-llama/llama-3.1-8b-instruct:free":                          {"input": 0.0, "output": 0.0},
+    "qwen/qwen3-14b:free":                                            {"input": 0.0, "output": 0.0},
+    # v19.3: Paid frontier additions
+    "anthropic/claude-3-7-sonnet-20250219":                           {"input": 3.0,  "output": 15.0},
+    "openai/gpt-4.1":                                                 {"input": 2.0,  "output": 8.0},
+    "openai/gpt-4.1-mini":                                            {"input": 0.40, "output": 1.60},
+    "google/gemini-2.0-flash-001":                                    {"input": 0.10, "output": 0.40},
 }
 
 BASELINE_MODEL = "anthropic/claude-3-5-sonnet-20241022"

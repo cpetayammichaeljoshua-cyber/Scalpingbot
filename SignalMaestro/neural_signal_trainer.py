@@ -898,7 +898,9 @@ if _HAS_TORCH:
             tokens  = _torch.cat([cls, tokens], dim=1)                 # (B, 12, d_model)
             tokens  = tokens + self.pos_embed                         # learned position
             out     = self.encoder(tokens)                            # (B, 12, d_model)
-            cls_out = out[:, 0, :]                                    # (B, d_model)
+            # v19.3 FIX: .contiguous() on the sliced CLS token prevents residual
+            # non-contiguous strided-view inplace errors in the head Linear layers.
+            cls_out = out[:, 0, :].contiguous()                       # (B, d_model)
             return _torch.sigmoid(self.head(cls_out)).squeeze(-1)     # (B,)
 
 
