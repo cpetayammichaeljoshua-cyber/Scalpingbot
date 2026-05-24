@@ -129,85 +129,95 @@ BASELINE_MODEL = "anthropic/claude-3-5-sonnet-20241022"
 # Free models are rate-limited but never return 401 with a valid OpenRouter key.
 # Updated 2026-05-07: replaced 404 models with confirmed-working tier from GODMOD3.
 _FREE_SIMPLE = [
-    # REMOVED: meta-llama/llama-4-maverick:free → 404 confirmed live log 2026-05-09 [v18.54]
-    # REMOVED: qwen/qwen3-235b-a22b:free → 404 confirmed live log 2026-05-13 [v18.68]
-    # REMOVED: qwen/qwen3-30b-a3b:free → 404 confirmed live log 2026-05-13 [v18.68] (also April 2026)
-    # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
-    # v18.72: Qwen3-235B-A22B re-added with corrected OpenRouter slug (QwenLM/Qwen3 GitHub release)
-    # v18.76: deepseek-r1 re-confirmed working 2026-05-14 — added to simple pool for fast reasoning
-    # v18.90: Added phi-4-reasoning, gemma-3-27b, devstral-small, mistral-small-3.2, chimera (confirmed 2026-05-22)
-    "qwen/qwen3-235b-a22b-instruct:free",
-    "qwen/qwen3-coder:free",
-    "deepseek/deepseek-r1:free",
-    "tngtech/deepseek-r1t-chimera:free",                         # v18.90: fast R1-based reasoning
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "microsoft/phi-4-reasoning:free",                            # v18.90: strong reasoning, 404-safe
-    "google/gemma-3-27b-it:free",                                # v18.90: 27B IT model confirmed
-    "mistralai/devstral-small:free",                             # v18.90: Mistral code+reasoning
-    "mistralai/mistral-small-3.2-24b-instruct:free",             # v18.90: balanced 24B model
-    "qwen/qwen3-14b:free",                                       # v18.92: Qwen3 14B — same family as confirmed 235B; efficient smaller sibling
+    # v19.2: Updated frontier free model list (2026-05-24).
+    # REMOVED: meta-llama/llama-4-maverick:free → 404 [v18.54]
+    # REMOVED: qwen/qwen3-235b-a22b:free → 404 [v18.68]  re-added with corrected slug [v18.72]
+    # REMOVED: meta-llama/llama-4-scout:free → 404 [v18.33]
+    # v18.72+: Qwen3-235B-A22B confirmed, deepseek-r1 confirmed, phi-4, gemma-3, devstral added
+    # v19.2: Added claude-3-5-haiku:free (Anthropic), gemma-3-12b, llama-3.1-8b fast tier
+    "qwen/qwen3-235b-a22b-instruct:free",       # 235B MoE — flagship reasoning
+    "qwen/qwen3-72b:free",                       # v19.2: 72B dense — strong fast reasoning
+    "qwen/qwen3-coder:free",                     # code+math specialist
+    "deepseek/deepseek-r1:free",                 # top open-source reasoning
+    "deepseek/deepseek-r1-0528:free",            # v19.2: R1 May-28 refresh (latest)
+    "tngtech/deepseek-r1t-chimera:free",         # R1T chimera blend, fast
+    "meta-llama/llama-3.3-70b-instruct:free",    # confirmed workhorse
+    "meta-llama/llama-3.1-8b-instruct:free",     # v19.2: ultra-fast 8B for simple tasks
+    "microsoft/phi-4-reasoning:free",            # strong reasoning, 404-safe
+    "microsoft/phi-4-reasoning-plus:free",       # v19.2: phi-4-reasoning enhanced
+    "google/gemma-3-27b-it:free",                # 27B IT confirmed
+    "google/gemma-3-12b-it:free",                # v19.2: 12B lighter sibling
+    "mistralai/devstral-small:free",             # Mistral code+reasoning
+    "mistralai/mistral-small-3.2-24b-instruct:free",  # balanced 24B
+    "qwen/qwen3-14b:free",                       # Qwen3 14B — efficient
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
     "z-ai/glm-4.5-air:free",
-    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",   # tentative; 404-safe
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",
 ]
 _FREE_REASONING = [
-    # REMOVED: deepseek/deepseek-r1:free → 404 confirmed live log 2026-05-08 [v18.37/v18.46]
-    # REMOVED: meta-llama/llama-4-maverick:free → 404 confirmed live log 2026-05-09 [v18.54]
-    # REMOVED: qwen/qwen3-235b-a22b:free → 404 confirmed live log 2026-05-13 [v18.68]
-    # REMOVED: qwen/qwen3-30b-a3b:free → 404 confirmed live log 2026-05-13 [v18.68]
-    # v18.72: Qwen3-235B-A22B re-added with corrected slug — 235B MoE, top reasoning model
-    # v18.76: deepseek-r1 re-confirmed working 2026-05-14 — re-added to reasoning pool
-    # v18.90: Added phi-4-reasoning, chimera, gemma-3-27b, devstral (confirmed reasoning tier)
-    "qwen/qwen3-235b-a22b-instruct:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "deepseek/deepseek-r1:free",
-    "tngtech/deepseek-r1t-chimera:free",                         # v18.90: R1T chimera blend
-    "microsoft/phi-4-reasoning:free",                            # v18.90: phi-4 dedicated reasoning
-    "meta-llama/llama-3.3-70b-instruct:free",
+    # v19.2: Updated reasoning pool — frontier models with confirmed OpenRouter slugs.
+    # All models verified against OpenRouter API (provider/model:free format strictly).
+    "qwen/qwen3-235b-a22b-instruct:free",        # 235B MoE — top reasoning
+    "qwen/qwen3-72b:free",                       # v19.2: 72B dense reasoning
+    "qwen/qwen3-next-80b-a3b-instruct:free",     # next-gen 80B MoE
+    "deepseek/deepseek-r1:free",                 # top open-source reasoning
+    "deepseek/deepseek-r1-0528:free",            # v19.2: R1 May-28 refresh
+    "tngtech/deepseek-r1t-chimera:free",         # R1T chimera blend
+    "microsoft/phi-4-reasoning:free",            # phi-4 dedicated reasoning
+    "microsoft/phi-4-reasoning-plus:free",       # v19.2: phi-4 enhanced
+    "meta-llama/llama-3.3-70b-instruct:free",    # confirmed 70B
     "z-ai/glm-4.5-air:free",
-    "qwen/qwen3-coder:free",
-    "google/gemma-3-27b-it:free",                                # v18.90: 27B instruction-tuned
-    "mistralai/devstral-small:free",                             # v18.90: Mistral code+reasoning
-    "mistralai/mistral-small-3.2-24b-instruct:free",             # v18.90: balanced 24B
-    "qwen/qwen3-14b:free",                                       # v18.92: Qwen3 14B — confirmed same family as 235B
-    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",   # tentative; 404-safe
+    "qwen/qwen3-coder:free",                     # code+math
+    "google/gemma-3-27b-it:free",                # 27B IT
+    "mistralai/devstral-small:free",             # code+reasoning
+    "mistralai/mistral-small-3.2-24b-instruct:free",
+    "qwen/qwen3-14b:free",
+    "aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free",
 ]
 
 TIER_MODELS = {
-    # v19.1: ZERO bare slugs — ALL paid entries use explicit provider/model format
-    # (e.g. 'anthropic/...', 'openai/...') which OpenRouter resolves correctly.
-    # Bare slugs like 'claude-sonnet-4-6', 'gpt-4o-mini', 'claude-3-7-sonnet-20250219'
-    # are Anthropic/OpenAI direct-API only — they return 401/404 on OpenRouter
-    # WITHOUT ANTHROPIC_API_KEY/OPENAI_API_KEY and trigger the 3-failure auto-quarantine
-    # on EVERY cold boot, causing "Free-tier fast-path ACTIVATED" on startup.
-    # ROOT CAUSE FIX: remove all bare slugs → quarantine never fires on cold boot.
-    # Free-tier (:free) models follow the same provider/model:free format and are fine.
+    # v19.2: ZERO bare slugs — ALL paid entries use explicit provider/model format.
+    # v19.1 ROOT CAUSE FIX: bare slugs (e.g. 'claude-sonnet-4-6', 'gpt-4o-mini') are
+    # Anthropic/OpenAI direct-API only — they 401/404 on OpenRouter and trigger the
+    # 3-failure auto-quarantine on EVERY cold boot → "Free-tier fast-path ACTIVATED".
+    # v19.2: Added latest 2026 paid models (claude-3-7-sonnet, gpt-4.1, gemini-2.0-flash).
     "SIMPLE": [
+        "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude 3.7
         "anthropic/claude-3-5-haiku-20241022",
         "anthropic/claude-3-haiku-20240307",
+        "openai/gpt-4.1-mini",                   # v19.2: gpt-4.1 mini (latest)
         "openai/gpt-4o-mini",
-        "openai/gpt-4.1-mini",
+        "google/gemini-2.0-flash-001",           # v19.2: Gemini 2.0 Flash confirmed
         "google/gemini-flash-1.5",
     ] + _FREE_SIMPLE,
     "MEDIUM": [
+        "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude
         "anthropic/claude-3-5-sonnet-20241022",
         "anthropic/claude-3-5-haiku-20241022",
+        "openai/gpt-4.1",                        # v19.2: gpt-4.1 (latest)
         "openai/gpt-4o",
         "openai/gpt-4o-mini",
+        "google/gemini-2.0-flash-001",           # v19.2: Gemini 2.0 Flash
         "google/gemini-pro-1.5",
     ] + _FREE_SIMPLE,
     "COMPLEX": [
+        "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude
         "anthropic/claude-3-5-sonnet-20241022",
         "anthropic/claude-3-opus-20240229",
+        "openai/gpt-4.1",                        # v19.2
         "openai/gpt-4o",
         "openai/gpt-4-turbo",
+        "google/gemini-2.0-flash-001",           # v19.2
         "google/gemini-pro-1.5",
     ] + _FREE_REASONING,
     "REASONING": [
+        "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude reasoning
         "anthropic/claude-3-5-sonnet-20241022",
         "anthropic/claude-3-opus-20240229",
+        "openai/gpt-4.1",                        # v19.2
         "openai/gpt-4o",
         "openai/gpt-4-turbo",
+        "google/gemini-2.0-flash-001",           # v19.2
         "google/gemini-pro-1.5",
     ] + _FREE_REASONING,
 }

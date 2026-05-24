@@ -197,28 +197,45 @@ def _bootstrap_all_critical_packages() -> None:
     # Railway non-root user (unity) cannot write to /usr/local without --user;
     # detect and add it automatically.
     if not _can_import("torch"):
-        _log.info("⚡ [v19.0 Bootstrap] Installing torch (CPU, flexible version)...")
+        _log.info("⚡ [v19.2 Bootstrap] Installing torch (CPU, 5-tier fallback)...")
         import os as _boot_os
         _pip_user = [] if (hasattr(_boot_os, "geteuid") and _boot_os.geteuid() == 0) else ["--user"]
         _torch_installed = False
-        # Attempt 1: primary CDN — any CPU wheel (flexible version, CDN preferred)
+        # Attempt 1: pinned 2.4.0+cpu — proven Railway/Replit build (fast, verified)
         try:
-            _tr = _sp.run(
+            _tr0 = _sp.run(
                 [_sys.executable, "-m", "pip", "install", "--quiet",
                  "--prefer-binary", "--no-cache-dir", "--root-user-action=ignore",
                  "--break-system-packages",
                  "--index-url", "https://download.pytorch.org/whl/cpu",
-                 "torch"] + _pip_user,
+                 "torch==2.4.0+cpu"] + _pip_user,
                 check=False, timeout=480, capture_output=True,
             )
-            if _tr.returncode == 0:
+            if _tr0.returncode == 0:
                 _torch_installed = True
-                _log.info("✅ [v19.0 Bootstrap] torch (any cpu) installed (primary CDN)")
+                _log.info("✅ [v19.2 Bootstrap] torch==2.4.0+cpu installed (Tier-1 pinned CDN)")
         except Exception:
             pass
-        # Attempt 2: pinned 2.4.0+cpu for Railway compatibility
+        # Attempt 2: primary CDN — any CPU wheel (flexible version, CDN preferred)
         if not _torch_installed:
-            _log.info("⚡ [v19.0 Bootstrap] CDN any-cpu failed — trying torch==2.4.0+cpu...")
+            _log.info("⚡ [v19.2 Bootstrap] Tier-1 failed — trying torch (any cpu, CDN)...")
+            try:
+                _tr = _sp.run(
+                    [_sys.executable, "-m", "pip", "install", "--quiet",
+                     "--prefer-binary", "--no-cache-dir", "--root-user-action=ignore",
+                     "--break-system-packages",
+                     "--index-url", "https://download.pytorch.org/whl/cpu",
+                     "torch"] + _pip_user,
+                    check=False, timeout=480, capture_output=True,
+                )
+                if _tr.returncode == 0:
+                    _torch_installed = True
+                    _log.info("✅ [v19.2 Bootstrap] torch (any cpu) installed (Tier-2 CDN)")
+            except Exception:
+                pass
+        # Attempt 3: extra-index-url CDN mirror
+        if not _torch_installed:
+            _log.info("⚡ [v19.2 Bootstrap] Tier-2 failed — trying CDN mirror (extra-index-url)...")
             try:
                 _tr2 = _sp.run(
                     [_sys.executable, "-m", "pip", "install", "--quiet",
@@ -230,12 +247,12 @@ def _bootstrap_all_critical_packages() -> None:
                 )
                 if _tr2.returncode == 0:
                     _torch_installed = True
-                    _log.info("✅ [v19.0 Bootstrap] torch==2.4.0+cpu installed (CDN mirror)")
+                    _log.info("✅ [v19.2 Bootstrap] torch==2.4.0+cpu installed (Tier-3 CDN mirror)")
             except Exception:
                 pass
-        # Attempt 3: standard PyPI (no +cpu suffix — works when CDN blocked)
+        # Attempt 4: standard PyPI (no +cpu suffix — works when CDN blocked)
         if not _torch_installed:
-            _log.info("⚡ [v19.0 Bootstrap] CDN mirror failed — trying standard PyPI (pip install torch)...")
+            _log.info("⚡ [v19.2 Bootstrap] CDN tiers failed — trying standard PyPI...")
             try:
                 _tr3 = _sp.run(
                     [_sys.executable, "-m", "pip", "install", "--quiet",
@@ -246,16 +263,16 @@ def _bootstrap_all_critical_packages() -> None:
                 )
                 if _tr3.returncode == 0:
                     _torch_installed = True
-                    _log.info("✅ [v19.0 Bootstrap] torch installed via standard PyPI")
+                    _log.info("✅ [v19.2 Bootstrap] torch installed via Tier-4 standard PyPI")
                 else:
                     _log.info(
-                        "ℹ️  [v19.0 Bootstrap] torch not available in this environment — "
+                        "ℹ️  [v19.2 Bootstrap] torch not available in this environment — "
                         "SOVEREIGN SKLEARN active (sklearn MLP ensemble, score=1.00). "
                         "On Railway: nixpacks.toml installs torch at build time."
                     )
             except Exception:
                 _log.info(
-                    "ℹ️  [v19.0 Bootstrap] torch install skipped (environment restriction) — "
+                    "ℹ️  [v19.2 Bootstrap] torch install skipped (environment restriction) — "
                     "SOVEREIGN SKLEARN active (score=1.00)"
                 )
         # Invalidate importlib caches + inject user site-packages into sys.path
@@ -8431,31 +8448,30 @@ class UnityProfitBooster:
                 _rg21, _pe21, _ = _hmm21.get_regime()
                 _sr21 = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
                 if _rg21 == "EXPANSION" and _pe21 >= 0.75 and _sr21 >= 0.0:
-                    # v18.87: SR threshold -1.5→0.0 — INSTITUTIONAL FIX: EXPANSION Kelly ×1.20
-                    # should only apply when Sharpe is genuinely positive (SR≥0.0), meaning
-                    # the strategy is in net-positive risk-adjusted territory.  The old SR≥-1.5
-                    # allowed Kelly amplification during periods of negative Sharpe (e.g. SR=-0.8)
-                    # which compounds losses in sub-zero regimes.  At current SR=-4.87, EXPANSION
-                    # multiplier would fire to amplify Kelly even as SHARPE_FLOOR already zeros
-                    # it — a semantic contradiction now resolved.  Only expands Kelly when the
-                    # engine has demonstrated POSITIVE risk-adjusted edge (SR≥0.0).
+                    # v19.2: EXPANSION multiplier ×1.20→×1.25 — institutional MacroGlide
+                    # directive: confirmed low-vol expansion with P≥0.75 AND SR≥0.0 (positive
+                    # risk-adjusted edge) warrants 25% Kelly boost vs previous 20%.  The extra
+                    # 5% captures trend momentum that the 20% multiplier was leaving on the table
+                    # in high-conviction expansion regimes.  SR≥0.0 guard unchanged — amplification
+                    # is only allowed when the strategy has positive risk-adjusted returns.
                     _kelly_hmm_pre = kelly
-                    kelly = min(_kelly_ceil, kelly * 1.20)
+                    kelly = min(_kelly_ceil, kelly * 1.25)
                     self._logger.debug(
-                        f"🧠 [v18.87 Step21 HMM] EXPANSION P={_pe21:.2f}≥0.75 "
-                        f"SR={_sr21:.2f}≥0.0 → Kelly ×1.20 "
+                        f"🧠 [v19.2 Step21 HMM] EXPANSION P={_pe21:.2f}≥0.75 "
+                        f"SR={_sr21:.2f}≥0.0 → Kelly ×1.25 "
                         f"({_kelly_hmm_pre*100:.2f}%→{kelly*100:.2f}%)"
                     )
-                elif _rg21 == "CONTRACTION" and (1.0 - _pe21) >= 0.70:
-                    # v18.87: CONTRACTION multiplier ×0.75→×0.65 — when HMM confirms high-vol
-                    # contraction regime with 70%+ confidence, a stronger Kelly reduction is
-                    # warranted; ×0.75 = 25% reduction; ×0.65 = 35% reduction — aligns with
-                    # institutional practice of 1/3 position reduction in confirmed bear regimes.
+                elif _rg21 == "CONTRACTION" and (1.0 - _pe21) >= 0.65:
+                    # v19.2: CONTRACTION guard 0.70→0.65 + multiplier ×0.65→×0.60.
+                    # Lower confidence threshold (0.65) catches earlier-stage contractions
+                    # before full P≥0.70 confirmation fires — earlier drawdown protection.
+                    # ×0.60 (40% reduction) vs ×0.65 (35%) — aligns with institutional
+                    # practice of ~40% position reduction in confirmed high-vol regimes.
                     _kelly_hmm_pre = kelly
-                    kelly = max(0.0, kelly * 0.65)
+                    kelly = max(0.0, kelly * 0.60)
                     self._logger.debug(
-                        f"🧠 [v18.87 Step21 HMM] CONTRACTION P_cont={(1.0-_pe21):.2f}≥0.70 "
-                        f"→ Kelly ×0.65 ({_kelly_hmm_pre*100:.2f}%→{kelly*100:.2f}%) [v18.87]"
+                        f"🧠 [v19.2 Step21 HMM] CONTRACTION P_cont={(1.0-_pe21):.2f}≥0.65 "
+                        f"→ Kelly ×0.60 ({_kelly_hmm_pre*100:.2f}%→{kelly*100:.2f}%) [v19.2]"
                     )
         except Exception:
             pass   # HMM regime Kelly multiplier is non-fatal — Kelly unchanged on error
@@ -12468,8 +12484,22 @@ class UnityEngine:
             "BinanceAggTradeWS-",   # L0.7 chunk WS connections (dynamic index)
             "auto_exec_",           # fire-and-forget auto-execution tasks
             "Task-",                # v19.2: PTB / asyncio library internal tasks (Task-N)
+            "Unity",                # v19.2: all Unity* named tasks (UnityScanner, UnityWatchdog…)
+            "Signal",               # v19.2: SignalConsumer + SignalQueue tasks
+            "Deribit",              # v19.2: DeribitGEXWS / DeribitGEXRest
+            "GEX",                  # v19.2: GEXScanner
+            "Miro",                 # v19.2: MiroFishSim
+            "Dyn",                  # v19.2: DynBacktest
+            "VPIN",                 # v19.2: VPINFeed
+            "QuantAlpha",           # v19.2: QuantAlpha layer tasks
         )
-        _STALL_SEC:  float = 600.0    # 10 min → WARNING
+        # v19.2: _STALL_SEC raised 600→1800 (matches WATCHDOG_STALL_SECONDS / _ZOMBIE_SEC).
+        # The 10-min warning threshold generated continuous noise for legitimate long-running
+        # async tasks (Telegram poll, GEX scanner, VPIN feed) that were not in _NEVER_CANCEL
+        # by name but were genuinely healthy.  At 30 min the auditor also cancels zombies —
+        # raising _STALL_SEC to match means a task goes WARN→CANCEL simultaneously only when
+        # it is a genuine zombie (not seen completing for 30+ min AND not exempt).
+        _STALL_SEC:  float = 1800.0   # 30 min → WARNING + cancel (matched to WATCHDOG)
         _ZOMBIE_SEC: float = 1800.0   # 30 min → cancel
 
         _task_birth: Dict[int, float] = {}   # id(task) → first-seen timestamp
