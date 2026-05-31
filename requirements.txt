@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v28.0 — Production requirements.txt
+# Unity Engine v29.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-05-31 (v28.0 — klines Semaphore(8) 429-storm fix, CacheTTL 120→180s,
-#   FXSUSDT 429 retry, exponential backoff, 11-COMBO GODMODE, SOVEREIGN [1.00] all layers)
+# Last verified: 2026-05-31 (v29.0 — drought suppression Sharpe<-5+WR<25%, EV floor hard-min 1.20×,
+#   G4 NN ultra-crisis guard, IRONS WR<25% tier 68.5pts, 11-COMBO GODMODE, SOVEREIGN [1.00])
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v28.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v29.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -30,7 +30,7 @@ ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v28.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
+KEY GATES (v29.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
   IRONS_MIN=67(WR<30%)+70(WR<20%) | SIGNAL_QUALITY=63 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) | G8.5r:FundingRate_Alignment(±2pts) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-4pts,DD>45%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
@@ -83,6 +83,20 @@ KEY GATES (v28.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v29.0 IMPROVEMENTS: ULTRA-CRISIS GATE DISCIPLINE — DROUGHT-RELIEF SUPPRESSION IN RUIN ZONE:
+    Problem: Sharpe<-5.0+WR<25%+drought=32min was triggering drought base-cut −4pts (87→83%RL threshold) |
+      → threshold loosening admitted more bad signals → losses accelerated (EV=-0.314R vs theoretical -0.008R) |
+      → EV floor drought relief dropped to 1.02×=22.4bps (essentially no filter) in ultra-ruin [v29.0] |
+      → G4 NN gate relaxed −0.02 at 20min drought from 0.56 → 0.54 (admits lower-confidence signals) [v29.0] |
+    Fix 1: Drought base-cut suppression [v29.0] — when Sharpe<-5.0 AND WR<25%: _drought_cut=0.0 |
+      Rationale: drought in ultra-ruin caused by hostile market, NOT tight gates. Lower gate=more losses. |
+    Fix 2: EV floor ultra-ruin hard minimum [v29.0] — Sharpe<-5.0 forces EV floor ≥1.20×=26.4bps |
+      regardless of drought duration; prevents drought tiers from dropping floor to 1.02×=22.4bps [v29.0] |
+    Fix 3: G4 NN drought suppression [v29.0] — Sharpe<-5.0 blocks −0.02 drought relaxation |
+      of NN gate (stays at 0.56 in ultra-ruin; previous: could relax to 0.54 at 20min drought) [v29.0] |
+    Fix 4: IRONS WR<25% new tier [v29.0] — IRONS_MIN_WR_BELOW30+1.5=68.5pts for WR 20-25% |
+      bridges the gap between ultra-critical(WR<20%→70) and crisis(WR<30%→67); [v29.0] |
+      At WR=20-25%: EV at RR=2.35 = −0.08R to −0.17R; only IRONS≥68.5 signals pass [v29.0] |
   v28.0 IMPROVEMENTS: KLINES 429 STORM ELIMINATION + EXPONENTIAL BACKOFF + CACHE UPGRADE:
     btcusdt_trader.py: global klines rate-limiter asyncio.Semaphore(8) [v28.0] |
       Root cause: 76 symbols × multiple timeframes fire get_klines() simultaneously via asyncio.gather |
@@ -1105,7 +1119,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "28.0"
+UNITY_VERSION                = "29.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -3942,10 +3956,17 @@ class UnitySignalFilter:
         SOVEREIGN_RECOVERY path requires IRONS≥67, matching IRONS_MIN_WR_BELOW30 [v21.1: 65→67].
         """
         if current_wr < 0.20:
-            # v14.0: ultra-critical tier — +3pts above WR<30% floor
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0
+            # v14.0: ultra-critical tier — +3pts above WR<30% floor (70pts)
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0  # 70
+        elif current_wr < 0.25:
+            # v29.0: deep-crisis tier — +1.5pts above WR<30% floor [v29.0]
+            # At WR=20-25%: EV at RR=2.35 = −0.08R to −0.17R (deeply negative).
+            # Only IRONS≥68.5 composite quality signals have the institutional-grade
+            # multi-factor conviction to structurally improve WR in this zone.
+            # Bridges the gap between ultra-critical (70) and crisis (67). [v29.0]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 1.5  # 68.5
         elif current_wr < 0.30:
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 67
         elif current_wr < 0.45:
             self._adaptive_irons_min = IRONS_MIN_WR_30_45
         elif current_wr < 0.55:
@@ -4680,6 +4701,14 @@ class UnitySignalFilter:
                             # 27.5bps vs 26.4bps (1.20×) = 1.1bps extra filter at ultra-ruin depth.
                             _ev_floor = min(EV_MIN_THRESHOLD * 1.25, EV_MIN_THRESHOLD + 0.0010)
                         else:
+                            _ev_floor = min(EV_MIN_THRESHOLD * 1.20, EV_MIN_THRESHOLD + 0.0008)
+                        # v29.0: Ultra-ruin EV floor hard minimum — Sharpe<-5.0 forces EV≥1.20×
+                        # (26.4bps) regardless of drought duration. Drought relief tiers can drop
+                        # floor to 1.02×=22.4bps — in ultra-ruin this admits signals that
+                        # consistently lose due to adverse slippage, stop-runs, and spread widening
+                        # at WR<25% microstructure. Hard floor applied AFTER all tier selections,
+                        # overriding drought relief while preserving the tier logic. [v29.0]
+                        if _sr_ev < -5.0 and _ev_floor < EV_MIN_THRESHOLD * 1.20:
                             _ev_floor = min(EV_MIN_THRESHOLD * 1.20, EV_MIN_THRESHOLD + 0.0008)
                     elif _sr_ev < -2.0: # severe drawdown — demonstrably positive edge required
                         _ev_floor = min(EV_MIN_THRESHOLD * 1.30, EV_MIN_THRESHOLD + 0.0010)
@@ -5832,8 +5861,16 @@ class UnitySignalFilter:
             # in Sharpe<-3.5 (0.52 threshold) this relaxation has zero net effect.
             try:
                 _g4_drought = self._signal_drought_seconds()
-                if _g4_drought > 1200:  # v19.7: 1800→1200s (20min) — at Sharpe=-4.87 crisis regime, 30min drought before relaxation fires is too slow; 20min matches the NN crisis-retrain interval and fires earlier to break starvation; floor logic unchanged (max(NN_WIN_PROB_GATE-0.05, threshold-0.02))
-                    _g4_relaxed = max(NN_WIN_PROB_GATE - 0.05, nn_threshold - 0.02)  # v18.89: floor=NN_WIN_PROB_GATE-0.05=0.45; crisis+drought: max(0.45,0.53-0.02)=0.51; with v19.7 dir-cal fix (-0.10 at WR<35%), NN raw needs ≥0.61 to pass 0.51 threshold (was ≥0.68 with -0.15 cap+0.53 thresh) — meaningful improvement in signal throughput during extended droughts
+                _g4_drought_sr = (
+                    float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
+                    if self._booster else 0.0
+                )
+                # v29.0: Suppress G4 drought relaxation in ultra-ruin (Sharpe<-5.0).
+                # At Sharpe<-5 the NN threshold is already at 0.56 (tightest tier).
+                # Relaxing by −0.02 admits NN confidence ≥0.54 signals — at WR=25%
+                # these consistently lose. Accept drought over quality compromise. [v29.0]
+                if _g4_drought > 1200 and _g4_drought_sr > -5.0:  # v19.7: 1800→1200s (20min)
+                    _g4_relaxed = max(NN_WIN_PROB_GATE - 0.05, nn_threshold - 0.02)  # v18.89
                     if _g4_relaxed < nn_threshold:
                         nn_threshold = _g4_relaxed
                         self._logger.debug(
@@ -8351,28 +8388,37 @@ class UnityProfitBooster:
         try:
             _drought_cut = 0.0
             if _staleness > _decay_start * 2.0 and _wr_for_decay < 0.40:
-                # v20.1: Sharpe-aware drought ceiling — during deep Sharpe crisis (Sharpe<-4)
-                # a 6pt base-cut fights the goal of improving signal quality. Cap at 3pts when
-                # in ruin regime so gate relaxation is bounded. At Sharpe=-4.87+drought=39min
-                # this keeps threshold at 84% instead of 81% — still relief but less permissive.
                 _drought_sharpe = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
-                # v24.0: Sharpe-aware drought ceiling fine-tuned:
-                #   Sharpe < -4.0 + drought > 30min → allow 4pt cut (was 3pt cap).
-                #   At Sharpe=-4.87 + 39min drought: base = 87-4 = 83 → threshold ≈ 84.5%
-                #   (was 84-cap → 85.5%).  Barely eases the gate without opening to noise.
-                #   Sharpe < -4.0 + drought ≤ 30min → still 3pt cap (early crisis guard).
-                #   Sharpe ≥ -4.0 → standard 6pt cap unchanged.
-                if _drought_sharpe < -4.0:
-                    _drought_max_cut = 4.0 if _staleness > 1800.0 else 3.0  # >30min → 4pt [v24.0]
+                # v29.0: Ultra-crisis drought suppression — when Sharpe<-5.0 AND WR<25%,
+                # drought base-cuts are counter-productive: they lower the RL threshold and
+                # admit more bad signals. At WR=25% all RR<3.0 signals have negative EV.
+                # The drought is caused by hostile market conditions, NOT by gates being too
+                # tight. Lowering the gate amplifies losses rather than breaking the deadlock.
+                # Accept the drought rather than degrade gate discipline. [v29.0]
+                if _drought_sharpe < -5.0 and _wr_for_decay < 0.25:
+                    _drought_cut = 0.0  # ultra-crisis: suppress drought base-cut [v29.0]
+                    if _staleness > 1800.0:
+                        self._logger.info(
+                            f"🔒 [v29.0] Ultra-crisis drought guard: suppressing "
+                            f"{_staleness/60:.0f}min drought base-cut "
+                            f"(Sharpe={_drought_sharpe:.2f} WR={_wr_for_decay:.0%}) "
+                            f"— holding gate discipline [v29.0]"
+                        )
                 else:
-                    _drought_max_cut = 6.0
-                _drought_cut = min(_drought_max_cut, (_staleness - _decay_start * 2.0) / 120.0)
-                if _drought_cut > 0.5:
-                    self._logger.info(
-                        f"🌵 [Apex-#7 v20.1] Drought base-cut: stale={_staleness/60:.1f}min "
-                        f"WR={_wr_for_decay:.0%} → base -{_drought_cut:.1f}% "
-                        f"(cap={_drought_max_cut:.0f}pt Sharpe={_drought_sharpe:.2f}) [v20.1]"
-                    )
+                    # v20.1: Sharpe-aware drought ceiling — during deep Sharpe crisis (Sharpe<-4)
+                    # a 6pt base-cut fights the goal of improving signal quality. Cap at 3pts.
+                    # v24.0: >30min drought → 4pt cut (was 3pt). Sharpe≥-4 → 6pt cap unchanged.
+                    if _drought_sharpe < -4.0:
+                        _drought_max_cut = 4.0 if _staleness > 1800.0 else 3.0  # >30min → 4pt [v24.0]
+                    else:
+                        _drought_max_cut = 6.0
+                    _drought_cut = min(_drought_max_cut, (_staleness - _decay_start * 2.0) / 120.0)
+                    if _drought_cut > 0.5:
+                        self._logger.info(
+                            f"🌵 [Apex-#7 v20.1] Drought base-cut: stale={_staleness/60:.1f}min "
+                            f"WR={_wr_for_decay:.0%} → base -{_drought_cut:.1f}% "
+                            f"(cap={_drought_max_cut:.0f}pt Sharpe={_drought_sharpe:.2f}) [v20.1]"
+                        )
         except Exception:
             _drought_cut = 0.0
 
