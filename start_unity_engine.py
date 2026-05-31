@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v27.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v28.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -30,7 +30,7 @@ ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v27.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
+KEY GATES (v28.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
   IRONS_MIN=67(WR<30%)+70(WR<20%) | SIGNAL_QUALITY=63 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) | G8.5r:FundingRate_Alignment(±2pts) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-4pts,DD>45%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
@@ -83,6 +83,15 @@ KEY GATES (v27.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v28.0 IMPROVEMENTS: KLINES 429 STORM ELIMINATION + EXPONENTIAL BACKOFF + CACHE UPGRADE:
+    btcusdt_trader.py: global klines rate-limiter asyncio.Semaphore(8) [v28.0] |
+      Root cause: 76 symbols × multiple timeframes fire get_klines() simultaneously via asyncio.gather |
+      → Binance klines endpoint overwhelmed → HTTP 429 storms visible in Railway logs every scan cycle |
+      Fix: _get_klines_semaphore() lazy module-level Semaphore(8) caps concurrent klines to 8 [v28.0] |
+      _do_fetch_klines() helper: all network I/O runs inside semaphore context, cache check stays outside |
+      Exponential backoff with jitter for 429: _retry_base × 2^attempt + attempt (ceiling 60s) [v28.0] |
+    Klines cache TTL: btcusdt_trader.py 120s → 180s — 50% more cache reuse, further reduces API load [v28.0] |
+    fxsusdt_trader.py: added 429 retry with exponential backoff (was silently returning [] on rate-limit) [v28.0] |
   v27.0 IMPROVEMENTS: RATE-LIMIT STORM ELIMINATION — GODMODE ENSEMBLE INTEGRITY RESTORED:
     GODMODE_QWEN_SYSTEMATIC model: qwen3-next-80b-a3b-instruct:free → qwen/qwen3-72b:free [v27.0] |
       Root cause: Railway log 2026-04-21 15:09:11 — 13 consecutive rate_limit errors, storm=28 accumulated |
@@ -1096,7 +1105,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "27.0"
+UNITY_VERSION                = "28.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────

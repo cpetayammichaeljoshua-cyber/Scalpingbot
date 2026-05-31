@@ -1,6 +1,50 @@
 ---
-name: Unity Engine v22.0–v26.0 upgrades
-description: v22–v26 key changes: NN pessimism, G0 EV, CONSORTIUM, HMM, G4 pessimism relief, G9 recovery bonus, HTTP 202 fix, RL Sharpe-aware delta, G3 15min crisis, NN deep-crisis retrain, dead model cleanup, GODMODE 9→11 combos, G2 drought relief, EV 15min tier.
+name: Unity Engine v22.0–v28.0 upgrades
+description: v22–v28 key changes: v28.0 klines Semaphore(8) 429-storm fix + cache TTL 180s + fxsusdt retry; v27.0 qwen slug fix; v26 GODMODE 11combos; v22–v25 gates/RL/NN/HTTP fixes.
+---
+
+## v28.0 Key Changes (deployed 2026-05-31)
+
+### Klines 429 Storm Elimination (`btcusdt_trader.py`)
+**Root cause:** 76 symbols × multiple timeframes all fire `get_klines()` via `asyncio.gather()` simultaneously → Binance klines endpoint returns HTTP 429 every scan cycle (visible in Railway logs as "backing off 5s" on every cycle).
+
+**Fix — module-level lazy semaphore:**
+```python
+_KLINES_SEMAPHORE: Optional["asyncio.Semaphore"] = None
+
+def _get_klines_semaphore() -> "asyncio.Semaphore":
+    global _KLINES_SEMAPHORE
+    if _KLINES_SEMAPHORE is None:
+        _KLINES_SEMAPHORE = asyncio.Semaphore(8)
+    return _KLINES_SEMAPHORE
+```
+
+**Fix — `get_klines()` tail replaced with semaphore wrapper:**
+```python
+async with _get_klines_semaphore():
+    return await self._do_fetch_klines(sym, interval, limit, cache_key, now)
+```
+
+**New `_do_fetch_klines()` method** contains Phase 1 (FAPI endpoints) + Phase 2 (SPOT fallback). Cache hits bypass the semaphore entirely — only cache-miss paths are rate-limited.
+
+**Exponential backoff for 429:** `min(60, _retry_base × 2^attempt + attempt)` — prevents thundering-herd re-retry.
+
+**Why:** Semaphore(8) caps concurrent klines to 8. Remaining 68 callers queue behind, reducing Binance API pressure from ~76 simultaneous to ≤8 simultaneous — eliminates 429 storms.
+
+### Klines Cache TTL 120s → 180s (`btcusdt_trader.py`)
+`self._klines_cache_ttl = 180.0` — 50% more cache reuse per cycle, further reduces API calls without data staleness (candles only close every 15m–4h).
+
+### fxsusdt_trader.py: 429 Retry with Exponential Backoff
+Old `get_klines()` had no retry — silently returned `[]` on rate-limit. New version loops `_max_attempts=3` with `min(60, _retry_base × 2^attempt + attempt)` backoff.
+
+---
+
+## v27.0 Key Changes (deployed 2026-05-31)
+
+### GODMODE_QWEN_SYSTEMATIC slug fix (`godmod3_strategy.py`, `smart_llm_router.py`)
+`qwen3-next-80b-a3b-instruct:free` → `qwen/qwen3-72b:free` everywhere.
+Root cause: no such model exists in Qwen3 lineup → 13 consecutive rate_limit errors → 960s disabled. See `unity-engine-v27-slug-fix.md`.
+
 ---
 
 ## v26.0 Key Changes (deployed 2026-05-31)

@@ -30,6 +30,25 @@ import time
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Global klines rate-limiter — v28.0
+# 76 symbols × multiple timeframes all fire get_klines() concurrently via
+# asyncio.gather(), hammering Binance's klines endpoint → HTTP 429 storms.
+# Semaphore(8): max 8 concurrent klines fetches — remaining callers queue behind.
+# Lazy creation: bound to the running event loop on first acquisition, safe to
+# define at module level without a running loop (Python 3.10+ asyncio primitives).
+# ─────────────────────────────────────────────────────────────────────────────
+_KLINES_SEMAPHORE: Optional["asyncio.Semaphore"] = None
+
+
+def _get_klines_semaphore() -> "asyncio.Semaphore":
+    """Return the module-level klines semaphore, creating it lazily on first call."""
+    global _KLINES_SEMAPHORE
+    if _KLINES_SEMAPHORE is None:
+        _KLINES_SEMAPHORE = asyncio.Semaphore(8)
+    return _KLINES_SEMAPHORE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Alternative Binance FAPI Endpoints — rotated on HTTP 451 geo-block
 # Binance operates CDN mirrors on fapi1-fapi5 with different IP allocations
 # that may bypass region-based restrictions on the primary fapi.binance.com
@@ -124,7 +143,7 @@ class BTCUSDTTrader:
         # re-requests the same klines that the strategy just fetched.
         # OrderedDict enables O(1) LRU eviction.
         self._klines_cache: OrderedDict = OrderedDict()
-        self._klines_cache_ttl = 120.0
+        self._klines_cache_ttl = 180.0   # v28.0: 120→180s — 50% more cache reuse per cycle, reduces API calls
         self._klines_cache_max = 500
 
         # Perpetual-symbol whitelist — refreshed every 60 minutes via exchangeInfo.
@@ -393,6 +412,21 @@ class BTCUSDTTrader:
                 self._klines_cache.move_to_end((c_sym, c_interval, c_limit))
                 return c_data[-limit:] if len(c_data) >= limit else c_data
 
+        # v28.0: Acquire the global rate-limiter slot before any network I/O.
+        # Caps concurrent klines fetches at 8 — eliminates Binance HTTP 429
+        # storms caused by 76+ symbols all firing get_klines() simultaneously
+        # via asyncio.gather(). Cache hits (above) bypass the semaphore entirely.
+        async with _get_klines_semaphore():
+            return await self._do_fetch_klines(sym, interval, limit, cache_key, now)
+
+    async def _do_fetch_klines(self, sym: str, interval: str, limit: int,
+                                cache_key: tuple, now: float) -> Optional[List]:
+        """
+        Network-fetch implementation for get_klines — always called inside
+        _get_klines_semaphore() to prevent concurrent Binance 429 storms.
+        Tries all FAPI endpoints then falls back to SPOT klines on geo-block.
+        [v28.0: extracted from get_klines for semaphore gating]
+        """
         await self._wait_ip_ban_if_needed()
 
         params = {"symbol": sym, "interval": interval, "limit": limit}
@@ -423,11 +457,12 @@ class BTCUSDTTrader:
                             break  # Next endpoint
 
                         if r.status == 429:
-                            _retry = int(r.headers.get("Retry-After", "5"))
-                            _retry = max(1, min(_retry, 60))
+                            # v28.0: exponential backoff — prevents thundering-herd re-retry
+                            _retry_base = int(r.headers.get("Retry-After", "5"))
+                            _retry = min(60, _retry_base * (2 ** _attempt) + _attempt)
                             self.logger.warning(
                                 f"⏳ Binance 429 klines [{sym}|{interval}] "
-                                f"(attempt {_attempt+1}/{_max_attempts}) — backing off {_retry}s"
+                                f"(attempt {_attempt+1}/{_max_attempts}) — backing off {_retry}s [v28.0]"
                             )
                             await asyncio.sleep(_retry)
                             continue

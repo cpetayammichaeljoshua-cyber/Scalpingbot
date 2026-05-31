@@ -144,40 +144,58 @@ class FXSUSDTTrader:
 
     async def get_klines(self, interval: str, limit: int = 100,
                          symbol: Optional[str] = None) -> List[List]:
-        """Get kline data for any timeframe and symbol."""
+        """
+        Get kline data for any timeframe and symbol.
+        v28.0: Added 429 retry with exponential backoff — previously silently
+        failed on rate-limit, returning empty list without retrying.
+        """
         sym = symbol or self.symbol
-        try:
-            url    = f"{self.base_url}/fapi/v1/klines"
-            params = {"symbol": sym, "interval": interval, "limit": min(limit, 1500)}
-            s = await self._get_session()
-            async with s.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    ohlcv_data = [
-                        [int(k[0]), float(k[1]), float(k[2]),
-                         float(k[3]), float(k[4]), float(k[5])]
-                        for k in data
-                    ]
-                    self.logger.debug(
-                        f"📊 Retrieved {len(ohlcv_data)} {interval} candles for {sym}"
-                    )
-                    return ohlcv_data
-                # v24.0: tiered severity — 202=debug(soft-skip), 5xx=warning, 4xx=warning
-                if response.status == 202:
-                    self.logger.debug(
-                        f"Klines skip [{sym}|{interval}] HTTP 202 "
-                        f"(pre-delivery/maintenance) — soft-skip [v24.0]"
-                    )
-                elif response.status >= 500:
-                    self.logger.warning(
-                        f"Klines server error [{sym}|{interval}] HTTP {response.status} (transient) [v24.0]"
-                    )
-                else:
-                    self.logger.warning(
-                        f"Failed to get {interval} klines [{sym}]: HTTP {response.status} [v24.0]"
-                    )
-        except Exception as e:
-            self.logger.error(f"Error getting {interval} kline data: {e}")
+        url    = f"{self.base_url}/fapi/v1/klines"
+        params = {"symbol": sym, "interval": interval, "limit": min(limit, 1500)}
+        _max_attempts = 3
+        for _attempt in range(_max_attempts):
+            try:
+                s = await self._get_session()
+                async with s.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        ohlcv_data = [
+                            [int(k[0]), float(k[1]), float(k[2]),
+                             float(k[3]), float(k[4]), float(k[5])]
+                            for k in data
+                        ]
+                        self.logger.debug(
+                            f"📊 Retrieved {len(ohlcv_data)} {interval} candles for {sym}"
+                        )
+                        return ohlcv_data
+                    # v28.0: 429 rate-limit — exponential backoff before retry
+                    if response.status == 429:
+                        _retry_base = int(response.headers.get("Retry-After", "5"))
+                        _retry = min(60, _retry_base * (2 ** _attempt) + _attempt)
+                        self.logger.warning(
+                            f"⏳ FXSUSDT 429 klines [{sym}|{interval}] "
+                            f"(attempt {_attempt+1}/{_max_attempts}) — backing off {_retry}s [v28.0]"
+                        )
+                        await asyncio.sleep(_retry)
+                        continue
+                    # v24.0: tiered severity — 202=debug(soft-skip), 5xx=warning, 4xx=warning
+                    if response.status == 202:
+                        self.logger.debug(
+                            f"Klines skip [{sym}|{interval}] HTTP 202 "
+                            f"(pre-delivery/maintenance) — soft-skip [v24.0]"
+                        )
+                    elif response.status >= 500:
+                        self.logger.warning(
+                            f"Klines server error [{sym}|{interval}] HTTP {response.status} (transient) [v24.0]"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"Failed to get {interval} klines [{sym}]: HTTP {response.status} [v24.0]"
+                        )
+                    break  # Non-retryable status
+            except Exception as e:
+                self.logger.error(f"Error getting {interval} kline data: {e}")
+                break
         return []
 
     async def get_30m_klines(self, limit: int = 100) -> List[List]:
