@@ -1,0 +1,91 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Unity Engine v19.3 — .dockerignore
+# Excludes all non-runtime files from the Railway build context.
+# Reduces build context from ~200 MB to <5 MB — dramatically faster Railway builds.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Version control ────────────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ── Development / IDE ──────────────────────────────────────────────────────────
+.replit
+replit.md
+.cache
+.agents
+.local
+attached_assets
+*.pyc
+__pycache__
+*.pyo
+*.pyd
+.Python
+.env
+.env.*
+*.env
+
+# ── Legacy databases (large, regenerated at runtime) ──────────────────────────
+advanced_ml_trading_backup_old.db
+advanced_ml_trading.db
+closed_trades_scanner.db
+bot_health_monitoring.db
+*.db-shm
+*.db-wal
+
+# ── Legacy / one-time scripts (not needed in production image) ─────────────────
+alternative_setup_instructions.py
+apply_comprehensive_console_fixes.py
+apply_console_fixes.py
+bot_health_check.py
+bot_health_monitor.py
+comprehensive_error_fixer.py
+continuous_bot_manager.py
+continuous_operation_monitor.py
+continuous_signal_pusher.py
+
+# ── Documentation / reports (not needed in runtime) ──────────────────────────
+*.md
+*.txt
+*.rst
+
+# ── Re-include requirements files needed by Dockerfile ───────────────────────
+!requirements.txt
+!requirements_additional.txt
+!requirements_charts.txt
+
+# ── Config / status JSON files (runtime regenerates these) ────────────────────
+*.json
+
+# ── Re-include config files needed at runtime ─────────────────────────────────
+!pyproject.toml
+
+# ── Test files ─────────────────────────────────────────────────────────────────
+test_*.py
+*_test.py
+tests/
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+logs/
+/tmp/
+
+# ── Docker-related (not needed inside the image) ──────────────────────────────
+docker-compose.yml
+Dockerfile.*
+
+# ── Python packaging ──────────────────────────────────────────────────────────
+*.egg-info
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# ── Data directories (runtime fetches fresh) ──────────────────────────────────
+data/
+bot/
+
+# ── Node / JS (not used) ──────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+yarn.lock

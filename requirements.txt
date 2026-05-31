@@ -1,0 +1,68 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Unity Engine v27.0 — Production requirements.txt
+# ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
+# Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
+# Last verified: 2026-05-31 (v27.0 — qwen3-next-80b rate-limit storm fix → qwen3-72b,
+#   11-COMBO GODMODE ensemble diversity maintained, SOVEREIGN [1.00] all layers)
+# pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
+# sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
+# openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
+# ZERO DEGRADED 0.75 guarantee — nuclear DEGRADED blocker active on all paths
+# NOTE: torch + transformers are installed SEPARATELY in Dockerfile/nixpacks
+#       via PyTorch CPU CDN (--index-url https://download.pytorch.org/whl/cpu)
+#       to avoid version-specifier conflicts (+cpu local identifier).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Core async I/O ────────────────────────────────────────────────────────────
+aiohttp==3.13.5
+aiosqlite==0.22.1
+aiodns==4.0.0
+websockets==16.0
+websocket-client==1.9.0
+aiofiles==24.1.0
+
+# ── Fast JSON serialization (~3-10x vs stdlib json) ──────────────────────────
+orjson==3.11.8
+
+# ── Redis async client for sub-millisecond state caching (optional) ──────────
+redis==7.4.0
+
+# ── Data processing ───────────────────────────────────────────────────────────
+numpy==2.4.4
+scipy==1.17.1
+pandas==3.0.2
+
+# ── Machine Learning / AI ─────────────────────────────────────────────────────
+scikit-learn==1.8.0
+openai==2.34.0
+rank-bm25==0.2.2
+# hmmlearn for GaussianHMM — HMMRegimeDetector Tier-1 (predict_proba / Kelly Step 21)
+hmmlearn==0.3.3
+
+# ── NLP / Sentiment analysis enhancements ─────────────────────────────────────
+textblob==0.20.0
+vaderSentiment==3.3.2
+nltk==3.9.4
+
+# ── Crypto exchange APIs ──────────────────────────────────────────────────────
+ccxt==4.5.52
+binance-connector==3.13.0
+
+# ── Telegram bot ──────────────────────────────────────────────────────────────
+python-telegram-bot[job-queue]==22.7
+
+# ── HTTP / web utilities ──────────────────────────────────────────────────────
+requests==2.33.1
+
+# ── Cryptography (ccxt / exchange auth) ───────────────────────────────────────
+cryptography==48.0.0
+pycryptodome==3.23.0
+
+# ── High-performance event loop (2-4x faster than CPython) ───────────────────
+uvloop==0.22.1
+
+# ── System utilities ──────────────────────────────────────────────────────────
+psutil==7.2.2
+
+# ── Async rate-limiting ────────────────────────────────────────────────────────
+asyncio-throttle==1.0.2

@@ -1,0 +1,16 @@
+
+# Unity Engine — Chart / visualisation dependencies
+# Security-hardened lower bounds (v17.3 — closes GitHub CVE alerts):
+#   Pillow  <10.3.0  → CVE-2023-44271, CVE-2024-28219 (arbitrary code exec)
+#   aiohttp <3.9.4   → CVE-2024-27306 (request smuggling, HIGH)
+#   numpy   <1.26.4  → multiple buffer-overflow CVEs
+#   websockets <12.0 → denial-of-service CVEs
+
+matplotlib>=3.9.2
+pandas>=2.2.2
+numpy>=1.26.4
+Pillow>=10.3.0
+python-telegram-bot>=22.7
+aiohttp>=3.9.4
+asyncio-mqtt>=0.16.2
+websockets>=12.0

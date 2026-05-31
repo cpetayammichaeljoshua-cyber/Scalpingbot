@@ -1,0 +1,6 @@
+{
+  "error_recovery": true,
+  "fallback_processing": true,
+  "ai_processor_fallback": true,
+  "enhanced_error_handling": true
+}
