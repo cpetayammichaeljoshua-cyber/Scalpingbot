@@ -44,7 +44,7 @@ def _get_klines_semaphore() -> "asyncio.Semaphore":
     """Return the module-level klines semaphore, creating it lazily on first call."""
     global _KLINES_SEMAPHORE
     if _KLINES_SEMAPHORE is None:
-        _KLINES_SEMAPHORE = asyncio.Semaphore(8)
+        _KLINES_SEMAPHORE = asyncio.Semaphore(4)  # v30.0: 8→4 — tighter throttle; 300ms hold below desync bursts [v30.0]
     return _KLINES_SEMAPHORE
 
 
@@ -143,8 +143,16 @@ class BTCUSDTTrader:
         # re-requests the same klines that the strategy just fetched.
         # OrderedDict enables O(1) LRU eviction.
         self._klines_cache: OrderedDict = OrderedDict()
-        self._klines_cache_ttl = 180.0   # v28.0: 120→180s — 50% more cache reuse per cycle, reduces API calls
+        self._klines_cache_ttl = 180.0   # v28.0: 120→180s base TTL; v30.0: per-interval dict used preferentially
         self._klines_cache_max = 500
+        # v30.0: Per-interval cache TTL — longer timeframes change less frequently;
+        # 4h klines valid 8min vs 5m klines valid 3min. Cuts Binance API pressure
+        # on heavy timeframes by 2-4× without staling short-timeframe data. [v30.0]
+        self._klines_ttl_by_interval: Dict[str, float] = {
+            "1m": 60.0,   "3m": 90.0,   "5m": 180.0,  "15m": 240.0,
+            "30m": 300.0, "1h": 360.0,  "2h": 420.0,  "4h": 480.0,
+            "6h": 540.0,  "8h": 600.0,  "12h": 720.0, "1d": 900.0,
+        }
 
         # Perpetual-symbol whitelist — refreshed every 60 minutes via exchangeInfo.
         self._perpetual_trading_symbols: Optional[frozenset] = None
@@ -396,27 +404,31 @@ class BTCUSDTTrader:
         limit = min(limit, 1500)
         now = time.time()
 
-        # Check exact cache hit
+        # Check exact cache hit — v30.0: per-interval TTL for longer timeframes [v30.0]
         cache_key = (sym, interval, limit)
+        _ttl = getattr(self, "_klines_ttl_by_interval", {}).get(interval, self._klines_cache_ttl)
         cached = self._klines_cache.get(cache_key)
         if cached is not None:
             data, fetched_at = cached
-            if now - fetched_at < self._klines_cache_ttl:
+            if now - fetched_at < _ttl:
                 self._klines_cache.move_to_end(cache_key)
                 return data
 
         # Check if a larger cached result can satisfy this request
         for (c_sym, c_interval, c_limit), (c_data, c_time) in list(self._klines_cache.items()):
             if (c_sym == sym and c_interval == interval and
-                    c_limit >= limit and now - c_time < self._klines_cache_ttl):
+                    c_limit >= limit and now - c_time < _ttl):
                 self._klines_cache.move_to_end((c_sym, c_interval, c_limit))
                 return c_data[-limit:] if len(c_data) >= limit else c_data
 
-        # v28.0: Acquire the global rate-limiter slot before any network I/O.
-        # Caps concurrent klines fetches at 8 — eliminates Binance HTTP 429
-        # storms caused by 76+ symbols all firing get_klines() simultaneously
-        # via asyncio.gather(). Cache hits (above) bypass the semaphore entirely.
+        # v28.0/v30.0: Global klines rate-limiter. Semaphore(4) caps concurrent fetches.
+        # v30.0: ROOT FIX for Railway 429 storms — anti-thundering-herd sleep INSIDE the
+        # semaphore context. When all 8 slots completed simultaneously (v28 behaviour),
+        # the next 8 fired in a burst despite the semaphore. Holding the slot for ≥300ms
+        # desynchronises releases: max burst = 4 ÷ 0.3s = 13 req/s, well under Binance
+        # klines limit. Cache hits above bypass entirely (no sleep penalty). [v30.0]
         async with _get_klines_semaphore():
+            await asyncio.sleep(0.3)  # anti-thundering-herd: hold slot ≥300ms to spread bursts [v30.0]
             return await self._do_fetch_klines(sym, interval, limit, cache_key, now)
 
     async def _do_fetch_klines(self, sym: str, interval: str, limit: int,
@@ -435,7 +447,7 @@ class BTCUSDTTrader:
         endpoints = self._get_fapi_endpoints()
         for endpoint in endpoints:
             url = f"{endpoint}/fapi/v1/klines"
-            _max_attempts = 3
+            _max_attempts = 5  # v30.0: 3→5 — more retry chances on persistent 429 storms [v30.0]
             for _attempt in range(_max_attempts):
                 try:
                     s = await self._get_session()
@@ -457,12 +469,12 @@ class BTCUSDTTrader:
                             break  # Next endpoint
 
                         if r.status == 429:
-                            # v28.0: exponential backoff — prevents thundering-herd re-retry
+                            # v28.0: exponential backoff; v30.0: wider 60→90s cap + desync jitter
                             _retry_base = int(r.headers.get("Retry-After", "5"))
-                            _retry = min(60, _retry_base * (2 ** _attempt) + _attempt)
+                            _retry = min(90, _retry_base * (2 ** min(_attempt, 4)) + _attempt * 2)
                             self.logger.warning(
                                 f"⏳ Binance 429 klines [{sym}|{interval}] "
-                                f"(attempt {_attempt+1}/{_max_attempts}) — backing off {_retry}s [v28.0]"
+                                f"(attempt {_attempt+1}/{_max_attempts}) — backing off {_retry}s [v30.0]"
                             )
                             await asyncio.sleep(_retry)
                             continue

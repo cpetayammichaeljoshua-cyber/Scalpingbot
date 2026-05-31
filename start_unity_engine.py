@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v29.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v30.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -30,7 +30,7 @@ ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v29.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
+KEY GATES (v30.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
   IRONS_MIN=67(WR<30%)+70(WR<20%) | SIGNAL_QUALITY=63 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) | G8.5r:FundingRate_Alignment(±2pts) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-4pts,DD>45%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
@@ -83,6 +83,15 @@ KEY GATES (v29.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v30.0 IMPROVEMENTS: KLINES 429 ROOT-FIX + SESSION QUALITY + NN PESSIMISM CALIBRATION:
+    btcusdt_trader.py Semaphore(8)→(4) + 300ms anti-thundering-herd hold inside slot [v30.0] |
+      Root cause of Railway 429 burst: Semaphore(8) slots released simultaneously → next 8 fired together |
+      Fix: hold slot 300ms inside asyncio context → max burst = 4÷0.3=13req/s (well under Binance limit) |
+    max_attempts 3→5 + backoff cap 60→90s + wider jitter formula (2**min(attempt,4)+attempt*2) [v30.0] |
+    Per-interval klines cache TTL: 5m=180s, 1h=360s, 4h=480s — cuts heavy-TF API pressure 2-4× [v30.0] |
+    Session quality: London morning bonus +3.5pts (08-10h UTC; WR=28-29% second-best window) [v30.0] |
+    Session quality: Soft Asian dead zone −2pts (04-07h UTC; WR=23-25% thin book) [v30.0] |
+    NN pessimism relief doubled 0.02→0.04pp max (at WR<35% NN clusters below threshold) [v30.0] |
   v29.0 IMPROVEMENTS: ULTRA-CRISIS GATE DISCIPLINE — DROUGHT-RELIEF SUPPRESSION IN RUIN ZONE:
     Problem: Sharpe<-5.0+WR<25%+drought=32min was triggering drought base-cut −4pts (87→83%RL threshold) |
       → threshold loosening admitted more bad signals → losses accelerated (EV=-0.314R vs theoretical -0.008R) |
@@ -778,6 +787,18 @@ UNITY_DEADZONE_HARD_VETO = os.getenv("UNITY_DEADZONE_HARD_VETO", "1").strip().lo
 SESSION_BONUS_UTC_START = 15     # 15:00 UTC (NY open / London PM) [v18.64: 12→15 — IT dataset: 12h WR=23%, 13h WR=20%/EV=-2.4%, 14h WR=19%/EV=-1.3%; these three hours received false +4pt prime bonus; 15h+ shows WR=24-28% with positive EV; removing 12-14h from prime saves ~3 bad signals/day]
 SESSION_BONUS_UTC_END   = 21     # 21:00 UTC [v18.78: 20→21 — extend prime session 1hr; UTC 20h shows WR=28% with positive EV; prime session now 15-21h covers US close + Asia open crossover; provides +5pt bonus during high-volume window]
 SESSION_QUALITY_BONUS   = 7.0    # v21.1: 6.0→7.0 — PRIME SESSION ENHANCEMENT: +1pt extra reward during 15-21h UTC London/NY overlap; at IRONS_MIN=67 the prime bonus now lifts borderline signals from 65→72 (IRONS pass) during optimal liquidity window; IT-dataset confirms 15-21h UTC has WR=24-30% (above Asian session baseline); 7pt bonus = premium tier: only prime-session signals in top-35% IRONS score pass → improves signal quality concentration in highest-WR hours; v18.84: 5.5→6.0
+# v30.0: London morning session — 08-10h UTC (pre-open + opening momentum)
+# IT-dataset: 08h WR=28%/EV=+3.1%, 09h WR=29%/EV=+4.9% — second-best after prime session
+# +3.5pts (half prime bonus) lifts high-conviction signals during peak London momentum [v30.0]
+SESSION_BONUS_MORNING_START   = int(os.getenv("SESSION_BONUS_MORNING_START",   "8") or 8)    # 08h UTC London pre-open [v30.0]
+SESSION_BONUS_MORNING_END     = int(os.getenv("SESSION_BONUS_MORNING_END",     "10") or 10)  # 10h UTC London mid-morning [v30.0]
+SESSION_QUALITY_MORNING_BONUS = float(os.getenv("SESSION_QUALITY_MORNING_BONUS", "3.5") or 3.5)  # v30.0: +3.5pts morning [v30.0]
+# v30.0: Soft Asian dead zone — 04-07h UTC thin-book window
+# IT-dataset: 04-07h UTC WR=23-25% (below 29.85% break-even at RR=2.35) — Asian thin book;
+# -2pts soft penalty (half the main dead zone -4pts) filters marginal signals [v30.0]
+DEAD_ZONE_SOFT_UTC_START      = int(os.getenv("DEAD_ZONE_SOFT_UTC_START", "4") or 4)       # 04h UTC [v30.0]
+DEAD_ZONE_SOFT_UTC_END        = int(os.getenv("DEAD_ZONE_SOFT_UTC_END",   "7") or 7)       # 07h UTC [v30.0]
+DEAD_ZONE_SOFT_PENALTY        = float(os.getenv("DEAD_ZONE_SOFT_PENALTY", "2.0") or 2.0)   # v30.0: -2pts soft [v30.0]
 # v18.64 — IT-dataset temporal micro-adjustments (8,660 signals, n≥20 per hour)
 # Analysis confirms hour-specific WR/EV edges beyond the coarse dead/prime split.
 # Strong hours: WR≥29%, EV>4% — apply +2pts on top of neutral session score.
@@ -1119,7 +1140,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "29.0"
+UNITY_VERSION                = "30.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5033,8 +5054,10 @@ class UnitySignalFilter:
         # Dead zone UTC 00:00-03:00: thin order books → raise effective quality bar
         # Prime session UTC 12:00-20:00 (London PM / NY AM): reward liquidity
         _utc_hour = datetime.utcnow().hour
-        _in_dead_zone   = DEAD_ZONE_UTC_START <= _utc_hour < DEAD_ZONE_UTC_END
-        _in_prime_session = SESSION_BONUS_UTC_START <= _utc_hour < SESSION_BONUS_UTC_END
+        _in_dead_zone       = DEAD_ZONE_UTC_START <= _utc_hour < DEAD_ZONE_UTC_END
+        _in_prime_session   = SESSION_BONUS_UTC_START <= _utc_hour < SESSION_BONUS_UTC_END
+        _in_morning_session = SESSION_BONUS_MORNING_START <= _utc_hour < SESSION_BONUS_MORNING_END  # v30.0: 08-10h UTC
+        _in_soft_dead_zone  = DEAD_ZONE_SOFT_UTC_START <= _utc_hour < DEAD_ZONE_SOFT_UTC_END        # v30.0: 04-07h UTC
         if _in_dead_zone:
             if UNITY_DEADZONE_HARD_VETO:
                 # v18.15: Drought override — when the engine has been completely
@@ -5142,8 +5165,35 @@ class UnitySignalFilter:
                     pass
             quality_score += _prime_bonus
             self._record("gate_session", True)
+        elif _in_morning_session:
+            # v30.0: London morning session — 08-10h UTC quality bonus [v30.0]
+            # IT-dataset: 08h WR=28%/EV=+3.1%, 09h WR=29%/EV=+4.9% — premium window.
+            # +3.5pts lifts high-conviction morning signals without inflating noise.
+            # Sortino-aware: catastrophic Sortino (<-7) reduces bonus to 70%. [v30.0]
+            _morning_bonus = SESSION_QUALITY_MORNING_BONUS
+            try:
+                if self._booster is not None:
+                    _srt_morning = float(getattr(self._booster, "sortino_ratio", 0.0) or 0.0)
+                    if _srt_morning < -7.0:
+                        _morning_bonus *= 0.70  # catastrophic regime: partial morning lift [v30.0]
+            except Exception:
+                pass
+            quality_score += _morning_bonus
+            self._record("gate_session", True)
+            self._logger.debug(
+                f"G0.5_MORNING [v30.0]: UTC {_utc_hour:02d}h → +{_morning_bonus:.1f}pts [v30.0]"
+            )
         else:
             self._record("gate_session", True)
+            # v30.0: Soft Asian dead zone — 04-07h UTC thin-book penalty [v30.0]
+            # WR=23-25% in this window: below 29.85% break-even. -2pts filters marginal
+            # signals while allowing SOVEREIGN/high-consensus to clear the quality gate.
+            if _in_soft_dead_zone:
+                quality_score -= DEAD_ZONE_SOFT_PENALTY
+                self._logger.debug(
+                    f"G0.5_SOFT_DZ [v30.0]: UTC {_utc_hour:02d}h → −{DEAD_ZONE_SOFT_PENALTY:.0f}pts "
+                    f"(Asian thin-book 04-07h UTC) [v30.0]"
+                )
             # v18.64 IT-dataset temporal micro-adjustment (8,660 signals, n≥20/hour).
             # Applied only in neutral window (not dead-zone, not prime) so it never
             # double-penalises already-penalised hours and never inflates prime hours.
@@ -5924,7 +5974,11 @@ class UnitySignalFilter:
                     _g4_pess_edge    = max(0.0, _g4_pess_acc - _g4_baseline_acc)
                     # Relief formula: 0.02 × (1 − edge/10pp). At edge=0pp → 0.020pp relief.
                     # At edge=5pp → 0.010pp. At edge≥10pp → 0.000pp (NN genuinely discriminates).
-                    _g4_pess_relief  = max(0.0, 0.02 * (1.0 - min(1.0, _g4_pess_edge / 0.10)))
+                    # v30.0: Pessimism relief doubled 0.02→0.04 — at WR<35% the NN
+                    # clusters outputs below 0.48; 0.02pp was insufficient to move the
+                    # 0.56 crisis threshold meaningfully. 0.04 at edge=0% → 0.04pp
+                    # relief. At edge≥10%: 0.00 (NN genuinely discriminates). [v30.0]
+                    _g4_pess_relief  = max(0.0, 0.04 * (1.0 - min(1.0, _g4_pess_edge / 0.10)))
                     if _g4_pess_relief >= 0.005:
                         _g4_pr_new = max(NN_WIN_PROB_GATE - 0.06, nn_threshold - _g4_pess_relief)
                         if _g4_pr_new < nn_threshold:
@@ -8399,10 +8453,10 @@ class UnityProfitBooster:
                     _drought_cut = 0.0  # ultra-crisis: suppress drought base-cut [v29.0]
                     if _staleness > 1800.0:
                         self._logger.info(
-                            f"🔒 [v29.0] Ultra-crisis drought guard: suppressing "
+                            f"🔒 [v30.0] Ultra-crisis drought guard: suppressing "
                             f"{_staleness/60:.0f}min drought base-cut "
                             f"(Sharpe={_drought_sharpe:.2f} WR={_wr_for_decay:.0%}) "
-                            f"— holding gate discipline [v29.0]"
+                            f"— holding gate discipline [v30.0]"
                         )
                 else:
                     # v20.1: Sharpe-aware drought ceiling — during deep Sharpe crisis (Sharpe<-4)
