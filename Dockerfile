@@ -149,8 +149,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="30.0"               \
-      description="Unity Engine v30.0 — 30-layer SOVEREIGN | Klines-Semaphore(4)+300ms-anti-herd | max_attempts5+backoff90s | PerIntervalTTL(4h=480s) | MorningSession+3.5pts(08-10h) | SoftDeadZone-2pts(04-07h) | NNPessimism0.04 | DroughtSuppress(Sharpe<-5+WR<25%) | EV-floor-1.20x | IRONS68.5 | PRIMARY=gpt-oss-20b | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="31.0"               \
+      description="Unity Engine v31.0 — SOVEREIGN-GATE-RECAL | IRONS68(WR<30%) | QUALITY65 | SOVEREIGN-RECOVERY68 | G0.3-ATR-SpikeGuard(-3pts>4%) | G8.5r-SuperExtreme(±3pts>=0.1%) | GODMODE-QWEN235B-BullBearSynthesis | TradingAgents-Framework | PRIMARY=gpt-oss-20b | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

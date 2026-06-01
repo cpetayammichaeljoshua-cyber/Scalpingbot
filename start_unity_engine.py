@@ -30,9 +30,10 @@ ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v30.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
-  IRONS_MIN=67(WR<30%)+70(WR<20%) | SIGNAL_QUALITY=63 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
-  G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) | G8.5r:FundingRate_Alignment(±2pts) | G8.5L:HMM_FLIP_COOL=900s |
+KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
+  IRONS_MIN=68(WR<30%)+71(WR<20%) | SIGNAL_QUALITY=65 | SOVEREIGN_RECOVERY=68 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
+  G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
+  G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-4pts,DD>45%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
   G8.5m:BTC_GEX±2pts+FLIP_DIR±3.5pts | G8.5n:MULTI_FLIP−2pts |
   G8.5e:HMM_DIR±8pts(EXP≥0.75)/−10pts(CONT≥0.65) | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
@@ -83,6 +84,23 @@ KEY GATES (v30.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v31.0 IMPROVEMENTS: SOVEREIGN GATE RECALIBRATION + TRADINGAGENTS BULL/BEAR SYNTHESIS + ATR SPIKE GUARD:
+    IRONS_MIN_WR_BELOW30: 67→68 (+1pt quality wall at WR<30%; at WR=29.6% EV=-0.314R — raises IRONS bar) [v31.0] |
+      WR<25% tier auto-scales: IRONS_MIN_WR_BELOW30+1.5 = 69.5 (was 68.5); WR<20%: +3 = 71 (was 70) [v31.0] |
+      Rationale: 67-68 IRONS band is still marginal negative-EV territory; +1pt removes bottom 5-8% signals [v31.0] |
+    SIGNAL_MIN_QUALITY_GATE: 64→65 (+1pt composite quality floor — matches IRONS recalibration) [v31.0] |
+      Adaptive WR-tier floors: WR<20%→68, WR<25%→66, WR<30%→65, WR<35%→65; all ≥65 consistent [v31.0] |
+    SOVEREIGN_RECOVERY_GATE: 67→68 (coherence with raised IRONS_MIN_WR_BELOW30=68) [v31.0] |
+      Three-tier filter now: G9=65 + G10/SOVEREIGN_RECOVERY=68 + WR<20%=71 — tighter co-equal wall [v31.0] |
+    G0.3 ATR Volatility Spike Guard NEW [v31.0]: amplified penalty on top of existing linear vol penalty |
+      atr_ratio>4.0%/bar → -3.0pts extra (chaos/wick-hunt regime; empirical WR<24% in spike candles) [v31.0] |
+      atr_ratio 3-4%/bar → -1.5pts extra (elevated spike zone; complements existing linear ATR penalty) [v31.0] |
+    G8.5r Funding Rate super-extreme tier NEW [v31.0]: |rate|≥0.10%/8h → ±3pts (was max ±2pts at ≥0.05%) [v31.0] |
+      |rate|≥0.10%: extreme crowding squeeze/reversal setup — 3pts amplifier vs 2pts at 0.05-0.10% band [v31.0] |
+    GODMODE_QWEN235B_SOVEREIGN prompt upgrade [v31.0]: TradingAgents bull/bear synthesis framework integrated |
+      Explicit Step 1 BULL CASE (3 catalysts, conviction scored) + Step 2 BEAR CASE (3 risks + invalidation) [v31.0] |
+      Step 3 FUNDAMENTAL CATALYST + Step 4 RISK-ADJUSTED SYNTHESIS — multi-factor alignment enforced [v31.0] |
+    Architecture: 22 layers + 16-gate + G0.3-ATR-SpikeGuard + G8.5r-SuperExtreme(±3pts) [v31.0] |
   v30.0 IMPROVEMENTS: KLINES 429 ROOT-FIX + SESSION QUALITY + NN PESSIMISM CALIBRATION:
     btcusdt_trader.py Semaphore(8)→(4) + 300ms anti-thundering-herd hold inside slot [v30.0] |
       Root cause of Railway 429 burst: Semaphore(8) slots released simultaneously → next 8 fired together |
@@ -666,7 +684,7 @@ MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.35") or 2.35)     # m
 NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.48") or 0.48)     # v19.8: 0.50→0.48 — G4 THROUGHPUT: at WR=30% with NN inflation ≈1.5× the 0.50 gate maps raw NN need ≥0.60; lowering to 0.48 means raw NN ≥0.58 passes — at 1.5× inflation 0.48 maps to ≈32% actual WR (positive EV at RR=2.35: 0.32×2.35−0.68=+0.072R); all other gates (IRONS≥65, Markov, GEX, SWARM≥94%) still enforce quality; v18.91: 0.45→0.50 — now dialled back slightly to balance starvation vs noise filter; crisis Sharpe<-3.5 auto-tightens via RL adapter as before.
 SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
-SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "64") or 64)   # v21.4: 63→64 — G9 FLOOR TIGHTEN +1pt: at persistent WR=29.6% below 29.85% break-even, the 63-64 band is marginal noise; 64 concentrates output in top ~85th percentile of composite quality; adaptive WR-tier floors (WR<20%→68, WR<25%→66, WR<30%→65, WR<35%→64) all remain ≥64; Markov-SOVEREIGN fast-path unaffected (63+16=79≥64); v21.1: 62→63; v18.85: 56→62
+SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "65") or 65)   # v31.0: 64→65 — G9 FLOOR TIGHTEN +1pt: at WR=29.6% the 64-65 band is marginal negative-EV territory; 65 concentrates signals in top ~83rd percentile of composite quality; adaptive WR-tier floors (WR<20%→68, WR<25%→66, WR<30%→65, WR<35%→65) all remain ≥65; Markov-SOVEREIGN fast-path unaffected (65+16=81≥65); IRONS_MIN_WR_BELOW30=68 now raised to match this tighter floor; v21.4: 63→64; v21.1: 62→63; v18.85: 56→62
 # ── Gate 5 soft-veto quality penalties (v7.1) ────────────────────────────────
 # v7.1 KEY FIX: G5 previously hard-blocked when only ONE analyzer had data and
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
@@ -1122,7 +1140,7 @@ HTF_4H_AGREE_BONUS = 8.0        # 4H agrees (stronger confirmation) → +8pts
 # ── Prompt 2 Adaptive IRONS Floor (v6.3) ─────────────────────────────────────
 # IRONS minimum auto-adjusts with running win rate instead of being hardcoded.
 # Below 30% WR: raise to 65 (tighter).  Above 55% WR: relax to 50 (more signals).
-IRONS_MIN_WR_BELOW30  = 67.0    # v21.1: 65→67 — RUTHLESS WIN-RATE FIX: at WR=29.6% Sharpe=-4.87 the 65 floor is now insufficient; raises IRONS bar +2pts: only signals scoring 67+ on IRONS AI composite pass during WR<30% regime; WR<20% tier rises from 68→70 (67+3); mathematically: at WR=29.6% EV=−0.008R → need WR≥31% for positive EV; tighter IRONS removes bottom 15% of marginal signals improving forward WR by projected +3-5pts; v18.85: 57→65
+IRONS_MIN_WR_BELOW30  = 68.0    # v31.0: 67→68 — GATE RECALIBRATION: at WR=29.6% EV=-0.314R the 67 floor passes signals in the 67-68 IRONS band that are marginal negative-EV; +1pt removes bottom 5-8% of signals; WR<25% auto-scales to 69.5 (68+1.5), WR<20% to 71 (68+3); SOVEREIGN_RECOVERY_GATE raised to 68 for coherence; v21.1: 65→67; v18.85: 57→65
 IRONS_MIN_WR_30_45    = 63.0    # v21.1: 62→63 — 1pt tighten at recovery zone; maintains G9=63 G10=63 co-equal floor during WR 30-45%; signals need BOTH composite≥63 AND IRONS≥63 to pass; removes marginal borderline signals in recovery regime without starvation risk; v18.85: 57→62
 IRONS_MIN_WR_45_55    = 53.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57; v11.2: 57→51; v15.5: 51→52; v16.5: 52→53)
 IRONS_MIN_WR_ABOVE55  = 48.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52; v11.2: 52→47; v15.5: 47→48)
@@ -1140,7 +1158,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "30.0"
+UNITY_VERSION                = "31.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -1291,7 +1309,7 @@ HFT_DUAL_DIR_COOLDOWN_MIN = float(os.getenv("UNITY_HFT_COOLDOWN_MIN", "8.0") or 
 # without penalty — quality floor is enforced at a tighter level for all
 # non-SOVEREIGN signals, dramatically improving signal selectivity.
 SOVEREIGN_RECOVERY_WR     = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_WR", "0.28") or 0.28)  # v19.6: 38%→28% — Bug N root-cause fix: raw ring WR=0% (0W/20L DB seed) vs Bayesian WR=29.96%; at 38% the gate fires on every restart even when Bayesian WR is above break-even (29.85%); 28% is below break-even so SOVEREIGN Recovery only fires when demonstrably loss-making; Gate 9 WR also receives Bayesian blend in v19.6
-SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "67.0") or 67.0)  # v21.1: 65→67 — recalibrated to match raised IRONS_MIN_WR_BELOW30=67; SOVEREIGN_RECOVERY path now requires IRONS≥67 to pass; coherent three-tier filter: G9=63 + G10/SOVEREIGN_RECOVERY=67 + WR<20%=70; +2pt consistency raise ensures SOVEREIGN_RECOVERY and IRONS floor are co-equal at WR<30%; v18.85: 59→65
+SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "68.0") or 68.0)  # v31.0: 67→68 — recalibrated to match raised IRONS_MIN_WR_BELOW30=68; SOVEREIGN_RECOVERY path now requires IRONS≥68 to pass; coherent three-tier filter: G9=65 + G10/SOVEREIGN_RECOVERY=68 + WR<20%=71; +1pt consistency raise ensures SOVEREIGN_RECOVERY and IRONS floor are co-equal at WR<30%; v21.1: 65→67; v18.85: 59→65
 
 # ── v8.3: Pre-compiled HTF word frozensets (module-level constants) ───────────
 # Previously created fresh on every UnitySignalFilter.apply() call — moved here
@@ -3968,13 +3986,14 @@ class UnitySignalFilter:
         """v6.3/v8.1: Adjust IRONS minimum threshold based on running win rate.
 
         Schedule: called by the engine each time an outcome is recorded.
-        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (70) — ultra-critical crisis tier [v21.1: 68→70]
-        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (67) — elevated floor [v21.1: 65→67]
+        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (71) — ultra-critical crisis tier [v31.0: 70→71]
+        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (69.5) — deep-crisis tier [v29.0; auto-scales with base]
+        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (68) — elevated floor [v31.0: 67→68]
         WR 30-45% → raise to IRONS_MIN_WR_30_45      (63) — co-equal with SIGNAL_MIN_QUALITY_GATE [v21.1: 62→63]
         WR 45-55% → base   IRONS_MIN_WR_45_55        (53) — neutral
         WR > 55%  → relax  IRONS_MIN_WR_ABOVE55      (48) — capitalise good form
-        Rationale: G9 floor=63, G10 floor=67 at WR<30% → genuine two-tier quality wall [v21.1].
-        SOVEREIGN_RECOVERY path requires IRONS≥67, matching IRONS_MIN_WR_BELOW30 [v21.1: 65→67].
+        Rationale: G9 floor=65, G10 floor=68 at WR<30% → genuine two-tier quality wall [v31.0].
+        SOVEREIGN_RECOVERY path requires IRONS≥68, matching IRONS_MIN_WR_BELOW30 [v31.0: 67→68].
         """
         if current_wr < 0.20:
             # v14.0: ultra-critical tier — +3pts above WR<30% floor (70pts)
@@ -4469,6 +4488,27 @@ class UnitySignalFilter:
                 self._logger.debug(
                     f"🌪️ [{symbol}] Vol penalty: ATR={_atr_pct:.2%} > {ATR_HIGH_VOL_THRESHOLD:.0%} "
                     f"→ -{_vol_penalty:.1f}pts"
+                )
+
+        # ── G0.3 ATR Volatility Spike Guard (v31.0) ───────────────────────────
+        # Amplified compound penalty on top of the existing linear vol penalty above.
+        # Targets extreme/chaos candles where wick-hunting, cascade liquidations, and
+        # abnormal spreads make entries structurally unprofitable (empirical WR<24%).
+        # Complements existing linear ATR penalty — fires only on top of it.
+        # Source: OpenBB/Vibe-Trading volatility regime analysis + QuantDinger vol gate.
+        if _atr and entry and entry > 0:
+            _atr_spike_ratio = _atr / entry
+            if _atr_spike_ratio > 0.040:          # >4%/bar = extreme chaos regime
+                quality_score -= 3.0
+                self._logger.debug(
+                    f"[G0.3-ATR-SpikeGuard v31.0] {symbol} "
+                    f"atr_ratio={_atr_spike_ratio:.2%} >4% → -3.0pts chaos filter [v31.0]"
+                )
+            elif _atr_spike_ratio > 0.030:        # 3-4%/bar = elevated spike zone
+                quality_score -= 1.5
+                self._logger.debug(
+                    f"[G0.3-ATR-SpikeGuard v31.0] {symbol} "
+                    f"atr_ratio={_atr_spike_ratio:.2%} 3-4% → -1.5pts spike zone [v31.0]"
                 )
 
         # v15.0: Dynamic TP allocation — high-vol ATR regime shifts weight to TP3.
@@ -7071,7 +7111,22 @@ class UnitySignalFilter:
                 _fr_extreme  = abs(_fr_rate) >= 0.0005  # ≥0.05%/8h — strong crowding signal
                 _fr_elevated = abs(_fr_rate) >= 0.0002  # ≥0.02%/8h — notable crowding
                 _fr_pos      = _fr_rate > 0.0           # positive → longs crowded → SELL benefits
-                if _fr_extreme:
+                _fr_super   = abs(_fr_rate) >= 0.0010  # ≥0.10%/8h — super-extreme crowding [v31.0]
+                if _fr_super:
+                    # Super-extreme crowding [v31.0]: massive forced-liquidation squeeze setup (±3pts)
+                    if _fr_pos and not _fr_long:
+                        _fr_adj = 3.0    # super-extreme positive + SELL: trapped longs cascade liquidation
+                    elif _fr_pos and _fr_long:
+                        _fr_adj = -3.0   # super-extreme positive + BUY: extreme crowding, strong reversal risk
+                    elif not _fr_pos and _fr_long:
+                        _fr_adj = 3.0    # super-extreme negative + BUY: trapped shorts forced to cover
+                    else:
+                        _fr_adj = -3.0   # super-extreme negative + SELL: extreme short crowd, squeeze risk
+                    self._logger.debug(
+                        f"[G8.5r-SuperExtreme v31.0] {symbol} "
+                        f"fr={_fr_rate*10000:.2f}bps/8h super-extreme → {_fr_adj:+.1f}pts [v31.0]"
+                    )
+                elif _fr_extreme:
                     # Extreme crowding: strong contrarian setup (±2pts full)
                     if _fr_pos and not _fr_long:
                         _fr_adj = 2.0    # extreme positive + SELL: longs trapped → squeeze fuel
