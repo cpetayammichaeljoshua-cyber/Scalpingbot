@@ -3,6 +3,26 @@ name: Unity Engine v22.0–v28.0 upgrades
 description: v22–v28 key changes: v28.0 klines Semaphore(8) 429-storm fix + cache TTL 180s + fxsusdt retry; v27.0 qwen slug fix; v26 GODMODE 11combos; v22–v25 gates/RL/NN/HTTP fixes.
 ---
 
+## v33.0 Key Changes (deployed 2026-06-01)
+
+### Hot-Streak Amplifier
+`CONSEC_WIN_STREAK_THRESHOLD: 3→2` — at WR=28%, P(2 consec wins)=7.84% vs P(3 consec)=2.19%; 3.6× more accessible hot-streak activation. All quality gates still apply.
+
+### Trailing Stop Fast-Arm
+`TRAILING_ACTIVATE_TP1_FRACTION: 0.30→0.25` — arm trail at 25% of TP1 run-up to catch fast-reversal winners. Combined with TRAILING_LOCK_PROFIT_PCT=0.78.
+
+### IT-Strong Hours EV Synergy (NEW)
+UTC hours {3,8,9,21} + Sharpe>-2.0 → EV floor ×0.94 (6% relaxation). IT-dataset WR=28-31% at these hours vs 22-25% baseline. Fires only in recovery regime; complementary to prime session ×0.92.
+
+### GODMODE 12th Combo
+`GODMODE_PHI4_NOIX` using `microsoft/phi-4-reasoning-plus:free` (noFx-inspired divergence analysis). NOTE: base `phi-4-reasoning:free` is permanently dead — 404 THREE times; only `plus` variant works.
+
+### RL Starvation WR<15%: 90s→60s
+Earlier starvation decay start at absolute catastrophic ruin (WR<15%).
+
+### Dead Slug Purge
+`deepseek/deepseek-v4-flash:free` went 404 on v33.0 boot (2026-06-01). Purged from all CONSORTIUM pools, MODEL_COSTS, _FREE_SIMPLE, _FREE_REASONING. Replaced GODMODE_MOMENTUM_DEEPSEEK with `mistralai/mistral-small-3.2-24b-instruct:free` (GODMODE_MOMENTUM_MISTRAL).
+
 ## v28.0 Key Changes (deployed 2026-05-31)
 
 ### Klines 429 Storm Elimination (`btcusdt_trader.py`)

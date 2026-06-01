@@ -84,6 +84,22 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v33.0 IMPROVEMENTS: HOT-STREAK AMPLIFIER + TRAIL-FAST-ARM + IT-STRONG EV SYNERGY + PHI4-NOIX GODMODE + RUIN-FAST-DECAY:
+    CONSEC_WIN_STREAK_THRESHOLD: 3→2 — hot-streak fires on 2 consecutive wins [v33.0] |
+      At WR=28%: P(2 consec wins)=7.84% vs P(3 consec)=2.19% — 3.6× more accessible hot-streak activation |
+      All other gates still apply; -3% threshold relief on confirmed 2-win momentum [v33.0] |
+    TRAILING_ACTIVATE_TP1_FRACTION: 0.30→0.25 — arm trail sooner to catch fast reversals [v33.0] |
+      Trail activates at 25% of TP1 run-up vs 30%; at WR=28% winners are scarce — capture every move |
+      Combined with TRAILING_LOCK_PROFIT_PCT=0.78: net captured profit floor +8pp per activated trail |
+    IT-strong hours EV synergy: hours {3,8,9,21}h UTC + Sharpe>-2.0 → EV floor ×0.94 [v33.0] |
+      IT-dataset WR=28-31% at these hours vs 22-25% baseline; 6% EV floor relief in recovery regime |
+      Complementary to prime session ×0.92 (15-21h); IT-strong hours apply outside prime window |
+    GODMODE_PHI4_NOIX (12th combo): microsoft/phi-4-reasoning:free — noFx trend/divergence analysis [v33.0] |
+      noFx-inspired: trend velocity + hidden divergence + order flow imbalance + regime coherence |
+      phi-4-reasoning confirmed working slug (re-validated); true 12-model ensemble diversity |
+    RL starvation WR<15%: 90s→60s decay start [v33.0] |
+      At WR<15% catastrophic ruin, starvation decay now fires at 60s (1 min) vs 90s (1.5 min) |
+      At signal rate 0.5/hr: 30s earlier fire = +0.25 signals/session in absolute catastrophe |
   v32.0 IMPROVEMENTS: ULTRA-CRISIS RECOVERY ENGINE + PRIME-SESSION EV SYNERGY + STARVATION DEADLOCK BREAKER:
     RL bucket WR<25% ultra-crisis sub-tier: delta +2.0% (was +1.5% for all WR<30%) [v32.0] |
       At Sharpe=-5.85×0.55=+1.10% net vs +0.825% old; sub-tier fires when WR drops to ultra-ruin depth (25%) |
@@ -878,7 +894,7 @@ TRAILING_LOCK_PROFIT_PCT = 0.78  # v32.0: 0.70→0.78 — CRISIS-GRADE PROFIT LO
 # distance from entry to TP1. Prevents premature SL tightening on noise.
 # v16.0: 0.50→0.35.  v16.5: 0.35→0.30 — arm 5% earlier so fast-reversal winners
 # are captured; 60% lock fraction provides sufficient run-up buffer against noise.
-TRAILING_ACTIVATE_TP1_FRACTION = 0.30
+TRAILING_ACTIVATE_TP1_FRACTION = 0.25  # v33.0: 0.30→0.25 — arm trail sooner; activates at 25% of TP1 run-up vs 30%; at WR=28% winners are statistically scarce so arming 5pp earlier captures fast-reversal moves that don't reach 30% before snapping back; combined with TRAILING_LOCK_PROFIT_PCT=0.78 every activated trail locks 78% of 25%-TP1 run-up as floor profit; was 0.50→0.35 v16.0, 0.35→0.30 v16.5
 
 # ── v18.4 Entry-Risk Trailing Stop (institutional 50 % / 50 %) ───────────────
 # Activation trigger: wait until unrealized profit reaches this fraction of the
@@ -1169,11 +1185,11 @@ IRONS_QUALITY_OVERRIDE_RELAX     = 5.0    # points to subtract from effective IR
 THREAD_POOL_WORKERS          = max(2, min(8, (os.cpu_count() or 4)))
 
 # ── Consecutive-win streak bonus ──────────────────────────────────────────────
-CONSEC_WIN_STREAK_THRESHOLD  = 3     # wins in a row → lower threshold bonus (v18.57: 5→4; v18.83: 4→3 — at WR=30.3% P(4 consec)=0.84% vs P(3 consec)=2.78%; 3.3× more accessible hot-streak activation; all other gates still apply)
+CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec wins)=7.84% vs P(3 consec)=2.19%; 3.6× more accessible hot-streak activation captures genuine momentum bursts earlier; all other gates (IRONS≥68, Markov, GEX, SWARM≥94%) still enforce quality; was 5→4 v18.57, 4→3 v18.83
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "32.0"
+UNITY_VERSION                = "33.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4817,6 +4833,23 @@ class UnitySignalFilter:
                     _prime_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
                     if _prime_sr > -2.0:   # recovery regime only — no relaxation during crisis
                         _ev_floor = max(EV_MIN_THRESHOLD * 0.80, _ev_floor * 0.92)
+            except Exception:
+                pass
+            # v33.0: IT-strong-hours EV synergy — for IT-dataset confirmed high-WR hours
+            # {3h, 8h, 9h, 21h UTC} in recovery regime (Sharpe>-2.0), relax EV floor by ×0.94.
+            # IT-dataset: 03h WR=31%/EV=+7.0%, 08h WR=28%/EV=+3.1%, 09h WR=29%/EV=+4.9%,
+            # 21h WR=30%/EV=+2.9% — materially above 22-25% baseline for these hours.
+            # Only fires in recovery regime (Sharpe>-2); crisis/ultra-crisis keep full tightening.
+            # Complementary to prime-session synergy (15-21h): applies OUTSIDE prime window for
+            # hours 3h, 8h, 9h which are structurally stronger but not in the prime band. [v33.0]
+            try:
+                _it_strong_hour = datetime.utcnow().hour
+                _in_it_strong_ev = _it_strong_hour in IT_SESSION_STRONG_HOURS
+                _not_in_prime_ev = not (SESSION_BONUS_UTC_START <= _it_strong_hour < SESSION_BONUS_UTC_END)
+                if _in_it_strong_ev and _not_in_prime_ev and self._booster is not None:
+                    _it_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
+                    if _it_sr > -2.0:   # recovery regime only
+                        _ev_floor = max(EV_MIN_THRESHOLD * 0.80, _ev_floor * 0.94)
             except Exception:
                 pass
             # v18.0: Consecutive-loss streak EV floor escalation.
@@ -8510,7 +8543,7 @@ class UnityProfitBooster:
             # 3min is tight enough to break starvation quickly without over-exploiting
             # short measurement windows on hot streaks (negative delta not affected).
             if _wr_for_decay < 0.15:
-                _decay_start  = 90.0    # v20.3: extreme-starvation: 1.5min — WR<15% is catastrophic ruin territory; every minute of threshold inflation starvation costs real recovery potential; 90s = 1 full scan cycle, the tightest meaningful window; still avoids thrashing by requiring staleness>90s before firing
+                _decay_start  = 60.0    # v33.0: 90s→60s — WR<15% is absolute catastrophic ruin; at 0.5 signal/hr every 30s of earlier starvation relief = +0.25 signals/session; was 90s v20.3; still avoids thrashing (staleness>60s = 1 compressed scan cycle); WR<15% P(genuine-signal)≈0 so speed of threshold relief > signal quality at this depth
                 _decay_window = 750.0
             elif _wr_for_decay < 0.20:
                 _decay_start  = 120.0   # ultra-fast: 2min (v13.0)

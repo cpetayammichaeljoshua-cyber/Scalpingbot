@@ -133,7 +133,7 @@ MODEL_PRICING = {
     "openai/gpt-oss-120b:free":                                       {"input": 0.0, "output": 0.0},
     # v21.0: New confirmed-working free models added 2026-05-31
     "nvidia/nemotron-3-super-120b-a12b:free":                         {"input": 0.0, "output": 0.0},
-    "deepseek/deepseek-v4-flash:free":                                {"input": 0.0, "output": 0.0},
+    # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot (was free 2026-05-25)
     "google/gemma-4-26b-a4b-it:free":                                 {"input": 0.0, "output": 0.0},
     "google/gemma-4-31b-it:free":                                     {"input": 0.0, "output": 0.0},
     # v19.3: Paid frontier additions
@@ -163,7 +163,7 @@ _FREE_SIMPLE = [
     # ALL entries below confirmed working free tier as of 2026-05-31
     "openai/gpt-oss-20b:free",                                        # OpenAI OSS 20B — fast winner, confirmed free 2026-05-25
     "openai/gpt-oss-120b:free",                                       # OpenAI OSS 120B — large, confirmed free 2026-05-25
-    "deepseek/deepseek-v4-flash:free",                                # DeepSeek V4 Flash 1M ctx — confirmed free 2026-05-25
+    # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
     "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B 1M ctx — confirmed free 2026-05-25
     "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — flagship reasoning
     "qwen/qwen3-72b:free",                                            # 72B dense — strong fast reasoning
@@ -198,7 +198,7 @@ _FREE_REASONING = [
     # qwen/qwen3-72b:free already in list above; slot removed to eliminate duplicate
     # REMOVED (2026-05-31) [v21.5]: deepseek/deepseek-r1-0528:free → 404 confirmed live log
     # REMOVED (2026-05-31) [v21.5]: tngtech/deepseek-r1t-chimera:free → 404 confirmed
-    "deepseek/deepseek-v4-flash:free",                                # DeepSeek V4 Flash 1M ctx — confirmed free 2026-05-25
+    # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
     "microsoft/phi-4-reasoning-plus:free",                            # phi-4 enhanced
     "meta-llama/llama-3.3-70b-instruct:free",                         # confirmed 70B
     "z-ai/glm-4.5-air:free",                                         # GLM-4.5 Air 131K ctx

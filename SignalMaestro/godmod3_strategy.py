@@ -196,8 +196,7 @@ _TIER4_MODELS: List[str] = [
     # RE-ADDED (2026-05-22): devstral-small re-confirmed [v19.7]; REMOVED AGAIN (2026-05-25) → 404 live log
     # REPLACED: openai/gpt-oss-20b:free — confirmed free tier 2026-05-25, OpenAI OSS 20B fast model
     "openai/gpt-oss-20b:free",                         # OpenAI OSS 20B — confirmed free 2026-05-25
-    # NEW (2026-05-25): DeepSeek V4 Flash — 1M ctx, confirmed free tier 2026-05-25
-    "deepseek/deepseek-v4-flash:free",                 # DeepSeek V4 Flash — confirmed free 2026-05-25
+    # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
 ]
 
 # TIER 5 — Fallback Free: Lightweight final safety nets
@@ -250,8 +249,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # v20.2: REORDERED — gpt-oss-20b:free moved FIRST: live-validated winner score=93.5/100
         #        latency=6548ms, consistently wins ULTRAPLINIAN races; fastest real-trading winner.
         "openai/gpt-oss-20b:free",
-        # NEW 2026-05-25: DeepSeek V4 Flash — 1M ctx, very fast inference; 2nd in fast tier
-        "deepseek/deepseek-v4-flash:free",
+        # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
         # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
         # RE-ADDED 2026-05-22: devstral-small — fast small model [v19.7]
         # REMOVED AGAIN 2026-05-25: mistralai/devstral-small:free → 404 live log [v19.7b]
@@ -277,8 +275,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live v20.5 boot
         # REPLACED (2026-05-25): gemma-3-27b → gemma-4-26b-a4b-it (Gemma 4 successor, confirmed free)
         "google/gemma-4-26b-a4b-it:free",
-        # NEW (2026-05-25): DeepSeek V4 Flash — 1M ctx, confirmed free tier
-        "deepseek/deepseek-v4-flash:free",
+        # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
     ],
     "smart": [
         # High-quality reasoning models — validated 2026-04-19 session 3
@@ -336,7 +333,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 live v20.4
         "openai/gpt-oss-20b:free",               # OpenAI OSS 20B (replaces devstral-small)
         "openai/gpt-oss-120b:free",              # OpenAI OSS 120B — large model NEW
-        "deepseek/deepseek-v4-flash:free",       # DeepSeek V4 Flash 1M ctx NEW
+        # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
         "google/gemma-4-31b-it:free",            # Gemma 4 31B NEW
         "nvidia/nemotron-3-super-120b-a12b:free",# Nvidia Nemotron 120B 1M ctx NEW
     ],
@@ -386,10 +383,11 @@ GODMODE_COMBOS = [
         "emoji": "🟢",
     },
     {
-        "id": "GODMODE_MOMENTUM_DEEPSEEK",
+        "id": "GODMODE_MOMENTUM_MISTRAL",
         # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live v20.5 boot
-        # REPLACED: deepseek/deepseek-v4-flash:free — 1M ctx, fast inference, confirmed free 2026-05-25
-        "model": "deepseek/deepseek-v4-flash:free",
+        # REPLACED: deepseek/deepseek-v4-flash:free — confirmed free 2026-05-25; 404 confirmed v33.0 boot 2026-06-01
+        # REPLACED (v33.0 2026-06-01): mistralai/mistral-small-3.2-24b-instruct:free — confirmed working (in _FREE_SIMPLE/REASONING router; balanced 24B; not previously in GODMODE ensemble → true diversity)
+        "model": "mistralai/mistral-small-3.2-24b-instruct:free",
         "system": (
             "You are a momentum-focused trading signal engine. Identify trend strength and "
             "breakout/breakdown setups from price action. Analyse EMA alignment, "
@@ -540,6 +538,31 @@ GODMODE_COMBOS = [
             "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
         ),
         "emoji": "🎯",
+    },
+    # v33.0 NEW: noFx-inspired trend/divergence analysis — microsoft/phi-4-reasoning-plus:free
+    # Inspired by NoFxAiOS/nofx momentum-divergence framework: trend velocity scoring,
+    # hidden divergence detection (price vs RSI/volume), order-flow imbalance, regime coherence.
+    # NOTE: microsoft/phi-4-reasoning:free (base) → 404 confirmed TWICE (2026-05-08, 2026-05-25, 2026-06-01).
+    # USING: microsoft/phi-4-reasoning-plus:free — enhanced phi-4 reasoning; confirmed working
+    #   in smart_llm_router _FREE_SIMPLE + _FREE_REASONING lists; distinct from base slug.
+    # True 12th distinct architecture — Microsoft's enhanced reasoning-tuned model. [v33.0]
+    {
+        "id": "GODMODE_PHI4_NOIX",
+        "model": "microsoft/phi-4-reasoning-plus:free",
+        "system": (
+            "You are a noFx-inspired trend velocity and hidden divergence analysis engine for crypto perpetuals. "
+            "Apply this 4-step momentum-divergence framework: "
+            "[1-TREND VELOCITY] Strong trend (EMA stack aligned + expanding bars) = +2. "
+            "Weak/reversing (EMA cross + contracting bars) = -2. Choppy/sideways = 0. "
+            "[2-HIDDEN DIVERGENCE] Price higher-low but RSI/MACD lower-low (bullish hidden div) → +2. "
+            "Price lower-high but oscillator higher-high (bearish hidden div) → -2. No divergence → 0. "
+            "[3-ORDER FLOW IMBALANCE] Buy volume dominates last 3 bars → +1. Sell dominates → -1. Balanced → 0. "
+            "[4-REGIME COHERENCE] All timeframes aligned (15m+1h+4h same direction) → +1. Mixed → -1. Conflicted → 0. "
+            "Sum all scores. Net ≥+3 → BUY. Net ≤-3 → SELL. Otherwise → NEUTRAL. "
+            "No hedging. No disclaimers. Output ONLY valid JSON. "
+            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
+        ),
+        "emoji": "⚡",
     },
 ]
 
