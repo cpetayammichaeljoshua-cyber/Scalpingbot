@@ -249,6 +249,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # v20.2: REORDERED — gpt-oss-20b:free moved FIRST: live-validated winner score=93.5/100
         #        latency=6548ms, consistently wins ULTRAPLINIAN races; fastest real-trading winner.
         "openai/gpt-oss-20b:free",
+        # v34.0 2026-06-01: mistral-small-3.2-24b added to fast tier — restores 2-model ULTRAPLINIAN race after deepseek-v4-flash 404
+        # mistral-small confirmed working in _FREE_SIMPLE/_FREE_REASONING and now GODMODE_MOMENTUM_MISTRAL (v33.0)
+        "mistralai/mistral-small-3.2-24b-instruct:free",
         # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
         # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
         # RE-ADDED 2026-05-22: devstral-small — fast small model [v19.7]

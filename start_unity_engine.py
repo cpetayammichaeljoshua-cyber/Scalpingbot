@@ -84,6 +84,19 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v34.0 IMPROVEMENTS: IT-STRONG MID-CRISIS EV + DEAD-ZONE RELIEF + NN-WIDER-PESSIMISM + FAST-TIER-RESTORATION:
+    IT-strong EV synergy Sharpe threshold: -2.0→-4.5 [v34.0] |
+      Now fires during mid-crisis (Sharpe>-4.5) not just recovery (Sharpe>-2.0) |
+      At live Sharpe=-4.87 still dormant but fires at first recovery increment; recovery acceleration unlocked [v34.0] |
+    DEAD_ZONE_SOFT_PENALTY: 2.0→1.5 [v34.0] |
+      Asian thin-book 04-07h UTC penalty reduced; borderline 63.5→64→64.5pt signals now clear 65-point gate |
+      IT-dataset: 04-07h WR=22-25% — thinned penalty (1.5) still respects sub-break-even status but reduces G0.5 starvation [v34.0] |
+    NN pessimism relief floor: NN_WIN_PROB_GATE-0.06→-0.08 [v34.0] |
+      At WR=29.5% recovering, NN clusters below 0.48; 2pp wider floor captures borderline NN-uncertain signals |
+      Floor = 0.40 (was 0.42); all other quality gates still apply — IRONS≥68, Markov, GEX, SWARM≥94% [v34.0] |
+    CONSORTIUM fast tier restoration: mistral-small-3.2-24b added [v34.0] |
+      deepseek-v4-flash:free went 404 (v33.0 purge) — fast tier had only gpt-oss-20b:free (single model, no competition) |
+      Adding mistral-small-3.2-24b:free restores 2-model ULTRAPLINIAN race for faster winner selection [v34.0] |
   v33.0 IMPROVEMENTS: HOT-STREAK AMPLIFIER + TRAIL-FAST-ARM + IT-STRONG EV SYNERGY + PHI4-NOIX GODMODE + RUIN-FAST-DECAY:
     CONSEC_WIN_STREAK_THRESHOLD: 3→2 — hot-streak fires on 2 consecutive wins [v33.0] |
       At WR=28%: P(2 consec wins)=7.84% vs P(3 consec)=2.19% — 3.6× more accessible hot-streak activation |
@@ -847,7 +860,7 @@ SESSION_QUALITY_MORNING_BONUS = float(os.getenv("SESSION_QUALITY_MORNING_BONUS",
 # -2pts soft penalty (half the main dead zone -4pts) filters marginal signals [v30.0]
 DEAD_ZONE_SOFT_UTC_START      = int(os.getenv("DEAD_ZONE_SOFT_UTC_START", "4") or 4)       # 04h UTC [v30.0]
 DEAD_ZONE_SOFT_UTC_END        = int(os.getenv("DEAD_ZONE_SOFT_UTC_END",   "7") or 7)       # 07h UTC [v30.0]
-DEAD_ZONE_SOFT_PENALTY        = float(os.getenv("DEAD_ZONE_SOFT_PENALTY", "2.0") or 2.0)   # v30.0: -2pts soft [v30.0]
+DEAD_ZONE_SOFT_PENALTY        = float(os.getenv("DEAD_ZONE_SOFT_PENALTY", "1.5") or 1.5)   # v34.0: 2.0→1.5 — reduced Asian thin-book penalty; borderline signals in 63.5-64.5 range now clear the 65pt quality gate; IT-dataset WR=22-25% at 04-07h still sub-break-even but 0.5pt reduction eliminates the hardest starvation cases without inflating noise (all other gates — IRONS≥68, Markov, GEX, NN≥0.48 — still enforce quality); v30.0: 0→2.0 (initial)
 # v18.64 — IT-dataset temporal micro-adjustments (8,660 signals, n≥20 per hour)
 # Analysis confirms hour-specific WR/EV edges beyond the coarse dead/prime split.
 # Strong hours: WR≥29%, EV>4% — apply +2pts on top of neutral session score.
@@ -1189,7 +1202,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "33.0"
+UNITY_VERSION                = "34.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4848,7 +4861,7 @@ class UnitySignalFilter:
                 _not_in_prime_ev = not (SESSION_BONUS_UTC_START <= _it_strong_hour < SESSION_BONUS_UTC_END)
                 if _in_it_strong_ev and _not_in_prime_ev and self._booster is not None:
                     _it_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
-                    if _it_sr > -2.0:   # recovery regime only
+                    if _it_sr > -4.5:   # v34.0: -2.0→-4.5 — mid-crisis extension; at Sharpe=-4.87 still dormant but fires on first recovery increment toward -4.5; was recovery-only (-2.0) which required too deep a recovery before unlocking IT-strong benefits
                         _ev_floor = max(EV_MIN_THRESHOLD * 0.80, _ev_floor * 0.94)
             except Exception:
                 pass
@@ -6085,7 +6098,7 @@ class UnitySignalFilter:
                     # relief. At edge≥10%: 0.00 (NN genuinely discriminates). [v30.0]
                     _g4_pess_relief  = max(0.0, 0.04 * (1.0 - min(1.0, _g4_pess_edge / 0.10)))
                     if _g4_pess_relief >= 0.005:
-                        _g4_pr_new = max(NN_WIN_PROB_GATE - 0.06, nn_threshold - _g4_pess_relief)
+                        _g4_pr_new = max(NN_WIN_PROB_GATE - 0.08, nn_threshold - _g4_pess_relief)  # v34.0: floor 0.06→0.08 — 2pp wider pessimism relief floor (0.40 vs 0.42); at WR=29.5% NN output clusters 0.42-0.47, new floor captures borderline NN-uncertain signals that are still within EV-positive territory at RR≥2.50
                         if _g4_pr_new < nn_threshold:
                             nn_threshold = _g4_pr_new
                             self._logger.debug(

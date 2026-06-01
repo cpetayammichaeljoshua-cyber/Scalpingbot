@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v33.0 — Production requirements.txt
+# Unity Engine v34.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
 # Last verified: 2026-06-01 (v33.0 — STREAK-THRESH-2, TRAIL-ARM-0.25, IT-STRONG-EV-SYNERGY,
