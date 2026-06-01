@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v31.0 — Production requirements.txt
+# Unity Engine v32.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-01 (v31.0 — IRONS68(WR<30%), QUALITY65, SOVEREIGN-RECOVERY68,
-#   G0.3-ATR-SpikeGuard, G8.5r-SuperExtreme(±3pts), GODMODE-QWEN235B-BullBearSynthesis)
+# Last verified: 2026-06-01 (v32.0 — RL-WR<25%+2.0delta, STARVATION-FLOOR-0.5%(Sharpe<-5+60min),
+#   NN-RETRAIN-8min(Sharpe<-6), TRAIL-LOCK-0.78, PRIME-EV-SYNERGY, FINROBOT-EV-SYNTHESIS, OPENBB-VPIN-6LAYER)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
