@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 60 features → 12 tokens × 5 dims (60 = 12 × 5)
-_TORCH_N_TOKENS  = 12
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS
+# Transformer tokenisation: reshape 65 features → 13 tokens × 5 dims (65 = 13 × 5) [v43.0: was 12×5=60]
+_TORCH_N_TOKENS  = 13
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v10: 65 = 13×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 60  # v9 (GEX): 55 + 5 GEX features = 60
+INPUT_DIM          = 65  # v10 (v43.0): 60 + 5 regime-awareness features (fg_dir_align, irons_norm, fg_norm, session_prime, vol_crisis) = 65
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -629,6 +629,37 @@ def build_features(trade: Dict) -> "np.ndarray":
     # macro assets are in FLIP ZONE have measurably lower WR — penalise accordingly".
     # Backwards compatible: legacy trade records without gex_data → zeros (benign).
     f.extend(_extract_gex_features(trade))                              # 56-60
+
+    # ── v10 Regime-awareness features (61-65) — v43.0 direction + quality context ──
+    # Five compact features giving the MLP direct regime-alignment and quality context.
+    # All derived from fields already stored in every trade record — backwards compatible.
+    # F61: Fear & Greed direction alignment: +1=aligned(SELL in fear/BUY in greed),
+    #       -1=opposed(BUY in fear/SELL in greed), 0=neutral F&G zone (30-70).
+    # F62: IRONS quality score normalized: irons_score/100 ∈ [0, 1].
+    # F63: Fear & Greed normalized: (fg - 50) / 50 ∈ [-1, +1]. Negative=fear, positive=greed.
+    # F64: Prime session flag: 1.0 if 15-21h UTC (London/NY overlap), 0.0 otherwise.
+    # F65: Volatility crisis flag: +1=extreme fear(fg<25), -1=extreme greed(fg>75), 0=neutral.
+    _fg65    = _safe_float(trade.get("fear_greed_index"), 50.0)
+    _dir65   = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
+    _irons65 = _safe_float(trade.get("irons_score", trade.get("irons_score_precomputed", 60.0)), 60.0)
+    _hour65  = _safe_float(trade.get("hour_of_day"), 12.0)
+    # F61 — fg_dir_align
+    if (_fg65 < 30.0 and _dir65 < 0) or (_fg65 > 70.0 and _dir65 > 0):
+        _fg_dir_align65 = 1.0     # regime-aligned direction
+    elif (_fg65 < 30.0 and _dir65 > 0) or (_fg65 > 70.0 and _dir65 < 0):
+        _fg_dir_align65 = -1.0    # regime-opposed direction
+    else:
+        _fg_dir_align65 = 0.0     # neutral F&G zone (30-70)
+    f.append(_fg_dir_align65)                                                   # 61 fg_dir_align
+    f.append(min(1.0, max(0.0, _irons65 / 100.0)))                             # 62 irons_norm
+    f.append(max(-1.0, min(1.0, (_fg65 - 50.0) / 50.0)))                       # 63 fg_norm
+    f.append(1.0 if 15 <= int(_hour65) < 21 else 0.0)                          # 64 session_prime
+    if _fg65 < 25.0:
+        f.append(1.0)                                                           # 65 vol_crisis=extreme_fear
+    elif _fg65 > 75.0:
+        f.append(-1.0)                                                          # 65 vol_crisis=extreme_greed
+    else:
+        f.append(0.0)                                                           # 65 vol_crisis=neutral
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:

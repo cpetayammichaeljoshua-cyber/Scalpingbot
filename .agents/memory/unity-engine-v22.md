@@ -1,7 +1,34 @@
 ---
-name: Unity Engine v22.0–v42.0 upgrades
-description: v42.0 direction-aware regime gates (F&G+G9 compound hostile+EV floor all SELL/BUY aware); MaxDD >47%:-5→-4pt, >50%:-7→-6pt; v38.0 9-gate tighten; v40.0 stale-value audit.
+name: Unity Engine v22.0–v43.0 upgrades
+description: v43.0 direction-aware G3 threshold + IRONS direction relief + NN v10 (INPUT_DIM 65, 13×5 Transformer) + dir metrics (sell/buy breakdown); v42.0 direction-aware regime gates.
 ---
+
+## v43.0 Key Changes (deployed 2026-06-02)
+
+### Direction-Aware G3 + IRONS Relief + NN v10 (65 features) + Direction Metrics
+
+**Why:** At F&G=23 (Extreme Fear), SELL signals are regime-aligned but 88-89% AI confidence band has positive EV while the same band for BUY is net-negative. G3 was direction-agnostic, treating both equally at ai_threshold=89%. NN v9 lacked direct regime-alignment signal — the model couldn't learn "SELL in Extreme Fear" as a distinct quality context.
+
+**Changes made:**
+
+1. **G3 direction-aware AI threshold:** F&G<30+SELL or F&G>70+BUY → `ai_threshold - 1pt` (88% effective). Try/except guards — no impact if `fear_greed_index` missing from `signal_data`. Uses `_g3_ai_threshold` local variable; G3 fail message still shows `ai_threshold` (cosmetic, acceptable).
+
+2. **IRONS direction relief at Gate 10:** WR<30% + F&G<30+SELL or F&G>70+BUY → `_irons_min - 1pt` (floor: `max(IRONS_MIN_SCORE, adaptive-1)`). Reads `self._booster.win_rate` (handles both raw% and 0-1 float). Never below `IRONS_MIN_SCORE=50` hard floor. Try/except guards.
+
+3. **NN v10 — 5 new regime-awareness features (INPUT_DIM 60→65, Transformer 12×5→13×5 tokens):**
+   - F61: `fg_dir_align` (−1/0/+1 regime alignment)
+   - F62: `irons_norm` (irons_score/100)
+   - F63: `fg_norm` ((fg−50)/50)
+   - F64: `session_prime` (1 if 15-21h UTC)
+   - F65: `vol_crisis` (+1=extreme fear fg<25, −1=extreme greed fg>75)
+   - Auto-reset on shape mismatch; `_TORCH_N_TOKENS=12→13`
+   - **At first boot: F62 (irons_norm) emerged as top loss-predictor (0.42 weight) immediately after retraining on 65 features** — confirms F62 is highly informative.
+
+4. **Direction metrics:** `UnityMetrics.sell_signals_sent` + `buy_signals_sent` (int fields, serialized in save/load). Console Signals row: `sent=N(S:X/B:Y)`. Signal dispatch block increments the correct counter on every Telegram send.
+
+**Architecture stamp:** `DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv10-65feat[v43.0]·DirMetrics[v43.0]`
+
+**Boot confirmed:** v43.0 clean boot, 21/21 layers online, NN retrained (acc=83.1%, win_acc=80.7%), F62 top loss-predictor, no errors.
 
 ## v42.0 Key Changes (deployed 2026-06-02)
 

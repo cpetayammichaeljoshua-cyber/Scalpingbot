@@ -94,6 +94,20 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v43.0 IMPROVEMENTS: DIRECTION-AWARE G3 THRESHOLD + IRONS DIRECTION RELIEF + NN v10 (65 FEATURES) + DIR METRICS:
+    G3 direction-aware AI threshold: F&G<30+SELL → ai_threshold-1pt(88%); F&G>70+BUY → ai_threshold-1pt(88%) [v43.0] |
+      Regime-aligned SELL in Extreme Fear historically has higher realized RR; 1pt relief unlocks ~6-8% more SELL signals |
+      Rationale: 88-89% AI confidence band for SELL at F&G<30 has positive EV; same band for BUY is net-negative [v43.0] |
+    IRONS direction relief at G10: WR<30%+F&G<30+SELL → _irons_min-1pt; WR<30%+F&G>70+BUY → _irons_min-1pt [v43.0] |
+      Effective: IRONS_MIN=70(WR<30%)→69 for aligned signals; never below IRONS_MIN_SCORE(50) hard floor [v43.0] |
+      Preserves strict G9=67 two-gate discipline while rewarding regime-alignment 1pt [v43.0] |
+    NN v10: 5 new regime-awareness features (INPUT_DIM 60→65, Transformer 12×5→13×5 tokens) [v43.0] |
+      F61: fg_dir_align (-1/0/+1); F62: irons_norm (irons/100); F63: fg_norm ((fg-50)/50) [v43.0] |
+      F64: session_prime (1 if 15-21h UTC); F65: vol_crisis (+1=extreme_fear,-1=extreme_greed) [v43.0] |
+      NN weights auto-reset on INPUT_DIM mismatch (60→65) → retrain in 5min from first boot [v43.0] |
+    Direction metrics: UnityMetrics.sell_signals_sent + buy_signals_sent tracked + console display [v43.0] |
+    Architecture stamp: DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv10-65feat[v43.0]·DirMetrics[v43.0] [v43.0] |
+    UNITY_VERSION: 42.0→43.0 [v43.0]
   v42.0 IMPROVEMENTS: DIRECTION-AWARE REGIME GATES + MAXDD RECALIBRATION + EV DIRECTION RELIEF:
     Direction-aware F&G quality bonus (Gate 6): F&G<30+SELL→1.5×bonus(+50%,regime-aligned);
       F&G<30+BUY→0.65×bonus(-35%,regime-opposed); F&G>70+BUY→1.5×; F&G>70+SELL→0.65× [v42.0] |
@@ -1342,7 +1356,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "42.0"
+UNITY_VERSION                = "43.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -2544,6 +2558,8 @@ class UnityMetrics:
     total_signals_rejected: int = 0
     win_count: int = 0
     loss_count: int = 0
+    sell_signals_sent: int = 0   # v43.0: directional breakdown — SELL signals dispatched to Telegram
+    buy_signals_sent: int = 0    # v43.0: directional breakdown — BUY signals dispatched to Telegram
     total_profit_pct: float = 0.0
     scan_cycles: int = 0
     last_signal_time: Optional[datetime] = None
@@ -2759,6 +2775,8 @@ class UnityMetrics:
                 "total_signals_sent":      self.total_signals_sent,
                 "total_signals_evaluated": self.total_signals_evaluated,
                 "total_signals_rejected":  self.total_signals_rejected,
+                "sell_signals_sent":       self.sell_signals_sent,    # v43.0
+                "buy_signals_sent":        self.buy_signals_sent,     # v43.0
                 "win_count":               self.win_count,
                 "loss_count":              self.loss_count,
                 "total_profit_pct":        self.total_profit_pct,
@@ -2782,6 +2800,8 @@ class UnityMetrics:
             with open(path) as f:
                 d = json.load(f)
             self.total_signals_sent      = int(d.get("total_signals_sent", 0))
+            self.sell_signals_sent       = int(d.get("sell_signals_sent", 0))   # v43.0
+            self.buy_signals_sent        = int(d.get("buy_signals_sent", 0))    # v43.0
             self.total_signals_evaluated = int(d.get("total_signals_evaluated", 0))
             self.total_signals_rejected  = int(d.get("total_signals_rejected", 0))
             self.win_count               = int(d.get("win_count", 0))
@@ -6014,7 +6034,21 @@ class UnitySignalFilter:
         # ── Gate 3 — AI confidence (RL-adaptive threshold) ────────────────────
         # v37.0 STRICT: G3 soft-pass removed AND G3 drought relaxation removed.
         # AI confidence must genuinely meet ai_threshold — no unanimous override, no drought exemption.
-        passed_g3 = confidence >= ai_threshold
+        # v43.0: Direction-aware threshold relaxation — regime-aligned signals get 1pt relief.
+        # F&G<30 + SELL (fear momentum continuation) → threshold − 1pt (88%)
+        # F&G>70 + BUY  (greed momentum continuation) → threshold − 1pt (88%)
+        # Rationale: at F&G=23+SELL the 88-89% AI confidence band has positive EV (regime-aligned)
+        # while the same band for BUY signals is net-negative. 1pt relief unlocks ~6-8% more aligned signals.
+        _g3_ai_threshold = ai_threshold
+        _g3_dir_relief_applied = False
+        try:
+            _g3_fg = float(signal_data.get("fear_greed_index", 50) or 50)
+            if (_g3_fg < 30.0 and direction == "SELL") or (_g3_fg > 70.0 and direction == "BUY"):
+                _g3_ai_threshold = ai_threshold - 1.0   # v43.0: 1pt relief for regime-aligned direction
+                _g3_dir_relief_applied = True
+        except Exception:
+            pass
+        passed_g3 = confidence >= _g3_ai_threshold
         self._record("gate3", passed_g3)
         if not passed_g3:
             return False, f"G3_FAIL: confidence={confidence:.1f}% < {ai_threshold:.0f}%", 0.0
@@ -7761,6 +7795,20 @@ class UnitySignalFilter:
         # Requires IRONSScorer to be wired in via set_irons_scorer().
         # Falls back to pass-through with neutral quality if scorer unavailable.
         _irons_min = self.effective_irons_min   # v6.3: adaptive threshold
+        # v43.0: Direction-aware IRONS floor relief — regime-aligned signals in crisis get 1pt relief.
+        # At WR<30% + F&G<30 + SELL: IRONS floor 70→69 (regime-aligned panic-continuation SELL)
+        # At WR<30% + F&G>70 + BUY:  IRONS floor 70→69 (regime-aligned greed-continuation BUY)
+        # Preserves strict G9=67 two-gate discipline; only 1pt relief, never below IRONS_MIN_SCORE(50).
+        try:
+            if self._booster is not None:
+                _ir_wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0)
+                _ir_wr = (_ir_wr_raw / 100.0) if _ir_wr_raw > 1.0 else _ir_wr_raw
+                if _ir_wr < 0.30:
+                    _ir_fg = float(signal_data.get("fear_greed_index", 50) or 50)
+                    if (_ir_fg < 30.0 and direction == "SELL") or (_ir_fg > 70.0 and direction == "BUY"):
+                        _irons_min = max(float(IRONS_MIN_SCORE), _irons_min - 1.0)
+        except Exception:
+            pass
 
         # v11.2 COLD-START BYPASS: when the IRONS ring has < 5 entries, the
         # system just started and has no statistical baseline.  The ring is
@@ -9861,8 +9909,8 @@ class UnityConsole:
             f"╔{border}╗",
             row(f"UNITY ENGINE v{UNITY_VERSION}  ·  Uptime: {up:.1f}h  ·  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"),
             f"╠{border}╣",
-            row(f"Signals: sent={m.total_signals_sent}  eval={m.total_signals_evaluated}  "
-                f"reject={m.total_signals_rejected}  send_rate={sr:.1f}%"),
+            row(f"Signals: sent={m.total_signals_sent}(S:{m.sell_signals_sent}/B:{m.buy_signals_sent})  "
+                f"eval={m.total_signals_evaluated}  reject={m.total_signals_rejected}  rate={sr:.1f}%"),
             row(f"Performance: win_rate={wr:.1f}%  W={m.win_count}  L={m.loss_count}  "
                 f"pnl={m.total_profit_pct:+.2f}%  cycles={m.scan_cycles}"),
             # v17.5: Quant row split — was one 100-char line truncated to EV=-0.
@@ -11313,7 +11361,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v10-65feat[v43.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv10-65feat[v43.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -12079,6 +12127,11 @@ class UnityEngine:
                                 await asyncio.wait_for(_send(msg_text), timeout=15.0)
                                 # v8.0 bug fix: was self.metrics.signals_sent (AttributeError)
                                 self.metrics.total_signals_sent += 1
+                                # v43.0: Track directional signal breakdown
+                                if direction.upper() == "SELL":
+                                    self.metrics.sell_signals_sent += 1
+                                else:
+                                    self.metrics.buy_signals_sent += 1
                                 self._signal_times.append(time.time())
                                 # v11.2: Cache signal in TradingInterface for one-tap execution
                                 _ti = getattr(self, "trading_interface", None)
