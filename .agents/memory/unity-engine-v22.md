@@ -1,7 +1,32 @@
 ---
-name: Unity Engine v22.0–v39.0 upgrades
-description: v22–v39 key changes: v39.0 stale-comment audit+dead-zone 50min tighten+IRONS tier comment precision; v38.0 institutional profitability surge (9-gate tighten + MaxDD circuit breaker); v37.0 ZERO-BYPASS-STRICT; v33.0 12th GODMODE combo; v27.0 qwen slug fix.
+name: Unity Engine v22.0–v40.0 upgrades
+description: v22–v40 key changes: v40.0 comprehensive stale-value audit (G5/ATR/DEAD_ZONE floor 62→67, EV-cap 24→33.6bps, FLIP ZONE comment fix, Kelly 25%→8%, Gate10 IRONS display, capability checker IRONS+NNRetrain); v39.0 stale-comment audit+dead-zone 50min; v38.0 9-gate tighten.
 ---
+
+## v40.0 Key Changes (deployed 2026-06-02)
+
+### Comprehensive Stale-Value Audit + Display Precision + EV-Cap Recalibration
+
+**Why:** v38.0 raised quality floor from 62→67 and EV_MIN from 20→28bps. Eleven downstream comment/display locations were never updated, causing monitoring confusion (Gate 10 showed IRONS WR<30%→67 instead of 70, Kelly showed Max 25% instead of 8%, capability checker showed IRONS WR<20%→68 instead of 73, FLIP ZONE EV comment still said "relaxation" when code tightens).
+
+**Specific changes (all comment/display — zero logic changes):**
+- `G5_SINGLE_VETO_PENALTY` comment: "quality floor 62, 84+ pts" → "quality floor 67, 89+ pts"
+- `G5_SPLIT_VETO_PENALTY` comment: "quality floor 62, 75+ pts" → "quality floor 67, 80+ pts"
+- `ATR_MAX_QUALITY_PENALTY` comment: "quality floor 62" → "quality floor 67"
+- `DEAD_ZONE_QUALITY_PENALTY` comment: recalibrated rationale for floor=67 (4pt requires≥71)
+- EV stacking-cap comment: "1.20×=24bps" → "1.20×=33.6bps" (EV_MIN=28bps since v38.0)
+- FLIP ZONE EV comment: "7% relaxation" → "7% TIGHTENING" (v18.10 fixed the code; comment lagged 22 versions)
+- G9 tier floor comment: stale 62/58/55 → accurate 72/70/69/68/67 WR-tier values
+- Gate 10 startup display: `WR<30%→67/WR<20%→70` → `WR<30%→70/WR<25%→71.5/WR<20%→73`
+- Kelly startup display: "Max 25% per trade" → "Max 8% per trade (v18.85: 25%→8% RISK FIX)"
+- `kelly_fraction` dataclass comment: `(0–0.25)` → `(0–0.08)`
+- `ai_capability_checker.py` IRONS-sync: `WR<20%→68/WR<30%→65` → `WR<20%→73/WR<25%→71.5/WR<30%→70/WR30-45%→67`
+- `ai_capability_checker.py` EV-flow-fix: `EV_MIN=20bps` → `EV_MIN=28bps stacking-cap 33.6bps`
+- `ai_capability_checker.py` NNRetrain: `v19.6 60min→45min` → `v21.1 45min→30min`
+- Architecture stamp: added `StaleValueAudit[v40.0]` tag
+- `UNITY_VERSION`: "39.0" → "40.0"
+
+**How to apply:** Any future gate threshold change must update ALL of: (1) the constant comment, (2) downstream display/monitoring comments that reference the old floor value, (3) ai_capability_checker.py capability stamp, (4) startup banner logs. A grep for the old numeric value catches most stragglers.
 
 ## v39.0 Key Changes (deployed 2026-06-02)
 

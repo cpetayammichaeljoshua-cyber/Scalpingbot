@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v39.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v40.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -30,7 +30,7 @@ ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v39.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
   IRONS_MIN=70(WR<30%)+73(WR<20%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
@@ -84,6 +84,19 @@ KEY GATES (v39.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v40.0 IMPROVEMENTS: COMPREHENSIVE STALE-VALUE AUDIT + DISPLAY PRECISION + EV-CAP RECALIBRATION:
+    G5_SINGLE_VETO_PENALTY comment: quality floor 62→67, "84+ pts" → "89+ pts" [v40.0] |
+    G5_SPLIT_VETO_PENALTY comment: quality floor 62→67, "75+ pts" → "80+ pts" [v40.0] |
+    ATR_MAX_QUALITY_PENALTY comment: quality floor 62→67 [v40.0] |
+    DEAD_ZONE_QUALITY_PENALTY comment: floor 62→67, ≥66→≥71, recalibrated rationale [v40.0] |
+    EV stacking-cap comment: 24bps→33.6bps (EV_MIN changed 20→28bps at v38.0, comment lagged) [v40.0] |
+    FLIP ZONE EV comment: "7% relaxation" → "7% TIGHTENING" (v18.10 fixed the logic; comment still said relaxation) [v40.0] |
+    G9 tier floor comment: stale floor=62/58/55 → accurate 72/70/69/68/67 WR-tier values [v40.0] |
+    Gate 10 startup display: IRONS WR<30%→67/WR<20%→70 → WR<30%→70/WR<25%→71.5/WR<20%→73 [v40.0] |
+    Kelly display: "Max 25% per trade" → "Max 8% per trade" (KELLY_MAX_FRACTION=0.08 since v18.85) [v40.0] |
+    kelly_fraction dataclass comment: (0–0.25) → (0–0.08) [v40.0] |
+    ai_capability_checker.py: IRONS-sync WR<20%→68/WR<30%→65 → 73/70 + NNRetrain 45min→30min [v40.0] |
+    UNITY_VERSION: 39.0→40.0 [v40.0]
   v39.0 IMPROVEMENTS: STALE-COMMENT AUDIT + DEAD-ZONE TIGHTEN + IRONS-TIER PRECISION + ARCH STAMP:
     Dead-zone drought escape: 2700s→3000s (45min→50min; harder thin-book veto escape) [v39.0] |
       At WR=29.4% EV=-0.314R the 45min escape admitted Asian-session noise after 3 scan cycles;
@@ -818,8 +831,8 @@ SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "67") or 67
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
 # bottleneck, preventing IRONS (Gate 10) from ever activating.  Now converted to
 # a graduated quality penalty so Gate 9 / Gate 10 make the final quality call.
-G5_SINGLE_VETO_PENALTY  = 22.0   # −22pts when lone analyzer disagrees (v18.85: 15→22 — at quality floor 62, a lone-veto signal now needs 84+ pts from other sources to survive; at WR=30.2% directionally ambiguous signals should be hard-rejected; 22pts pushes single-disagreement signals below the raised 62 floor almost universally)
-G5_SPLIT_VETO_PENALTY   = 13.0   # −13pts when analyzers contradict each other (v18.85: 8.5→13 — at quality floor 62, split signals need 75+ pts elsewhere; at WR=30.2% split-veto has empirically 15-20% lower WR than single-veto; 13pts eliminates directionally confused setups while allowing very strong split signals (high HTF/Markov) to survive)
+G5_SINGLE_VETO_PENALTY  = 22.0   # −22pts when lone analyzer disagrees (v18.85: 15→22 — at quality floor 67 (v38.0), a lone-veto signal needs 89+ pts from other sources to survive; at WR=29.4% directionally ambiguous signals should be hard-rejected; 22pts pushes single-disagreement signals below the raised 67 floor almost universally)
+G5_SPLIT_VETO_PENALTY   = 13.0   # −13pts when analyzers contradict each other (v18.85: 8.5→13 — at quality floor 67 (v38.0), split signals need 80+ pts elsewhere; at WR=29.4% split-veto has empirically 15-20% lower WR than single-veto; 13pts eliminates directionally confused setups while allowing very strong split signals (high HTF/Markov) to survive)
 
 # ── GEX (AEGIS) gates ────────────────────────────────────────────────────────
 GEX_MIN_DGRP          = 38       # minimum DGRP score to pass GEX gate (v9.8: 35→38; NEUTRAL/UNKNOWN regime)
@@ -927,7 +940,7 @@ EV_MIN_THRESHOLD      = 0.0028   # v38.0: 22→28bps (+27% EV quality bar) — a
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
 DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "2") or 2)          # 02:00 UTC end (exclusive) [v9.7-C: 3→4; v18.64: 4→3; v18.78: 3→2 — 02h-03h UTC shows WR=26% (above 24% baseline), wrongly hard-vetoed; reducing dead zone by 1hr recovers ~1 valid signal/session during Asian crossover; 00h-01h still valid veto (WR=22-23%)]
-DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "4.0") or 4.0)  # v19.8: 5.0→4.0 — DEAD-ZONE RE-CALIBRATION: at quality floor 62 a 5pt penalty required base quality≥67 which combined with crisis conditions caused extended signal droughts; 4pt requires ≥66 — still meaningfully filters thin-book 00-02h UTC (WR=22-23%) but reduces over-filter risk; SOVEREIGN Markov (+16pts) easily absorbs either penalty; the 1pt reduction is recovered by G3-DroughtRelax and tighter NN gate (0.48) providing equivalent quality assurance; v18.85: 3.0→5.0 was overcorrection
+DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "4.0") or 4.0)  # v19.8: 5.0→4.0 — DEAD-ZONE RE-CALIBRATION: at quality floor 67 (v38.0) a 4pt penalty requires base quality≥71 to pass — filters thin-book 00-04h UTC (WR=22-23%) while avoiding over-filter; SOVEREIGN Markov (+16pts=83+) easily absorbs the penalty; historical context: at old floor=62 a 5pt penalty required≥67 (overcorrection at v18.85); 4pt was stepped down to allow crisis-drought relief; remains correctly calibrated at current floor=67+NN=0.50 combination; v18.85: 3.0→5.0 was overcorrection
 UNITY_DEADZONE_HARD_VETO = os.getenv("UNITY_DEADZONE_HARD_VETO", "1").strip().lower() not in ("0", "false", "no")  # [v9.7-C] block all signals in dead-zone hours [v15.5: default 0→1 — quality analysis showed dead-zone signals (UTC 00-04h) have win rate 8% below prime-session baseline; thin orderbooks cause adverse fill; hard veto eliminates this consistently-losing session window]
 # UTC session bonus hours (active London/NY overlap = higher liquidity)
 SESSION_BONUS_UTC_START = 15     # 15:00 UTC (NY open / London PM) [v18.64: 12→15 — IT dataset: 12h WR=23%, 13h WR=20%/EV=-2.4%, 14h WR=19%/EV=-1.3%; these three hours received false +4pt prime bonus; 15h+ shows WR=24-28% with positive EV; removing 12-14h from prime saves ~3 bad signals/day]
@@ -1258,7 +1271,7 @@ except (ValueError, TypeError):
 # and SL being hit before price reaches TP1.
 ATR_HIGH_VOL_THRESHOLD = 0.025   # ATR > 2.5% of entry = high volatility (v18.85: 0.030→0.025 — tighter vol threshold; at MaxDD=49.37% high-vol entries are a major loss source; 2.5% ATR = 1/3 tighter than before; captures 20% more high-vol setups for penalisation; at typical 15m ATR of 1.5-2.5% for USDM alts this is the institutional prudent threshold)
 ATR_MAX_PENALTY_PCT    = 0.070   # ATR ≥ this → full −25pt quality penalty (v18.85: 0.080→0.070 — activates full penalty sooner in extreme volatility)
-ATR_MAX_QUALITY_PENALTY = 25.0   # maximum quality deduction for extreme vol (v18.85: 20.0→25.0 — harder cap; at quality floor 62 extreme vol must push signals 25pts below baseline to reject; combined with threshold lowering creates tighter vol filter)
+ATR_MAX_QUALITY_PENALTY = 25.0   # maximum quality deduction for extreme vol (v18.85: 20.0→25.0 — harder cap; at quality floor 67 (v38.0) extreme vol must push signals 25pts below baseline to reject; combined with threshold lowering creates tighter vol filter)
 # ── Prompt 2 HTF Trend Alignment scoring (v6.3) ──────────────────────────────
 # When higher-timeframe (1H / 4H) signals agree with the entry direction, add
 # quality bonus.  Trend-following entries have ~15% higher WR than counter-trend
@@ -1286,7 +1299,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "39.0"
+UNITY_VERSION                = "40.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -2339,7 +2352,7 @@ class SignalDecisionVector:
     nn_confidence:               float  # 0–1
     # Composite
     composite_score:             float  # 0–100 unified quality gate score
-    kelly_fraction:              float  # position-size fraction (0–0.25)
+    kelly_fraction:              float  # position-size fraction (0–0.08)
     ev_ratio:                    float  # expected-value ratio after slippage
     decision:                    str    # SEND | REJECT
     reject_reason:               str    # gate label that blocked, or ""
@@ -5028,10 +5041,10 @@ class UnitySignalFilter:
             # v19.5/v18.53: Absolute EV floor stacking cap — prevents multiplicative crisis
             # tiers (Sharpe <-3.5, ATR high-vol, consecutive-loss streak, Sortino <-5)
             # from compounding past 1.20× base before GEX adjustments are applied.
-            # v19.5: cap lowered 1.30→1.20× (EV_MIN=20bps → 1.20×=24bps max).
-            # Pre-v19.5: 1.30×28bps=36.4bps exceeded ALL signal EVs (20-23bps) → zero-flow.
-            # 1.20× cap = 24bps.  GEX FLIP ZONE adds a further +7% → 25.7bps max.
-            # GEX POSITIVE relaxes -10% → 21.6bps min (above base is preserved).
+            # v19.5: cap lowered 1.30→1.20× (at EV_MIN=28bps → 1.20×=33.6bps max [v40.0 recalc]).
+            # Pre-v19.5: 1.30×28bps=36.4bps exceeded ALL signal EVs (20-23bps at old base) → zero-flow.
+            # 1.20× cap = 33.6bps. FLIP ZONE TIGHTENS ×1.07 → 36.0bps max (non-SOVEREIGN) [v18.10 fix].
+            # GEX POSITIVE aligns -10% → 25.2bps minimum (hard floor 80%=22.4bps preserved).
             # This is a hard ceiling on the Sharpe/ATR/streak/Sortino portion only.
             _ev_floor = min(EV_MIN_THRESHOLD * 1.20, _ev_floor)  # v19.5: stacking cap 1.30→1.20× — at EV_MIN=20bps, 1.20×=24bps cap; previously 1.30×28bps=36.4bps exceeded ALL signal EVs (20-23bps) creating structural zero-flow; 1.20× preserves crisis-tier discipline while allowing the 20-23bps signals generated at WR=30% to pass; all tiers above recalibrated proportionally
             # v18.88: VPIN clean-flow EV floor discount — microstructure slippage adjustment.
@@ -5101,8 +5114,10 @@ class UnitySignalFilter:
             # delta-hedging flow acts as a structural tailwind, reducing adverse-selection
             # risk and improving fill probability at TP1.  This justifies a 10% relaxation
             # of the EV floor for directionally aligned trades (conf ≥ 40 required).
-            # FLIP ZONE signals get a smaller 7% relaxation (high vol, unreliable fills).
-            # Hard lower bound: 80% of base EV_MIN_THRESHOLD prevents over-relaxation.
+            # FLIP ZONE signals get a 7% TIGHTENING (high vol, unknown dealer direction).
+            # [v18.10 CRITICAL FIX: old comment said "relaxation" — the code was corrected to
+            # TIGHTEN ×1.07 at v18.10; SOVEREIGN exception: ×0.95 relax when p_ij≥0.87.]
+            # Hard lower bound: 80% of base EV_MIN_THRESHOLD; ceiling 160% for adverse selection.
             # Net effect on today's BTCUSDT example (EV=0.301%, floor=0.360%):
             #   Aligned floor → 0.360% × 0.90 = 0.324%.  Borderline signals in 0.32-0.36%
             #   range pass; chronic EV deficits (EV<0.310%) correctly continue to fail.
@@ -7410,9 +7425,9 @@ class UnitySignalFilter:
 
         # ── Gate 9 — Composite quality floor (adaptive v11.3, base v5.8) ──────
         # v11.3: Floor now scales with demonstrated WR (mirrors IRONS adaptive floor).
-        # At WR<30%, signals scraping through at 55 are overwhelmingly losers —
-        # raise bar to 65 to enforce EV-positive selection discipline.
-        # At WR 30-40%: floor=62.  At WR 40-50%: floor=58.  Above 50%: base (55).
+        # WR-tier adaptive floors (v38.0 recalibrated for base=67):
+        # WR<20%: floor=72. WR<25%: floor=70. WR<30%: floor=69. WR<35%: floor=68.
+        # WR 35-50%: base=67. Recovery bonus at WR≥42%+Sharpe>0: floor−1pt. [v38.0]
         _g9_floor = float(SIGNAL_MIN_QUALITY_GATE)
         if self._booster is not None:
             _g9_ring = self._booster._win_ring
@@ -11169,7 +11184,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v33.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-PHI4-NOIX·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v33.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-PHI4-NOIX·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -11207,11 +11222,11 @@ class UnityEngine:
         logger.info(f"   Gate 8.5— Dyn Backtester     {_dbt_status}  ← per-symbol 15m proxy strategy backtest, refresh @1800s [v10.0]")
         logger.info(f"   Gate 8.5— MiroFish Sim Bias  {_msim_status}  ← 10-agent swarm simulation, fallback when DYN_BACKTEST has <{UNITY_DBT_MIN_TRADES} trades [v10.0]")
         logger.info(f"   Gate 9  — Quality Floor      ≥ {SIGNAL_MIN_QUALITY_GATE:.0f}/100 composite score")
-        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-70/100 WR-driven [v21.1: WR<30%→67, WR<20%→70]")
+        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-73/100 WR-driven [v38.0: WR<30%→70 | WR<25%→71.5 | WR<20%→73 | WR30-45%→67]")
         logger.info(f"   Layer 2.7 UT Bot Strategy    {_utbot_status}  ← UT Bot Alerts + STC confirmation [v6.0]")
         logger.info("")
         logger.info("💰 KELLY CRITERION:")
-        logger.info("   f* = (p×b − q) / b  |  Half-Kelly safety cap  |  Max 25% per trade")
+        logger.info("   f* = (p×b − q) / b  |  Half-Kelly safety cap  |  Max 8% per trade (v18.85: 25%→8% RISK FIX)")
         logger.info("")
         logger.info("🧠 5-BUCKET RL + CONSEC-LOSS CB + WIN-STREAK BONUS (v6.0):")
         logger.info("   WR < 30% → +1.5%   WR 30-45% → +0.5%   WR 45-60% → ±0%   [v11.2/v11.5: anti-starvation buckets]")

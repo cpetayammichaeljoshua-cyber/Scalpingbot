@@ -184,13 +184,13 @@ class AICapabilityChecker:
             "task-auditor-fix=ACTIVE(v19.2 Task-prefix+watched_task-inner-names exempted) | "
             "Kelly24-DeepDD-CB=ACTIVE(v19.3 MaxDD>40%+Calmar<0→×0.65/Sharpe<-4→×0.80) | "
             "HMM21-recal=ACTIVE(v19.3 EXPANSION×1.25 P≥0.75+SR≥0/CONTRACTION×0.60 P≥0.65) | "
-            "IRONS-sync=ACTIVE(v19.4 Bayes×0.85+ring×0.15 blend WR<20%→68/WR<30%→65) | "
+            "IRONS-sync=ACTIVE(v40.0 Bayes×0.85+ring×0.15 blend WR<20%→73/WR<25%→71.5/WR<30%→70/WR30-45%→67) | "
             "shadow-mode-fix=ACTIVE(v19.4 Bayesian-blend WR paper_mode threshold=0.27) | "
-            "EV-flow-fix=ACTIVE(v19.5 EV_MIN=20bps stacking-cap=1.20× drought-3×faster Step4b-Bayes) | "
+            "EV-flow-fix=ACTIVE(v38.0 EV_MIN=28bps stacking-cap=1.20×=33.6bps drought-3×faster Step4b-Bayes) | "
             "G9-SovRecovery-fix=ACTIVE(v19.6 Bayes-blend+threshold 38%→28%) | "
             "LLM-free-fast-path=ACTIVE(v19.6 skip paid burn-in cold-start) | "
             "NN-focal-gamma=ACTIVE(v19.6 2.0→2.5 max-class-weight 3.0→4.0) | "
-            "NNRetrain=ACTIVE(v19.6 60min→45min interval)"
+            "NNRetrain=ACTIVE(v21.1 45min→30min interval)"
         )
 
         component_results: Dict[str, CapabilityResult] = {}
