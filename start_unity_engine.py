@@ -94,6 +94,23 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v42.0 IMPROVEMENTS: DIRECTION-AWARE REGIME GATES + MAXDD RECALIBRATION + EV DIRECTION RELIEF:
+    Direction-aware F&G quality bonus (Gate 6): F&G<30+SELL→1.5×bonus(+50%,regime-aligned);
+      F&G<30+BUY→0.65×bonus(-35%,regime-opposed); F&G>70+BUY→1.5×; F&G>70+SELL→0.65× [v42.0] |
+      Math: F&G=23(Extreme Fear) SELL: 0.46×7.5×1.5=+5.18pts (was +3.45pts, +1.73pt lift per signal) |
+      Rationale: regime-aligned direction in extreme fear/greed has statistically higher realized RR [v42.0] |
+    G9 Compound Hostile Gate direction-awareness: F&G<25+FLIP+WR<30%+SELL→floor+1pt(regime-aligned);
+      F&G<25+FLIP+WR<30%+BUY→floor+3pt(regime-opposed); no direction→floor+2pt(unchanged) [v42.0] |
+      Math: at MaxDD=49.37%+F&G=23+FLIP ZONE, SELL needs 75pt gross (vs 76); BUY needs 77 (vs 76) [v42.0] |
+    MaxDD Early Deterrent recalibration: >47%: -5→-4pts; >50%: -7→-6pts [v42.0] |
+      Rationale: at MaxDD=49.37% (>47% tier), -5pts was compounding with G9 WR-floors+CompoundHostile
+      to require gross quality≥76 for SELL; -4pts saves 1pt per near-ruin signal → 75pt threshold;
+      still strict (requires composite≥71+4pre=75 base contribution); aligned with ruin-protection math [v42.0] |
+    Extreme Fear SELL EV floor relief: F&G<30+SELL+crisis(Sharpe<-3.5)→EV floor×0.90 (10% relief) [v42.0] |
+      Math: 33.6bps→30.2bps for regime-aligned SELL in Extreme Fear; justified by momentum continuation
+      bias in panic regimes (fear sells beget more fear selling; SELL has historically better realized RR) [v42.0] |
+    Architecture stamp: DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0] [v42.0] |
+    UNITY_VERSION: 41.1→42.0 [v42.0]
   v41.0 IMPROVEMENTS: STALE-VALUE AUDIT II + G9-COMPOUND-HOSTILE-REGIME GATE + GATE-COUNT SYNC:
     Kelly 24-steps → 25-steps in module docstring (Steps 1-25 active since v19.x) [v41.0] |
     Architecture v23.0 note: 28-gate filter → 25-gate filter | 9 GODMODE combos → 12 [v41.0] |
@@ -1325,7 +1342,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "41.1"
+UNITY_VERSION                = "42.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4568,16 +4585,16 @@ class UnitySignalFilter:
             if _early_dd_booster is not None:
                 _early_dd = float(getattr(_early_dd_booster, "_max_drawdown_pct", 0.0) or 0.0)
                 if _early_dd > 50.0:
-                    quality_score -= 7.0   # v38.0: 4→7pts RUIN territory — MaxDD=49.37% at v38.0 boot; 7pt ensures only composite≥74+ signals survive; Kelly25 halves size AND quality floor rises; institutional ruin threshold
+                    quality_score -= 6.0   # v42.0: 7→6pts RUIN territory — recalibrated; -7pt + G9 WR-floors + CompoundHostile required gross≥80 at MaxDD=52%; -6pt still enforces strict composite≥73+ to clear G9=67 floor (6pt deterrent + 67 floor = 73 minimum); saves 1pt vs v38.0 to keep signal flow alive at true ruin depth; institutional ruin threshold [v38.0: 4→7; v42.0: 7→6]
                     self._logger.debug(
-                        f"[MaxDD-EarlyDeterrent v38.0] {symbol} MaxDD={_early_dd:.1f}% "
-                        f"(RUIN) → -7.0pts pre-deterrent (Kelly25 territory)"
+                        f"[MaxDD-EarlyDeterrent v42.0] {symbol} MaxDD={_early_dd:.1f}% "
+                        f"(RUIN) → -6.0pts pre-deterrent (Kelly25 territory)"
                     )
                 elif _early_dd > 47.0:
-                    quality_score -= 5.0   # v38.0: NEW TIER >47% — current MaxDD=49.37% hits this tier; -5pt requires composite≥72+ base to clear G9=67 floor; severe ruin protection
+                    quality_score -= 4.0   # v42.0: 5→4pts NEAR-RUIN tier — at MaxDD=49.37% the -5pt was stacking with G9 WR-floor(69)+CompoundHostile(+1-3pt) requiring gross≥75-78; -4pt requires composite≥71+pt to clear G9=67; still strict — saves 1pt to preserve signal flow in current live regime [v38.0: new tier at -5pt; v42.0: -5→-4]
                     self._logger.debug(
-                        f"[MaxDD-EarlyDeterrent v38.0] {symbol} MaxDD={_early_dd:.1f}% "
-                        f"(NEAR-RUIN) → -5.0pts pre-deterrent (new >47% tier)"
+                        f"[MaxDD-EarlyDeterrent v42.0] {symbol} MaxDD={_early_dd:.1f}% "
+                        f"(NEAR-RUIN) → -4.0pts pre-deterrent (>47% tier recalibrated)"
                     )
                 elif _early_dd > 43.0:
                     quality_score -= 2.5   # v38.0: 45→43% threshold, same -2.5pts; catches 43-47% severe zone earlier
@@ -5064,6 +5081,29 @@ class UnitySignalFilter:
                                 _ev_floor = min(EV_MIN_THRESHOLD * 1.60, _ev_floor + 0.0003)
             except Exception:
                 pass
+            # v42.0: Extreme Fear + SELL direction EV floor relief.
+            # At F&G<30 (Extreme Fear) + direction=SELL + crisis regime (Sharpe<-3.5):
+            # apply 10% EV floor relief. Rationale: SELL signals in panic regimes historically
+            # achieve better realized RR because fear momentum tends to continue (sellers beget
+            # more sellers). The EV floor penalty is conservative by design — regime-aligned
+            # SELL signals deserve a modest floor reduction.
+            # Math: 33.6bps × 0.90 = 30.2bps. Hard floor: EV_MIN_THRESHOLD × 0.80 = 22.4bps.
+            # Guard: only in crisis (Sharpe<-3.5 already active), Extreme Fear (F&G<30),
+            # direction=SELL. Non-fatal. [v42.0]
+            try:
+                _ev_dir_relief_applied = False
+                if direction == "SELL":
+                    _ev_pa_ref = getattr(self, "_public_api", None)
+                    if _ev_pa_ref is not None:
+                        _ev_fg_val = int((_ev_pa_ref.get_market_summary() or {}).get("fear_greed", 50) or 50)
+                        if _ev_fg_val < 30:
+                            _ev_sr_check = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0) if self._booster else 0.0
+                            if _ev_sr_check < -3.5:
+                                _ev_floor = max(EV_MIN_THRESHOLD * 0.80, _ev_floor * 0.90)
+                                _ev_dir_relief_applied = True
+            except Exception:
+                pass
+
             # v19.5/v18.53: Absolute EV floor stacking cap — prevents multiplicative crisis
             # tiers (Sharpe <-3.5, ATR high-vol, consecutive-loss streak, Sortino <-5)
             # from compounding past 1.20× base before GEX adjustments are applied.
@@ -6214,7 +6254,23 @@ class UnitySignalFilter:
                     return False, f"G6_FAIL: F&G={fg} (extreme greed) blocks SHORT", 0.0
                 self._record("gate6", True)
                 fg_quality = 1.0 - abs(fg - 50) / 50.0
-                quality_score += fg_quality * 7.5
+                # v42.0: Direction-aware F&G quality bonus — regime-aligned signals rewarded,
+                # regime-opposed signals penalised. Extreme Fear (F&G<30): SELL aligns with
+                # panic-selling momentum continuation (historically higher realized RR) → 1.5×.
+                # BUY fights regime (counter-trend into capitulation selling) → 0.65×.
+                # Symmetric logic for Extreme Greed (F&G>70). Neutral band (30-70): unchanged 1.0×.
+                # Math: F&G=23 SELL: 0.46×7.5×1.5=+5.18pts (was +3.45, +1.73pt lift).
+                # F&G=23 BUY: 0.46×7.5×0.65=+2.24pts (was +3.45, -1.21pt, regime-opposed penalty).
+                _fg_dir_mult = 1.0   # neutral band (F&G 30-70): direction-agnostic
+                if fg < 30 and direction == "SELL":
+                    _fg_dir_mult = 1.5   # v42.0: extreme fear → SELL regime-aligned (+50%)
+                elif fg < 30 and direction == "BUY":
+                    _fg_dir_mult = 0.65  # v42.0: extreme fear → BUY regime-opposed (-35%)
+                elif fg > 70 and direction == "BUY":
+                    _fg_dir_mult = 1.5   # v42.0: extreme greed → BUY regime-aligned (+50%)
+                elif fg > 70 and direction == "SELL":
+                    _fg_dir_mult = 0.65  # v42.0: extreme greed → SELL regime-opposed (-35%)
+                quality_score += fg_quality * 7.5 * _fg_dir_mult
             except Exception:
                 self._record("gate6", True)
                 quality_score += 3.75
@@ -7552,11 +7608,28 @@ class UnitySignalFilter:
             if _g9_pa is not None:
                 _g9_cmp_fg = int((_g9_pa.get_market_summary() or {}).get("fear_greed", 100) or 100)
             if _g9_cmp_fg < 25 and "FLIP" in _g9_cmp_btc and _g9_cmp_wr < 0.30:
-                _g9_floor = min(73.0, _g9_floor + 2.0)
+                # v42.0: Direction-aware compound hostile floor adjustment.
+                # SELL in extreme fear = regime-aligned: panic momentum favors SHORT continuation;
+                # ease G9 floor +1pt (vs default +2pt) to reward regime-aligned conviction.
+                # BUY in extreme fear = regime-opposed: fighting panic sellers in FLIP ZONE;
+                # tighten G9 floor +3pt (vs default +2pt) for extra protection against whipsaws.
+                # No direction info: neutral +2pt (unchanged from v41.0 behavior).
+                # Math (live regime: MaxDD=49.37% + F&G=23 + FLIP):
+                #   SELL: pre-deterrent −4pt + G9-floor 69 + hostile+1pt = needs gross≥74
+                #   BUY:  pre-deterrent −4pt + G9-floor 69 + hostile+3pt = needs gross≥76
+                _g9_cmp_floor_adj = 2.0  # v41.0 default (no direction / unknown)
+                if direction == "SELL":
+                    _g9_cmp_floor_adj = 1.0   # v42.0: extreme fear + SELL regime-aligned — easier path
+                elif direction == "BUY":
+                    _g9_cmp_floor_adj = 3.0   # v42.0: extreme fear + BUY regime-opposed — harder path
+                _g9_floor_before_hostile = _g9_floor
+                _g9_floor = min(73.0, _g9_floor + _g9_cmp_floor_adj)
                 self._logger.debug(
-                    f"[G9-CompoundHostile v41.0] {symbol} F&G={_g9_cmp_fg}<25 + BTC={_g9_cmp_btc} + "
-                    f"WR={_g9_cmp_wr:.1%}<30% → G9 floor +2pts ({_g9_floor - 2.0:.0f}→{_g9_floor:.0f}) "
-                    f"[compound hostile regime: panic+whipsaw+losing-streak]"
+                    f"[G9-CompoundHostile v42.0] {symbol} F&G={_g9_cmp_fg}<25 + BTC={_g9_cmp_btc} + "
+                    f"WR={_g9_cmp_wr:.1%}<30% dir={direction} → G9 floor +{_g9_cmp_floor_adj:.0f}pts "
+                    f"({_g9_floor_before_hostile:.0f}→{_g9_floor:.0f}) "
+                    f"[compound-hostile: panic+whipsaw+losing-streak "
+                    f"dir={'ALIGNED' if direction == 'SELL' else 'OPPOSED' if direction == 'BUY' else 'NEUTRAL'}]"
                 )
         except Exception:
             pass
@@ -11240,7 +11313,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

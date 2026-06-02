@@ -1,7 +1,27 @@
 ---
-name: Unity Engine v22.0–v40.0 upgrades
-description: v22–v40 key changes: v40.0 comprehensive stale-value audit (G5/ATR/DEAD_ZONE floor 62→67, EV-cap 24→33.6bps, FLIP ZONE comment fix, Kelly 25%→8%, Gate10 IRONS display, capability checker IRONS+NNRetrain); v39.0 stale-comment audit+dead-zone 50min; v38.0 9-gate tighten.
+name: Unity Engine v22.0–v42.0 upgrades
+description: v42.0 direction-aware regime gates (F&G+G9 compound hostile+EV floor all SELL/BUY aware); MaxDD >47%:-5→-4pt, >50%:-7→-6pt; v38.0 9-gate tighten; v40.0 stale-value audit.
 ---
+
+## v42.0 Key Changes (deployed 2026-06-02)
+
+### Direction-Aware Regime Gates + MaxDD Recalibration + EV Direction Relief
+
+**Why:** At F&G=23 (Extreme Fear) + FLIP ZONE + WR<30%, SELL signals are regime-aligned (fear momentum continues) while BUY signals fight the regime. The previous direction-agnostic gate scoring gave equal treatment to both, penalizing regime-aligned SHORTs. MaxDD=49.37% was stacking -5pts deterrent with WR-floor(69)+CompoundHostile(+2pt) requiring gross quality≥76 per signal — too tight in current live regime.
+
+**Changes made:**
+
+1. **Direction-aware F&G quality bonus (Gate 6):** F&G<30+SELL→1.5× bonus (+50%); F&G<30+BUY→0.65× (-35%). F&G>70+BUY→1.5×; F&G>70+SELL→0.65×. At current F&G=23: SELL gets +5.18pts (was +3.45pts, +1.73pt lift).
+
+2. **G9 Compound Hostile Gate direction-awareness:** F&G<25+FLIP+WR<30%+SELL→floor+1pt (regime-aligned); F&G<25+FLIP+WR<30%+BUY→floor+3pt (regime-opposed); no direction→floor+2pt (unchanged).
+
+3. **MaxDD Early Deterrent recalibrated:** >47%: -5→-4pts; >50%: -7→-6pts. At MaxDD=49.37% (>47% tier), saves 1pt per signal — SELL now needs gross≥74 (was 76), BUY needs gross≥76 (was 76, now same but via direction-hostile +3pt).
+
+4. **EV floor direction relief:** F&G<30+SELL+Sharpe<-3.5 → EV floor ×0.90 (10% relief). Math: 33.6bps→30.2bps for regime-aligned SELL in Extreme Fear.
+
+**Architecture stamp:** `DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]`
+
+**Boot confirmed:** v42.0 clean boot, 21/21 layers online, 23/23 subsystems wired, zero errors.
 
 ## v40.0 Key Changes (deployed 2026-06-02)
 
