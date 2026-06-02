@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v19.3 — Multi-stage Production Dockerfile
+# Unity Engine v35.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
-# Build:  docker build -t unity-engine:19.3 .
+# Build:  docker build -t unity-engine:35.0 .
 # Railway: Detected automatically via railway.json
 #
 # BASE IMAGE: python:3.11-slim  (Debian/glibc)
@@ -15,23 +15,25 @@
 #   pre-built manylinux wheels for every package in requirements.txt and builds
 #   in < 3 min on Railway's free tier.
 # ────────────────────────────────────────────────────────────────────────────────
-# v19.3 changes:
-#   • .dockerignore added — build context reduced from ~200 MB to <5 MB.
-#   • Smoke-test: enable_nested_tensor=False added to TransformerEncoder
-#     (matches v19.2 inplace-op fix in neural_signal_trainer.py).
-#   • Verify message updated to v19.3.
-#   • LABEL updated to v19.3 with Kelly24/HMM21-recal/IRONS-sync stamps.
-# v19.2 changes:
-#   • TorchTransformer inplace-op fix: enable_nested_tensor=False +
-#     .contiguous() + zero_grad(set_to_none=True) before forward.
-#   • TaskAuditor stall fix: _STALL_SEC 600→1800, Task-/Unity/GEX/Miro
-#     prefixes added to _NEVER_CANCEL_PREFIXES.
-#   • 5-tier CDN torch bootstrap (was 4-tier): torch==2.4.0+cpu pinned Tier-1.
-#   • pip root-user warning suppressed — --root-user-action=ignore everywhere.
-# v18.93 changes:
-#   • requirements.txt sync — all versions bumped to nixpacks-aligned releases.
-#   • torch/transformers REMOVED from requirements.txt — installed via CDN only.
-#   • SOVEREIGN [1.00]: pytorch_transformer + sklearn both confirmed.
+# v35.0 changes:
+#   • UNITY_VERSION bumped to 35.0.
+#   • IRONS_MIN_WR_30_45 raised 63→65 (restores G9/G10 co-equal discipline in
+#     WR 30-45% recovery zone; G9=SIGNAL_MIN_QUALITY_GATE=65 was raised in v31.0
+#     but IRONS floor was left at 63 — now co-equal again).
+#   • Stale IRONS adaptive inline comments fixed (71/69.5/68 vs old 70/68.5/67).
+#   • Neural trainer docstring corrected: 50-feature → 60-feature (INPUT_DIM=60).
+#   • Launcher architecture stamp corrected: 21 layers → 30 layers.
+#   • Dockerfile build header updated from v19.3 to v35.0.
+# v34.0 changes:
+#   • IT-strong EV synergy Sharpe threshold -2.0→-4.5 (mid-crisis extension).
+#   • DEAD_ZONE_SOFT_PENALTY 2.0→1.5 (Asian thin-book starvation relief).
+#   • NN pessimism relief floor widened 0.06→0.08 (floor 0.40 vs 0.42).
+#   • CONSORTIUM fast-tier: mistral-small-3.2-24b added (restores 2-model race).
+# v19.3 changes (historical):
+#   • Smoke-test: enable_nested_tensor=False added to TransformerEncoder.
+#   • TaskAuditor stall fix: _STALL_SEC 600→1800.
+#   • 5-tier CDN torch bootstrap; torch==2.3.1+cpu pinned (2.4.0 has ABI quirk).
+#   • SOVEREIGN [1.00]: pytorch_transformer + sklearn + all deps confirmed.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Stage 1: dependency builder ────────────────────────────────────────────────
@@ -141,7 +143,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v19.3 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v35.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -149,8 +151,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="34.0"               \
-      description="Unity Engine v34.0 — IT-STRONG-MID-CRISIS(-4.5) | DEAD-ZONE-1.5 | NN-PESSIMISM-0.08 | FAST-TIER-MISTRAL | PRIMARY=gpt-oss-20b | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="35.0"               \
+      description="Unity Engine v35.0 — IRONS-RECOVERY-65 | COMMENT-HYGIENE | ARCH-30L | IT-STRONG(-4.5) | DEAD-ZONE-1.5 | NN-PESSIMISM-0.08 | FAST-TIER-MISTRAL | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

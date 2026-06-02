@@ -2,7 +2,7 @@
 """
 NeuralSignalTrainer — Self-learning signal quality filter for MiroFish Swarm.
 
-Architecture  : 50-feature input → Dense(128, ReLU) → Dense(64, ReLU)
+Architecture  : 60-feature input → Dense(128, ReLU) → Dense(64, ReLU)
                 → Dense(32, ReLU) → Dense(1, Sigmoid)
 Optimizer     : Adam with L2 regularisation + dropout (training only)
 Loss          : Focal BCE with dynamic class-weighting (adapts to actual W/L ratio)

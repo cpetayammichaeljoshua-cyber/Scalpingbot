@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v30.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v35.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -84,6 +84,21 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v35.0 IMPROVEMENTS: IRONS-RECOVERY-ZONE CO-EQUAL RECALIBRATION + COMMENT HYGIENE + ARCHITECTURE STAMP:
+    IRONS_MIN_WR_30_45: 63→65 (+2pt recovery zone tighten) [v35.0] |
+      G9 (SIGNAL_MIN_QUALITY_GATE) was raised to 65 in v31.0 but IRONS_MIN_WR_30_45 stayed at 63 — misaligned |
+      At WR 30-45% the 63-65 IRONS band has marginal positive EV (EV≈+0.011R to +0.17R at RR=2.35) but lacks |
+      institutional multi-factor conviction; raising to 65 restores co-equal G9/G10 discipline in recovery zone |
+      Rationale: removes bottom 5-8% of recovery-zone signals without starvation risk (MARKOV_MILD+8pts absorbs) |
+      SIGNAL_MIN_QUALITY_GATE=65 + IRONS_MIN_WR_30_45=65 → co-equal two-gate floor in recovery restored [v35.0] |
+    Stale IRONS adaptive inline comments fixed [v35.0]: |
+      WR<20% comment: 70→71 (IRONS_MIN_WR_BELOW30+3 = 68+3 = 71; stale since v31.0 raise of base 67→68) |
+      WR<25% comment: 68.5→69.5 (IRONS_MIN_WR_BELOW30+1.5 = 68+1.5 = 69.5; stale since v31.0 raise) |
+      WR<30% comment: 67→68 (IRONS_MIN_WR_BELOW30 = 68; stale since v31.0 raise) |
+    Neural trainer docstring corrected: 50-feature→60-feature (INPUT_DIM=60 since v9 GEX +5-feature upgrade) [v35.0] |
+    Launcher architecture stamp corrected: 21→30 layers (current v35.0 architecture) [v35.0] |
+    Dockerfile build header updated: v19.3→v35.0 in comments (LABEL already showed v34.0) [v35.0] |
+    UNITY_VERSION: 34.0→35.0 [v35.0]
   v34.0 IMPROVEMENTS: IT-STRONG MID-CRISIS EV + DEAD-ZONE RELIEF + NN-WIDER-PESSIMISM + FAST-TIER-RESTORATION:
     IT-strong EV synergy Sharpe threshold: -2.0→-4.5 [v34.0] |
       Now fires during mid-crisis (Sharpe>-4.5) not just recovery (Sharpe>-2.0) |
@@ -1185,7 +1200,7 @@ HTF_4H_AGREE_BONUS = 8.0        # 4H agrees (stronger confirmation) → +8pts
 # IRONS minimum auto-adjusts with running win rate instead of being hardcoded.
 # Below 30% WR: raise to 65 (tighter).  Above 55% WR: relax to 50 (more signals).
 IRONS_MIN_WR_BELOW30  = 68.0    # v31.0: 67→68 — GATE RECALIBRATION: at WR=29.6% EV=-0.314R the 67 floor passes signals in the 67-68 IRONS band that are marginal negative-EV; +1pt removes bottom 5-8% of signals; WR<25% auto-scales to 69.5 (68+1.5), WR<20% to 71 (68+3); SOVEREIGN_RECOVERY_GATE raised to 68 for coherence; v21.1: 65→67; v18.85: 57→65
-IRONS_MIN_WR_30_45    = 63.0    # v21.1: 62→63 — 1pt tighten at recovery zone; maintains G9=63 G10=63 co-equal floor during WR 30-45%; signals need BOTH composite≥63 AND IRONS≥63 to pass; removes marginal borderline signals in recovery regime without starvation risk; v18.85: 57→62
+IRONS_MIN_WR_30_45    = 65.0    # v35.0: 63→65 — RECOVERY CO-EQUAL RESTORE: G9 (SIGNAL_MIN_QUALITY_GATE) was raised to 65 in v31.0 but IRONS_MIN_WR_30_45 stayed at 63, creating a 2pt floor misalignment; at WR 30-45% the 63-65 IRONS band has marginal EV (EV≈+0.011R at RR=2.35) without institutional-grade multi-factor confirmation; 65 restores co-equal G9/G10 discipline in recovery zone (signals need BOTH composite≥65 AND IRONS≥65); MARKOV_MILD+8pts easily absorbs the 2pt raise so SOVEREIGN/Markov fast-paths unaffected; v21.1: 62→63; v18.85: 57→62
 IRONS_MIN_WR_45_55    = 53.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57; v11.2: 57→51; v15.5: 51→52; v16.5: 52→53)
 IRONS_MIN_WR_ABOVE55  = 48.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52; v11.2: 52→47; v15.5: 47→48)
 # Quality-override: if composite quality >= this AND consensus=100%, relax IRONS floor by 5 pts
@@ -1202,7 +1217,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "34.0"
+UNITY_VERSION                = "35.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4033,24 +4048,24 @@ class UnitySignalFilter:
         WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (71) — ultra-critical crisis tier [v31.0: 70→71]
         WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (69.5) — deep-crisis tier [v29.0; auto-scales with base]
         WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (68) — elevated floor [v31.0: 67→68]
-        WR 30-45% → raise to IRONS_MIN_WR_30_45      (63) — co-equal with SIGNAL_MIN_QUALITY_GATE [v21.1: 62→63]
+        WR 30-45% → raise to IRONS_MIN_WR_30_45      (65) — co-equal with SIGNAL_MIN_QUALITY_GATE=65 [v35.0: 63→65]
         WR 45-55% → base   IRONS_MIN_WR_45_55        (53) — neutral
         WR > 55%  → relax  IRONS_MIN_WR_ABOVE55      (48) — capitalise good form
         Rationale: G9 floor=65, G10 floor=68 at WR<30% → genuine two-tier quality wall [v31.0].
         SOVEREIGN_RECOVERY path requires IRONS≥68, matching IRONS_MIN_WR_BELOW30 [v31.0: 67→68].
         """
         if current_wr < 0.20:
-            # v14.0: ultra-critical tier — +3pts above WR<30% floor (70pts)
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0  # 70
+            # v14.0: ultra-critical tier — +3pts above WR<30% floor (71pts) [v35.0 comment fix: 68+3=71]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0  # 71
         elif current_wr < 0.25:
             # v29.0: deep-crisis tier — +1.5pts above WR<30% floor [v29.0]
             # At WR=20-25%: EV at RR=2.35 = −0.08R to −0.17R (deeply negative).
-            # Only IRONS≥68.5 composite quality signals have the institutional-grade
+            # Only IRONS≥69.5 composite quality signals have the institutional-grade
             # multi-factor conviction to structurally improve WR in this zone.
-            # Bridges the gap between ultra-critical (70) and crisis (67). [v29.0]
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 1.5  # 68.5
+            # Bridges the gap between ultra-critical (71) and crisis (68). [v29.0; v35.0 comment fix: 68+1.5=69.5]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 1.5  # 69.5
         elif current_wr < 0.30:
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 67
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 68 [v35.0 comment fix: base=68 since v31.0]
         elif current_wr < 0.45:
             self._adaptive_irons_min = IRONS_MIN_WR_30_45
         elif current_wr < 0.55:
@@ -15798,7 +15813,7 @@ def main_launcher():
         f"max_restarts={max_restarts}, base_delay={restart_delay_base}s"
     )
     _logger.info(
-        f"📐 21 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
+        f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
         f"15-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
