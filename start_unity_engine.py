@@ -84,6 +84,21 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v36.0 IMPROVEMENTS: CRITICAL ENV-OVERRIDE GATE FIXES + OPENROUTER TIMEOUT STREAK + NIXPACKS HYGIENE:
+    UNITY_NN_GATE env fix: 0.35→0.48 [v36.0] |
+      .replit userenv had UNITY_NN_GATE="0.35" overriding code constant NN_WIN_PROB_GATE=0.48 at runtime |
+      Actual G4 gate was running at 35% win-prob threshold (vs designed 48%) — 13pp gap → noise signals passed |
+      Fix: env corrected to "0.48"; G4 now enforces designed threshold; directly improves win rate [v36.0] |
+    IRONS_MIN_SCORE env fix: 62→50 [v36.0] |
+      .replit userenv had IRONS_MIN_SCORE="62" as base floor, killing the WR-relaxed tiers: |
+        WR 45-55% tier (adaptive=53) was floored at max(62,48)=62 — never relaxed during hot form |
+        WR >55%  tier (adaptive=48) was floored at max(62,43)=62 — capitalise-form mode disabled |
+      Fix: env corrected to "50" (code design base); adaptive WR-tiers now function as designed [v36.0] |
+    OpenRouter timeout streak tracking added [v36.0] |
+      Before: asyncio.TimeoutError → 60s cooldown then retry forever (model can stall indefinitely) |
+      After: 3 consecutive timeouts → 180s soft-disable; streak resets on first success [v36.0] |
+    nixpacks.toml verify string version: v19.2→v36.0 [v36.0] |
+    UNITY_VERSION: 35.0→36.0 [v36.0]
   v35.0 IMPROVEMENTS: IRONS-RECOVERY-ZONE CO-EQUAL RECALIBRATION + COMMENT HYGIENE + ARCHITECTURE STAMP:
     IRONS_MIN_WR_30_45: 63→65 (+2pt recovery zone tighten) [v35.0] |
       G9 (SIGNAL_MIN_QUALITY_GATE) was raised to 65 in v31.0 but IRONS_MIN_WR_30_45 stayed at 63 — misaligned |
@@ -1217,7 +1232,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "35.0"
+UNITY_VERSION                = "36.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────

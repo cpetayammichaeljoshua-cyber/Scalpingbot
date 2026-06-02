@@ -1163,6 +1163,12 @@ class G0DM0D3Engine:
         # This breaks the previous loop: model_disabled(30s) → re-enable → fail again immediately.
         self._generic_error_counts: Dict[str, int] = {}  # model → consecutive generic failures
 
+        # TimeoutStreakGuard [v36.0]: tracks consecutive asyncio.TimeoutError per model.
+        # Before: each timeout → 60s cooldown then retry indefinitely (stall-loop risk).
+        # After: 3 consecutive timeouts → 180s soft-disable; resets on first success.
+        # Prevents unresponsive/overloaded models from blocking ULTRAPLINIAN cascade.
+        self._model_timeout_streaks: Dict[str, int] = {}  # model → consecutive timeout count
+
         # Auto-reset cooldown guard: tracks when we last reset each tier group.
         # v5.5 FIX: MUST be initialised with time.monotonic() for ALL tier keys — NOT an empty dict.
         # With empty dict, _last_tier_reset.get(tier_key, 0.0) returns 0.0, and since
@@ -1442,6 +1448,7 @@ class G0DM0D3Engine:
         """Reset ALL error counters on success — clean slate for this model."""
         self._model_error_counts.pop(model, None)
         self._generic_error_counts.pop(model, None)   # reset GenericErrGuard counter
+        self._model_timeout_streaks.pop(model, None)  # reset TimeoutStreakGuard [v36.0]
         self._last_successful_call_time = time.monotonic()
         self._recent_success_model      = model
 
@@ -1617,6 +1624,17 @@ class G0DM0D3Engine:
             latency_ms = (time.monotonic() - t0) * 1000.0
             self.logger.debug(f"⏱️ GODMOD3: {model} timeout {latency_ms:.0f}ms")
             self._record_model_error(model, _ERR_TIMEOUT)
+            # TimeoutStreakGuard [v36.0]: escalate to 180s soft-disable after 3 consecutive timeouts.
+            # Single timeouts are transient (server load); 3-streak signals model is unresponsive.
+            _ts = self._model_timeout_streaks.get(model, 0) + 1
+            self._model_timeout_streaks[model] = _ts
+            if _ts >= 3:
+                self._disable_model_immediate(model, "soft", 180.0)
+                self._model_timeout_streaks[model] = 0   # reset after escalation
+                self.logger.warning(
+                    f"⏳ GODMOD3: {model} timeout×{_ts} streak → disabled 180s "
+                    f"[TimeoutStreakGuard v36.0]"
+                )
             return ModelRaceResult(
                 model=model, combo_id=combo_id,
                 response_raw="", response_clean="", parsed=None,

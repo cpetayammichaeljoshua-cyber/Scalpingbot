@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v35.0 — Multi-stage Production Dockerfile
+# Unity Engine v36.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
-# Build:  docker build -t unity-engine:35.0 .
+# Build:  docker build -t unity-engine:36.0 .
 # Railway: Detected automatically via railway.json
 #
 # BASE IMAGE: python:3.11-slim  (Debian/glibc)
@@ -15,6 +15,15 @@
 #   pre-built manylinux wheels for every package in requirements.txt and builds
 #   in < 3 min on Railway's free tier.
 # ────────────────────────────────────────────────────────────────────────────────
+# v36.0 changes:
+#   • UNITY_NN_GATE env fix: "0.35" → "0.48" — G4 gate was running at 35% win-prob
+#     (designed 48%), 13pp gap let noise signals through; directly improves win rate.
+#   • IRONS_MIN_SCORE env fix: "62" → "50" — base-62 env killed WR-relaxed tiers
+#     (45-55%→53, >55%→48 unreachable); adaptive floor now functions as designed.
+#   • OpenRouter timeout streak: 3 consecutive timeouts → 180s model disable;
+#     streak resets on first success (prevents stalling on unresponsive models).
+#   • nixpacks.toml verify string updated v19.2 → v36.0.
+#   • UNITY_VERSION bumped to 36.0.
 # v35.0 changes:
 #   • UNITY_VERSION bumped to 35.0.
 #   • IRONS_MIN_WR_30_45 raised 63→65 (restores G9/G10 co-equal discipline in
@@ -151,8 +160,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="35.0"               \
-      description="Unity Engine v35.0 — IRONS-RECOVERY-65 | COMMENT-HYGIENE | ARCH-30L | IT-STRONG(-4.5) | DEAD-ZONE-1.5 | NN-PESSIMISM-0.08 | FAST-TIER-MISTRAL | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="36.0"               \
+      description="Unity Engine v36.0 — ENV-GATE-FIX(NN0.48+IRONS50) | TIMEOUT-STREAK | IRONS-RECOVERY-65 | IT-STRONG(-4.5) | DEAD-ZONE-1.5 | NN-PESSIMISM-0.08 | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

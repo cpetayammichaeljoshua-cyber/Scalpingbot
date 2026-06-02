@@ -75,23 +75,8 @@ args = "python3 start_unity_engine.py"
 outputType = "console"
 
 [[ports]]
-localPort = 3000
-externalPort = 80
-
-[[ports]]
-localPort = 5000
-externalPort = 5173
-
-[[ports]]
-localPort = 8000
-
-[[ports]]
 localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 9080
-externalPort = 9000
+externalPort = 80
 
 [deployment]
 run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]
@@ -112,9 +97,9 @@ UNITY_OFI_ENABLED = "1"
 UNITY_OFI_HISTORY_LEN = "300"
 UNITY_OFI_Z_BONUS_PTS = "4.0"
 UNITY_OFI_Z_VETO_SIGMA = "2.5"
-IRONS_MIN_SCORE = "62"
+IRONS_MIN_SCORE = "50"
 UNITY_DEADZONE_HARD_VETO = "0"
-UNITY_NN_GATE = "0.35"
+UNITY_NN_GATE = "0.48"
 UNITY_DBT_ENABLED = "1"
 UNITY_DBT_REFRESH_SEC = "1800"
 UNITY_DBT_LOOKBACK_BARS = "300"
