@@ -343,12 +343,13 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
 }
 
-# GODMODE CLASSIC — 11 combos, 11 distinct model/prompt combinations (v26.0)
+# GODMODE CLASSIC — 12 combos, 12 distinct model/prompt combinations (v33.0)
 # CRITICAL: Each combo uses a DIFFERENT model+system confirmed working on free tier
 # v5.0: Moonlight replaced by QwQ-32B (reasoning) — Moonlight generic-error prone
 # v21.1: kimi-k2 added as 7th combo (TradingAgents/FinRobot multi-factor synthesis)
 # v21.2: gpt-oss-120b (8th GODMODE_FINROBOT_CHAIN) + gemma-4-31b (9th GODMODE_OPENBB_MACRO) added
 # v26.0: qwen3-235b-a22b (10th GODMODE_QWEN235B_SOVEREIGN) + gemma-4-26b (11th GODMODE_GEMMA26B_VIBE) added
+# v33.0: phi-4-reasoning-plus (12th GODMODE_PHI4_NOIX — noFx trend/divergence engine) added
 GODMODE_COMBOS = [
     {
         # REPLACED: nousresearch/hermes-3-llama-3.1-405b:free → 43+ consecutive rate_limit storm (session 3)

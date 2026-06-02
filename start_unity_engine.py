@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v35.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v39.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
   L0.5: Deribit Real-GEX       — Live BTC/ETH/SOL options chain (primary)
   L0.6: OKX Real-GEX           — Cross-venue GEX redundancy
@@ -30,14 +30,14 @@ ARCHITECTURE (28 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regime-adaptive) |
-  IRONS_MIN=68(WR<30%)+71(WR<20%) | SIGNAL_QUALITY=65 | SOVEREIGN_RECOVERY=68 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
+KEY GATES (v39.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+  IRONS_MIN=70(WR<30%)+73(WR<20%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
-  MaxDD_EarlyDeterrent:DD>50%→-4pts,DD>45%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
+  MaxDD_EarlyDeterrent:DD>50%→-7pts,DD>47%→-5pts,DD>43%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
   G8.5m:BTC_GEX±2pts+FLIP_DIR±3.5pts | G8.5n:MULTI_FLIP−2pts |
   G8.5e:HMM_DIR±8pts(EXP≥0.75)/−10pts(CONT≥0.65) | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
-  G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD50%→+3pts[v20.3] | G9_ConSecLoss:3+→-4pt[v20.4] | G9_WR23%→67floor[v20.4] | Kelly22:F&G×0.80(consec3→×0.60) |
+  G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4pt[v20.4] | G9_WR-tiers:WR<20%→72,WR<25%→70,WR<30%→69,WR<35%→68[v38.0] | Kelly22:F&G×0.80(consec3→×0.60) |
   Kelly23:GEX_DIR×0.80+3FLIP×0.85 | Kelly24:DeepDD_MaxDD>40%+Calmar<0→×0.65 | Kelly25:UltraDD_MaxDD>50%+Calmar<0→×0.50 |
   HMM21:EXPANSION×1.25(P≥0.75,SR≥0)/CONTRACTION×0.60(P≥0.65) |
   NN_v9:60feat(+5GEX) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
@@ -84,6 +84,22 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v39.0 IMPROVEMENTS: STALE-COMMENT AUDIT + DEAD-ZONE TIGHTEN + IRONS-TIER PRECISION + ARCH STAMP:
+    Dead-zone drought escape: 2700s→3000s (45min→50min; harder thin-book veto escape) [v39.0] |
+      At WR=29.4% EV=-0.314R the 45min escape admitted Asian-session noise after 3 scan cycles;
+      50min = 3.33 full cycles ensures a genuine multi-cycle sustained drought before relaxing [v39.0] |
+    IRONS adaptive-tier inline comments corrected throughout [v39.0]: |
+      WR<20% tier: IRONS_MIN_WR_BELOW30+3=70+3=73pts (was stale comment "71" from v31.0 base=68) |
+      WR<25% tier: IRONS_MIN_WR_BELOW30+1.5=70+1.5=71.5pts (was stale "69.5" from pre-v38.0 base) |
+      WR<30% tier: IRONS_MIN_WR_BELOW30=70pts (was stale "68" from pre-v38.0) |
+      WR 30-45% tier: IRONS_MIN_WR_30_45=67pts (was stale "65" from pre-v38.0) |
+      Three-tier coherence: G9=67 + G10/SOVEREIGN=70 + WR<20%=73 [v39.0 comment audit] |
+    Module docstring corrected: "v35.0"→"v39.0", "28 layers"→"30 layers" [v39.0] |
+    _init_layers log corrected: "28 layers"→"30 layers" [v39.0] |
+    KEY GATES comment updated to reflect v38.0 actual values (was showing stale v31.0 values) [v39.0] |
+    G9 MaxDD floor comment updated: >50%→+5pts,>45%→+4pts,>40%→+2pts (was stale v20.3 values) [v39.0] |
+    GODMODE combo header updated: "11 combos"→"12 combos" in godmod3_strategy.py [v39.0] |
+    UNITY_VERSION: 38.0→39.0 [v39.0]
   v38.0 IMPROVEMENTS: INSTITUTIONAL-GRADE PROFITABILITY SURGE — EV+GATE+MAXDD+SESSION TIGHTEN:
     EV_MIN_THRESHOLD: 22bps→28bps (+27% EV quality bar; at WR=29.4% 28bps requires P_win≥38%+ to pass) [v38.0] |
     SIGNAL_MIN_QUALITY_GATE: 65→67 (+2pt G9 composite floor; all WR-tier sub-floors recalibrated upward) [v38.0] |
@@ -1270,7 +1286,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "38.0"
+UNITY_VERSION                = "39.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4098,27 +4114,27 @@ class UnitySignalFilter:
         """v6.3/v8.1: Adjust IRONS minimum threshold based on running win rate.
 
         Schedule: called by the engine each time an outcome is recorded.
-        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (71) — ultra-critical crisis tier [v31.0: 70→71]
-        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (69.5) — deep-crisis tier [v29.0; auto-scales with base]
-        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (68) — elevated floor [v31.0: 67→68]
-        WR 30-45% → raise to IRONS_MIN_WR_30_45      (65) — co-equal with SIGNAL_MIN_QUALITY_GATE=65 [v35.0: 63→65]
+        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (73) — ultra-critical crisis tier [v38.0: 70+3=73]
+        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (71.5) — deep-crisis tier [v38.0: 70+1.5=71.5]
+        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (70) — elevated floor [v38.0: 68→70]
+        WR 30-45% → raise to IRONS_MIN_WR_30_45      (67) — co-equal with SIGNAL_MIN_QUALITY_GATE=67 [v38.0: 65→67]
         WR 45-55% → base   IRONS_MIN_WR_45_55        (53) — neutral
         WR > 55%  → relax  IRONS_MIN_WR_ABOVE55      (48) — capitalise good form
-        Rationale: G9 floor=65, G10 floor=68 at WR<30% → genuine two-tier quality wall [v31.0].
-        SOVEREIGN_RECOVERY path requires IRONS≥68, matching IRONS_MIN_WR_BELOW30 [v31.0: 67→68].
+        Rationale: G9 floor=67, G10 floor=70 at WR<30% → genuine two-tier quality wall [v38.0].
+        SOVEREIGN_RECOVERY path requires IRONS≥70, matching IRONS_MIN_WR_BELOW30 [v38.0: 68→70].
         """
         if current_wr < 0.20:
-            # v14.0: ultra-critical tier — +3pts above WR<30% floor (71pts) [v35.0 comment fix: 68+3=71]
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0  # 71
+            # v14.0: ultra-critical tier — +3pts above WR<30% floor (73pts) [v39.0 comment fix: 70+3=73]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0  # 73
         elif current_wr < 0.25:
             # v29.0: deep-crisis tier — +1.5pts above WR<30% floor [v29.0]
-            # At WR=20-25%: EV at RR=2.35 = −0.08R to −0.17R (deeply negative).
-            # Only IRONS≥69.5 composite quality signals have the institutional-grade
+            # At WR=20-25%: EV at RR=2.50 = −0.12R to −0.225R (deeply negative).
+            # Only IRONS≥71.5 composite quality signals have the institutional-grade
             # multi-factor conviction to structurally improve WR in this zone.
-            # Bridges the gap between ultra-critical (71) and crisis (68). [v29.0; v35.0 comment fix: 68+1.5=69.5]
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 1.5  # 69.5
+            # Bridges the gap between ultra-critical (73) and crisis (70). [v39.0 comment fix: 70+1.5=71.5]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 1.5  # 71.5
         elif current_wr < 0.30:
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 68 [v35.0 comment fix: base=68 since v31.0]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 70 [v39.0 comment fix: base=70 since v38.0]
         elif current_wr < 0.45:
             self._adaptive_irons_min = IRONS_MIN_WR_30_45
         elif current_wr < 0.55:
@@ -5265,7 +5281,7 @@ class UnitySignalFilter:
                 _dz_booster  = self._booster
                 _dz_raw_wr   = float(getattr(_dz_booster, "win_rate", 0.0) or 0.0)
                 _dz_wr       = (_dz_raw_wr / 100.0) if _dz_raw_wr > 1.0 else _dz_raw_wr
-                if _dz_drought > 2700 and _dz_wr > 0.25:  # v38.0: 30min→45min (1800s→2700s) — harder to escape thin-book dead-zone veto; at WR=29.4% EV=-0.314R the 30min escape was too permissive, allowing Asian-session noise signals through after only 2 scan cycles; 45min = 3 full scan cycles ensures genuine multi-cycle drought before relaxing [v18.81: 45min→30min — reversed at v38.0]
+                if _dz_drought > 3000 and _dz_wr > 0.25:  # v39.0: 45min→50min (2700s→3000s) — even harder thin-book dead-zone veto escape; at WR=29.4% EV=-0.314R the 45min escape still admitted Asian-session noise; 50min = 3.33 full scan cycles ensures a genuine sustained multi-cycle drought before relaxing; 5min extra = 2 additional scan cycle evaluations at CYCLE_SLEEP=15s [v38.0: 30min→45min; v39.0: 45min→50min]
                     # v18.24 FIX: Exclusive soft-mode branch — records once and does NOT
                     # fall through to the outer dead-zone penalty block below.
                     # Previous code fell through after recording False here, then the outer
@@ -10003,7 +10019,7 @@ class UnityEngine:
 
     def _init_layers(self) -> bool:
         """Initialise all layers. Returns True if TelegramBot (critical) is ready."""
-        self._logger.info(f"🔧 [Unity v{UNITY_VERSION}] Initialising all 28 layers in parallel-safe order...")
+        self._logger.info(f"🔧 [Unity v{UNITY_VERSION}] Initialising all 30 layers in parallel-safe order...")
         _init_t0 = time.perf_counter()
 
         # ── Layer 0: AEGIS GEX Engine ──────────────────────────────────────────
@@ -10614,7 +10630,7 @@ class UnityEngine:
         # v5.7: log total init time for performance visibility
         _init_ms = (time.perf_counter() - _init_t0) * 1000
         self._logger.info(
-            f"⏱️  [v{UNITY_VERSION}] All 28 layers initialised in {_init_ms:.0f}ms "
+            f"⏱️  [v{UNITY_VERSION}] All 30 layers initialised in {_init_ms:.0f}ms "
             f"| TelegramBot=✅ | GEX={'✅' if self.gex_engine else '⬜'} "
             f"| NN={'✅' if self.nn_trainer else '⬜'} "
             f"| Agency={'✅' if (self.agency_agents or self.agency_framework) else '⬜'}"
@@ -11153,7 +11169,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (28 layers, 28-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·G4Unani·G4-PessimismRelief·G3-DroughtRelax[v25.0-15min]·G2-DroughtRelax[v26.0-1pp]·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR23pct67·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min[v25.0]·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe[v25.0]·RLBucket30-35pct[v25.0]·RLStarv·HTTP202-SoftSkip·EVFloor15min[v26.0]·EVFloorSR-5·ModelCostCleanup[v25.0]·GODMODE-11combo[v26.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v33.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-PHI4-NOIX·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

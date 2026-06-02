@@ -1,7 +1,27 @@
 ---
-name: Unity Engine v22.0–v38.0 upgrades
-description: v22–v38 key changes: v38.0 institutional profitability surge (9-gate tighten + MaxDD circuit breaker); v37.0 ZERO-BYPASS-STRICT; v33.0 hot-streak+deepseek purge; v27.0 qwen slug fix; v22–v25 gates/RL/NN/HTTP fixes.
+name: Unity Engine v22.0–v39.0 upgrades
+description: v22–v39 key changes: v39.0 stale-comment audit+dead-zone 50min tighten+IRONS tier comment precision; v38.0 institutional profitability surge (9-gate tighten + MaxDD circuit breaker); v37.0 ZERO-BYPASS-STRICT; v33.0 12th GODMODE combo; v27.0 qwen slug fix.
 ---
+
+## v39.0 Key Changes (deployed 2026-06-02)
+
+### Stale-Comment Audit + Dead-Zone Tighten + IRONS-Tier Precision + Architecture Stamp
+
+**Why:** v38.0 raised gates significantly but left stale comments (v35.0 docstring, 28 layers, KEY GATES showing v31.0 values, IRONS tier comments with pre-v38 base=68 numbers). These caused confusion in reading logs/docs. Also identified dead-zone drought escape was still 45min (2700s) — tightened to 50min (3000s) for extra thin-book noise filter.
+
+**Changes:**
+- Module docstring: "v35.0" → "v39.0", "28 layers" → "30 layers"
+- KEY GATES comment: updated to reflect actual v38.0 values (was showing stale v31.0: MIN_RR=2.35, EV=22bps, IRONS=68, QUALITY=65)
+- `_init_layers` log: "28 layers" → "30 layers" (line ~10006)
+- Final init log: "All 28 layers" → "All 30 layers" (line ~10633)
+- Architecture stamp: "28 layers, 28-gate filter, GODMODE-11combo" → "30 layers, 25-gate filter, GODMODE-12combo[v33.0]"
+- IRONS adaptive-tier docstring + inline comments: corrected from stale base=68 offsets to v38.0 base=70: WR<20%=73, WR<25%=71.5, WR<30%=70, WR30-45%=67
+- Dead-zone drought escape: `_dz_drought > 2700` → `> 3000` (45min → 50min)
+- GODMODE combo header in godmod3_strategy.py: "11 combos" → "12 combos, v33.0"
+- G9 MaxDD floor comment: updated to v38.0 values (>50%→+5pts, >45%→+4pts, >40%→+2pts)
+- UNITY_VERSION: "38.0" → "39.0"
+
+**How to apply:** Any future version bump should audit all stale layer-count/combo-count/gate-value comments. IRONS tier offsets (+3, +1.5) are applied relative to IRONS_MIN_WR_BELOW30 — update inline comments whenever that base moves.
 
 ## v38.0 Key Changes (deployed 2026-06-02)
 
