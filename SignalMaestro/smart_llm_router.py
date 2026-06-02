@@ -121,13 +121,13 @@ MODEL_PRICING = {
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed live log v21.2 boot 2026-05-31 (provider revoked free access)
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free":  {"input": 0.0, "output": 0.0},
     "z-ai/glm-4.5-air:free":                                         {"input": 0.0, "output": 0.0},
-    "mistralai/mistral-small-3.2-24b-instruct:free":                  {"input": 0.0, "output": 0.0},
+    # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
     # REMOVED: tngtech/deepseek-r1t-chimera:free → 404 confirmed v21.5 [v25.0 MODEL_COSTS cleanup]
     # REMOVED: deepseek/deepseek-r1-0528:free → 404 confirmed v21.5 [v25.0 MODEL_COSTS cleanup]
     # v19.3: Added MODEL_COSTS entries for all v19.2 free-tier additions
     # (missing entries cause KeyError in cost estimator — now all free models covered)
     "qwen/qwen3-72b:free":                                            {"input": 0.0, "output": 0.0},
-    "microsoft/phi-4-reasoning-plus:free":                            {"input": 0.0, "output": 0.0},
+    # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot (base+plus both dead)
     # v20.0: OpenAI OSS free-tier — confirmed working on OpenRouter 2026-05-25
     "openai/gpt-oss-20b:free":                                        {"input": 0.0, "output": 0.0},
     "openai/gpt-oss-120b:free":                                       {"input": 0.0, "output": 0.0},
@@ -172,8 +172,8 @@ _FREE_SIMPLE = [
     # REMOVED (2026-05-31) [v21.5]: deepseek/deepseek-r1-0528:free → 404 confirmed live log
     # REMOVED (2026-05-31) [v21.5]: tngtech/deepseek-r1t-chimera:free → 404 confirmed in comments
     "meta-llama/llama-3.3-70b-instruct:free",                         # confirmed workhorse
-    "microsoft/phi-4-reasoning-plus:free",                            # phi-4-reasoning enhanced
-    "mistralai/mistral-small-3.2-24b-instruct:free",                  # balanced 24B
+    # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot
+    # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
     "google/gemma-4-26b-a4b-it:free",                                 # Gemma 4 26B — confirmed free 2026-05-25
     "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — confirmed free 2026-05-25
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed v21.2 boot 2026-05-31 (provider revoked free access)
@@ -199,11 +199,11 @@ _FREE_REASONING = [
     # REMOVED (2026-05-31) [v21.5]: deepseek/deepseek-r1-0528:free → 404 confirmed live log
     # REMOVED (2026-05-31) [v21.5]: tngtech/deepseek-r1t-chimera:free → 404 confirmed
     # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
-    "microsoft/phi-4-reasoning-plus:free",                            # phi-4 enhanced
+    # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot
     "meta-llama/llama-3.3-70b-instruct:free",                         # confirmed 70B
     "z-ai/glm-4.5-air:free",                                         # GLM-4.5 Air 131K ctx
     "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B — confirmed workhorse
-    "mistralai/mistral-small-3.2-24b-instruct:free",                  # balanced 24B
+    # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
     "google/gemma-4-26b-a4b-it:free",                                 # Gemma 4 26B — confirmed free 2026-05-25
     "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — confirmed free 2026-05-25
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed v21.2 boot 2026-05-31 (provider revoked free access)

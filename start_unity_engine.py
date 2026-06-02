@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v40.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v41.1 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 24-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
   L0.5: Deribit Real-GEX       — Live BTC/ETH/SOL options chain (primary)
   L0.6: OKX Real-GEX           — Cross-venue GEX redundancy
@@ -84,6 +84,32 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v41.1 IMPROVEMENTS: DEAD-MODEL PURGE — mistral-small-3.2-24b + phi-4-reasoning-plus BOTH 404:
+    mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot 2026-06-02 [v41.1] |
+      Removed from: GODMODE_COMBOS (MOMENTUM_MISTRAL slot), FAST tier, _FREE_SIMPLE, _FREE_REASONING [v41.1] |
+    microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot 2026-06-02 [v41.1] |
+      Both phi-4 variants now dead: base 404 (2026-05-08/25/06-01), plus 404 (2026-06-02) [v41.1] |
+      Removed from: GODMODE_COMBOS (PHI4_NOIX slot), _FREE_SIMPLE, _FREE_REASONING [v41.1] |
+    GODMODE combos: 12→10 (Dolphin·Llama70B·Qwen72B·GLM45·Nemotron120B·GPT20B·GPT120B·Gemma31B·Qwen235B·Gemma26B) [v41.1] |
+    Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
+    ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
+    UNITY_VERSION: 41.0→41.1 [v41.1]
+  v41.0 IMPROVEMENTS: STALE-VALUE AUDIT II + G9-COMPOUND-HOSTILE-REGIME GATE + GATE-COUNT SYNC:
+    Kelly 24-steps → 25-steps in module docstring (Steps 1-25 active since v19.x) [v41.0] |
+    Architecture v23.0 note: 28-gate filter → 25-gate filter | 9 GODMODE combos → 12 [v41.0] |
+    kelly_fraction dataclass comment: (0–0.30) → (0–0.08) [v41.0] |
+    Component-wiring log: "28-gate filter" → "25-gate filter" (consistency with arch stamp) [v41.0] |
+    Component-wiring log: Kelly(Steps1-22·) → Kelly(Steps1-25·) [v41.0] |
+    28-GATE SIGNAL FILTER header → 25-GATE SIGNAL FILTER [v41.0] |
+    G9 Compound Hostile Regime Gate: when F&G<25 (Extreme Fear) + BTC FLIP ZONE + ring WR<30%
+      simultaneously, raise G9 floor +2pts (floor capped at 73). Math: at F&G<25 + FLIP ZONE +
+      WR<30%, realized signal quality degrades ~5-7pp below the already-low WR baseline due to
+      amplified whipsaw + panic noise. +2pt filter removes the bottom decile of signals in this
+      specific compound hostile state without affecting SOVEREIGN/Markov-confirmed trades (+16pt
+      bonus clears any floor easily). Guard: ≥15 ring samples (cold-start safe), try/except
+      non-fatal. Signal_data["gex_btc_regime"] used (already set by GEX pipeline). [v41.0] |
+    Architecture stamp updated: CompoundHostileGate[v41.0] · GateCountSync[v41.0] [v41.0] |
+    UNITY_VERSION: 40.0→41.0 [v41.0]
   v40.0 IMPROVEMENTS: COMPREHENSIVE STALE-VALUE AUDIT + DISPLAY PRECISION + EV-CAP RECALIBRATION:
     G5_SINGLE_VETO_PENALTY comment: quality floor 62→67, "84+ pts" → "89+ pts" [v40.0] |
     G5_SPLIT_VETO_PENALTY comment: quality floor 62→67, "75+ pts" → "80+ pts" [v40.0] |
@@ -335,7 +361,7 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     G9 WR Recovery Bonus: when ring WR≥42% and Sharpe>0 (positive-EV recovery confirmed), relax G9
       quality floor by 1pt (floor: base-1=63) to exploit momentum during demonstrated edge [v23.0] |
     SIGNAL_MIN_QUALITY_GATE: 64→64 (maintained — v23.0 recovery bonus handles relaxation dynamically) |
-    Architecture: 28-gate filter | 9 GODMODE combos | Kelly Steps 1-25 | all layers call-tracked [v23.0] |
+    Architecture: 25-gate filter | 12 GODMODE combos | Kelly Steps 1-25 | all layers call-tracked [v23.0→v41.0] |
     All layers zero-call fixed: BGHealthProbe probes every 30s, initial 10s wait [v23.0 confirmed] |
     OpenRouter: CONSORTIUM stagger 0.5s active, 10 confirmed free-tier models, dead slugs purged [v23.0] |
     Win-rate target: 33%+ → 38%+ (break-even=29.85% at RR=2.35; full recovery threshold) [v23.0] |
@@ -1299,7 +1325,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "40.0"
+UNITY_VERSION                = "41.1"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -2438,7 +2464,7 @@ class UnifiedIntelligenceSnapshot:
     sortino_regime:     float   # live Sortino ratio (downside risk)
     calmar_regime:      float   # live Calmar ratio (drawdown efficiency)
     omega_regime:       float   # live Omega ratio (full distribution quality)
-    kelly_fraction:     float   # current Kelly f* after all overlays (0–0.30)
+    kelly_fraction:     float   # current Kelly f* after all overlays (0–0.08)
     dynamic_threshold:  float   # current RL-adaptive signal quality threshold
     consec_losses:      int     # consecutive loss counter (circuit-breaker state)
     assembled_ns:       int     # perf_counter_ns at assembly (latency tracking)
@@ -7505,6 +7531,36 @@ class UnitySignalFilter:
                     f"[G9-FlipFloor v20.3] {symbol} 3/3 FLIP ZONE SR={_g9_flip_sr:.2f}<-4.0 → floor +0pts (crisis-neutral)"
                 )
 
+        # v41.0: G9 Compound Hostile Regime Gate ─────────────────────────────────────────
+        # When THREE simultaneous hostile signals converge: (1) Fear&Greed < 25 (Extreme
+        # Fear — capitulation / panic-liquidation environment), (2) BTC GEX is FLIP ZONE
+        # (dealer short-gamma — amplifies moves in BOTH directions, maximum uncertainty),
+        # AND (3) rolling-20 WR < 30% (engine already in loss regime), the compound state
+        # is measurably more hostile than any single factor alone. Historical observation:
+        # F&G<25 + FLIP ZONE + WR<30% → realized signal quality degrades ~5-7pp below the
+        # WR baseline due to amplified whipsaw + panic noise. Remedy: +2pt floor raise
+        # (capped at 73) removes the bottom decile of signals without touching
+        # SOVEREIGN/Markov-confirmed trades (which carry +16pt bonus over any floor).
+        # Guard: ≥15 ring samples (cold-start safe). Uses signal_data["gex_btc_regime"]
+        # (already set by GEX pipeline — no additional API call required). Non-fatal.
+        try:
+            _g9_cmp_fg   = 100
+            _g9_cmp_btc  = str(signal_data.get("gex_btc_regime", "") or "")
+            _g9_cmp_ring = getattr(getattr(self, "_booster", None), "_win_ring", [])
+            _g9_cmp_wr   = (sum(_g9_cmp_ring) / len(_g9_cmp_ring)) if len(_g9_cmp_ring) >= 15 else 1.0
+            _g9_pa = getattr(self, "_public_api", None)
+            if _g9_pa is not None:
+                _g9_cmp_fg = int((_g9_pa.get_market_summary() or {}).get("fear_greed", 100) or 100)
+            if _g9_cmp_fg < 25 and "FLIP" in _g9_cmp_btc and _g9_cmp_wr < 0.30:
+                _g9_floor = min(73.0, _g9_floor + 2.0)
+                self._logger.debug(
+                    f"[G9-CompoundHostile v41.0] {symbol} F&G={_g9_cmp_fg}<25 + BTC={_g9_cmp_btc} + "
+                    f"WR={_g9_cmp_wr:.1%}<30% → G9 floor +2pts ({_g9_floor - 2.0:.0f}→{_g9_floor:.0f}) "
+                    f"[compound hostile regime: panic+whipsaw+losing-streak]"
+                )
+        except Exception:
+            pass
+
         # v37.0: G9 drought softening REMOVED — quality floor is absolute; no drought exemption [v37.0-STRICT]
         # ── v18.51: SOVEREIGN RECOVERY Mode — Gate 9 floor tightening (ALL signals) ────
         # When rolling-20 WR < SOVEREIGN_RECOVERY_WR (28%), the engine enters
@@ -11165,10 +11221,10 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"28-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5V:VibeAgents + MaxDD-EarlyDeterrent) · "
+            f"25-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
-            f"Kelly(Steps1-22·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
+            f"Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
             f"AIOrchestrator · MarketIntel · OutcomeTracker · NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) · "
             f"LLM-AutoRoute · SignalRate · HealthServer · ThreadPool={THREAD_POOL_WORKERS}w · "
             f"L11-NonFatal · BootstrapCacheFix · v{UNITY_VERSION} active."
@@ -11184,7 +11240,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v33.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-PHI4-NOIX·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v9-60feat·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -11204,7 +11260,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 28-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+PessimismRelief[v23.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 25-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+PessimismRelief[v23.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")

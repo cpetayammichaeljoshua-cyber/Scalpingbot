@@ -249,9 +249,8 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # v20.2: REORDERED — gpt-oss-20b:free moved FIRST: live-validated winner score=93.5/100
         #        latency=6548ms, consistently wins ULTRAPLINIAN races; fastest real-trading winner.
         "openai/gpt-oss-20b:free",
-        # v34.0 2026-06-01: mistral-small-3.2-24b added to fast tier — restores 2-model ULTRAPLINIAN race after deepseek-v4-flash 404
-        # mistral-small confirmed working in _FREE_SIMPLE/_FREE_REASONING and now GODMODE_MOMENTUM_MISTRAL (v33.0)
-        "mistralai/mistral-small-3.2-24b-instruct:free",
+        # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
+        # FAST tier single-model (gpt-oss-20b only); 24h disable mechanism handles gracefully
         # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
         # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
         # RE-ADDED 2026-05-22: devstral-small — fast small model [v19.7]
@@ -343,13 +342,16 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
 }
 
-# GODMODE CLASSIC — 12 combos, 12 distinct model/prompt combinations (v33.0)
+# GODMODE CLASSIC — 10 combos, 10 distinct model/prompt combinations (v41.1)
 # CRITICAL: Each combo uses a DIFFERENT model+system confirmed working on free tier
 # v5.0: Moonlight replaced by QwQ-32B (reasoning) — Moonlight generic-error prone
 # v21.1: kimi-k2 added as 7th combo (TradingAgents/FinRobot multi-factor synthesis)
 # v21.2: gpt-oss-120b (8th GODMODE_FINROBOT_CHAIN) + gemma-4-31b (9th GODMODE_OPENBB_MACRO) added
 # v26.0: qwen3-235b-a22b (10th GODMODE_QWEN235B_SOVEREIGN) + gemma-4-26b (11th GODMODE_GEMMA26B_VIBE) added
-# v33.0: phi-4-reasoning-plus (12th GODMODE_PHI4_NOIX — noFx trend/divergence engine) added
+# v33.0: phi-4-reasoning-plus (12th GODMODE_PHI4_NOIX) added — REMOVED v41.1 (404 2026-06-02)
+# REMOVED (v41.1 2026-06-02): GODMODE_MOMENTUM_MISTRAL — mistralai/mistral-small-3.2-24b-instruct:free → 404
+# REMOVED (v41.1 2026-06-02): GODMODE_PHI4_NOIX — microsoft/phi-4-reasoning-plus:free → 404
+# Active 10: Dolphin · Llama-3.3-70B · Qwen3-72B · GLM-4.5-Air · Nemotron-120B · GPT-OSS-20B · GPT-OSS-120B · Gemma-4-31B · Qwen3-235B · Gemma-4-26B
 GODMODE_COMBOS = [
     {
         # REPLACED: nousresearch/hermes-3-llama-3.1-405b:free → 43+ consecutive rate_limit storm (session 3)
@@ -386,21 +388,10 @@ GODMODE_COMBOS = [
         ),
         "emoji": "🟢",
     },
-    {
-        "id": "GODMODE_MOMENTUM_MISTRAL",
-        # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live v20.5 boot
-        # REPLACED: deepseek/deepseek-v4-flash:free — confirmed free 2026-05-25; 404 confirmed v33.0 boot 2026-06-01
-        # REPLACED (v33.0 2026-06-01): mistralai/mistral-small-3.2-24b-instruct:free — confirmed working (in _FREE_SIMPLE/REASONING router; balanced 24B; not previously in GODMODE ensemble → true diversity)
-        "model": "mistralai/mistral-small-3.2-24b-instruct:free",
-        "system": (
-            "You are a momentum-focused trading signal engine. Identify trend strength and "
-            "breakout/breakdown setups from price action. Analyse EMA alignment, "
-            "volume confirmation, and momentum divergences. "
-            "Output ONLY valid JSON — no markdown, no <think> blocks in output. "
-            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
-        ),
-        "emoji": "🟡",
-    },
+    # REMOVED (v41.1 2026-06-02): GODMODE_MOMENTUM_MISTRAL
+    # Model: mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot 2026-06-02
+    # Was added v33.0 2026-06-01 (worked for <24h then went dead)
+    # Slot held open for replacement when a new confirmed free-tier model is validated
     {
         # REPLACED: google/gemma-3-27b-it:free → 404 confirmed 2026-05-07 live log.
         # REPLACED: google/gemma-3-12b-it:free → 404 confirmed 2026-05-08 live log [v18.32].
@@ -543,31 +534,12 @@ GODMODE_COMBOS = [
         ),
         "emoji": "🎯",
     },
-    # v33.0 NEW: noFx-inspired trend/divergence analysis — microsoft/phi-4-reasoning-plus:free
-    # Inspired by NoFxAiOS/nofx momentum-divergence framework: trend velocity scoring,
-    # hidden divergence detection (price vs RSI/volume), order-flow imbalance, regime coherence.
-    # NOTE: microsoft/phi-4-reasoning:free (base) → 404 confirmed TWICE (2026-05-08, 2026-05-25, 2026-06-01).
-    # USING: microsoft/phi-4-reasoning-plus:free — enhanced phi-4 reasoning; confirmed working
-    #   in smart_llm_router _FREE_SIMPLE + _FREE_REASONING lists; distinct from base slug.
-    # True 12th distinct architecture — Microsoft's enhanced reasoning-tuned model. [v33.0]
-    {
-        "id": "GODMODE_PHI4_NOIX",
-        "model": "microsoft/phi-4-reasoning-plus:free",
-        "system": (
-            "You are a noFx-inspired trend velocity and hidden divergence analysis engine for crypto perpetuals. "
-            "Apply this 4-step momentum-divergence framework: "
-            "[1-TREND VELOCITY] Strong trend (EMA stack aligned + expanding bars) = +2. "
-            "Weak/reversing (EMA cross + contracting bars) = -2. Choppy/sideways = 0. "
-            "[2-HIDDEN DIVERGENCE] Price higher-low but RSI/MACD lower-low (bullish hidden div) → +2. "
-            "Price lower-high but oscillator higher-high (bearish hidden div) → -2. No divergence → 0. "
-            "[3-ORDER FLOW IMBALANCE] Buy volume dominates last 3 bars → +1. Sell dominates → -1. Balanced → 0. "
-            "[4-REGIME COHERENCE] All timeframes aligned (15m+1h+4h same direction) → +1. Mixed → -1. Conflicted → 0. "
-            "Sum all scores. Net ≥+3 → BUY. Net ≤-3 → SELL. Otherwise → NEUTRAL. "
-            "No hedging. No disclaimers. Output ONLY valid JSON. "
-            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
-        ),
-        "emoji": "⚡",
-    },
+    # REMOVED (v41.1 2026-06-02): GODMODE_PHI4_NOIX
+    # Model: microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot 2026-06-02
+    # History: phi-4-reasoning:free (base) → 404 (2026-05-08, 2026-05-25, 2026-06-01)
+    #          phi-4-reasoning-plus:free → 404 (2026-06-02) — both Microsoft phi-4 variants now dead
+    # noFx-inspired 4-step momentum-divergence system prompt preserved for future model assignment
+    # Slot held open for replacement when a new confirmed free-tier reasoning model is validated
 ]
 
 # Error type constants

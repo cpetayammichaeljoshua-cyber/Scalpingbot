@@ -1,6 +1,6 @@
 - [Unity Engine v20.0 upgrades](unity-engine-v20.md) — torch CPU, 4-step strategy validation, 15s heartbeat, BACKUP_7 key pool; engine starts cleanly with no false stall restarts
 - [Unity Engine v21.2 gate calibration](unity-engine-v20-gates.md) — v21.1: IRONS_MIN 65→67(WR<30%), 62→63(WR30-45%), SIGNAL_QUALITY 62→63; v21.2: G8.5q QuantDinger MomVol gate(±3pts), 9 GODMODE combos
-- [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v33.0: deepseek-v4-flash 404 (2026-06-01); phi-4-reasoning-plus:free works (base permanently dead 3×); 12 GODMODE combos active
+- [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v41.1: mistral-small-3.2-24b + phi-4-reasoning-plus both 404 (2026-06-02); 10 GODMODE combos; both phi-4 variants permanently dead
 - [Unity Engine v36.0 critical env-override bugs](unity-engine-v36-env-bugs.md) — UNITY_NN_GATE was "0.35" in .replit (design=0.48, 13pp gap); IRONS_MIN_SCORE was "62" (killed WR-relaxed tiers); fixed via setEnvVars shared
 - [Unity Engine health probe architecture](unity-engine-health-probe.md) — background layers (AEGIS_GEX etc) need _bg_layer_health_probe; use self.sovereign_rm (no underscore); probe fires 45s after boot then every 30s; confirmed working v20.5
 - [Unity Engine duplicate-log fix](unity-engine-duplicate-log-fix.md) — v21.5: monkey-patch root logger instance addHandler to reject duplicate FileHandlers; placed module-level after RFH setup; background-task imports (logger.py setup_logging etc) can no longer add second RFH
