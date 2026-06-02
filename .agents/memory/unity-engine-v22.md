@@ -1,7 +1,38 @@
 ---
-name: Unity Engine v22.0–v37.0 upgrades
-description: v22–v37 key changes: v37.0 ZERO-BYPASS-STRICT (all 12 bypass paths removed); v33.0 hot-streak+deepseek purge; v28.0 klines Semaphore(8); v27.0 qwen slug fix; v22–v25 gates/RL/NN/HTTP fixes.
+name: Unity Engine v22.0–v38.0 upgrades
+description: v22–v38 key changes: v38.0 institutional profitability surge (9-gate tighten + MaxDD circuit breaker); v37.0 ZERO-BYPASS-STRICT; v33.0 hot-streak+deepseek purge; v27.0 qwen slug fix; v22–v25 gates/RL/NN/HTTP fixes.
 ---
+
+## v38.0 Key Changes (deployed 2026-06-02)
+
+### Institutional-Grade Profitability Surge — 9 Gate Tightens + MaxDD Circuit Breaker
+
+**Root cause addressed:** WR=29.4%, EV=-0.314R, MaxDD=49.37%. Break-even at RR=2.45 is 28.99%; after slippage/spread the engine was marginally negative. All changes are TIGHTENING only — no bypasses, no relaxations.
+
+**Gate threshold changes:**
+- `AI_THRESHOLD_PERCENT`: 88 → 89
+- `SWARM_MIN_CONSENSUS`: 0.95 → 0.96
+- `MIN_RR_RATIO`: 2.45 → 2.50 (EV floor +0.015R)
+- `NN_WIN_PROB_GATE`: 0.48 → 0.50 (env UNITY_NN_GATE updated via setEnvVars)
+- `SIGNAL_MIN_QUALITY_GATE` (G9 base): 65 → 67
+- `EV_MIN_THRESHOLD`: 22bps → 28bps
+- `IRONS_MIN_WR_BELOW30`: 68 → 70
+- `IRONS_MIN_WR_30_45`: 65 → 67
+- `SOVEREIGN_RECOVERY_GATE`: 68 → 70 (co-equal with IRONS_MIN_WR_BELOW30)
+
+**MaxDD circuit breaker (enhanced):**
+- Early deterrent: >50%→-7pts, >47%→-5pts (NEW), >43%→-2.5pts, >40%→-1pt
+- G9 MaxDD floor: >50%→+5pts, >45%→+4pts, >40%→+2pts; cap raised 70→75
+
+**G9 WR-tier floors recalibrated for new base=67:**
+- WR<20%→72, WR<25%→70, WR<30%→69, WR<35%→68, WR<40%/50%→67 (base)
+- Previously these were 68/66/65/64 — many were collapsed into base=65 (meaningless)
+
+**Dead zone drought escape:** 1800s→2700s (30min→45min threshold)
+
+**Critical env var fix:** UNITY_NN_GATE must be updated via `setEnvVars` (shared env) since .replit cannot be directly edited by agent. The code default change alone is overridden by the env var.
+
+**Why G9 WR-tier recalibration matters:** When SIGNAL_MIN_QUALITY_GATE was raised to 67, the old tier values (68/66/65/64) that were lower than or equal to 65 became collapsed — `max(67, 65)=67` is the same as the base. All tiers must be set ABOVE the new base to be meaningful.
 
 ## v37.0 Key Changes (deployed 2026-06-02)
 

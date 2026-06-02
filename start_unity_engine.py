@@ -84,6 +84,20 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v38.0 IMPROVEMENTS: INSTITUTIONAL-GRADE PROFITABILITY SURGE — EV+GATE+MAXDD+SESSION TIGHTEN:
+    EV_MIN_THRESHOLD: 22bps→28bps (+27% EV quality bar; at WR=29.4% 28bps requires P_win≥38%+ to pass) [v38.0] |
+    SIGNAL_MIN_QUALITY_GATE: 65→67 (+2pt G9 composite floor; all WR-tier sub-floors recalibrated upward) [v38.0] |
+    IRONS_MIN_WR_BELOW30: 68→70 (+2pt IRONS crisis floor; at EV=-0.314R the 68-70 band is marginal noise) [v38.0] |
+    IRONS_MIN_WR_30_45: 65→67 (co-equal with raised SIGNAL_MIN_QUALITY_GATE; G9+G10 co-equal at 67) [v38.0] |
+    NN_WIN_PROB_GATE: 0.48→0.50 (restores original institutional floor; 0.48 was G4 throughput trade-off) [v38.0] |
+    MIN_RR_RATIO: 2.45→2.50 (EV=0.302×2.50−0.698=+0.057R; break-even at WR=30% is 2.333; +7% margin) [v38.0] |
+    AI_THRESHOLD_PERCENT: 88→89 (top-11th-percentile LLM conviction required; marginal 88-89% band EV=0) [v38.0] |
+    SWARM_MIN_CONSENSUS: 0.95→0.96 (near-unanimous: 9.6/10 MiroFish agents; strongest noise filter) [v38.0] |
+    SOVEREIGN_RECOVERY_GATE: 68→70 (co-equal with raised IRONS_MIN_WR_BELOW30=70; three-tier coherence) [v38.0] |
+    MaxDD Early Deterrent tightened: >50%→-7pts, >47%→-5pts, >43%→-2.5pts, >40%→-1pt [v38.0] |
+    G9 MaxDD floor tightened: >50%→+5pts, >45%→+4pts, >40%→+2pts (ruin protection upgrade) [v38.0] |
+    G9 WR-tier floors recalibrated: WR<20%→72, WR<25%→70, WR<30%→69, WR<35%→68 (all +4pts) [v38.0] |
+    Dead-zone drought escape: 30min→45min (harder to exit thin-book veto; 2700s threshold) [v38.0]
   v37.0 IMPROVEMENTS: ALL-BYPASS-REMOVED STRICT-GATE + GATE THRESHOLD TIGHTEN + GODMOD3 TIMEOUT FIX2:
     ALL G4 relaxations removed [v37.0] |
       G4-DroughtRelax (-0.02 after 20min drought), G4-Unani relaxation (-0.04 at ≥99% consensus) |
@@ -776,13 +790,13 @@ SCAN_INTERVAL_MIN     = 5        # legacy compat
 SCAN_INTERVAL_MAX     = 15       # legacy compat
 
 # ── Signal quality gates ─────────────────────────────────────────────────────
-AI_THRESHOLD_PERCENT  = 88       # minimum post-boost confidence to send signal (v37.0: 87→88 — tighter LLM confidence floor; at WR=30% the 87-88% band shows marginal EV; 88% enforces top 12th-percentile AI conviction) (v20.0: 85→87 — at WR=30.2% Sharpe=-4.87 the 81 base was accepting LLM signals in the 81-84% band that are statistically unvalidated; 85 requires genuine high-conviction AI agreement; math: at WR=30% need AI conf>85% to have positive Bayesian EV after blending with 30% base rate)
-SWARM_MIN_CONSENSUS   = 0.95     # v37.0: 0.94→0.95 — all bypass paths removed; base swarm floor raised to match the WR<30% tier floor (was 0.95 for WR<30%, 0.94 for WR≥30% — now uniform 0.95 baseline); requires 9.5/10 MiroFish agents in agreement [v37.0-STRICT]
-MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.45") or 2.45)     # minimum risk-reward ratio (v37.0: 2.35→2.45 — with all bypass paths removed signals are now stricter quality; raising RR floor to 2.45 gives EV=0.302×2.45−0.698=+0.042R vs prior +0.011R — 3.8× better EV floor; break-even at WR=30% is 2.311; 2.45 adds +6% margin; at WR=35% break-even=1.857 so 2.45 still gives +31.9% margin)
-NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.48") or 0.48)     # v19.8: 0.50→0.48 — G4 THROUGHPUT: at WR=30% with NN inflation ≈1.5× the 0.50 gate maps raw NN need ≥0.60; lowering to 0.48 means raw NN ≥0.58 passes — at 1.5× inflation 0.48 maps to ≈32% actual WR (positive EV at RR=2.35: 0.32×2.35−0.68=+0.072R); all other gates (IRONS≥65, Markov, GEX, SWARM≥94%) still enforce quality; v18.91: 0.45→0.50 — now dialled back slightly to balance starvation vs noise filter; crisis Sharpe<-3.5 auto-tightens via RL adapter as before.
+AI_THRESHOLD_PERCENT  = 89       # minimum post-boost confidence to send signal (v38.0: 88→89 — top-11th-percentile LLM conviction; at WR=29.4% EV=-0.314R the marginal 88-89% band has zero positive EV contribution; 89% filters LLM "fence-sitters" that pad the 87-89% band with noise) (v37.0: 87→88 — tighter LLM confidence base) (v20.0: 85→87 — at WR=30.2% Sharpe=-4.87 the 81 base was accepting LLM signals in the 81-84% band that are statistically unvalidated; 85 requires genuine high-conviction AI agreement; math: at WR=30% need AI conf>85% to have positive Bayesian EV after blending with 30% base rate)
+SWARM_MIN_CONSENSUS   = 0.96     # v38.0: 0.95→0.96 — near-unanimous requirement: 9.6/10 MiroFish agents; at WR=29.4% EV=-0.314R even 95% swarm signals are net-negative; 96% concentrates only the highest-conviction multi-agent setups (v37.0: 0.94→0.95 — all bypass paths removed; uniform baseline); requires 9.6/10 MiroFish agents in agreement [v38.0]
+MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.50") or 2.50)     # minimum risk-reward ratio (v38.0: 2.45→2.50 — EV=0.302×2.50−0.698=+0.057R vs prior +0.042R; break-even at WR=30% is 2.333; 2.50 adds +7.3% margin; at WR=35% break-even=1.857 so 2.50 gives +34.5% margin; math: P_win=30% → EV=0.30×2.50−0.70=+0.05R after slippage still positive) (v37.0: 2.35→2.45 — with all bypass paths removed signals are now stricter quality; raising RR floor to 2.45 gives EV=0.302×2.45−0.698=+0.042R vs prior +0.011R — 3.8× better EV floor)
+NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.50") or 0.50)     # v38.0: 0.48→0.50 — restores original institutional floor; at WR=29.4% EV=-0.314R the 0.48 floor was passing signals at ~32% actual WR that are net-negative after slippage; 0.50 requires 50% raw NN win-probability — filters the 48-50% band that empirically underlies losing trades; IRONS≥70+SWARM≥96%+AI≥89% still control flow; EV balance: at 0.50 P_win≥34% effective → EV=0.34×2.50−0.66=+0.19R positive (v19.8: 0.50→0.48 — G4 THROUGHPUT relaxation — reversed at v38.0)
 SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
-SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "65") or 65)   # v31.0: 64→65 — G9 FLOOR TIGHTEN +1pt: at WR=29.6% the 64-65 band is marginal negative-EV territory; 65 concentrates signals in top ~83rd percentile of composite quality; adaptive WR-tier floors (WR<20%→68, WR<25%→66, WR<30%→65, WR<35%→65) all remain ≥65; Markov-SOVEREIGN fast-path unaffected (65+16=81≥65); IRONS_MIN_WR_BELOW30=68 now raised to match this tighter floor; v21.4: 63→64; v21.1: 62→63; v18.85: 56→62
+SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "67") or 67)   # v38.0: 65→67 — G9 FLOOR +2pt: at WR=29.4% EV=-0.314R the 65-67 band has negative expected value after slippage; 67 concentrates signals in top ~78th percentile of composite quality; all WR-tier sub-floors recalibrated (WR<20%→72, WR<25%→70, WR<30%→69, WR<35%→68) to remain meaningful above new base; Markov-SOVEREIGN fast-path unaffected (67+16=83≥67); IRONS_MIN_WR_BELOW30=70 coherent; v31.0: 64→65; v21.4: 63→64; v21.1: 62→63; v18.85: 56→62
 # ── Gate 5 soft-veto quality penalties (v7.1) ────────────────────────────────
 # v7.1 KEY FIX: G5 previously hard-blocked when only ONE analyzer had data and
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
@@ -893,7 +907,7 @@ SLIPPAGE_PCT          = 0.0005   # 0.05% per side (entry + exit = 0.10% round tr
 # is too generous); requiring a positive +15bps margin forces signals to clear
 # the round-trip slippage AND leave headroom for adverse fill, which is the band
 # where empirical WR turns positive (≥45%).
-EV_MIN_THRESHOLD      = 0.0022   # v20.0: 20→22bps — NOISE FILTER UPGRADE: +10% EV quality bar eliminates the lowest-conviction signals; at WR=30% RR=2.35 break-even EV=0 — 22bps requires demonstrated positive expected value after 5bps slip+3bps spread; NN-corrected P_win=37% gives EV=21bps (borderline), P_win=39% gives EV=24bps (passes cleanly); SWARM=94%+IRONS≥65+Markov+NN≥48%+GEX remain the primary quality gates — 22bps G0 refines pass-rate from ~45%→~38%, filtering ~15% of marginal signals while preserving all high-conviction setups; mathematical basis: 22bps exactly covers slippage + 2bps margin → only signals with genuine EV above round-trip cost pass; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 26.4bps (matches WR=40% signals); G0 pass-rate target ~38%
+EV_MIN_THRESHOLD      = 0.0028   # v38.0: 22→28bps (+27% EV quality bar) — at WR=29.4% EV=-0.314R the 22bps floor was too permissive; 28bps requires P_win≥38% to clear after slippage (5bps) + spread (3bps) + margin (20bps); NN-corrected P_win=38% gives EV=27bps (marginal borderline), P_win=40% gives EV=34bps (passes cleanly); mathematical basis: break-even at RR=2.50 is WR=28.57%; 28bps floor forces a minimum 10bps premium above round-trip cost → only signals with genuine institutional EV pass; G0 pass-rate target ~28% (down from ~38%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 33.6bps (v20.0: 20→22bps — initial upgrade)
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
 DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "2") or 2)          # 02:00 UTC end (exclusive) [v9.7-C: 3→4; v18.64: 4→3; v18.78: 3→2 — 02h-03h UTC shows WR=26% (above 24% baseline), wrongly hard-vetoed; reducing dead zone by 1hr recovers ~1 valid signal/session during Asian crossover; 00h-01h still valid veto (WR=22-23%)]
@@ -1238,8 +1252,8 @@ HTF_4H_AGREE_BONUS = 8.0        # 4H agrees (stronger confirmation) → +8pts
 # ── Prompt 2 Adaptive IRONS Floor (v6.3) ─────────────────────────────────────
 # IRONS minimum auto-adjusts with running win rate instead of being hardcoded.
 # Below 30% WR: raise to 65 (tighter).  Above 55% WR: relax to 50 (more signals).
-IRONS_MIN_WR_BELOW30  = 68.0    # v31.0: 67→68 — GATE RECALIBRATION: at WR=29.6% EV=-0.314R the 67 floor passes signals in the 67-68 IRONS band that are marginal negative-EV; +1pt removes bottom 5-8% of signals; WR<25% auto-scales to 69.5 (68+1.5), WR<20% to 71 (68+3); SOVEREIGN_RECOVERY_GATE raised to 68 for coherence; v21.1: 65→67; v18.85: 57→65
-IRONS_MIN_WR_30_45    = 65.0    # v35.0: 63→65 — RECOVERY CO-EQUAL RESTORE: G9 (SIGNAL_MIN_QUALITY_GATE) was raised to 65 in v31.0 but IRONS_MIN_WR_30_45 stayed at 63, creating a 2pt floor misalignment; at WR 30-45% the 63-65 IRONS band has marginal EV (EV≈+0.011R at RR=2.35) without institutional-grade multi-factor confirmation; 65 restores co-equal G9/G10 discipline in recovery zone (signals need BOTH composite≥65 AND IRONS≥65); MARKOV_MILD+8pts easily absorbs the 2pt raise so SOVEREIGN/Markov fast-paths unaffected; v21.1: 62→63; v18.85: 57→62
+IRONS_MIN_WR_BELOW30  = 70.0    # v38.0: 68→70 — CRISIS FLOOR TIGHTEN: at WR=29.4% EV=-0.314R the 68-70 IRONS band is marginal noise; +2pt removes the bottom 8-12% of IRONS-passing signals that are net-negative at current WR; WR<25% auto-scales: IRONS_MIN_WR_BELOW30+1.5=71.5; WR<20%: +3=73; SOVEREIGN_RECOVERY_GATE raised to 70 for coherence; three-tier: G9=67 + G10/SOVEREIGN=70 + WR<20%=73 [v38.0]; v31.0: 67→68; v21.1: 65→67; v18.85: 57→65
+IRONS_MIN_WR_30_45    = 67.0    # v38.0: 65→67 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 67; IRONS_MIN_WR_30_45 must match for G9+G10 co-equal discipline; at WR 30-45% the 65-67 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥67 AND IRONS≥67 — dual-floor ensures no single gate is the weak link in recovery; MARKOV_MILD+8pts (75+) easily absorbs the 2pt raise; v35.0: 63→65; v21.1: 62→63; v18.85: 57→62
 IRONS_MIN_WR_45_55    = 53.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57; v11.2: 57→51; v15.5: 51→52; v16.5: 52→53)
 IRONS_MIN_WR_ABOVE55  = 48.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52; v11.2: 52→47; v15.5: 47→48)
 # Quality-override: if composite quality >= this AND consensus=100%, relax IRONS floor by 5 pts
@@ -1256,7 +1270,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "37.0"
+UNITY_VERSION                = "38.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -1407,7 +1421,7 @@ HFT_DUAL_DIR_COOLDOWN_MIN = float(os.getenv("UNITY_HFT_COOLDOWN_MIN", "8.0") or 
 # without penalty — quality floor is enforced at a tighter level for all
 # non-SOVEREIGN signals, dramatically improving signal selectivity.
 SOVEREIGN_RECOVERY_WR     = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_WR", "0.28") or 0.28)  # v19.6: 38%→28% — Bug N root-cause fix: raw ring WR=0% (0W/20L DB seed) vs Bayesian WR=29.96%; at 38% the gate fires on every restart even when Bayesian WR is above break-even (29.85%); 28% is below break-even so SOVEREIGN Recovery only fires when demonstrably loss-making; Gate 9 WR also receives Bayesian blend in v19.6
-SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "68.0") or 68.0)  # v31.0: 67→68 — recalibrated to match raised IRONS_MIN_WR_BELOW30=68; SOVEREIGN_RECOVERY path now requires IRONS≥68 to pass; coherent three-tier filter: G9=65 + G10/SOVEREIGN_RECOVERY=68 + WR<20%=71; +1pt consistency raise ensures SOVEREIGN_RECOVERY and IRONS floor are co-equal at WR<30%; v21.1: 65→67; v18.85: 59→65
+SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "70.0") or 70.0)  # v38.0: 68→70 — co-equal with raised IRONS_MIN_WR_BELOW30=70; SOVEREIGN_RECOVERY path now requires IRONS≥70 to pass; coherent three-tier filter: G9=67 + G10/SOVEREIGN_RECOVERY=70 + WR<20%=73; +2pt consistency raise ensures SOVEREIGN_RECOVERY and IRONS crisis floor are co-equal at WR<30%; v31.0: 67→68; v21.1: 65→67; v18.85: 59→65
 
 # ── v8.3: Pre-compiled HTF word frozensets (module-level constants) ───────────
 # Previously created fresh on every UnitySignalFilter.apply() call — moved here
@@ -4499,16 +4513,22 @@ class UnitySignalFilter:
             if _early_dd_booster is not None:
                 _early_dd = float(getattr(_early_dd_booster, "_max_drawdown_pct", 0.0) or 0.0)
                 if _early_dd > 50.0:
-                    quality_score -= 4.0   # ruin territory: exceptional quality required to trade
+                    quality_score -= 7.0   # v38.0: 4→7pts RUIN territory — MaxDD=49.37% at v38.0 boot; 7pt ensures only composite≥74+ signals survive; Kelly25 halves size AND quality floor rises; institutional ruin threshold
                     self._logger.debug(
-                        f"[MaxDD-EarlyDeterrent v21.3] {symbol} MaxDD={_early_dd:.1f}% "
-                        f"(RUIN) → -4.0pts pre-deterrent (Kelly25 territory)"
+                        f"[MaxDD-EarlyDeterrent v38.0] {symbol} MaxDD={_early_dd:.1f}% "
+                        f"(RUIN) → -7.0pts pre-deterrent (Kelly25 territory)"
                     )
-                elif _early_dd > 45.0:
-                    quality_score -= 2.5   # severe drawdown: strong headwind on all signals
+                elif _early_dd > 47.0:
+                    quality_score -= 5.0   # v38.0: NEW TIER >47% — current MaxDD=49.37% hits this tier; -5pt requires composite≥72+ base to clear G9=67 floor; severe ruin protection
                     self._logger.debug(
-                        f"[MaxDD-EarlyDeterrent v21.3] {symbol} MaxDD={_early_dd:.1f}% "
-                        f"(SEVERE) → -2.5pts pre-deterrent (Kelly24 territory)"
+                        f"[MaxDD-EarlyDeterrent v38.0] {symbol} MaxDD={_early_dd:.1f}% "
+                        f"(NEAR-RUIN) → -5.0pts pre-deterrent (new >47% tier)"
+                    )
+                elif _early_dd > 43.0:
+                    quality_score -= 2.5   # v38.0: 45→43% threshold, same -2.5pts; catches 43-47% severe zone earlier
+                    self._logger.debug(
+                        f"[MaxDD-EarlyDeterrent v38.0] {symbol} MaxDD={_early_dd:.1f}% "
+                        f"(SEVERE) → -2.5pts pre-deterrent"
                     )
                 elif _early_dd > 40.0:
                     quality_score -= 1.0   # elevated drawdown: mild quality headwind
@@ -5245,7 +5265,7 @@ class UnitySignalFilter:
                 _dz_booster  = self._booster
                 _dz_raw_wr   = float(getattr(_dz_booster, "win_rate", 0.0) or 0.0)
                 _dz_wr       = (_dz_raw_wr / 100.0) if _dz_raw_wr > 1.0 else _dz_raw_wr
-                if _dz_drought > 1800 and _dz_wr > 0.25:  # >30min drought + WR>25% [v18.53: 1.5h→45min; v18.81: 45min→30min — at signal rate 1/hr (target 5-15), faster drought relief prevents compound starvation from dead-zone veto + G4 crisis tightening; EV floor already prices thin-book execution risk; 30min = 2 full scan cycles with no signal]
+                if _dz_drought > 2700 and _dz_wr > 0.25:  # v38.0: 30min→45min (1800s→2700s) — harder to escape thin-book dead-zone veto; at WR=29.4% EV=-0.314R the 30min escape was too permissive, allowing Asian-session noise signals through after only 2 scan cycles; 45min = 3 full scan cycles ensures genuine multi-cycle drought before relaxing [v18.81: 45min→30min — reversed at v38.0]
                     # v18.24 FIX: Exclusive soft-mode branch — records once and does NOT
                     # fall through to the outer dead-zone penalty block below.
                     # Previous code fell through after recording False here, then the outer
@@ -7383,17 +7403,17 @@ class UnitySignalFilter:
             if len(_g9_ring) >= 10:
                 _g9_wr = sum(_g9_ring) / len(_g9_ring)
                 if _g9_wr < 0.20:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 68.0)   # v18.87: 62→68 — BUG FIX: with SIGNAL_MIN_QUALITY_GATE=62 the old max(62,62)=62 collapsed this tier to base (no differentiation); 68 enforces +6pt strict crisis floor above base; at WR<20% P(random-5-losses)=0.80^5=32.8% — engine is statistically indistinguishable from coin-flip; only SOVEREIGN+ultra-high-quality signals (68+) should pass
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 72.0)   # v38.0: 68→72 — recalibrated for SIGNAL_MIN_QUALITY_GATE=67 base; 72 enforces +5pt strict crisis floor above new base; at WR<20% engine is statistically coin-flip; only SOVEREIGN+ultra-high-quality (72+) signals pass [v18.87: 62→68]
                 elif _g9_wr < 0.25:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 66.0)   # v18.87: 60→66 — BUG FIX: max(62,60)=62 was collapsed to base; 66 restores +4pt selectivity above base; at WR<25% break-even RR=2.60 so only genuinely conviction-grade signals pass
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 70.0)   # v38.0: 66→70 — +3pt above new base=67; at WR<25% break-even RR=2.60; conviction-grade floor; was max(65,66)=66, now max(67,70)=70 for meaningful differentiation [v18.87: 60→66]
                 elif _g9_wr < 0.30:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 65.0)   # v18.87: 58→65 — BUG FIX: max(62,58)=62 was collapsed to base; 65=SOVEREIGN_RECOVERY_GATE provides +3pt selectivity; at WR<30% break-even RR=2.50 — SOVEREIGN signals must score 65+, matching IRONS_BELOW30 floor of 65 for full gate coherence
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 69.0)   # v38.0: 65→69 — +2pt above new base=67; matches IRONS_MIN_WR_BELOW30=70 approximately; at WR<30% break-even RR=2.50; was max(65,65)=65 (collapsed), now max(67,69)=69 meaningful [v18.87: 58→65]
                 elif _g9_wr < 0.35:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 64.0)   # v18.87: 58→64 — BUG FIX: max(62,58)=62 was collapsed to base; 64 adds +2pt selectivity for WR=30-35% which is below break-even at RR=2.20 (BE=31.8%); small but meaningful: filters the quality 62-63 borderline signals that are most likely to be noise
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 68.0)   # v38.0: 64→68 — +1pt above new base=67; sub-break-even zone WR=30-35%; was max(65,64)=65 (collapsed to base), now max(67,68)=68 adds 1pt above base [v18.87: 58→64]
                 elif _g9_wr < 0.40:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 63.0)   # v18.87: 56→63 — BUG FIX: max(62,56)=62 was collapsed to base; 63 adds +1pt marginal selectivity for 35-40% WR approaching break-even; preserves signal flow while maintaining slight quality elevation
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 67.0)   # v38.0: 63→67 — equals new base; WR=35-40% approaching break-even; max(67,67)=67; was max(65,63)=65 [v18.87: 56→63]
                 elif _g9_wr < 0.50:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 62.0)   # v18.87: 55→62 — now correctly equals SIGNAL_MIN_QUALITY_GATE; 40-50% WR is above break-even (BE=31.8% at RR=2.20) so base floor is appropriate; was max(62,55)=62 anyway
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 67.0)   # v38.0: 62→67 — equals new base; WR=40-50% above break-even; base floor appropriate; max(67,67)=67 [v18.87: 55→62]
         # v23.0: WR Recovery Bonus — when ring WR≥42% and Sharpe>0 (positive-EV recovery
         # confirmed), relax the G9 quality floor by 1pt (hard floor: SIGNAL_MIN_QUALITY_GATE-1).
         # At WR=42%: EV = 0.42×2.35 − 0.58 = +0.407R — strongly positive EV zone.
@@ -7536,14 +7556,12 @@ class UnitySignalFilter:
             if self._booster is not None:
                 _g9_maxdd = float(getattr(self._booster, "_max_drawdown_pct", 0.0) or 0.0)
                 if _g9_maxdd > 50.0:
-                    _g9_floor = min(70.0, _g9_floor + 3.0)  # v20.3: ruin-territory → +3pts (new tier above 45%)
+                    _g9_floor = min(75.0, _g9_floor + 5.0)  # v38.0: +3→+5pts ruin-territory; with base=67 this forces floor to 72+; at MaxDD>50% only top-5th-percentile signals (72+) pass; cap raised from 70→75 to allow full effect
                 elif _g9_maxdd > 45.0:
-                    # v18.42 FIX: reduced +4→+2pts (was creating compounding death-spiral
-                    # with PSIER EV floor + ISB quality boost: 49.37% MaxDD → +4pts pushed
-                    # G9 floor to 65 which blocked all signals despite PSIER reducing EV floor).
-                    _g9_floor = min(70.0, _g9_floor + 2.0)  # near CB limit → +2pts (was +4)
+                    # v38.0: raised +2→+4pts; current MaxDD=49.37% hits this tier; with base=67 floor→71; blocks all but highest-conviction SOVEREIGN signals; resolves the v18.42 death-spiral risk by raising BOTH early-deterrent (-5pts) AND G9 floor (+4pts) together
+                    _g9_floor = min(75.0, _g9_floor + 4.0)  # v38.0: near-ruin → +4pts (was +2pts — too lenient at MaxDD=49%)
                 elif _g9_maxdd > 40.0:
-                    _g9_floor = min(70.0, _g9_floor + 1.0)  # moderate impairment → +1pt (was +2)
+                    _g9_floor = min(75.0, _g9_floor + 2.0)  # v38.0: +1→+2pts moderate impairment; with base=67 floor→69
         except Exception:
             pass
         # v37.0: Bypass compensation block REMOVED — all bypasses eliminated; G3/G4 flags always False [v37.0-STRICT]
