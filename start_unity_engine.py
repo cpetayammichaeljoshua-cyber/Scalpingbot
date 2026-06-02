@@ -84,6 +84,30 @@ KEY GATES (v31.0): MIN_RR=2.35 | NN_WIN_PROB=0.48(cold>0.51) | EV_MIN=22bps(regi
     G9 WR<23% ultra-crisis floor: 65→67pts(vs 65 for all WR<28%,EV-neg at RR=2.35) |
     EV floor SR<-5 ultra-ruin: 1.20×→1.25×(27.5bps vs 26.4bps,signals-flowing no-drought tier) |
     NN time_decay_ratio adaptive: crisis(SR<-4|WR<25%)→4.0×(normal 2.0×,forget-old-regime faster)
+  v37.0 IMPROVEMENTS: ALL-BYPASS-REMOVED STRICT-GATE + GATE THRESHOLD TIGHTEN + GODMOD3 TIMEOUT FIX2:
+    ALL G4 relaxations removed [v37.0] |
+      G4-DroughtRelax (-0.02 after 20min drought), G4-Unani relaxation (-0.04 at ≥99% consensus) |
+      G4-PessimismRelief (-0.04 at WR<35%), G4-SovRelax (-0.03 SOVEREIGN+45min drought) — ALL REMOVED |
+      G4-unanimous bypass (consensus≥95%+nn_prob≥0.60×threshold→pass) — REMOVED |
+      G4-UNC_SOFT bypass (σ>0.18+consensus≥88%→pass) — REMOVED |
+      Signals must now genuinely clear NN win-prob threshold, NO exceptions [v37.0] |
+    ALL G2/G3/G9 relaxations removed [v37.0] |
+      G2-DroughtRelief (-1pp swarm floor at crisis+drought>20min) — REMOVED |
+      G3-SoftPass (unanimous+within3pt→pass) — REMOVED |
+      G3-DroughtRelax (-4pt AI threshold after 15-20min drought) — REMOVED |
+      G9-DroughtSoftening (-2pt quality floor after 30min drought) — REMOVED |
+    G9 SOVEREIGN exemption from recovery mode removed [v37.0] |
+      Before: Markov SOVEREIGN signals skipped SOVEREIGN_RECOVERY floor tightening |
+      After: ALL signals subject to recovery floor — no tier gets a free pass [v37.0] |
+    G10 IRONS quality override removed [v37.0] |
+      Before: quality≥78+consensus=100% relaxed IRONS floor by 5pts |
+      After: IRONS floor is absolute — no quality-bypass shortcut [v37.0] |
+    Gate threshold tightening [v37.0] |
+      AI_THRESHOLD_PERCENT: 87→88 (tighter LLM confidence base) |
+      SWARM_MIN_CONSENSUS: 0.94→0.95 (stronger swarm agreement requirement) |
+      MIN_RR_RATIO: 2.35→2.45 (tighter R:R discipline; EV=0.302×2.45−0.698=+0.042R) |
+    Bypass compensation block removed (both flags always False now) [v37.0] |
+    godmod3 second timeout handler (CONSORTIUM tier) now has TimeoutStreakGuard [v37.0]
   v36.0 IMPROVEMENTS: CRITICAL ENV-OVERRIDE GATE FIXES + OPENROUTER TIMEOUT STREAK + NIXPACKS HYGIENE:
     UNITY_NN_GATE env fix: 0.35→0.48 [v36.0] |
       .replit userenv had UNITY_NN_GATE="0.35" overriding code constant NN_WIN_PROB_GATE=0.48 at runtime |
@@ -752,9 +776,9 @@ SCAN_INTERVAL_MIN     = 5        # legacy compat
 SCAN_INTERVAL_MAX     = 15       # legacy compat
 
 # ── Signal quality gates ─────────────────────────────────────────────────────
-AI_THRESHOLD_PERCENT  = 87       # minimum post-boost confidence to send signal (v20.0: 85→87 — at WR=30.2% Sharpe=-4.87 the 81 base was accepting LLM signals in the 81-84% band that are statistically unvalidated; 85 requires genuine high-conviction AI agreement; math: at WR=30% need AI conf>85% to have positive Bayesian EV after blending with 30% base rate)
-SWARM_MIN_CONSENSUS   = 0.94     # v19.4: 0.97→0.94 — recalibration: 97% required near-unanimity (9.7/10 MiroFish agents) which combined with shadow-mode lock produced 0 signals; 94% requires strong consensus (9.4/10 agents) while still eliminating low-conviction divergent signals; WR<25% escalation path already raises to 0.95+ per Gate 2 adaptive logic so institutional conviction floor is preserved in crisis tiers
-MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.35") or 2.35)     # minimum risk-reward ratio (v18.91: 2.20→2.35 — MATH FIX: at WR=30.2% break-even RR = q/p = 0.698/0.302 = 2.311; the prior 2.20 was BELOW the break-even threshold meaning every filtered signal still had negative EV = 0.302×2.20−0.698=−0.034R; 2.35 gives EV=0.302×2.35−0.698=+0.011R — first positive-EV floor at current WR; adds +1.7% margin above break-even; break-even at WR=35%→1.857, so 2.35 builds in +26% safety margin for the recovery regime)
+AI_THRESHOLD_PERCENT  = 88       # minimum post-boost confidence to send signal (v37.0: 87→88 — tighter LLM confidence floor; at WR=30% the 87-88% band shows marginal EV; 88% enforces top 12th-percentile AI conviction) (v20.0: 85→87 — at WR=30.2% Sharpe=-4.87 the 81 base was accepting LLM signals in the 81-84% band that are statistically unvalidated; 85 requires genuine high-conviction AI agreement; math: at WR=30% need AI conf>85% to have positive Bayesian EV after blending with 30% base rate)
+SWARM_MIN_CONSENSUS   = 0.95     # v37.0: 0.94→0.95 — all bypass paths removed; base swarm floor raised to match the WR<30% tier floor (was 0.95 for WR<30%, 0.94 for WR≥30% — now uniform 0.95 baseline); requires 9.5/10 MiroFish agents in agreement [v37.0-STRICT]
+MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.45") or 2.45)     # minimum risk-reward ratio (v37.0: 2.35→2.45 — with all bypass paths removed signals are now stricter quality; raising RR floor to 2.45 gives EV=0.302×2.45−0.698=+0.042R vs prior +0.011R — 3.8× better EV floor; break-even at WR=30% is 2.311; 2.45 adds +6% margin; at WR=35% break-even=1.857 so 2.45 still gives +31.9% margin)
 NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.48") or 0.48)     # v19.8: 0.50→0.48 — G4 THROUGHPUT: at WR=30% with NN inflation ≈1.5× the 0.50 gate maps raw NN need ≥0.60; lowering to 0.48 means raw NN ≥0.58 passes — at 1.5× inflation 0.48 maps to ≈32% actual WR (positive EV at RR=2.35: 0.32×2.35−0.68=+0.072R); all other gates (IRONS≥65, Markov, GEX, SWARM≥94%) still enforce quality; v18.91: 0.45→0.50 — now dialled back slightly to balance starvation vs noise filter; crisis Sharpe<-3.5 auto-tightens via RL adapter as before.
 SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
@@ -1232,7 +1256,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "36.0"
+UNITY_VERSION                = "37.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5765,20 +5789,7 @@ class UnitySignalFilter:
                 _g2_min = max(SWARM_MIN_CONSENSUS, 0.95)   # WR<25%: 95% consensus required [v15.1: 0.97→0.95 — matches SWARM_MIN_CONSENSUS base, avoids double-tightening the swarm gate]
             elif _g2_wr < 0.30:
                 _g2_min = max(SWARM_MIN_CONSENSUS, 0.95)   # WR<30%: 95% consensus required [v15.1: 0.96→0.95 — neutral, swarm naturally gates at 0.95]
-        # v26.0: G2 drought relief — in deep-crisis drought, relax consensus floor by 1pp.
-        # At Sharpe<-4 + drought>20min: _g2_min drops 0.95→0.94 (or 0.94→0.93, floor=0.93).
-        # 9.3/10 agents still overwhelmingly consensus; guard ensures only crisis+drought fires.
-        # Rationale: 20min drought means all other gates have failed for 20+ min — a 1pp
-        # consensus relaxation (1 agent in 10) breaks starvation without opening noise.
-        try:
-            if self._booster is not None:
-                _g2_drought_sec = self._signal_drought_seconds()
-                if _g2_drought_sec > 1200:   # 20min drought
-                    _g2_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
-                    if _g2_sr < -4.0:
-                        _g2_min = max(0.93, _g2_min - 0.01)   # 1pp crisis drought relief [v26.0]
-        except Exception:
-            pass
+        # v37.0: G2 drought relief REMOVED — consensus floor is absolute; no crisis/drought exemption [v37.0-STRICT]
         passed_g2 = consensus >= _g2_min or _no_swarm_data
         self._record("gate2", passed_g2)
         if not passed_g2:
@@ -5884,60 +5895,9 @@ class UnitySignalFilter:
             pass
 
         # ── Gate 3 — AI confidence (RL-adaptive threshold) ────────────────────
+        # v37.0 STRICT: G3 soft-pass removed AND G3 drought relaxation removed.
+        # AI confidence must genuinely meet ai_threshold — no unanimous override, no drought exemption.
         passed_g3 = confidence >= ai_threshold
-        # v8.2: Unanimous-consensus soft-pass (mirrors Gate 4 logic).
-        # When all 10 swarm agents agree (consensus=100%) AND the signal is within
-        # 4 pts of the threshold, the rule-based evidence is sufficiently strong
-        # to allow a soft pass.  This captures near-threshold signals that would
-        # be approved by the AI gate if keys were available, while keeping the
-        # hard block for clearly weak signals (confidence < threshold - 4).
-        if not passed_g3 and consensus >= 1.0 and (ai_threshold - confidence) <= 3.0:
-            passed_g3 = True
-            _g3_softpass_flag = True   # v18.8: track for Gate 9 bypass compensation
-            self._logger.debug(
-                f"G3_SOFT: confidence={confidence:.1f}% ≈ threshold={ai_threshold:.0f}% "
-                f"(within 3pt) + unanimous consensus=100% → soft pass [v15.5: 5pt→3pt — starvation is resolved; 5pt gap (v15.3) still admitted signals at 81% conf with threshold=86% which empirically correlate with lower WR; tightened to 3pt so only truly near-threshold signals benefit from the unanimous-consensus override]"
-            )
-        # v19.8: G3 drought relaxation — mirrors G4-DroughtRelax.
-        # After 20 min with no signal AND live WR < 42%, lower the AI-confidence
-        # threshold by up to 4pts (hard floor = max(79%, base-4)).
-        # Rationale: extended drought means the other 14 gates (NN/IRONS/Markov/GEX/Swarm)
-        # have already been failing signals for 20+ min; when they finally generate a
-        # borderline-LLM signal (conf=81-84%), the AI threshold alone should not hard-block
-        # it in a starvation regime.  79% floor ensures a meaningful confidence bar remains.
-        if not passed_g3:
-            try:
-                _g3_drought_sec = self._signal_drought_seconds()
-                # v25.0: compute Sharpe before drought-threshold to use it in BOTH
-                # the threshold gate and the relax-drop calculation (single lookup).
-                _g3_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0) if self._booster else 0.0
-                # v25.0: crisis-aware drought window — 15min at Sharpe<-4 (was 20min flat).
-                # At Sharpe=-4.87 WR=29.5%: 20min window forced 5 extra minutes of
-                # starvation before relax fired each cycle; 15min recovers ~0.3 signals/session/
-                # drought-epoch at 4 signal/hr.  Standard regimes still use 20min guard.
-                _g3_drought_threshold = 900.0 if _g3_sr < -4.0 else 1200.0   # [v25.0]
-                if _g3_drought_sec > _g3_drought_threshold:
-                    _g3_total = self.metrics.win_count + self.metrics.loss_count
-                    _g3_live_wr = (
-                        self.metrics.win_count / _g3_total
-                        if _g3_total >= 10 else 0.50
-                    )
-                    if _g3_live_wr < 0.42:   # only in loss/crisis regimes
-                        # v20.1: Sharpe-aware G3 relax floor — during deep crisis (Sharpe<-4)
-                        # the standard -4pt relaxation drops to -3pt so drought relief is less
-                        # permissive when ruin is active; relaxation floor rises by +1pt.
-                        _g3_relax_drop = 3.0 if _g3_sr < -4.0 else 4.0
-                        _g3_relax_floor = max(79.0 + (1.0 if _g3_sr < -4.0 else 0.0), ai_threshold - _g3_relax_drop)
-                        if confidence >= _g3_relax_floor:
-                            passed_g3 = True
-                            self._logger.info(
-                                f"[G3-DroughtRelax v25.0] {symbol} drought={_g3_drought_sec/60:.0f}min "
-                                f"WR={_g3_live_wr:.0%} conf={confidence:.1f}% ≥ relax={_g3_relax_floor:.0f}% "
-                                f"(base={ai_threshold:.0f}% −{_g3_relax_drop:.0f}pt "
-                                f"Sharpe={_g3_sr:.2f} thresh={_g3_drought_threshold/60:.0f}min [v25.0])"
-                            )
-            except Exception:
-                pass
         self._record("gate3", passed_g3)
         if not passed_g3:
             return False, f"G3_FAIL: confidence={confidence:.1f}% < {ai_threshold:.0f}%", 0.0
@@ -6051,175 +6011,19 @@ class UnitySignalFilter:
                     nn_threshold = max(nn_threshold, min(0.54, NN_WIN_PROB_GATE + 0.08))  # v18.89: cap 0.46→0.54 — RECALIBRATION FIX: when NN_WIN_PROB_GATE was raised 0.39→0.45 (v18.85) the crisis cap 0.46 was not updated; old: min(0.46,0.39+0.08)=0.46=+7pp; new-broken: min(0.46,0.45+0.08=0.53)=0.46=+1pp (CRISIS WEAKER than mild-crisis +5pp — backwards!); fix: cap→0.54 restores min(0.54,0.53)=0.53=+8pp, correctly stricter than mild-crisis 0.50; at Sharpe=-4.87: threshold=0.53; at RR=2.20 break-even=0.318 so 0.53 is 1.67× BE; prevents NN calibration-drift losers in deep-drawdown regimes
                 elif _g4_sr < -2.0:
                     nn_threshold = max(nn_threshold, min(0.55, NN_WIN_PROB_GATE + 0.05))
-            # v18.36: Drought-adaptive Gate 4 relaxation.
-            # When drought > 30min and the Sharpe/WR tightening above has NOT pushed
-            # threshold above base+0.04, reduce by 0.02 to admit marginally-sub-
-            # threshold signals during starvation.  Hard lower bound: 0.37 (5.4%
-            # above break-even at RR=1.85).  Crisis tightening always overrides:
-            # in Sharpe<-3.5 (0.52 threshold) this relaxation has zero net effect.
-            try:
-                _g4_drought = self._signal_drought_seconds()
-                _g4_drought_sr = (
-                    float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
-                    if self._booster else 0.0
-                )
-                # v29.0: Suppress G4 drought relaxation in ultra-ruin (Sharpe<-5.0).
-                # At Sharpe<-5 the NN threshold is already at 0.56 (tightest tier).
-                # Relaxing by −0.02 admits NN confidence ≥0.54 signals — at WR=25%
-                # these consistently lose. Accept drought over quality compromise. [v29.0]
-                if _g4_drought > 1200 and _g4_drought_sr > -5.0:  # v19.7: 1800→1200s (20min)
-                    _g4_relaxed = max(NN_WIN_PROB_GATE - 0.05, nn_threshold - 0.02)  # v18.89
-                    if _g4_relaxed < nn_threshold:
-                        nn_threshold = _g4_relaxed
-                        self._logger.debug(
-                            f"[G4-DroughtRelax v18.55] drought={_g4_drought/60:.0f}min "
-                            f"→ nn_threshold {nn_threshold+0.02:.2f}→{nn_threshold:.2f} (floor=0.36)"
-                        )
-            except Exception:
-                pass
-            # v18.42: Unanimous-Consensus NN Intelligence Bypass
-            # When swarm consensus achieves ≥99% (unanimous — all 10 agents agree),
-            # reduce NN win-prob threshold by 0.04. Joint P(wrong) across 10 independent
-            # agents at full unanimity is multiplicatively lower than at 95%, justifying
-            # a structural relaxation. Hard floor: 0.39 (maintains meaningful above-
-            # break-even bar at RR=1.85 → break-even=35.1%). Complements drought
-            # relaxation (-0.02) — combined max relaxation at 99% unanimity + drought
-            # is -0.06 from base NN threshold. Crisis tightening always partially
-            # overrides: Sharpe<-3.5 pushes base to 0.52, so floor is 0.52-0.04=0.48.
-            try:
-                _g4_unani_cons = float(signal_data.get("consensus", signal_data.get("swarm_consensus", 0)) or 0)
-                if _g4_unani_cons >= 0.99:
-                    _g4_unani_relaxed = max(NN_WIN_PROB_GATE - 0.04, nn_threshold - 0.04)  # v18.89: 0.37→NN_WIN_PROB_GATE-0.04=0.41 — RECALIBRATION FIX: floor 0.37 was set when base=0.39 (0.37=0.39-0.02); with base=0.45 the floor 0.37 was 8pp below base, allowing unanimous override to drop threshold 8pp below base in non-crisis; 0.45-0.04=0.41 maintains same -0.04 relative margin from base; at crisis+unanimous: max(0.41,0.53-0.04)=0.49 (vs old max(0.37,0.46-0.04)=0.42 which was WAY below corrected crisis level); unanimous swarm provides 4pp structural relaxation but not more [v18.89]
-                    if _g4_unani_relaxed < nn_threshold:
-                        nn_threshold = _g4_unani_relaxed
-                        self._logger.debug(
-                            f"[G4-Unani v18.55] {symbol} unanimous_cons={_g4_unani_cons:.0%} "
-                            f"→ nn_threshold −0.04 ({nn_threshold+0.04:.2f}→{nn_threshold:.2f}, floor=0.38)"
-                        )
-            except Exception:
-                pass
-            # v23.0: G4 Pessimism-Aware Threshold Relief
-            # When the NN has entered "learned pessimism" (trained on WR<35% data),
-            # its win-prob outputs cluster in the 0.10–0.35 band. The base nn_threshold
-            # (0.48+) was calibrated for a model that genuinely discriminates; in
-            # pessimism mode most real-signal outputs fall below 0.48 not because the
-            # signal is bad, but because the NN's anchor is too conservative.
-            # At WR=29.6%, naive always-predict-loss accuracy = 70.4%.
-            # If NN acc is only marginally above this, the model is not discriminating.
-            # Relief: max 0.02pp threshold reduction, scaled by (1 − edge/10pp).
-            # This is the engine-level G4 counterpart to the bot's absolute-floor
-            # pessimism correction (fxsusdt_telegram_bot.py ≈ line 2775).
-            # Hard floor: NN_WIN_PROB_GATE - 0.06 (≈ 0.42 at base=0.48).
-            try:
-                _g4_pess_wr  = 0.50  # neutral fallback (uninformative prior)
-                _g4_pess_acc = float(getattr(nn_trainer, "_last_accuracy", 0.75) or 0.75)
-                if self._booster is not None:
-                    _g4_pba = float(getattr(self._booster, "_bayes_alpha", 2.0) or 2.0)
-                    _g4_pbb = float(getattr(self._booster, "_bayes_beta",  2.0) or 2.0)
-                    _g4_pess_wr = _g4_pba / max(1.0, _g4_pba + _g4_pbb)
-                if _g4_pess_wr < 0.35:  # only in sub-35% WR (pessimism territory)
-                    _g4_baseline_acc = 1.0 - _g4_pess_wr   # naive always-predict-loss accuracy
-                    _g4_pess_edge    = max(0.0, _g4_pess_acc - _g4_baseline_acc)
-                    # Relief formula: 0.02 × (1 − edge/10pp). At edge=0pp → 0.020pp relief.
-                    # At edge=5pp → 0.010pp. At edge≥10pp → 0.000pp (NN genuinely discriminates).
-                    # v30.0: Pessimism relief doubled 0.02→0.04 — at WR<35% the NN
-                    # clusters outputs below 0.48; 0.02pp was insufficient to move the
-                    # 0.56 crisis threshold meaningfully. 0.04 at edge=0% → 0.04pp
-                    # relief. At edge≥10%: 0.00 (NN genuinely discriminates). [v30.0]
-                    _g4_pess_relief  = max(0.0, 0.04 * (1.0 - min(1.0, _g4_pess_edge / 0.10)))
-                    if _g4_pess_relief >= 0.005:
-                        _g4_pr_new = max(NN_WIN_PROB_GATE - 0.08, nn_threshold - _g4_pess_relief)  # v34.0: floor 0.06→0.08 — 2pp wider pessimism relief floor (0.40 vs 0.42); at WR=29.5% NN output clusters 0.42-0.47, new floor captures borderline NN-uncertain signals that are still within EV-positive territory at RR≥2.50
-                        if _g4_pr_new < nn_threshold:
-                            nn_threshold = _g4_pr_new
-                            self._logger.debug(
-                                f"[G4-PessimismRelief v23.0] {symbol} "
-                                f"WR={_g4_pess_wr:.1%} acc={_g4_pess_acc:.1%} "
-                                f"baseline={_g4_baseline_acc:.1%} edge={_g4_pess_edge:.1%} "
-                                f"→ relief={_g4_pess_relief:.3f} → nn_threshold {nn_threshold+_g4_pess_relief:.2f}"
-                                f"→{nn_threshold:.2f} [v23.0]"
-                            )
-            except Exception:
-                pass
+            # v37.0 STRICT: All G4 threshold relaxations and bypass paths removed.
+            # Removed: G4-DroughtRelax (-0.02), G4-Unani relaxation (-0.04 at ≥99%),
+            #          G4-PessimismRelief (-0.04 at WR<35%), G4-SovRelax (-0.03 SOVEREIGN+drought),
+            #          G4-unanimous bypass (consensus≥95%+nn_prob≥0.60×threshold→pass),
+            #          G4-UNC_SOFT bypass (σ>0.18+consensus≥88%→quality-penalty pass).
+            # Preserved: Crisis tightening (Sharpe<-2.0/-3.5/-5.0) — raises bar in adverse regimes.
+            # Signals must genuinely clear nn_prob >= nn_threshold, NO exceptions. [v37.0-STRICT]
             passed_g4 = nn_prob >= nn_threshold
-            # v18.57: Markov-SOVEREIGN G4 relaxation.
-            # When the Markov chain has already confirmed SOVEREIGN (p_ij≥0.87,
-            # _mk_sov_flag=True — set in Pre-Gate M above) AND the signal drought
-            # exceeds 45 min, reduce nn_threshold by an additional 0.03 (hard floor
-            # 0.34 — 11pt above BE=0.351 at RR=1.85).  Rationale: at p_ij≥0.87 the
-            # Markov transition is a stronger directional predictor than the NN
-            # win-prob, which suffers calibration drift in low-WR regimes.  The 45-min
-            # drought guard prevents opportunistic use.  This relaxation stacks with
-            # the drought (−0.02) and unanimous (−0.04) relaxations above, giving a
-            # combined maximum of −0.09 from base NN threshold in the best case
-            # (SOVEREIGN + unanimous + drought), while crisis tightening (Sharpe<−3.5)
-            # still overrides by pushing base to 0.52.
-            if not passed_g4 and _mk_sov_flag:
-                try:
-                    _g4_sov_drought = self._signal_drought_seconds()
-                    if _g4_sov_drought > 2700:  # >45 min drought guard
-                        _g4_sov_relaxed = max(NN_WIN_PROB_GATE - 0.07, nn_threshold - 0.03)  # v18.89: 0.34→NN_WIN_PROB_GATE-0.07=0.38 — RECALIBRATION FIX: floor 0.34 was set when base=0.39 (0.34=0.39-0.05); with base=0.45, 0.34 floor allows SOVEREIGN+drought+unanimous combined relaxation to reach absurdly low thresholds; 0.45-0.07=0.38 maintains same relative margin; at crisis+drought+unani+SOV: max(0.38,prev-0.03) gives meaningful but bounded relaxation [v18.89]
-                        if _g4_sov_relaxed < nn_threshold:
-                            nn_threshold = _g4_sov_relaxed
-                            passed_g4 = nn_prob >= nn_threshold
-                            if passed_g4:
-                                _g4_bypass_flag = True
-                            self._logger.debug(
-                                f"[G4-SovRelax v18.89] {symbol} MARKOV SOVEREIGN "
-                                f"+ drought={_g4_sov_drought/60:.0f}min → "
-                                f"nn_threshold −0.03 (→{nn_threshold:.2f}, floor={NN_WIN_PROB_GATE-0.07:.2f})"
-                            )
-                except Exception:
-                    pass
-            # v10.5 G4 FIX-A: Unanimous soft-bypass — dynamic floor.
-            # Original 0.55 floor was always above the NN's output (0.05-0.15
-            # at 27% WR), so unanimous consensus bypass NEVER fired.
-            # New floor: 60% of the dynamic opt_threshold (so if opt=0.28,
-            # bypass fires at nn_prob ≥ 0.17 with full swarm unanimity).
-            # This lets strong swarm agreement override a calibration-biased NN.
-            _g4_bypass_floor = nn_threshold * 0.60  # v15.3 REVERT: 0.35→0.60. The 35% floor (=0.1225 at nn_thresh=0.35) is a rubber stamp — NN outputs 0.05-0.15 at WR=22%, so ~half of all 95%-consensus signals bypass G4 unconditionally. At 60% (=0.21) the bypass requires the NN to output at least 21%, which only the genuinely stronger signals clear. EV gate (fixed in v15.3) now provides the primary filter, so G4 bypass doesn't need to be this wide.
-            if not passed_g4 and consensus >= 0.95 and nn_prob >= _g4_bypass_floor:
-                passed_g4 = True
-                _g4_bypass_flag = True   # v18.8: track for Gate 9 bypass compensation
-                self._logger.debug(
-                    f"G4_BYPASS [{symbol}]: unanimous consensus={consensus:.0%} "
-                    f"+ nn_prob={nn_prob:.2f}≥{_g4_bypass_floor:.2f}(35%×opt) → soft bypass [v15.1]"
-                )
-            # v10.5 G4 FIX-B: High-uncertainty soft-pass.
-            # When NN σ>0.20 ("unknown regime") and 80%+ swarm agreement, the
-            # NN acknowledges it cannot reliably discriminate.  Convert to a
-            # quality-penalty pass instead of a hard block so Gate 9 (quality
-            # floor ≥42) makes the final decision.  Hard block is kept for
-            # confident-but-low-prob predictions (σ≤0.15 AND nn<threshold).
-            if not passed_g4:
-                # v10.5 FIX-B: Read uncertainty from signal_data first (accurate
-                # for current signal), fall back to trainer._last_uncertainty.
-                _nn_unc_raw = (
-                    signal_data.get("nn_uncertainty_precomputed")
-                    if isinstance(signal_data, dict) else None
-                )
-                if _nn_unc_raw is None:
-                    _nn_unc_raw = getattr(nn_trainer, "_last_uncertainty", 0.0)
-                _nn_unc = float(_nn_unc_raw or 0.0)
-                if _nn_unc > 0.18 and consensus >= 0.88:  # v15.1: σ>0.25→0.18, 92%→88% — at WR=23% NN σ is typically 0.10-0.22; 0.25 floor was rarely reached, so this bypass almost never fired; 0.18 catches genuine uncertainty regime while 88% consensus still requires near-unanimous swarm agreement
-                    _unc_penalty = min(20.0, max(5.0, (_nn_unc - 0.18) * 40.0 + 6.0))
-                    quality_score -= _unc_penalty
-                    passed_g4 = True
-                    _g4_bypass_flag = True   # v18.8: UNC_SOFT also counts as bypass
-                    self._logger.debug(
-                        f"G4_UNC_SOFT [{symbol}]: σ={_nn_unc:.2f}>0.18 "
-                        f"consensus={consensus:.0%}≥88% → soft pass "
-                        f"−{_unc_penalty:.1f}pts quality [v15.1]"
-                    )
             self._record("gate4", passed_g4)
             if not passed_g4:
                 return False, f"G4_FAIL: NN win-prob={nn_prob:.2f} < {nn_threshold:.2f}", 0.0
-            # v18.8: When G4 passed via bypass (nn_prob < threshold), cap the NN quality
-            # contribution at 7.5 (50% haircut) — bypass signals shouldn't get full credit
-            # for an NN value that was below the acceptance floor.
-            if _g4_bypass_flag:
-                quality_score += min(7.5, nn_prob * 15.0)
-            else:
-                quality_score += min(15.0, nn_prob * 15.0)
+            # v37.0: Full NN quality credit — all bypasses removed, nn_prob always genuinely >= threshold
+            quality_score += min(15.0, nn_prob * 15.0)
         else:
             self._record("gate4", True)
             quality_score += 7.5
@@ -7650,25 +7454,8 @@ class UnitySignalFilter:
                     f"[G9-FlipFloor v20.3] {symbol} 3/3 FLIP ZONE SR={_g9_flip_sr:.2f}<-4.0 → floor +0pts (crisis-neutral)"
                 )
 
-        # v18.35: Drought softening — Gate 9 adaptive floor was the only floor
-        # that did NOT adapt to signal-starvation drought. EV floor (Gate 0),
-        # Sortino quality penalty (G0.5) and RL threshold are all drought-aware.
-        # When drought >45min, reduce the WR-tier floor by 2pts (e.g. 61→59).
-        # Hard lower bound: max(SIGNAL_MIN_QUALITY_GATE−2, 53) prevents the floor
-        # from dropping below 53, keeping signal quality above noise threshold.
-        # Full floor restores as soon as a signal is sent (drought resets to 0s).
-        try:
-            _g9_drought = self._signal_drought_seconds()
-            if _g9_drought > 1800:   # v18.37: >30min drought (was 45min — aligns with G0/G4 drought cadence)
-                _g9_floor_min_bound = max(float(SIGNAL_MIN_QUALITY_GATE) - 2.0, 53.0)
-                _g9_floor = max(_g9_floor_min_bound, _g9_floor - 2.0)
-                self._logger.debug(
-                    f"[Gate9-v18.37] Drought softening: {_g9_drought/60:.0f}min → "
-                    f"floor −2pts ({_g9_floor:.0f}) [30min threshold, was 45min]"
-                )
-        except Exception:
-            pass
-        # ── v18.51: SOVEREIGN RECOVERY Mode — Gate 9 floor tightening for non-SOVEREIGN ─
+        # v37.0: G9 drought softening REMOVED — quality floor is absolute; no drought exemption [v37.0-STRICT]
+        # ── v18.51: SOVEREIGN RECOVERY Mode — Gate 9 floor tightening (ALL signals) ────
         # When rolling-20 WR < SOVEREIGN_RECOVERY_WR (28%), the engine enters
         # SOVEREIGN RECOVERY: Gate 9 floor raised to SOVEREIGN_RECOVERY_GATE (65) for all
         # non-SOVEREIGN-Markov signals.  SOVEREIGN-confirmed signals (p_ij≥0.87) are EXEMPT
@@ -7681,7 +7468,7 @@ class UnitySignalFilter:
         # even when Bayesian WR=29.96% is above break-even.  Blend 85% Bayes + 15% ring
         # so 2488+ lifetime trades dominate the ring seed; threshold also lowered 38%→28%.
         try:
-            if self._booster is not None and not _mk_sov_flag:
+            if self._booster is not None:  # v37.0: SOVEREIGN exemption removed — ALL signals subject to SOVEREIGN_RECOVERY floor, no tier gets a free pass [v37.0-STRICT]
                 _g9_sov_ring = self._booster._win_ring
                 if len(_g9_sov_ring) >= 15:
                     _g9_raw_wr = sum(_g9_sov_ring) / len(_g9_sov_ring)
@@ -7759,34 +7546,7 @@ class UnitySignalFilter:
                     _g9_floor = min(70.0, _g9_floor + 1.0)  # moderate impairment → +1pt (was +2)
         except Exception:
             pass
-        # v18.8: AI-Bypass Compensatory Quality Penalty ─────────────────────────
-        # When Gate 3 (AI confidence) and/or Gate 4 (Neural Network) passed via
-        # soft-pass / bypass rather than genuine validated scores, apply a penalty
-        # to the quality score and raise the Gate 9 floor proportionally.
-        # Rationale: at WR=31% most signals enter via AI gate bypass (LLMs
-        # rate-limited); without this compensation they face the same Gate 9 bar
-        # as fully AI-validated signals despite lacking LLM directional confirmation.
-        # Penalty breakdown:
-        #   G3 soft-pass (unanimous consensus override): −5pts quality + floor +2.5
-        #   G4 bypass/uncertainty soft-pass:            −4pts quality + floor +2.0
-        #   Both fired (combined):                      −9pts quality + floor +4.5
-        _bypass_q_penalty = 0.0
-        _bypass_f_raise   = 0.0
-        if _g3_softpass_flag:
-            _bypass_q_penalty += 5.0
-            _bypass_f_raise   += 2.5
-        if _g4_bypass_flag:
-            _bypass_q_penalty += 4.0
-            _bypass_f_raise   += 2.0
-        if _bypass_q_penalty > 0.0:
-            quality_score  -= _bypass_q_penalty
-            _g9_floor       = min(70.0, _g9_floor + _bypass_f_raise)
-            self._logger.debug(
-                f"[v18.8 Bypass-Comp] G3_soft={_g3_softpass_flag} "
-                f"G4_bypass={_g4_bypass_flag} → "
-                f"quality −{_bypass_q_penalty:.0f}pts, floor +{_bypass_f_raise:.1f}pts "
-                f"(new floor={_g9_floor:.1f}, quality={quality_score:.1f})"
-            )
+        # v37.0: Bypass compensation block REMOVED — all bypasses eliminated; G3/G4 flags always False [v37.0-STRICT]
 
         # v18.8: Hard quality score cap — quality is additive across up to 12
         # bonus sources and can technically exceed 100 on high-conviction unanimous
@@ -7914,32 +7674,15 @@ class UnitySignalFilter:
                     )
                     self._irons_score_ring.append(irons_score)
 
-                # v8.1 Quality Override: if composite quality is excellent AND
-                # swarm consensus is unanimous (100%), relax the IRONS floor by
-                # IRONS_QUALITY_OVERRIDE_RELAX pts.  A signal that cleared all
-                # 11 prior gates with perfect scores is unlikely to be a bad trade
-                # — the IRONS gap is a calibration artifact, not genuine weakness.
-                _effective_min = _irons_min
-                _quality_override = (
-                    quality_score >= IRONS_QUALITY_OVERRIDE_THRESHOLD
-                    and consensus >= 1.0
-                )
-                if _quality_override and not (irons_score >= _irons_min):
-                    _effective_min = max(IRONS_MIN_SCORE, _irons_min - IRONS_QUALITY_OVERRIDE_RELAX)
-                    self._logger.debug(
-                        f"⚡ [{symbol}] IRONS quality-override: quality={quality_score:.1f} "
-                        f"consensus=100% → floor relaxed {_irons_min:.0f}→{_effective_min:.0f}"
-                    )
-
-                passed_g10 = irons_score >= _effective_min   # v6.3/v8.1: adaptive + quality override
+                # v37.0: G10 IRONS quality-override REMOVED — floor is absolute; no quality-bypass [v37.0-STRICT]
+                passed_g10 = irons_score >= _irons_min   # v37.0: strict — no quality-override relaxation
                 self._record("gate10", passed_g10)
                 # v6.2 FIX: record IRONS health call so calls counter shows > 0
                 self._health.record_call("IRONS_AIScorer", success=passed_g10)
                 if not passed_g10:
                     return False, (
-                        f"G10_FAIL: IRONS score={irons_score:.1f}/100 < {_effective_min:.0f} "
-                        f"(adaptive={_irons_min:.0f}, static base={IRONS_MIN_SCORE:.0f}, "
-                        f"quality_override={'YES' if _quality_override else 'NO'})"
+                        f"G10_FAIL: IRONS score={irons_score:.1f}/100 < {_irons_min:.0f} "
+                        f"(adaptive floor={_irons_min:.0f}, static base={IRONS_MIN_SCORE:.0f}) [v37.0-STRICT]"
                     ), quality_score
                 # IRONS bonus: high score adds up to 5 quality points
                 _irons_range = max(1.0, 100.0 - _irons_min)

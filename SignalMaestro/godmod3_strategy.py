@@ -1936,6 +1936,18 @@ class G0DM0D3Engine:
         except asyncio.TimeoutError:
             latency_ms = (time.monotonic() - t0) * 1000.0
             self._record_model_error(model, _ERR_TIMEOUT)
+            # TimeoutStreakGuard [v37.0]: mirrors GODMODE path — escalate to 180s soft-disable
+            # after 3 consecutive consortium timeouts. Single timeouts are transient; 3-streak
+            # signals the model is consistently unresponsive on the slow CONSORTIUM path.
+            _ts_c = self._model_timeout_streaks.get(model, 0) + 1
+            self._model_timeout_streaks[model] = _ts_c
+            if _ts_c >= 3:
+                self._disable_model_immediate(model, "soft", 180.0)
+                self._model_timeout_streaks[model] = 0
+                self.logger.warning(
+                    f"⏳ CONSORTIUM: {model} timeout×{_ts_c} streak → disabled 180s "
+                    f"[TimeoutStreakGuard-CONSORTIUM v37.0]"
+                )
             return ModelRaceResult(
                 model=model, combo_id="CONSORTIUM",
                 response_raw="", response_clean="", parsed=None,

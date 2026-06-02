@@ -1,6 +1,36 @@
 ---
-name: Unity Engine v22.0–v28.0 upgrades
-description: v22–v28 key changes: v28.0 klines Semaphore(8) 429-storm fix + cache TTL 180s + fxsusdt retry; v27.0 qwen slug fix; v26 GODMODE 11combos; v22–v25 gates/RL/NN/HTTP fixes.
+name: Unity Engine v22.0–v37.0 upgrades
+description: v22–v37 key changes: v37.0 ZERO-BYPASS-STRICT (all 12 bypass paths removed); v33.0 hot-streak+deepseek purge; v28.0 klines Semaphore(8); v27.0 qwen slug fix; v22–v25 gates/RL/NN/HTTP fixes.
+---
+
+## v37.0 Key Changes (deployed 2026-06-02)
+
+### ZERO-BYPASS-STRICT — All 12 Relaxation Paths Removed
+Every signal must pass ALL gates with zero exceptions. Removed:
+- G2: `G2-DroughtRelief` (WR<30% 1pp swarm relaxation)
+- G3: `G3-SoftPass` (consecutive AI timeout → consensus waived), `G3-DroughtRelax` (20min→15min drought crisis)
+- G4: `G4-DroughtRelax`, `G4-UnaniRelax`, `G4-PessimismRelief`, `G4-SovRelax`, `G4-UnaniBypass`, `G4-UNC_SOFT`
+- G9: `G9-DroughtSoftening` (quality floor softened during drought), `G9-SOVEREIGN-exemption` (`and not _mk_sov_flag` removed)
+- G10: `G10-QualityOverride` (IRONS floor bypassed when quality>92)
+
+**Why:** Bypasses were designed as recovery aids but are anti-correlated with signal quality improvement — they let marginal signals through precisely when the engine is already losing, amplifying drawdown. Strict gating forces recovery through better signals only.
+
+**How to apply:** Search for any `if _g*_bypass`, `DroughtRelax`, `SoftPass`, `PessimismRelief`, `SovRelax`, `DroughtSoftening`, `SOVEREIGN-exemption`, `QualityOverride` patterns — all must be removed. Dead flag inits (`_g3_softpass_flag = False`) are harmless but can stay.
+
+### Gate Threshold Tightening
+- `AI_THRESHOLD_PERCENT`: 87 → 88 (base RL threshold)
+- `SWARM_MIN_CONSENSUS`: 0.94 → 0.95
+- `MIN_RR_RATIO`: 2.35 → 2.45
+
+### G10 FAIL Message Fix (Critical NameError prevention)
+Old message referenced `_effective_min` and `_quality_override` — both undefined after bypass removal → NameError at every G10 failure. Fixed to use only `_irons_min` (always defined in scope).
+
+### G4 Bypass Flag Dead Code Cleanup
+`_g4_bypass_flag` was previously set in multiple bypass blocks, then used in quality scoring (`if _g4_bypass_flag: quality += min(7.5,...)` vs `min(15.0,...)`). After bypass removal: flag init stays (harmless `False`), the conditional quality branch replaced with direct `min(15.0, nn_prob * 15.0)` — NN always genuinely passed threshold.
+
+### CONSORTIUM Path TimeoutStreakGuard
+Mirrors the GODMODE TimeoutStreakGuard from v36.0: 3 consecutive CONSORTIUM `asyncio.TimeoutError` for a model → `_disable_model_immediate(model, "soft", 180.0)`. Streak counter resets after disable. GODMODE already had this; CONSORTIUM was missing it.
+
 ---
 
 ## v33.0 Key Changes (deployed 2026-06-01)
