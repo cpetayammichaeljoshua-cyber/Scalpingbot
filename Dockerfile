@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v44.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v47.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="44.0"               \
-      description="Unity Engine v44.0 — ZERO-BYPASS-STRICT | FAST-TIER-2MODEL | AI89/SWARM0.96/RR2.50 | CONSORTIUM-TSG | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="47.0"               \
+      description="Unity Engine v47.0 — ZERO-BYPASS-STRICT | NO-AI-BYPASS | pre-cycle-prefetch | GBLK-60s | AI89/SWARM0.96/RR2.50 | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

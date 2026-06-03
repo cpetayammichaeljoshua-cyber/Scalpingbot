@@ -1795,37 +1795,23 @@ class FXSUSDTTelegramBot:
         #     blocks truly weak signals (conf + MAX_BOOST < threshold).
         _AI_GATE_MAX_BOOST = 15.0   # max confidence boost from Phase 1 analyzers
         _godmod3 = get_godmod3_engine()
-        _ai_ready = _godmod3.has_available_models() or _godmod3.was_recently_available(900)  # v15.1: 300→900s — sustained OpenRouter rate-limit storms last 10-30min; 5-min window caused gate to block ALL signals even when a model was available moments ago; 15-min window correctly identifies transient vs sustained outage
+        _ai_ready = _godmod3.has_available_models() or _godmod3.was_recently_available(900)  # v15.1: 300→900s — sustained OpenRouter rate-limit storms last 10-30min; 15-min window correctly identifies transient vs sustained outage
         if not _ai_ready:
-            _consensus_bypass = (
-                _sig_consensus >= 0.86  # v15.1: 0.95→0.88; v18.71: 0.88→0.86 — at WR=30% LLMs are rate-limited frequently; 88% fired correctly on 97%/100% consensus setups but left 86-87% near-unanimous setups blocked; 86% still requires 8+/10 agents agreeing (near-unanimous) while recovering 1-2 additional bypass-eligible setups per 10 cycles when OpenRouter is throttled
-                and signal.confidence + _AI_GATE_MAX_BOOST >= confidence_threshold
-            )
-            if not _consensus_bypass:
-                _wait_s = _godmod3.get_next_available_seconds()
-                # v15.3: Set AI-gate-block cooldown — saves swarm re-evaluation next
-                # cycle when conf is structurally below bypass threshold and LLMs are
-                # still rate-limited.  INJUSDT burned 7-agent swarm every 20s with
-                # conf=67.4%+15=82.4% < 86% — price can't change geometry in 20s.
-                self._ai_gate_block_cooldown[symbol] = time.time() + self._AI_GATE_BLOCK_COOLDOWN_SEC
-                self.logger.info(
-                    f"🚦 [{symbol}] AI Signal Gate BLOCKED — all free LLMs rate-limited "
-                    f"(consensus={_sig_consensus:.0%} < 88% or "
-                    f"conf={signal.confidence:.1f}%+{_AI_GATE_MAX_BOOST:.0f}boost"
-                    f" < {confidence_threshold:.0f}% threshold). "
-                    f"Next available in ~{_wait_s:.0f}s. "
-                    f"Swarm suppressed {self._AI_GATE_BLOCK_COOLDOWN_SEC:.0f}s [v15.3]"
-                )
-                return False
-            # Ultra-high-consensus bypass — allow signal through to Phase 1 boost
+            # v47.0 ZERO BYPASS — consensus override permanently removed.
+            # Directive: signals must pass ALL gates; no exception for swarm consensus.
+            # Previously: consensus≥86% bypassed the LLM gate when OpenRouter was throttled.
+            # This caused G0DM0D3+OpenRouter to show calls=0 (LLM never called on bypass path).
+            # Now: LLM unavailable → signal ALWAYS blocked regardless of consensus/confidence.
+            # Engine waits for OpenRouter recovery; cooldown suppresses redundant swarm calls.
+            _wait_s = _godmod3.get_next_available_seconds()
+            self._ai_gate_block_cooldown[symbol] = time.time() + self._AI_GATE_BLOCK_COOLDOWN_SEC
             self.logger.info(
-                f"⚡ [{symbol}] AI Gate BYPASS (swarm-consensus override) — "
-                f"LLMs rate-limited but consensus={_sig_consensus:.0%}≥86% "
-                f"+ conf={signal.confidence:.1f}%+{_AI_GATE_MAX_BOOST:.0f}boost"
-                f"≥{confidence_threshold:.0f}% qualifies. "
-                f"G0DM0D3 is 6% of swarm weighting; 9-agent near-unanimous rule-based "
-                f"consensus overrides AI gate requirement. [v18.71 bypass-thresh=86%]"
+                f"🚦 [{symbol}] AI Signal Gate BLOCKED — LLMs unavailable "
+                f"(consensus={_sig_consensus:.0%} conf={signal.confidence:.1f}%). "
+                f"ZERO BYPASS [v47.0]: awaiting OpenRouter recovery (~{_wait_s:.0f}s). "
+                f"Swarm suppressed {self._AI_GATE_BLOCK_COOLDOWN_SEC:.0f}s [v15.3]"
             )
+            return False
 
         tf_label = (getattr(signal, "timeframe", "15m") or "15m").upper()
         self.logger.info(

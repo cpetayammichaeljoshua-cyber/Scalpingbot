@@ -3,6 +3,25 @@ name: Unity Engine v22.0–v45.0 upgrades
 description: v45.0 Binance 429 storm eliminated via bulk market cache; v44.0 FAST-tier restored; v43.0 direction-aware G3 + NN v10; v42.0 direction-aware regime gates.
 ---
 
+## v47.0 Key Changes (deployed 2026-06-03)
+
+### AI Gate Consensus Bypass Removed (Zero Bypass Policy)
+
+**Why:** When OpenRouter was rate-limited, signals with swarm consensus ≥86% + conf+boost ≥ threshold were allowed through WITHOUT calling G0DM0D3 LLM. This violated the strict no-bypass policy and caused `G0DM0D3+OpenRouter calls=0` in the dashboard (LLM was never actually invoked on the bypass path).
+
+**Changes:**
+1. **`fxsusdt_telegram_bot.py` — `_consensus_bypass` block removed**: When `_ai_ready` is False (all LLMs rate-limited for 15+ min), signal is ALWAYS blocked regardless of consensus or confidence. No exception.
+2. **Cooldown still active (90s)**: Suppresses redundant swarm calls while LLMs are down — self-heals when OpenRouter recovers.
+3. **Impact**: G0DM0D3+OpenRouter calls will now show real counts once LLMs recover, rather than 0 (bypassed).
+
+**Deployment config sync:**
+- `requirements.txt` header: v44.0→v47.0
+- `Dockerfile` VERIFY print + LABEL version + description: v44.0/44.0→v47.0/47.0
+- `nixpacks.toml` header: v44.0→v47.0
+- `UNITY_VERSION`: 46.0→47.0
+
+**How to apply:** The bypass was the `if not _consensus_bypass:` double-branch inside the `if not _ai_ready:` block. Future "no-bypass" audits: search for `_consensus_bypass`, `bypass-thresh`, `swarm-consensus override` in fxsusdt_telegram_bot.py.
+
 ## v46.0 Key Changes (deployed 2026-06-03)
 
 ### Pre-cycle Bulk Prefetch + Cycle-sleep Fix + G_BLK Fast-start

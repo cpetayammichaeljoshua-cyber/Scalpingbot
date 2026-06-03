@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v46.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v47.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -94,6 +94,19 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v47.0 IMPROVEMENTS: ZERO BYPASS — AI GATE CONSENSUS OVERRIDE REMOVED + VERSION SYNC:
+    fxsusdt_telegram_bot.py — AI Gate consensus bypass removed [v47.0]:
+      REMOVED: _consensus_bypass block (consensus≥86% + conf+boost≥threshold → bypass LLM gate) |
+      Previously: when OpenRouter rate-limited, high-consensus signals bypassed the LLM gate |
+      This caused G0DM0D3+OpenRouter calls=0 (LLM never invoked on bypass path) |
+      Now: LLM unavailable → signal ALWAYS blocked; awaits OpenRouter recovery → zero bypass |
+      Cooldown (90s) still suppresses redundant swarm calls while LLMs are down [v47.0] |
+      Impact: all signals now require LLM confirmation; G0DM0D3 calls rise once LLMs recover |
+    Deployment config version sync [v47.0]:
+      requirements.txt header: v44.0→v47.0 (last verified comment) |
+      Dockerfile verify print: v44.0→v47.0; LABEL version: 44.0→47.0; description: v44.0→v47.0 |
+      nixpacks.toml header: v44.0→v47.0 |
+    UNITY_VERSION: 46.0→47.0 [v47.0]
   v46.0 IMPROVEMENTS: PRE-CYCLE BULK PREFETCH + CYCLE-SLEEP FIX + GBLK FAST-START:
     btcusdt_trader.py v9.1 — prefetch_bulk_data() pro-active cache warm [v46.0]:
       Called ONCE at top of each scan cycle BEFORE asyncio.gather launches 76 coroutines |
@@ -1401,7 +1414,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "46.0"
+UNITY_VERSION                = "47.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
