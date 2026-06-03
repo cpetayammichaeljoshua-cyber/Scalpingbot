@@ -1,7 +1,20 @@
 ---
-name: Unity Engine v22.0–v43.0 upgrades
-description: v43.0 direction-aware G3 threshold + IRONS direction relief + NN v10 (INPUT_DIM 65, 13×5 Transformer) + dir metrics (sell/buy breakdown); v42.0 direction-aware regime gates.
+name: Unity Engine v22.0–v44.0 upgrades
+description: v44.0 FAST-tier restored to 2-model race (qwen3-72b added); v43.0 direction-aware G3 + IRONS relief + NN v10 65-feat + dir metrics; v42.0 direction-aware regime gates.
 ---
+
+## v44.0 Key Changes (deployed 2026-06-03)
+
+### FAST Tier Restoration + Version Synchronisation
+
+**Why:** v41.1 removed mistral-small-3.2-24b from FAST tier (404) leaving single-model FAST (gpt-oss-20b only) — no ULTRAPLINIAN competition means slower winner selection. v34.0 documented the same problem: "fast tier had only gpt-oss-20b:free (single model, no competition)".
+
+**Changes made:**
+1. **FAST tier**: `qwen/qwen3-72b:free` added as 2nd FAST model. Confirmed working (in use in STANDARD, SMART, GODMODE_QWEN_SYSTEMATIC since v27.0). Distinct Qwen dense architecture vs GPT-OSS-20B → genuine ensemble diversity. Restores 2-model ULTRAPLINIAN race.
+2. **Version sync**: UNITY_VERSION 43.0→44.0, docstring header, Dockerfile header + LABEL (36.0→44.0), nixpacks.toml header (37.0→44.0) + verify strings (v37.0-STRICT→v44.0-STRICT), requirements.txt header (v34.0→v44.0).
+3. **Workflow**: Removed "Unity Engine" duplicate; configured "python3 start_unity_engine.py" with `outputType: "console"`, `waitForPort: 8080`. Engine booted cleanly: v44.0 ALL SYSTEMS ONLINE confirmed in live logs.
+
+**How to apply:** FAST tier should always have ≥2 confirmed-working models. When any model goes 404, check if FAST is left single-model and add the next best confirmed working model from STANDARD tier.
 
 ## v43.0 Key Changes (deployed 2026-06-02)
 

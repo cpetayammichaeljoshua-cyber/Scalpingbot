@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v41.1 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v44.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -94,6 +94,18 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v44.0 IMPROVEMENTS: FAST-TIER RESTORATION + VERSION SYNCHRONISATION:
+    FAST tier restored to 2-model ULTRAPLINIAN race [v44.0]:
+      qwen/qwen3-72b:free added as 2nd FAST tier model (v41.1 mistral removal left single-model tier) |
+      Rationale: single-model fast tier eliminates ULTRAPLINIAN competition → slower winner selection |
+      qwen3-72b confirmed working, distinct Qwen dense architecture vs GPT-OSS-20B → genuine diversity |
+      v34.0 precedent followed: "fast tier had only gpt-oss-20b:free (single model, no competition)" [v44.0] |
+    Version synchronisation across all files [v44.0]:
+      start_unity_engine.py docstring: v41.1→v44.0 | UNITY_VERSION: 43.0→44.0 [v44.0] |
+      Dockerfile header + LABEL: v37.0→v44.0 [v44.0] |
+      nixpacks.toml header: v37.0→v44.0 + verify string updated [v44.0] |
+      requirements.txt header: v34.0→v44.0 [v44.0] |
+    UNITY_VERSION: 43.0→44.0 [v44.0]
   v43.0 IMPROVEMENTS: DIRECTION-AWARE G3 THRESHOLD + IRONS DIRECTION RELIEF + NN v10 (65 FEATURES) + DIR METRICS:
     G3 direction-aware AI threshold: F&G<30+SELL → ai_threshold-1pt(88%); F&G>70+BUY → ai_threshold-1pt(88%) [v43.0] |
       Regime-aligned SELL in Extreme Fear historically has higher realized RR; 1pt relief unlocks ~6-8% more SELL signals |
@@ -1356,7 +1368,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "43.0"
+UNITY_VERSION                = "44.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────

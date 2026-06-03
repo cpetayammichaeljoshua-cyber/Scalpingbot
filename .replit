@@ -28,10 +28,6 @@ args = "mirofish_bot.py"
 task = "workflow.run"
 args = "python3 start_unity_engine.py"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Unity Engine"
-
 [[workflows.workflow]]
 name = ""
 author = "agent"
@@ -62,21 +58,11 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python3 -u start_unity_engine.py"
-
-[[workflows.workflow]]
-name = "Unity Engine"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 start_unity_engine.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
+waitForPort = 8080
 
 [[ports]]
 localPort = 8080
-externalPort = 80
+externalPort = 8080
 
 [deployment]
 run = ["gunicorn", "--bind", "0.0.0.0:5000", "main:app"]

@@ -246,11 +246,15 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED: meta-llama/llama-3.2-3b-instruct:free → 14+ rate_limit storm (session 4)
         # REMOVED: arcee-ai/trinity-large-preview:free → 404 permanently (2026-05-03)
         # REMOVED: google/gemma-3-12b-it:free → 404 confirmed 2026-05-08 live log [v18.32]
-        # v20.2: REORDERED — gpt-oss-20b:free moved FIRST: live-validated winner score=93.5/100
+        # v20.2: REORDERED — gpt-oss-20b:free FIRST: live-validated winner score=93.5/100
         #        latency=6548ms, consistently wins ULTRAPLINIAN races; fastest real-trading winner.
         "openai/gpt-oss-20b:free",
         # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
-        # FAST tier single-model (gpt-oss-20b only); 24h disable mechanism handles gracefully
+        # v44.0: qwen3-72b:free added as 2nd FAST model — restores 2-model ULTRAPLINIAN race
+        # Rationale: v41.1 mistral removal left single-model FAST tier (no competition);
+        # qwen3-72b confirmed working, distinct GPT/Qwen architecture → genuine diversity.
+        # v34.0 precedent: "fast tier had only gpt-oss-20b:free (single model, no competition)"
+        "qwen/qwen3-72b:free",
         # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
         # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
         # RE-ADDED 2026-05-22: devstral-small — fast small model [v19.7]

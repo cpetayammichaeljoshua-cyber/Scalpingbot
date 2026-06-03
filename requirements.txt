@@ -1,9 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v34.0 — Production requirements.txt
+# Unity Engine v44.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-01 (v33.0 — STREAK-THRESH-2, TRAIL-ARM-0.25, IT-STRONG-EV-SYNERGY,
-#   PHI4-NOIX-12th-GODMODE, RUIN-DECAY-60s, TRAIL-LOCK-0.78)
+# Last verified: 2026-06-03 (v44.0 — FAST-TIER-2MODEL[qwen3-72b], VERSION-SYNC-ALL-FILES)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
