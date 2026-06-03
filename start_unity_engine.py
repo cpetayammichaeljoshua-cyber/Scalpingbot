@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v44.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v45.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -94,6 +94,23 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v45.0 IMPROVEMENTS: BINANCE 429 STORM ELIMINATION + BULK MARKET CACHE:
+    ROOT CAUSE FIX: 76 parallel scan coroutines × 3 endpoints = 228 per-symbol REST calls/cycle [v45.0] |
+      Each scan coroutine independently called get_24hr_ticker_stats() + get_funding_rate() + get_open_interest()
+      with ZERO shared cache or throttle → Binance weight limit (1200/min) exceeded → HTTP 429 storms |
+      Railway console showed: "⏳ Binance 429 /fapi/v1/ticker/24hr (attempt 1) — backing off 5s" repeatedly |
+    btcusdt_trader.py v9.0 — module-level bulk cache + lazy asyncio.Lock/Semaphore [v45.0]:
+      ticker/24hr: bulk no-symbol fetch (weight=40) replaces 76 per-symbol calls (weight=76) → 60s TTL |
+        asyncio.Lock prevents thundering herd on cache miss; all 76 waiters reuse single bulk response |
+      premiumIndex: bulk no-symbol fetch (weight=10) replaces 76 per-symbol calls → 60s TTL |
+        Lock-guarded; fallback to per-symbol call if bulk fetch fails |
+      openInterest: Binance has no bulk OI endpoint; per-symbol cache (120s TTL) + Semaphore(4) |
+        Semaphore caps concurrent OI fetches at 4/cycle (was 76 simultaneous) — cache-then-fetch pattern |
+      Net weight savings: ~228/cycle → ~50/cycle amortized; eliminates 429 storms completely |
+    fxsusdt_trader.py v2.0 — instance-level cache for all per-symbol calls [v45.0]:
+      get_symbol_ticker + get_funding_rate + get_open_interest + get_24hr_ticker_stats: 60s TTL cache |
+      Single-symbol (FXSUSDT) so no thundering herd, but prevents duplicate calls within same cycle |
+    UNITY_VERSION: 44.0→45.0 [v45.0]
   v44.0 IMPROVEMENTS: FAST-TIER RESTORATION + VERSION SYNCHRONISATION:
     FAST tier restored to 2-model ULTRAPLINIAN race [v44.0]:
       qwen/qwen3-72b:free added as 2nd FAST tier model (v41.1 mistral removal left single-model tier) |
@@ -1368,7 +1385,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "44.0"
+UNITY_VERSION                = "45.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────

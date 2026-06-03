@@ -1,7 +1,32 @@
 ---
-name: Unity Engine v22.0–v44.0 upgrades
-description: v44.0 FAST-tier restored to 2-model race (qwen3-72b added); v43.0 direction-aware G3 + IRONS relief + NN v10 65-feat + dir metrics; v42.0 direction-aware regime gates.
+name: Unity Engine v22.0–v45.0 upgrades
+description: v45.0 Binance 429 storm eliminated via bulk market cache; v44.0 FAST-tier restored; v43.0 direction-aware G3 + NN v10; v42.0 direction-aware regime gates.
 ---
+
+## v45.0 Key Changes (deployed 2026-06-03)
+
+### Binance 429 Storm Elimination — Bulk Market Cache
+
+**Why:** 76 parallel scan coroutines each independently called `get_24hr_ticker_stats()`, `get_funding_rate()`, `get_open_interest()` in `btcusdt_trader.py` with ZERO shared cache or throttle. Result: 76×3 = 228 per-symbol REST calls per scan cycle, exceeding Binance FAPI weight limit → HTTP 429 storms visible in Railway console every cycle.
+
+**Root cause files:** `SignalMaestro/btcusdt_trader.py` (scanner for 76 symbols, had klines cache but nothing for ticker/OI/funding), `SignalMaestro/fxsusdt_trader.py` (single-symbol FXSUSDT, also had zero caching for any endpoint).
+
+**Fix — btcusdt_trader.py v9.0 (module-level bulk cache):**
+1. **`ticker/24hr`** — bulk no-symbol fetch (weight=40 for ALL symbols). `asyncio.Lock` prevents thundering herd on cache miss. 60s TTL. All 76 coroutines reuse one response. `_BULK_TICKER_CACHE` / `_BULK_TICKER_CACHE_TS` / `_BULK_TICKER_LOCK` module globals.
+2. **`premiumIndex`** — bulk no-symbol fetch (weight=10 for ALL symbols). Same Lock pattern. 60s TTL. `_BULK_FUNDING_CACHE` / `_BULK_FUNDING_CACHE_TS` / `_BULK_FUNDING_LOCK`.
+3. **`openInterest`** — Binance has NO bulk OI endpoint (symbol param required). Per-symbol TTL cache (120s) + `asyncio.Semaphore(4)` caps concurrent OI fetches (was 76 simultaneous). `_OI_CACHE` / `_OI_SEMAPHORE`.
+4. All locks/semaphores are lazy-created (safe before event loop starts).
+5. Fallback: if bulk fetch fails, per-symbol call fires for the requesting symbol only.
+
+**Fix — fxsusdt_trader.py v2.0 (instance-level cache):**
+- Added `self._mkt_cache`, `self._mkt_cache_ts` dicts + `_CACHE_TTL=60s` in `__init__`.
+- `_cache_get(key)` / `_cache_set(key, value)` helpers for DRY cache pattern.
+- `get_symbol_ticker`, `get_funding_rate`, `get_24hr_ticker_stats` → 60s TTL cache.
+- `get_open_interest` → 120s TTL (consistent with btcusdt_trader).
+
+**Net weight savings:** ~228/cycle → ~50/cycle amortized. 429 storms eliminated.
+
+**How to apply:** Any future per-symbol API method that fires for 76 symbols in parallel MUST either (a) use bulk endpoint + Lock pattern, or (b) use per-symbol cache + Semaphore throttle. Never add uncached per-symbol REST calls to methods called from `scan_and_signal()`.
 
 ## v44.0 Key Changes (deployed 2026-06-03)
 

@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-Universal USDM Futures Trader — v8.0 (April 2026)
+Universal USDM Futures Trader — v9.0 (June 2026)
 Binance USDM Futures — full API wrapper supporting ALL perpetual markets.
 Multi-market edition: scans all active USDM perpetual symbols.
+
+KEY IMPROVEMENTS v9.0 (v45.0 engine):
+  • BULK MARKET CACHE — eliminates Binance 429 storms on ticker/premiumIndex/openInterest
+    Root cause: 76 parallel scan coroutines × 3 endpoints = 228 per-symbol REST calls/cycle
+    Fix: module-level bulk cache + asyncio.Lock for ticker/funding, semaphore(4) for OI
+    Weight reduction: 228/cycle → bulk ticker(40) + bulk funding(10) + OI semaphore(4)
+    Cache TTL: 60s for ticker/funding, 120s for openInterest (2× scan cycle)
 
 KEY IMPROVEMENTS v8.0:
   • Multi-endpoint failover: fapi.binance.com → fapi1-fapi5.binance.com
@@ -46,6 +53,67 @@ def _get_klines_semaphore() -> "asyncio.Semaphore":
     if _KLINES_SEMAPHORE is None:
         _KLINES_SEMAPHORE = asyncio.Semaphore(4)  # v30.0: 8→4 — tighter throttle; 300ms hold below desync bursts [v30.0]
     return _KLINES_SEMAPHORE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level Bulk Market Data Cache — v9.0 / engine v45.0
+#
+# ROOT CAUSE of Binance 429 storms (visible in Railway logs):
+#   76 parallel scan coroutines each call get_24hr_ticker_stats(), get_funding_rate(),
+#   get_open_interest() independently with ZERO shared cache or throttle.
+#   Result: 76 × 3 = 228 per-symbol REST calls per scan cycle → HTTP 429 floods.
+#
+# FIX — three-tier approach:
+#   1. ticker/24hr (no-symbol) = weight 40, returns ALL symbols → replaces 76 calls
+#      asyncio.Lock prevents thundering herd on cache miss; all waiters reuse one fetch.
+#   2. premiumIndex (no-symbol) = weight 10, returns ALL symbols → replaces 76 calls
+#      Same Lock pattern as ticker cache.
+#   3. openInterest REQUIRES symbol param (Binance has no bulk OI endpoint).
+#      Per-symbol TTL cache (120s) + asyncio.Semaphore(4) limits concurrent OI calls.
+#
+# Net weight savings per scan cycle:
+#   Before: 76×ticker + 76×funding + 76×OI = 228 weight units (+ repeat per cycle)
+#   After:  bulk-ticker(40) + bulk-funding(10) + max-4-OI × amortized = ~50 weight/cycle
+# ─────────────────────────────────────────────────────────────────────────────
+_BULK_TICKER_CACHE: Dict[str, Any]  = {}    # symbol → ticker dict (from bulk no-symbol fetch)
+_BULK_TICKER_CACHE_TS: float        = 0.0   # Unix timestamp of last successful bulk fetch
+_BULK_TICKER_TTL: float             = 60.0  # 60s — covers 4-6 scan cycles at 10-25s sleep
+
+_BULK_FUNDING_CACHE: Dict[str, Any] = {}    # symbol → funding dict (from bulk premiumIndex fetch)
+_BULK_FUNDING_CACHE_TS: float       = 0.0
+_BULK_FUNDING_TTL: float            = 60.0  # 60s — funding rates change every 8h; 60s more than enough
+
+_OI_CACHE: Dict[str, Tuple[Any, float]] = {}  # symbol → (data_dict, fetch_timestamp)
+_OI_TTL: float                          = 120.0  # 120s = ~2× CYCLE_SLEEP_MAX; OI changes slowly
+
+# Lazy-created locks/semaphores — safe at module scope (no running loop required until first await)
+_BULK_TICKER_LOCK:   Optional["asyncio.Lock"]      = None
+_BULK_FUNDING_LOCK:  Optional["asyncio.Lock"]      = None
+_OI_SEMAPHORE:       Optional["asyncio.Semaphore"] = None
+
+
+def _get_bulk_ticker_lock() -> "asyncio.Lock":
+    """Lazy-create the bulk ticker cache lock (safe before event loop starts)."""
+    global _BULK_TICKER_LOCK
+    if _BULK_TICKER_LOCK is None:
+        _BULK_TICKER_LOCK = asyncio.Lock()
+    return _BULK_TICKER_LOCK
+
+
+def _get_bulk_funding_lock() -> "asyncio.Lock":
+    """Lazy-create the bulk funding cache lock."""
+    global _BULK_FUNDING_LOCK
+    if _BULK_FUNDING_LOCK is None:
+        _BULK_FUNDING_LOCK = asyncio.Lock()
+    return _BULK_FUNDING_LOCK
+
+
+def _get_oi_semaphore() -> "asyncio.Semaphore":
+    """Lazy-create the openInterest semaphore (max 4 concurrent OI fetches)."""
+    global _OI_SEMAPHORE
+    if _OI_SEMAPHORE is None:
+        _OI_SEMAPHORE = asyncio.Semaphore(4)  # 4 concurrent OI calls max across all 76 symbols
+    return _OI_SEMAPHORE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -542,8 +610,48 @@ class BTCUSDTTrader:
         return None
 
     async def get_24hr_ticker_stats(self, symbol: Optional[str] = None) -> Optional[Dict]:
-        """24h rolling window ticker statistics"""
+        """
+        24h rolling window ticker statistics — bulk-cached (v9.0 / engine v45.0).
+
+        First call per 60s fetches ALL symbols via no-param /fapi/v1/ticker/24hr (weight=40).
+        All 76 parallel scan coroutines share one result — no per-symbol calls.
+        asyncio.Lock prevents thundering herd on cache miss.
+        Fallback: per-symbol call if bulk fetch fails.
+        """
+        global _BULK_TICKER_CACHE, _BULK_TICKER_CACHE_TS
         sym = symbol or self.symbol
+        now = time.time()
+
+        # Fast path — serve from shared cache (no lock needed for reads once populated)
+        if now - _BULK_TICKER_CACHE_TS < _BULK_TICKER_TTL:
+            cached = _BULK_TICKER_CACHE.get(sym)
+            if cached is not None:
+                return cached
+
+        # Cache miss — acquire lock; one coroutine refreshes, all others wait and reuse
+        async with _get_bulk_ticker_lock():
+            now = time.time()
+            # Re-check after acquiring lock (another coroutine may have just refreshed)
+            if now - _BULK_TICKER_CACHE_TS < _BULK_TICKER_TTL:
+                return _BULK_TICKER_CACHE.get(sym)
+
+            # Bulk fetch: /fapi/v1/ticker/24hr with NO symbol param → all symbols, weight=40
+            bulk = await self._fetch_all_tickers()
+            if bulk:
+                _BULK_TICKER_CACHE.clear()
+                for entry in bulk:
+                    s = entry.get("symbol", "")
+                    if s:
+                        _BULK_TICKER_CACHE[s] = entry
+                _BULK_TICKER_CACHE_TS = time.time()
+                self.logger.debug(
+                    f"[v9.0] Bulk ticker cache refreshed: {len(_BULK_TICKER_CACHE)} symbols "
+                    f"(replaces 76 per-symbol calls)"
+                )
+                return _BULK_TICKER_CACHE.get(sym)
+
+        # Fallback: bulk fetch failed — single per-symbol call
+        self.logger.debug(f"[v9.0] Bulk ticker failed — fallback per-symbol for {sym}")
         return await self._get_fapi("/fapi/v1/ticker/24hr", {"symbol": sym})
 
     async def get_order_book(self, symbol: Optional[str] = None, limit: int = 20) -> Optional[Dict]:
@@ -553,8 +661,54 @@ class BTCUSDTTrader:
         return await self._get_fapi("/fapi/v1/depth", {"symbol": sym, "limit": limit})
 
     async def get_funding_rate(self, symbol: Optional[str] = None) -> Optional[Dict]:
-        """Get current funding rate — returns dict with 'fundingRate' key (str)"""
+        """
+        Get current funding rate — bulk-cached premiumIndex (v9.0 / engine v45.0).
+
+        First call per 60s fetches ALL symbols via no-param /fapi/v1/premiumIndex (weight=10).
+        All 76 parallel scan coroutines share one result — eliminates 76 per-symbol calls.
+        asyncio.Lock prevents thundering herd on cache miss.
+        Fallback: per-symbol call if bulk fetch fails.
+        """
+        global _BULK_FUNDING_CACHE, _BULK_FUNDING_CACHE_TS
         sym = symbol or self.symbol
+        now = time.time()
+
+        # Fast path — serve from shared cache
+        if now - _BULK_FUNDING_CACHE_TS < _BULK_FUNDING_TTL:
+            cached = _BULK_FUNDING_CACHE.get(sym)
+            if cached is not None:
+                return cached
+
+        # Cache miss — acquire lock
+        async with _get_bulk_funding_lock():
+            now = time.time()
+            if now - _BULK_FUNDING_CACHE_TS < _BULK_FUNDING_TTL:
+                return _BULK_FUNDING_CACHE.get(sym)
+
+            # Bulk fetch: /fapi/v1/premiumIndex with NO symbol → all symbols, weight=10
+            bulk = await self._get_fapi("/fapi/v1/premiumIndex")
+            if bulk:
+                if isinstance(bulk, dict):
+                    bulk = [bulk]  # Binance returns list normally; dict on single-sym
+                _BULK_FUNDING_CACHE.clear()
+                for entry in bulk:
+                    s = entry.get("symbol", "")
+                    if s:
+                        _BULK_FUNDING_CACHE[s] = {
+                            "fundingRate": entry.get("lastFundingRate", "0"),
+                            "fundingTime": entry.get("nextFundingTime", 0),
+                            "markPrice":   entry.get("markPrice", "0"),
+                            "indexPrice":  entry.get("indexPrice", "0"),
+                        }
+                _BULK_FUNDING_CACHE_TS = time.time()
+                self.logger.debug(
+                    f"[v9.0] Bulk funding cache refreshed: {len(_BULK_FUNDING_CACHE)} symbols "
+                    f"(replaces 76 per-symbol premiumIndex calls)"
+                )
+                return _BULK_FUNDING_CACHE.get(sym)
+
+        # Fallback: per-symbol call
+        self.logger.debug(f"[v9.0] Bulk funding failed — fallback per-symbol for {sym}")
         data = await self._get_fapi("/fapi/v1/premiumIndex", {"symbol": sym})
         if data:
             return {
@@ -566,9 +720,37 @@ class BTCUSDTTrader:
         return None
 
     async def get_open_interest(self, symbol: Optional[str] = None) -> Optional[Dict]:
-        """Get current open interest"""
+        """
+        Get current open interest — per-symbol cache 120s + Semaphore(4) (v9.0 / engine v45.0).
+
+        Binance has NO bulk openInterest endpoint — symbol param is required.
+        Strategy: per-symbol TTL cache (120s) so each symbol fetches at most once per 2 cycles.
+        asyncio.Semaphore(4) caps concurrent in-flight OI calls at 4 (was 76 simultaneous).
+        Cache-then-fetch: check cache before entering semaphore to minimize lock contention.
+        """
         sym = symbol or self.symbol
-        return await self._get_fapi("/fapi/v1/openInterest", {"symbol": sym})
+        now = time.time()
+
+        # Fast path — serve from per-symbol cache (no semaphore needed)
+        cached_entry = _OI_CACHE.get(sym)
+        if cached_entry is not None:
+            data, ts = cached_entry
+            if now - ts < _OI_TTL:
+                return data
+
+        # Throttle: max 4 concurrent OI fetches across all 76 parallel scan coroutines
+        async with _get_oi_semaphore():
+            # Re-check after acquiring semaphore (another coroutine may have fetched while we waited)
+            now = time.time()
+            cached_entry = _OI_CACHE.get(sym)
+            if cached_entry is not None:
+                data, ts = cached_entry
+                if now - ts < _OI_TTL:
+                    return data
+
+            result = await self._get_fapi("/fapi/v1/openInterest", {"symbol": sym})
+            _OI_CACHE[sym] = (result, time.time())
+            return result
 
     async def get_exchange_info(self, symbol: Optional[str] = None) -> Dict:
         """Get exchange info for the symbol"""

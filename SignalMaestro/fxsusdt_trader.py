@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-FXSUSDT.P Futures Trader
+FXSUSDT.P Futures Trader — v2.0 (June 2026)
 Specialized for forex futures trading with API secrets management.
+
+v2.0 improvements (engine v45.0):
+  • Instance-level TTL cache for all per-symbol market data calls (60s TTL):
+    get_symbol_ticker, get_funding_rate, get_open_interest, get_24hr_ticker_stats
+    Prevents redundant calls within same scan cycle even for a single symbol.
 
 Bug fixes applied:
 - get_market_data() now passes the `symbol` argument to get_klines()
@@ -51,7 +56,15 @@ class FXSUSDTTrader:
         self._session:   Optional[aiohttp.ClientSession] = None
         self._connector: Optional[aiohttp.TCPConnector]  = None
 
-        self.logger.info(f"✅ FXSUSDT Trader initialized ({'Testnet' if self.testnet else 'Mainnet'})")
+        # ── v2.0 instance-level market data cache (engine v45.0) ─────────────
+        # Prevents duplicate REST calls within the same scan cycle for FXSUSDT.
+        # TTL 60s — covers 4-6 scan cycles (CYCLE_SLEEP_MIN=10, MAX=25).
+        _mc: Dict = {}
+        self._mkt_cache: Dict[str, Any]   = _mc    # endpoint_key → response data
+        self._mkt_cache_ts: Dict[str, float] = {}  # endpoint_key → fetch timestamp
+        self._CACHE_TTL: float = 60.0              # seconds
+
+        self.logger.info(f"✅ FXSUSDT Trader v2.0 initialized ({'Testnet' if self.testnet else 'Mainnet'}) | cache_ttl={self._CACHE_TTL}s")
 
     # ─────────────────────────────────────────
     # Persistent Session Management
@@ -271,16 +284,33 @@ class FXSUSDTTrader:
             self.logger.error(f"Error getting position info: {e}")
         return {}
 
+    def _cache_get(self, key: str) -> Optional[Any]:
+        """Return cached value if within TTL, else None."""
+        ts = self._mkt_cache_ts.get(key, 0.0)
+        if time.time() - ts < self._CACHE_TTL:
+            return self._mkt_cache.get(key)
+        return None
+
+    def _cache_set(self, key: str, value: Any) -> None:
+        """Store value in cache with current timestamp."""
+        self._mkt_cache[key] = value
+        self._mkt_cache_ts[key] = time.time()
+
     async def get_symbol_ticker(self, symbol: str = None) -> Optional[Dict[str, Any]]:
-        """Get symbol ticker information"""
+        """Get symbol ticker information — TTL-cached 60s (v2.0)"""
+        sym = symbol or self.symbol
+        cache_key = f"ticker:{sym}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
-            sym = symbol or self.symbol
             url = f"{self.base_url}/fapi/v1/ticker/24hr"
             s = await self._get_session()
             async with s.get(url, params={"symbol": sym}) as response:
                 if response.status == 200:
                     data = await response.json()
                     self.logger.debug(f"📊 Retrieved ticker for {sym}")
+                    self._cache_set(cache_key, data)
                     return data
                 self.logger.error(f"Failed to get ticker: {response.status}")
         except Exception as e:
@@ -288,35 +318,49 @@ class FXSUSDTTrader:
         return None
 
     async def get_funding_rate(self, symbol: str = None) -> Optional[Dict[str, Any]]:
-        """Get current funding rate for symbol"""
+        """Get current funding rate — TTL-cached 60s (v2.0)"""
+        sym = symbol or self.symbol
+        cache_key = f"funding:{sym}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
-            sym = symbol or self.symbol
             url = f"{self.base_url}/fapi/v1/premiumIndex"
             s = await self._get_session()
             async with s.get(url, params={"symbol": sym}) as response:
                 if response.status == 200:
                     data = await response.json()
                     self.logger.debug(f"📊 Retrieved funding rate for {sym}")
-                    return {
+                    result = {
                         "fundingRate": data.get("lastFundingRate", "0"),
                         "fundingTime": data.get("nextFundingTime", 0),
                         "markPrice":   data.get("markPrice", "0"),
                     }
+                    self._cache_set(cache_key, result)
+                    return result
                 self.logger.error(f"Failed to get funding rate: {response.status}")
         except Exception as e:
             self.logger.error(f"Error getting funding rate: {e}")
         return None
 
     async def get_open_interest(self, symbol: str = None) -> Optional[Dict[str, Any]]:
-        """Get open interest for symbol"""
+        """Get open interest — TTL-cached 120s (v2.0)"""
+        sym = symbol or self.symbol
+        cache_key = f"oi:{sym}"
+        ts = self._mkt_cache_ts.get(cache_key, 0.0)
+        if time.time() - ts < 120.0:   # OI cache: 120s (same as btcusdt_trader)
+            cached = self._mkt_cache.get(cache_key)
+            if cached is not None:
+                return cached
         try:
-            sym = symbol or self.symbol
             url = f"{self.base_url}/fapi/v1/openInterest"
             s = await self._get_session()
             async with s.get(url, params={"symbol": sym}) as response:
                 if response.status == 200:
                     data = await response.json()
                     self.logger.debug(f"📊 Retrieved open interest for {sym}")
+                    self._mkt_cache[cache_key] = data
+                    self._mkt_cache_ts[cache_key] = time.time()
                     return data
                 self.logger.error(f"Failed to get open interest: {response.status}")
         except Exception as e:
@@ -383,15 +427,21 @@ class FXSUSDTTrader:
         return {}
 
     async def get_24hr_ticker_stats(self, symbol: str = None) -> Dict[str, Any]:
-        """Get 24hr ticker statistics"""
+        """Get 24hr ticker statistics — TTL-cached 60s (v2.0)"""
+        sym = symbol or self.symbol
+        cache_key = f"ticker24:{sym}"
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
         try:
-            sym = symbol or self.symbol
             url = f"{self.base_url}/fapi/v1/ticker/24hr"
             s = await self._get_session()
             async with s.get(url, params={"symbol": sym}) as response:
                 if response.status == 200:
                     self.logger.debug(f"📊 Retrieved 24hr stats for {sym}")
-                    return await response.json()
+                    data = await response.json()
+                    self._cache_set(cache_key, data)
+                    return data
                 self.logger.error(f"Failed to get 24hr stats: {response.status}")
         except Exception as e:
             self.logger.error(f"Error getting 24hr stats: {e}")

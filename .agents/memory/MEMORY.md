@@ -4,5 +4,5 @@
 - [Unity Engine v36.0 critical env-override bugs](unity-engine-v36-env-bugs.md) — UNITY_NN_GATE was "0.35" in .replit (design=0.48, 13pp gap); IRONS_MIN_SCORE was "62" (killed WR-relaxed tiers); fixed via setEnvVars shared
 - [Unity Engine health probe architecture](unity-engine-health-probe.md) — background layers (AEGIS_GEX etc) need _bg_layer_health_probe; use self.sovereign_rm (no underscore); probe fires 45s after boot then every 30s; confirmed working v20.5
 - [Unity Engine duplicate-log fix](unity-engine-duplicate-log-fix.md) — v21.5: monkey-patch root logger instance addHandler to reject duplicate FileHandlers; placed module-level after RFH setup; background-task imports (logger.py setup_logging etc) can no longer add second RFH
-- [Unity Engine v22.0–v44.0 upgrades](unity-engine-v22.md) — v44.0: FAST-tier qwen3-72b restored (2-model race); v40.0: stale-value audit; v38.0: 9-gate tighten; workflow: console/8080
+- [Unity Engine v22.0–v45.0 upgrades](unity-engine-v22.md) — v45.0: Binance 429 storm eliminated (bulk ticker/funding cache + OI semaphore, btcusdt_trader v9.0 + fxsusdt_trader v2.0); v44.0: FAST-tier restored
 - [Unity Engine v27.0 slug fix](unity-engine-v27-slug-fix.md) — qwen3-next-80b-a3b-instruct:free is not a real Qwen3 model; caused 13-error rate_limit storm → 960s disabled; replaced with qwen3-72b:free everywhere
