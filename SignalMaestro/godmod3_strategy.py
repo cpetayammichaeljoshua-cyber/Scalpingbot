@@ -255,6 +255,11 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # qwen3-72b confirmed working, distinct GPT/Qwen architecture → genuine diversity.
         # v34.0 precedent: "fast tier had only gpt-oss-20b:free (single model, no competition)"
         "qwen/qwen3-72b:free",
+        # v48.0: gemma-4-26b-a4b-it:free added as 3rd FAST model — restores 3-model CONSORTIUM race.
+        # Already confirmed working in standard/smart/power/ultra tiers + GODMODE_GEMMA26B_VIBE combo.
+        # Google Gemma-4 architecture is distinct from GPT-OSS(OpenAI)/Qwen3(Alibaba) → genuine diversity.
+        # 3-model FAST race improves CONSORTIUM signal quality: majority vote needs 2/3 aligned models.
+        "google/gemma-4-26b-a4b-it:free",
         # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
         # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
         # RE-ADDED 2026-05-22: devstral-small — fast small model [v19.7]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v47.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v48.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -94,6 +94,18 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v48.0 IMPROVEMENTS: FAST-TIER-3MODEL + NN_MIN_SAMPLES_REDUCTION:
+    godmod3_strategy.py — ULTRAPLINIAN FAST tier expanded from 2→3 models [v48.0]:
+      ADDED: google/gemma-4-26b-a4b-it:free as 3rd FAST tier model |
+      Previously: 2-model FAST race (gpt-oss-20b + qwen3-72b) — weak CONSORTIUM diversity |
+      Now: 3-model FAST race (GPT-OSS-20B + Qwen3-72B + Gemma-4-26B) — 3 distinct architectures |
+      3-model majority vote: 2/3 aligned required; reduces single-model noise → better signal quality |
+      Model already confirmed working in standard/smart/power/ultra tiers and GODMODE_GEMMA26B_VIBE |
+    start_unity_engine.py — NN_RETRAIN_MIN_SAMPLES: 50→30 [v48.0]:
+      At WR=29.4% signal rate 2-5/hr → 30-40 outcomes/day; 50-sample floor blocked daily retraining |
+      30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
+      Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
+    UNITY_VERSION: 47.0→48.0 [v48.0]
   v47.0 IMPROVEMENTS: ZERO BYPASS — AI GATE CONSENSUS OVERRIDE REMOVED + VERSION SYNC:
     fxsusdt_telegram_bot.py — AI Gate consensus bypass removed [v47.0]:
       REMOVED: _consensus_bypass block (consensus≥86% + conf+boost≥threshold → bypass LLM gate) |
@@ -1414,7 +1426,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "47.0"
+UNITY_VERSION                = "48.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -1675,7 +1687,7 @@ os.environ.setdefault("CYCLE_SLEEP_MAX", str(DYNAMIC_SLEEP_NORMAL))    # 25s cei
 
 # ── NN background retraining ───────────────────────────────────────────────
 NN_RETRAIN_INTERVAL_SEC      = 1800  # v21.1: 2700→1800s (30min) — faster regime adaptation at WR<30%; 30min ≡ 2 full scan batches; at signal rate 2-5/hr this gives NN 1-3 new outcomes per retrain cycle; accelerated adaptation directly addresses the negative EV trajectory; crisis adaptive-mode (15min at Sharpe<-5, 20min at Sharpe<-3.5) unchanged; v19.6: 3600→2700s
-NN_RETRAIN_MIN_SAMPLES       = 50    # minimum new outcomes needed before retraining
+NN_RETRAIN_MIN_SAMPLES       = 30    # v48.0: 50→30 — at WR=29.4% signal rate 2-5/hr yields ~30-40 outcomes/day; 50-sample floor meant NN could only retrain after 10-25 days of signal accumulation in extreme-fear drought; 30 allows daily adaptation which directly addresses the negative EV trajectory; all other crisis retraining tiers (Sharpe<-3.5→20min, Sharpe<-4.5→15min, Sharpe<-5.0→15min, Sharpe<-6.0→8min) unchanged
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2.  SCANNER TIMEOUT  (env-driven; default = continuous)

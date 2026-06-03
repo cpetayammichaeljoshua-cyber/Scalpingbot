@@ -3,6 +3,22 @@ name: Unity Engine v22.0–v45.0 upgrades
 description: v45.0 Binance 429 storm eliminated via bulk market cache; v44.0 FAST-tier restored; v43.0 direction-aware G3 + NN v10; v42.0 direction-aware regime gates.
 ---
 
+## v48.0 Key Changes (deployed 2026-06-03)
+
+### FAST-Tier 3rd Model + NN_MIN_SAMPLES Reduction
+
+**Why:**
+1. FAST tier only had 2 models (gpt-oss-20b + qwen3-72b) — a 2-model CONSORTIUM race has no real majority vote (either agree or they race to first). 3 models enables true 2/3 majority logic.
+2. NN_RETRAIN_MIN_SAMPLES=50 was too high for WR=29.4% regime. At signal rate 2-5/hr, 50 outcomes took 10-25 days to accumulate — the NN couldn't adapt daily.
+
+**Changes:**
+1. **`godmod3_strategy.py` ULTRAPLINIAN TIERS["fast"]**: Added `google/gemma-4-26b-a4b-it:free` as 3rd fast model. Model confirmed working in standard/smart/power/ultra tiers and GODMODE_GEMMA26B_VIBE combo. Three distinct architectures: GPT-OSS(OpenAI) + Qwen3(Alibaba) + Gemma-4(Google).
+2. **`start_unity_engine.py` NN_RETRAIN_MIN_SAMPLES**: 50→30. Allows daily NN adaptation in low-WR regime. Crisis tiers (Sharpe<-3.5→20min, <-4.5→15min, <-5.0→15min, <-6.0→8min) unchanged.
+
+**Confirmed working:** Boot log shows `🧠 NN Retrain task started (interval=30min, min_samples=30)`.
+
+**How to apply:** Future FAST tier additions: only add models already confirmed working in other tiers (standard/smart/power). FAST tier must have ≥2 competing models or CONSORTIUM has no race benefit.
+
 ## v47.0 Key Changes (deployed 2026-06-03)
 
 ### AI Gate Consensus Bypass Removed (Zero Bypass Policy)
