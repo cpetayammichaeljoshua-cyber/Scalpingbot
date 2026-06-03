@@ -3,6 +3,22 @@ name: Unity Engine v22.0–v45.0 upgrades
 description: v45.0 Binance 429 storm eliminated via bulk market cache; v44.0 FAST-tier restored; v43.0 direction-aware G3 + NN v10; v42.0 direction-aware regime gates.
 ---
 
+## v46.0 Key Changes (deployed 2026-06-03)
+
+### Pre-cycle Bulk Prefetch + Cycle-sleep Fix + G_BLK Fast-start
+
+**Why:** v45.0 eliminated 429 storms via fetch-on-first-miss + Lock, but one lock-contention event still happened per cycle (first coroutine acquires Lock, fetches, 75 wait). Also, `run_continuous_scanner()` had env defaults of "30"/"60" for CYCLE_SLEEP_MIN/MAX — if env vars weren't set, scanner ran at 30-60s cycles instead of 10-25s. G_BLK pre-warm of 150s blocked 79/80 symbols for 2.5min at boot.
+
+**Changes:**
+1. **`btcusdt_trader.py v9.1` — `prefetch_bulk_data()`**: New public async method. Called ONCE at the top of each scan cycle BEFORE `asyncio.gather` launches 76 coroutines. Refreshes bulk ticker (weight=40) and funding (weight=10) at 80% TTL threshold. All 76 coroutines then hit fast-path (no Lock, no network). Thundering herd → zero.
+2. **`fxsusdt_telegram_bot.py` — CYCLE_SLEEP defaults fixed**: `CYCLE_SLEEP_MIN` default `"30"→"10"`, `CYCLE_SLEEP_MAX` default `"60"→"25"`. Without env injection, scanner was running 3× slower than intended (30-60s instead of 10-25s).
+3. **G_BLK pre-warm 150s → 60s**: 79 symbols pre-blocked for 2.5min reduced to 1min. All 15-gate filters still apply on re-entry.
+4. **Pre-cycle prefetch call** in `run_continuous_scanner()` before `scan_all_parallel()`.
+
+**Confirmed working:** Cycle #3 in 12.3s (real full scan, not 0.2s pre-check skip). ZERO 429 errors. G_BLK pre-warm confirmed `60s cooldown` in logs.
+
+**How to apply:** Pre-cycle prefetch must be called on `self.trader` (the `BTCUSDTTrader` instance) at the start of `run_continuous_scanner()` before `scan_all_parallel()`. The 80% TTL threshold prevents over-refreshing when data is still fresh.
+
 ## v45.0 Key Changes (deployed 2026-06-03)
 
 ### Binance 429 Storm Elimination — Bulk Market Cache

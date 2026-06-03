@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v45.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v46.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -94,6 +94,22 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
     Architecture stamp: GODMODE-12combo→GODMODE-10combo, PHI4-NOIX ref removed [v41.1] |
     ai_capability_checker.py: GODMODE combo count 12→10, dead model slugs logged [v41.1] |
     UNITY_VERSION: 41.0→41.1 [v41.1]
+  v46.0 IMPROVEMENTS: PRE-CYCLE BULK PREFETCH + CYCLE-SLEEP FIX + GBLK FAST-START:
+    btcusdt_trader.py v9.1 — prefetch_bulk_data() pro-active cache warm [v46.0]:
+      Called ONCE at top of each scan cycle BEFORE asyncio.gather launches 76 coroutines |
+      Refreshes bulk ticker (weight=40) + funding (weight=10) at 80% TTL threshold |
+      Eliminates remaining thundering-herd: all 76 coroutines hit fast-path (no Lock wait) |
+      Cycles 0.1-0.3s faster; 429 probability → zero even at max semaphore concurrency |
+    fxsusdt_telegram_bot.py — CYCLE_SLEEP env defaults fixed [v46.0]:
+      CYCLE_SLEEP_MIN default "30"→"10" (was 3× slower than CYCLE_SLEEP_MIN=10 constant) |
+      CYCLE_SLEEP_MAX default "60"→"25" (was 2.4× slower than CYCLE_SLEEP_MAX=25 constant) |
+      cycle_sleep_min fallback 30→10; max overshoot guard 30→15 |
+      Impact: without env injection the scanner used 30-60s cycles instead of 10-25s [v46.0]
+    G_BLK pre-warm 150s→60s [v46.0]:
+      79 symbols pre-blocked for 150s = engine sees <1 signal-eligible symbol for first 2.5min |
+      60s reduces dead-start to 1min; all 15-gate filters still applied on symbol re-entry |
+      Faster cold-start signal flow without bypassing any gate filters [v46.0]
+    UNITY_VERSION: 45.0→46.0 [v46.0]
   v45.0 IMPROVEMENTS: BINANCE 429 STORM ELIMINATION + BULK MARKET CACHE:
     ROOT CAUSE FIX: 76 parallel scan coroutines × 3 endpoints = 228 per-symbol REST calls/cycle [v45.0] |
       Each scan coroutine independently called get_24hr_ticker_stats() + get_funding_rate() + get_open_interest()
@@ -1385,7 +1401,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "45.0"
+UNITY_VERSION                = "46.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────

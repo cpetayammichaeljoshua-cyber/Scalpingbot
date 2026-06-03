@@ -966,7 +966,7 @@ class FXSUSDTTelegramBot:
         if not gblk_blacklist:
             return
         _now = time.time()
-        _short_cd = min(self._GBLK_COOLDOWN_SEC, 150.0)  # 2.5-min pre-warm [v18.71: 300→150 — 62 symbols pre-blocked for 300s = engine only sees 12/80 signal-eligible symbols for first 5 min; 150s reduces dead-start to 2.5 min; symbols still require full 15-gate pass on re-entry; faster WR bootstrap]
+        _short_cd = min(self._GBLK_COOLDOWN_SEC, 60.0)  # 1-min pre-warm [v46.0: 150→60s — 79 symbols pre-blocked for 150s = engine sees <1/80 signal-eligible symbols for first 2.5min; 60s reduces dead-start to 1min; all gate filters still apply on re-entry]
         _count = 0
         for sym in gblk_blacklist:
             if not isinstance(sym, str):
@@ -3610,12 +3610,12 @@ class FXSUSDTTelegramBot:
         # Inter-cycle sleep (seconds between full parallel scan rounds)
         # With 80 symbols and semaphore=20, a full scan takes ~20-40s.
         # The cycle sleep adds extra breathing room before the next round.
-        cycle_sleep_min = int(os.getenv("CYCLE_SLEEP_MIN", "30"))
-        cycle_sleep_max = int(os.getenv("CYCLE_SLEEP_MAX", "60"))
+        cycle_sleep_min = int(os.getenv("CYCLE_SLEEP_MIN", "10"))   # v46.0: default 30→10 (matches start_unity_engine.py CYCLE_SLEEP_MIN constant)
+        cycle_sleep_max = int(os.getenv("CYCLE_SLEEP_MAX", "25"))   # v46.0: default 60→25 (matches start_unity_engine.py CYCLE_SLEEP_MAX constant)
         if cycle_sleep_min <= 0:
-            cycle_sleep_min = 30
+            cycle_sleep_min = 10
         if cycle_sleep_max < cycle_sleep_min:
-            cycle_sleep_max = cycle_sleep_min + 30
+            cycle_sleep_max = cycle_sleep_min + 15
 
         last_heartbeat     = time.time()
         heartbeat_interval = max(60, int(os.getenv("HEARTBEAT_INTERVAL", "300")))
@@ -3782,6 +3782,17 @@ class FXSUSDTTelegramBot:
                             self._nn_batch_cache = {}
                     else:
                         self._nn_batch_cache = {}
+
+                # ── v46.0: Pre-cycle bulk market data prefetch ────────────────
+                # Proactively warm the shared bulk ticker+funding caches BEFORE
+                # launching the 76 parallel scan coroutines.  This eliminates the
+                # remaining thundering-herd event from v9.0 (first coroutine to
+                # acquire the Lock → refresh while 75 others wait).  With a warm
+                # cache, all 76 coroutines hit the fast-path (no lock, no network).
+                try:
+                    await self.trader.prefetch_bulk_data()
+                except Exception as _pfx_err:
+                    self.logger.debug(f"Pre-cycle prefetch skipped: {_pfx_err}")
 
                 self.logger.info(
                     f"⚡ Cycle #{cycle_count}: parallel-scanning {len(symbols)} symbols "
