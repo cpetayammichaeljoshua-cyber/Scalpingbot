@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v47.0 — Production requirements.txt
+# Unity Engine v49.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-03 (v47.0 — ZERO-BYPASS-STRICT | pre-cycle-prefetch | GBLK-60s | CYCLE-SLEEP-FIX)
+# Last verified: 2026-06-09 (v49.0 — NN_v11:70feat | G8.5w/G8.5x | 27-gate | ZERO-BYPASS-STRICT)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 55-feature ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

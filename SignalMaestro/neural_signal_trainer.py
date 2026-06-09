@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 65 features → 13 tokens × 5 dims (65 = 13 × 5) [v43.0: was 12×5=60]
-_TORCH_N_TOKENS  = 13
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v10: 65 = 13×5)
+# Transformer tokenisation: reshape 70 features → 14 tokens × 5 dims (70 = 14 × 5) [v49.0: was 13×5=65]
+_TORCH_N_TOKENS  = 14
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v11: 70 = 14×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 65  # v10 (v43.0): 60 + 5 regime-awareness features (fg_dir_align, irons_norm, fg_norm, session_prime, vol_crisis) = 65
+INPUT_DIM          = 70  # v11 (v49.0): 65 + 5 microstructure features (funding_extreme, ofi_aligned, liq_cascade_dir, momentum_aligned, vol_spike_flag) = 70
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -379,7 +379,7 @@ def _extract_gex_features(trade: Dict) -> List[float]:
 
 def build_features(trade: Dict) -> "np.ndarray":
     """
-    60-feature normalised vector from a trade record dict (v9 — full quant feature set + GEX).
+    70-feature normalised vector from a trade record dict (v11 — full quant feature set + GEX + microstructure).
 
     v3 change: 8 sequential lag price-return features appended (43-50) to give
     the MLP short-term temporal/momentum context without an LSTM. INPUT_DIM 42→50.
@@ -395,7 +395,13 @@ def build_features(trade: Dict) -> "np.ndarray":
     v9 change: 5 Deribit GEX regime features appended (56-60). INPUT_DIM 55→60.
               Transformer retokenized: 11×5 → 12×5 (12 tokens, 5 dims each = 60).
               Backwards compatible: legacy trades without gex_data → zero padding.
-    v10.4 BUG FIX: docstring now matches implementation (was falsely documented as 51).
+    v10 change: 5 regime-awareness features appended (61-65). INPUT_DIM 60→65.
+              Transformer retokenized: 12×5 → 13×5 (13 tokens, 5 dims each = 65).
+    v11 change: 5 microstructure features appended (66-70). INPUT_DIM 65→70. [v49.0]
+              Transformer retokenized: 13×5 → 14×5 (14 tokens, 5 dims each = 70).
+              F66=funding_extreme, F67=ofi_aligned, F68=liq_cascade_dir,
+              F69=momentum_aligned, F70=vol_spike_flag.
+              Backwards compatible: missing fields → zero padding (benign during training).
 
     Features 1-12:  scalar signal quality indicators
     Features 13-16: time / leverage encoding
@@ -630,7 +636,7 @@ def build_features(trade: Dict) -> "np.ndarray":
     # Backwards compatible: legacy trade records without gex_data → zeros (benign).
     f.extend(_extract_gex_features(trade))                              # 56-60
 
-    # ── v10 Regime-awareness features (61-65) — v43.0 direction + quality context ──
+    # ── v10 Regime-awareness features (61-65) — v43.0 direction + quality context ─
     # Five compact features giving the MLP direct regime-alignment and quality context.
     # All derived from fields already stored in every trade record — backwards compatible.
     # F61: Fear & Greed direction alignment: +1=aligned(SELL in fear/BUY in greed),
@@ -660,6 +666,55 @@ def build_features(trade: Dict) -> "np.ndarray":
         f.append(-1.0)                                                          # 65 vol_crisis=extreme_greed
     else:
         f.append(0.0)                                                           # 65 vol_crisis=neutral
+
+    # ── v11 Microstructure features (66-70) — v49.0 funding+OFI+liq+momentum+vol ─
+    # Five additional microstructure features for the NN to learn live market regime.
+    # All derived from fields already stamped into every trade record by the engine.
+    # Backwards compatible: missing fields → zero padding (benign during training).
+    # F66: Funding rate extreme directional signal
+    #       SuperExtreme (|fr|≥0.10%/8h): ±1.0 aligned-to-squeeze direction
+    #       Extreme      (|fr|≥0.05%/8h): ±0.5
+    #       else: 0.0
+    # F67: OFI (order-flow imbalance) aligned to signal direction ∈ [-1, +1]
+    # F68: Liquidation cascade direction: SHORT_LIQ=+1 (bullish), LONG_LIQ=-1 (bearish), 0=neutral
+    # F69: Aggregate 8-bar momentum aligned to signal direction, tanh-compressed ∈ [-1, +1]
+    # F70: Volume spike flag: +1=surge (>1.8×avg), -1=drought (<0.55×avg), 0=normal
+    _v11_dir = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
+    # F66 — funding_extreme
+    _v11_fr  = _safe_float(trade.get("funding_rate", 0.0), 0.0)
+    if abs(_v11_fr) >= 0.0010:
+        _v11_f66 = 1.0 if ((_v11_fr > 0 and _v11_dir < 0) or (_v11_fr < 0 and _v11_dir > 0)) else -1.0
+    elif abs(_v11_fr) >= 0.0005:
+        _v11_f66 = 0.5 if ((_v11_fr > 0 and _v11_dir < 0) or (_v11_fr < 0 and _v11_dir > 0)) else -0.5
+    else:
+        _v11_f66 = 0.0
+    f.append(_v11_f66)                                                          # 66 funding_extreme
+    # F67 — ofi_aligned
+    _v11_ofi = _safe_float(trade.get("ofi", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v11_ofi * _v11_dir)))                         # 67 ofi_aligned
+    # F68 — liq_cascade_dir
+    _v11_liqside = str(trade.get("liq_net_side", "") or "").upper()
+    if _v11_liqside == "SHORT":
+        f.append(1.0)                                                           # 68 short-liq cascade = bullish
+    elif _v11_liqside == "LONG":
+        f.append(-1.0)                                                          # 68 long-liq cascade = bearish
+    else:
+        f.append(0.0)                                                           # 68 neutral / unknown
+    # F69 — momentum_aligned (aggregate 8-bar return × direction, tanh-compressed)
+    _v11_rets = trade.get("price_returns", [])
+    if isinstance(_v11_rets, (list, tuple)) and len(_v11_rets) >= 4:
+        _v11_mom = sum(float(r) for r in _v11_rets[:8]) * _v11_dir
+        f.append(max(-1.0, min(1.0, math.tanh(_v11_mom * 200.0))))             # 69 momentum_aligned
+    else:
+        f.append(0.0)                                                           # 69 no data → neutral
+    # F70 — vol_spike_flag
+    _v11_vr = _safe_float(trade.get("volume_ratio", 1.0), 1.0)
+    if _v11_vr > 1.8:
+        f.append(1.0)                                                           # 70 volume surge
+    elif _v11_vr < 0.55:
+        f.append(-1.0)                                                          # 70 volume drought
+    else:
+        f.append(0.0)                                                           # 70 normal volume
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:

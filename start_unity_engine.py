@@ -30,7 +30,7 @@ ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
   IRONS_MIN=70(WR<30%)+73(WR<20%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
@@ -40,10 +40,11 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4pt[v20.4] | G9_WR-tiers:WR<20%→72,WR<25%→70,WR<30%→69,WR<35%→68[v38.0] | Kelly22:F&G×0.80(consec3→×0.60) |
   Kelly23:GEX_DIR×0.80+3FLIP×0.85 | Kelly24:DeepDD_MaxDD>40%+Calmar<0→×0.65 | Kelly25:UltraDD_MaxDD>50%+Calmar<0→×0.50 |
   HMM21:EXPANSION×1.25(P≥0.75,SR≥0)/CONTRACTION×0.60(P≥0.65) |
-  NN_v9:60feat(+5GEX) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
+  NN_v11:70feat(+5regime+5microstructure) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3]) |
-  GODMODE:17models+11combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
+  GODMODE:10models+10combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | 27-gate filter [v49.0] |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
   v19.2 FIXES: torch-inplace-fix(contiguous+zero_grad+enable_nested_tensor=False) |
@@ -106,6 +107,12 @@ KEY GATES (v40.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v49.0 IMPROVEMENTS: NN_v11(INPUT_DIM 65→70, +5 microstructure features) | G8.5w MTF-Momentum(±2.5pts) |
+    G8.5x LiqCascade-Direction(±2.0pts) | GODMODE count corrected(10models+10combos) |
+    F&G=10 Extreme-Fear regime: F66=funding_extreme F67=ofi_aligned F68=liq_cascade_dir
+    F69=momentum_aligned F70=vol_spike_flag | Stale comments purged (KEY GATES v40→v49, NN_v9→v11) |
+    27-gate filter (was 25-gate) | Version sync: Dockerfile+nixpacks+requirements → v49.0 [v49.0]
+    UNITY_VERSION: 48.0→49.0 [v49.0]
   v47.0 IMPROVEMENTS: ZERO BYPASS — AI GATE CONSENSUS OVERRIDE REMOVED + VERSION SYNC:
     fxsusdt_telegram_bot.py — AI Gate consensus bypass removed [v47.0]:
       REMOVED: _consensus_bypass block (consensus≥86% + conf+boost≥threshold → bypass LLM gate) |
@@ -1426,7 +1433,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "48.0"
+UNITY_VERSION                = "49.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -7303,6 +7310,106 @@ class UnitySignalFilter:
                         f"fr={_fr_rate*10000:.2f}bps/8h dir={_fr_dir} "
                         f"extreme={_fr_extreme} elevated={_fr_elevated} "
                         f"→ {_fr_adj:+.1f}pts"
+                    )
+        except Exception:
+            pass
+
+        # ── Gate 8.5w — Multi-Timeframe Momentum Alignment (v49.0) ─────────
+        # TauricResearch/TradingAgents multi-timeframe analysis concept: checks if
+        # recent price momentum over two distinct windows (short 1-2 bars, medium
+        # 3-8 bars) aligns with signal direction. A signal fired WITH the prevailing
+        # short+medium momentum has statistically higher follow-through than a signal
+        # entering against a sustained trend. Both windows opposing = counter-trend
+        # entry with elevated risk; both aligning = momentum-confirmed setup.
+        #
+        # Uses `price_returns` (8-bar lag array already in signal_data for NN v11 F69).
+        # Scoring logic:
+        #   short + medium both aligned:  +2.0pts  (confirmed MTF momentum)
+        #   short or medium one aligned:  +0.8pts  (partial confirmation)
+        #   short opposes only:          −1.0pts   (near-term headwind)
+        #   medium opposes only:         −0.8pts   (medium-term headwind)
+        #   short + medium both oppose:  −2.5pts   (strong counter-trend entry)
+        # Cap: ±2.5pts. Fires only when ≥4 price return bars are available.
+        try:
+            _g85w_data = signal_data if isinstance(signal_data, dict) else {}
+            _g85w_dir  = (direction or "").upper()
+            _g85w_adj  = 0.0
+            if _g85w_dir in ("BUY", "LONG", "SELL", "SHORT"):
+                _g85w_long = _g85w_dir in ("BUY", "LONG")
+                _g85w_rets = _g85w_data.get("price_returns", [])
+                if isinstance(_g85w_rets, (list, tuple)) and len(_g85w_rets) >= 4:
+                    _g85w_short = (float(_g85w_rets[0]) + float(_g85w_rets[1])) / 2.0
+                    _g85w_slice = _g85w_rets[2:8]
+                    _g85w_med   = sum(float(r) for r in _g85w_slice) / max(1, len(_g85w_slice))
+                    _g85w_al_s  = (_g85w_long and _g85w_short > 0.0005) or (not _g85w_long and _g85w_short < -0.0005)
+                    _g85w_al_m  = (_g85w_long and _g85w_med   > 0.0003) or (not _g85w_long and _g85w_med   < -0.0003)
+                    _g85w_op_s  = (_g85w_long and _g85w_short < -0.0005) or (not _g85w_long and _g85w_short > 0.0005)
+                    _g85w_op_m  = (_g85w_long and _g85w_med   < -0.0003) or (not _g85w_long and _g85w_med   > 0.0003)
+                    if _g85w_al_s and _g85w_al_m:
+                        _g85w_adj = 2.0
+                    elif _g85w_al_s or _g85w_al_m:
+                        _g85w_adj = 0.8
+                    elif _g85w_op_s and _g85w_op_m:
+                        _g85w_adj = -2.5
+                    elif _g85w_op_s:
+                        _g85w_adj = -1.0
+                    elif _g85w_op_m:
+                        _g85w_adj = -0.8
+                    _g85w_adj = max(-2.5, min(2.5, _g85w_adj))
+                    if _g85w_adj != 0.0:
+                        quality_score += _g85w_adj
+                        self._logger.debug(
+                            f"[G8.5w MTF-Momentum v49.0] {symbol} "
+                            f"dir={_g85w_dir} short={_g85w_short*100:.3f}% "
+                            f"med={_g85w_med*100:.3f}% al_s={_g85w_al_s} al_m={_g85w_al_m} "
+                            f"→ {_g85w_adj:+.1f}pts [TradingAgents/MTF]"
+                        )
+        except Exception:
+            pass
+
+        # ── Gate 8.5x — Liquidation Cascade Direction (v49.0) ───────────────
+        # Liquidation direction from Binance forceOrder WS (L0.425) provides a
+        # powerful directional confirmation signal. When long positions are being
+        # force-liquidated (liq_net_side="LONG"), downward cascade pressure is
+        # ongoing and SELL signals gain additional confirmation — while BUY signals
+        # face amplified adverse flow. Conversely, short-liquidation cascades
+        # (liq_net_side="SHORT") produce upward squeeze momentum.
+        # Magnitude 0-1 (normalised): >0.5 = strong cascade, ≤0.5 = moderate.
+        # Note: `gate_liq_cascade` (GLIQ) already handles the hard pass/fail;
+        # G8.5x provides the directional QUALITY ADJUSTMENT not covered by GLIQ.
+        #
+        # Scoring logic:
+        #   strong cascade confirms direction:    +1.5pts (cascade behind trade)
+        #   moderate cascade confirms direction:  +0.8pts
+        #   strong cascade opposes direction:     −2.0pts (caught in counter-flow)
+        #   moderate cascade opposes direction:   −1.0pts
+        # Cap: ±2.0pts. Fires only when liq_net_side + liq_magnitude are set.
+        try:
+            _g85x_data    = signal_data if isinstance(signal_data, dict) else {}
+            _g85x_dir     = (direction or "").upper()
+            _g85x_adj     = 0.0
+            _g85x_net_liq = str(_g85x_data.get("liq_net_side", "") or "").upper()
+            _g85x_liq_mag = float(_g85x_data.get("liq_magnitude", 0.0) or 0.0)
+            if _g85x_net_liq in ("LONG", "SHORT") and _g85x_dir in ("BUY", "LONG", "SELL", "SHORT") and _g85x_liq_mag > 0:
+                _g85x_long  = _g85x_dir in ("BUY", "LONG")
+                _g85x_str   = _g85x_liq_mag > 0.5
+                if _g85x_net_liq == "LONG":
+                    if not _g85x_long:
+                        _g85x_adj = 1.5 if _g85x_str else 0.8
+                    else:
+                        _g85x_adj = -2.0 if _g85x_str else -1.0
+                elif _g85x_net_liq == "SHORT":
+                    if _g85x_long:
+                        _g85x_adj = 1.5 if _g85x_str else 0.8
+                    else:
+                        _g85x_adj = -2.0 if _g85x_str else -1.0
+                _g85x_adj = max(-2.0, min(2.0, _g85x_adj))
+                if _g85x_adj != 0.0:
+                    quality_score += _g85x_adj
+                    self._logger.debug(
+                        f"[G8.5x LiqCascade v49.0] {symbol} "
+                        f"net_liq={_g85x_net_liq} mag={_g85x_liq_mag:.2f} "
+                        f"dir={_g85x_dir} str={_g85x_str} → {_g85x_adj:+.1f}pts"
                     )
         except Exception:
             pass
