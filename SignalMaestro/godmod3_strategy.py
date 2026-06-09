@@ -602,7 +602,10 @@ _STORM_BACKOFF_MAX_S      = 1800.0 # 30 min hard cap per disable cycle
 # v5.4: Reduced 15→10 — with only 8 active models, a model at storm=10 has proven to be
 # a chronic 429 source. Waiting for storm=15 means 5 extra disable cycles before exclusion.
 # 10 lifetime 429s despite exponential backoff = effectively unusable on the free tier.
-_STORM_BLACKLIST_THRESHOLD = 21   # v8.4: 10→21 — gives models 3 escalation cycles    # v5.4: 15→10 — faster permanent exclusion of storm-prone models
+_STORM_BLACKLIST_THRESHOLD = 30   # v52.0: 21→30 — Railway 429 storms can hit 21 in a single long session;
+                                  # 30 requires 6 full escalation cycles (storm=5→10→15→20→25→30) before
+                                  # permanent disable; protects good models from transient Railway rate storms.
+                                  # v8.4: 10→21 — 3 escalation cycles; v5.4: 15→10 — faster permanent exclusion
 
 # Minimum concurrent successful responses for ensemble vote to count
 _ENSEMBLE_MIN_RESPONSES = 2
@@ -1082,7 +1085,10 @@ class G0DM0D3Engine:
                                       # disables rate-limited models faster, allowing the cascade
                                       # to fall through to the next model sooner and reducing total
                                       # 429 volume. Storm backoff (step=5) still escalates cooldown.
-    _GENERIC_ERR_THRESHOLD   = 8      # consecutive non-429 generic errors → 2h disable (GenericErrGuard)
+    _GENERIC_ERR_THRESHOLD   = 12     # v52.0: 8→12 — Railway network blips can cause 8 consecutive 503/timeout
+                                     # errors in a single degraded-network event, triggering 2h model disable
+                                     # unfairly. 12 requires a genuinely systematic failure pattern before
+                                     # invoking the 2h cooldown; good models survive brief infrastructure issues.
     _GENERIC_ERR_DISABLE_S   = 7200.0 # 2 hours disable for models with systematic generic errors
     _INTER_CALL_DELAY_BASE   = 1.2    # v18.75: 0.8→1.2s — additional breathing room between
                                       # consecutive model calls. 1.2s reduces thundering-herd

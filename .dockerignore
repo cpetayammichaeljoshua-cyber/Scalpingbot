@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v19.3 — .dockerignore
+# Unity Engine v52.0 — .dockerignore
 # Excludes all non-runtime files from the Railway build context.
 # Reduces build context from ~200 MB to <5 MB — dramatically faster Railway builds.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -32,6 +32,12 @@ closed_trades_scanner.db
 bot_health_monitoring.db
 *.db-shm
 *.db-wal
+# v52.0 FIX: above root-level patterns do NOT match SignalMaestro/*.db etc.
+# SignalMaestro/advanced_ml_trading.db alone is 32MB — was bloating Railway build context.
+# Docker .dockerignore treats patterns without '/' as root-relative only; use ** for depth.
+**/*.db
+**/*.db-shm
+**/*.db-wal
 
 # ── Legacy / one-time scripts (not needed in production image) ─────────────────
 alternative_setup_instructions.py

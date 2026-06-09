@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v51.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v52.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 27-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -107,6 +107,30 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v52.0 IMPROVEMENTS: RAILWAY BUILD FIX + OPENROUTER RESILIENCE + G3 REGIME RELIEF EXPANSION:
+    1. DOCKERIGNORE CRITICAL FIX — SignalMaestro/advanced_ml_trading.db (32MB) was NOT excluded:
+       .dockerignore root-level patterns (e.g. 'advanced_ml_trading.db') are root-relative ONLY
+       in Docker's implementation — they do NOT match 'SignalMaestro/advanced_ml_trading.db'.
+       Fix: Added '**/*.db', '**/*.db-shm', '**/*.db-wal' globs to catch all subdirectory DBs.
+       Expected improvement: Railway build context shrinks by ~32MB per build → faster deploys.
+    2. OPENROUTER STORM BLACKLIST THRESHOLD — _STORM_BLACKLIST_THRESHOLD raised 21→30:
+       At 21 lifetime 429s, models could be permanently disabled in a single long Railway session
+       during a brief CDN rate storm. With 10 active GODMODE combos each calling every signal,
+       a 45-min 429 storm on a busy market day can accumulate 21+ errors per model.
+       Fix: 30 requires 6 full exponential-backoff escalation cycles before permanent exclusion.
+       Math: storm=5→120s, 10→240s, 15→480s, 20→960s, 25→1800s (cap), 30→1800s → blacklist.
+       Only genuinely chronic rate-limiters (not temporary Railway infra issues) get blacklisted.
+    3. GENERIC ERROR THRESHOLD — _GENERIC_ERR_THRESHOLD raised 8→12 (GenericErrGuard):
+       Railway network degradation (brief infra events) can cause 8 consecutive 503/timeout errors
+       even from perfectly healthy OpenRouter models, triggering the 2h model disable unfairly.
+       12 requires a genuinely systematic failure pattern — brief Railway blips won't cause disables.
+    4. G3 REGIME RELIEF EXPANSION — F&G threshold expanded 30/70 → 35/65:
+       Moderate fear (F&G=31-35) and moderate greed (F&G=65-69) still carry directional momentum
+       bias that validates regime-aligned AI signals. The EV argument (88-89% AI confidence band
+       has positive EV when regime-aligned) extends to the 31-35/65-69 zones.
+       Effect: ~+4-6% more regime-aligned signals pass G3 (e.g. F&G=33+SELL at 88% conf now passes).
+       Counter-regime signals unchanged: F&G=33+BUY still requires 89% confidence.
+    UNITY_VERSION: 51.0→52.0
   v51.0 IMPROVEMENTS: G8.5w + G8.5x ANALYTICS VISIBILITY — GATES WERE INVISIBLE TO HEALTH SYSTEM:
     G8.5w and G8.5x were added in v49.0 and data-pipeline-fixed in v50.0, but they never called
     self._record() — meaning they never appeared in gate_stats_summary(), gate_bottleneck_str(),
@@ -1468,7 +1492,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "51.0"
+UNITY_VERSION                = "52.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6158,12 +6182,17 @@ class UnitySignalFilter:
         # F&G>70 + BUY  (greed momentum continuation) → threshold − 1pt (88%)
         # Rationale: at F&G=23+SELL the 88-89% AI confidence band has positive EV (regime-aligned)
         # while the same band for BUY signals is net-negative. 1pt relief unlocks ~6-8% more aligned signals.
+        # v52.0: Expanded relief zone 30/70 → 35/65 — moderate fear (F&G=31-35) and moderate greed
+        # (F&G=65-69) still carry directional momentum bias that validates regime-aligned AI signals.
+        # EV argument: at F&G=33+SELL the probability distribution still skews bearish; the 88-89%
+        # AI confidence band retains positive EV in this regime. 5pt expansion ~ +4-6% more
+        # regime-aligned signals pass, with no loosening for counter-regime (F&G=33+BUY stays at 89%).
         _g3_ai_threshold = ai_threshold
         _g3_dir_relief_applied = False
         try:
             _g3_fg = float(signal_data.get("fear_greed_index", 50) or 50)
-            if (_g3_fg < 30.0 and direction == "SELL") or (_g3_fg > 70.0 and direction == "BUY"):
-                _g3_ai_threshold = ai_threshold - 1.0   # v43.0: 1pt relief for regime-aligned direction
+            if (_g3_fg < 35.0 and direction == "SELL") or (_g3_fg > 65.0 and direction == "BUY"):
+                _g3_ai_threshold = ai_threshold - 1.0   # v43.0/v52.0: 1pt relief for regime-aligned direction
                 _g3_dir_relief_applied = True
         except Exception:
             pass
