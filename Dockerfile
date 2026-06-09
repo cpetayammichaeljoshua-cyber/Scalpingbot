@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v49.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v50.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 

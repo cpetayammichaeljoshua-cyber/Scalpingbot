@@ -7,3 +7,4 @@
 - [Unity Engine v22.0–v45.0 upgrades](unity-engine-v22.md) — v45.0: Binance 429 storm eliminated (bulk ticker/funding cache + OI semaphore, btcusdt_trader v9.0 + fxsusdt_trader v2.0); v44.0: FAST-tier restored
 - [Unity Engine v27.0 slug fix](unity-engine-v27-slug-fix.md) — qwen3-next-80b-a3b-instruct:free is not a real Qwen3 model; caused 13-error rate_limit storm → 960s disabled; replaced with qwen3-72b:free everywhere
 - [Unity Engine v49.0 upgrades](unity-engine-v49.md) — NN v11 INPUT_DIM 65→70 (F66-F70 microstructure); G8.5w MTF-Momentum ±2.5pts; G8.5x LiqCascade ±2.0pts; 27-gate filter; version sync Dockerfile/nixpacks/requirements; stale KEY GATES v40→v49 comment fixed
+- [Unity Engine v50.0 gate data-pipeline fix](unity-engine-v50.md) — G8.5w/G8.5x were SILENT NO-OPS since v49.0; fixed by reading _quant_layer_close_buf (G8.5w) and _live_liq_data (G8.5x) as fallbacks; all "25-gate"/"15-gate" display strings corrected to "27-gate"

@@ -1,4 +1,4 @@
-# Railway Nixpacks Configuration — Unity Engine v49.0
+# Railway Nixpacks Configuration — Unity Engine v50.0
 # Used when Railway builds without the Dockerfile (pure Nixpacks path).
 # If Dockerfile is preferred, set railway.json build.builder = "DOCKERFILE".
 # v19.0 changes [2026-05-24]:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v48.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v50.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 25-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 27-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
   L0.5: Deribit Real-GEX       — Live BTC/ETH/SOL options chain (primary)
   L0.6: OKX Real-GEX           — Cross-venue GEX redundancy
@@ -107,6 +107,25 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v50.0 IMPROVEMENTS: CRITICAL DATA PIPELINE FIXES — G8.5w + G8.5x WERE SILENT NO-OPS:
+    G8.5w MTF-Momentum: `price_returns` was NOT in signal_data → gate always skipped.
+      Fix: fallback to _quant_layer_close_buf (per-symbol rolling closes, always populated
+      by _feed_quant_layers_kline on every kline tick) — derives returns on the fly [v50.0]
+    G8.5x LiqCascade-Direction: `liq_net_side`/`liq_magnitude` NOT in signal_data → skipped.
+      Fix: fallback to _live_liq_data (global forceOrder@arr WS state, <90s staleness guard)
+      — long_usd>short_usd→"LONG"(bearish), else→"SHORT"(bullish squeeze) [v50.0]
+    Both gates now fire for every symbol that has kline/liq WS data, activating ±2.5/±2.0pt
+    quality adjustments that were previously 100% inactive since v49.0 launch.
+  DISPLAY STRING AUDIT [v50.0]:
+    ARCHITECTURE docstring: "25-gate filter" → "27-gate filter"
+    Wiring log (line ~11522): "25-gate" + missing G8.5w/G8.5x → "27-gate" + both gates listed
+    Architecture banner: "25-gate" → "27-gate" | "NN-v10-65feat[v43.0]" → "NN-v11-70feat[v49.0]"
+    Gate filter header: "25-GATE SIGNAL FILTER" → "27-GATE SIGNAL FILTER"
+    ALL SYSTEMS ONLINE banner: "15-gate filter" → "27-gate filter" + G8.5w/G8.5x listed
+    Launcher log: "15-gate filter" → "27-gate filter"
+    Layer 5 description: "55-feature MLP" → "70-feature NN v11 (MLP+Transformer 14×5 tokens)"
+    Module docstring: v48.0 → v50.0
+    UNITY_VERSION: 49.0→50.0
   v49.0 IMPROVEMENTS: NN_v11(INPUT_DIM 65→70, +5 microstructure features) | G8.5w MTF-Momentum(±2.5pts) |
     G8.5x LiqCascade-Direction(±2.0pts) | GODMODE count corrected(10models+10combos) |
     F&G=10 Extreme-Fear regime: F66=funding_extreme F67=ofi_aligned F68=liq_cascade_dir
@@ -1433,7 +1452,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "49.0"
+UNITY_VERSION                = "50.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -7322,14 +7341,17 @@ class UnitySignalFilter:
         # entering against a sustained trend. Both windows opposing = counter-trend
         # entry with elevated risk; both aligning = momentum-confirmed setup.
         #
-        # Uses `price_returns` (8-bar lag array already in signal_data for NN v11 F69).
+        # Uses `price_returns` from signal_data OR falls back to _quant_layer_close_buf
+        # (per-symbol rolling close buffer populated by _feed_quant_layers_kline() on
+        # every kline tick — always available for scanned symbols). This guarantees the
+        # gate fires even when signal_data doesn't carry the price_returns field.
         # Scoring logic:
         #   short + medium both aligned:  +2.0pts  (confirmed MTF momentum)
         #   short or medium one aligned:  +0.8pts  (partial confirmation)
         #   short opposes only:          −1.0pts   (near-term headwind)
         #   medium opposes only:         −0.8pts   (medium-term headwind)
         #   short + medium both oppose:  −2.5pts   (strong counter-trend entry)
-        # Cap: ±2.5pts. Fires only when ≥4 price return bars are available.
+        # Cap: ±2.5pts. Fires whenever ≥4 price return bars are available.
         try:
             _g85w_data = signal_data if isinstance(signal_data, dict) else {}
             _g85w_dir  = (direction or "").upper()
@@ -7337,6 +7359,18 @@ class UnitySignalFilter:
             if _g85w_dir in ("BUY", "LONG", "SELL", "SHORT"):
                 _g85w_long = _g85w_dir in ("BUY", "LONG")
                 _g85w_rets = _g85w_data.get("price_returns", [])
+                # ── Fallback: derive returns from rolling close buffer [v50.0] ───
+                # _quant_layer_close_buf is written on every kline tick for all 76
+                # scanned symbols, so it is always fresh when the gate runs.
+                if not (isinstance(_g85w_rets, (list, tuple)) and len(_g85w_rets) >= 4):
+                    _g85w_buf = _quant_layer_close_buf.get(symbol, [])
+                    if len(_g85w_buf) >= 5:
+                        _g85w_cls = list(_g85w_buf)[-9:]  # last 9 closes → 8 returns
+                        _g85w_rets = [
+                            (_g85w_cls[i + 1] - _g85w_cls[i]) / _g85w_cls[i]
+                            for i in range(len(_g85w_cls) - 1)
+                            if _g85w_cls[i] > 0
+                        ]
                 if isinstance(_g85w_rets, (list, tuple)) and len(_g85w_rets) >= 4:
                     _g85w_short = (float(_g85w_rets[0]) + float(_g85w_rets[1])) / 2.0
                     _g85w_slice = _g85w_rets[2:8]
@@ -7383,13 +7417,31 @@ class UnitySignalFilter:
         #   moderate cascade confirms direction:  +0.8pts
         #   strong cascade opposes direction:     −2.0pts (caught in counter-flow)
         #   moderate cascade opposes direction:   −1.0pts
-        # Cap: ±2.0pts. Fires only when liq_net_side + liq_magnitude are set.
+        # Cap: ±2.0pts. Falls back to global _live_liq_data (forceOrder@arr WS state)
+        # when signal_data doesn't carry liq_net_side/liq_magnitude — this guarantees
+        # the gate fires whenever the Binance liquidation WS has recent data [v50.0].
         try:
             _g85x_data    = signal_data if isinstance(signal_data, dict) else {}
             _g85x_dir     = (direction or "").upper()
             _g85x_adj     = 0.0
             _g85x_net_liq = str(_g85x_data.get("liq_net_side", "") or "").upper()
             _g85x_liq_mag = float(_g85x_data.get("liq_magnitude", 0.0) or 0.0)
+            # ── Fallback: read from global _live_liq_data [v50.0] ──────────────
+            # _live_liq_data is populated in real-time by _liq_ws_task() for every
+            # symbol.  long_usd = longs being force-liquidated (bearish cascade);
+            # short_usd = shorts being force-liquidated (bullish squeeze).
+            if not _g85x_net_liq and symbol:
+                _g85x_liq_entry = _live_liq_data.get(symbol)
+                if _g85x_liq_entry and (time.time() - float(_g85x_liq_entry.get("ts", 0.0))) < 90.0:
+                    _g85x_long_usd  = float(_g85x_liq_entry.get("long_usd",  0.0))
+                    _g85x_short_usd = float(_g85x_liq_entry.get("short_usd", 0.0))
+                    if _g85x_long_usd > 0 or _g85x_short_usd > 0:
+                        if _g85x_long_usd >= _g85x_short_usd:
+                            _g85x_net_liq = "LONG"   # bearish cascade
+                            _g85x_liq_mag = min(1.0, _g85x_long_usd / 1_000_000.0)
+                        else:
+                            _g85x_net_liq = "SHORT"  # bullish squeeze
+                            _g85x_liq_mag = min(1.0, _g85x_short_usd / 1_000_000.0)
             if _g85x_net_liq in ("LONG", "SHORT") and _g85x_dir in ("BUY", "LONG", "SELL", "SHORT") and _g85x_liq_mag > 0:
                 _g85x_long  = _g85x_dir in ("BUY", "LONG")
                 _g85x_str   = _g85x_liq_mag > 0.5
@@ -11519,7 +11571,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"25-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
+            f"27-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
@@ -11538,7 +11590,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 25-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v10-65feat[v43.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv10-65feat[v43.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 27-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -11548,7 +11600,7 @@ class UnityEngine:
         logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC")
         logger.info("              └─ OpenRouter        — 10 storm-purged models, 5 tiers, EnsembleVote")
         logger.info("              └─ SmartLLMRouter    — ClawRouter-inspired cascade fallback")
-        logger.info("   Layer  5 : Neural Network      — 55-feature MLP (42 + 8 lag returns + 1 OFI + 1 PriceConsensus[7-models] + 1 HurstRegime[R/S] + 1 EWMA-Vol[RiskMetrics λ=0.94] + 1 RealSkew[Neuberger 2012]), Wilder-ATR, online learning")
+        logger.info("   Layer  5 : Neural Network      — 70-feature NN v11 (MLP+Transformer 14×5 tokens: 65-feat v10 + F66:funding_extreme + F67:ofi_aligned + F68:liq_cascade_dir + F69:momentum_aligned + F70:vol_spike_flag), Wilder-ATR, online learning")
         logger.info("   Layer  6 : ATAS + Bookmap      — 15 indicators + order-flow depth")
         logger.info("   Layer  7 : Risk+Kelly Engine   — SmartDynamic SL/TP + Leveraging + Kelly")
         logger.info("   Layer  8 : AI Orchestrator     — Sentiment + Prediction + RL")
@@ -11558,7 +11610,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 25-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+PessimismRelief[v23.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 27-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+PessimismRelief[v23.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")
@@ -15053,7 +15105,7 @@ class UnityEngine:
         layers_online = sum(1 for l in self.health.layers.values() if l.available)
         self._logger.info(f"   Layers online  : {layers_online}/{len(self.health.layers)}")
         self._logger.info(
-            f"   Signal gates   : 15-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | 5-bucket RL | "
+            f"   Signal gates   : 27-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | 5-bucket RL | "
             f"Kelly | Consec-Loss CB({CONSEC_LOSS_THRESHOLD}) | WinStreak({CONSEC_WIN_STREAK_THRESHOLD}) | "
             f"NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) | Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} | IRONS≥{IRONS_MIN_SCORE:.0f} [v{UNITY_VERSION}]"
         )
@@ -15980,7 +16032,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"15-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5V·AdaptIRONS) · "
+        f"27-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
