@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v50.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v51.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 27-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -107,6 +107,22 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v51.0 IMPROVEMENTS: G8.5w + G8.5x ANALYTICS VISIBILITY — GATES WERE INVISIBLE TO HEALTH SYSTEM:
+    G8.5w and G8.5x were added in v49.0 and data-pipeline-fixed in v50.0, but they never called
+    self._record() — meaning they never appeared in gate_stats_summary(), gate_bottleneck_str(),
+    or the /gates health endpoint. They were completely invisible to diagnostics.
+    Fix: Added _record("gate_g85w", fired) / _record("gate_g85x", fired) calls to both gates.
+    "fired" = True when gate had sufficient data to evaluate (pass in analytics),
+              False when no kline/liq data available yet (fail = skipped/no-data).
+    Added gate_g85w + gate_g85x to _gate_stats and _gate_stats_recent dicts at __init__
+    Added "gate_g85w"→"G8.5w" and "gate_g85x"→"G8.5x" to _GATE_DISPLAY_LABELS.
+    Both gates now appear in:
+      • gate_stats_summary() (compact console HUD)
+      • gate_bottleneck_str() (worst-3 bottleneck display)
+      • /gates health endpoint (JSON pass/fail/total/pass_rate)
+    Improved debug log: added bars={len} to G8.5w log; moved debug log outside adj!=0 guard
+    so any evaluation (even neutral) is logged at DEBUG level.
+    UNITY_VERSION: 50.0→51.0
   v50.0 IMPROVEMENTS: CRITICAL DATA PIPELINE FIXES — G8.5w + G8.5x WERE SILENT NO-OPS:
     G8.5w MTF-Momentum: `price_returns` was NOT in signal_data → gate always skipped.
       Fix: fallback to _quant_layer_close_buf (per-symbol rolling closes, always populated
@@ -1452,7 +1468,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "50.0"
+UNITY_VERSION                = "51.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -3961,6 +3977,13 @@ class UnitySignalFilter:
         self._vibe_pool: Optional["VibeAgentPool"] = None
         self._gate_stats["gate_vibe"] = {"pass": 0, "fail": 0}
         self._gate_stats_recent["gate_vibe"] = deque(maxlen=self._gate_stats_window_n)
+        # v51.0: G8.5w MTF-Momentum + G8.5x LiqCascade-Dir — add to stats tracking so
+        # they appear in gate_stats_summary(), gate_bottleneck_str(), and /gates endpoint.
+        # pass = gate had sufficient data and evaluated; fail = no data, gate skipped.
+        self._gate_stats["gate_g85w"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g85w"] = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85x"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g85x"] = deque(maxlen=self._gate_stats_window_n)
 
     @staticmethod
     def _load_symbol_blacklist() -> frozenset:
@@ -7371,7 +7394,9 @@ class UnitySignalFilter:
                             for i in range(len(_g85w_cls) - 1)
                             if _g85w_cls[i] > 0
                         ]
+                _g85w_fired = False   # tracks whether gate had data to evaluate
                 if isinstance(_g85w_rets, (list, tuple)) and len(_g85w_rets) >= 4:
+                    _g85w_fired = True
                     _g85w_short = (float(_g85w_rets[0]) + float(_g85w_rets[1])) / 2.0
                     _g85w_slice = _g85w_rets[2:8]
                     _g85w_med   = sum(float(r) for r in _g85w_slice) / max(1, len(_g85w_slice))
@@ -7392,12 +7417,15 @@ class UnitySignalFilter:
                     _g85w_adj = max(-2.5, min(2.5, _g85w_adj))
                     if _g85w_adj != 0.0:
                         quality_score += _g85w_adj
-                        self._logger.debug(
-                            f"[G8.5w MTF-Momentum v49.0] {symbol} "
-                            f"dir={_g85w_dir} short={_g85w_short*100:.3f}% "
-                            f"med={_g85w_med*100:.3f}% al_s={_g85w_al_s} al_m={_g85w_al_m} "
-                            f"→ {_g85w_adj:+.1f}pts [TradingAgents/MTF]"
-                        )
+                    self._logger.debug(
+                        f"[G8.5w MTF-Momentum v51.0] {symbol} "
+                        f"dir={_g85w_dir} short={_g85w_short*100:.3f}% "
+                        f"med={_g85w_med*100:.3f}% bars={len(_g85w_rets)} "
+                        f"al_s={_g85w_al_s} al_m={_g85w_al_m} "
+                        f"→ {_g85w_adj:+.1f}pts [MTF/v51.0]"
+                    )
+                # v51.0: record to gate_stats so gate appears in analytics/health
+                self._record("gate_g85w", _g85w_fired)
         except Exception:
             pass
 
@@ -7442,7 +7470,8 @@ class UnitySignalFilter:
                         else:
                             _g85x_net_liq = "SHORT"  # bullish squeeze
                             _g85x_liq_mag = min(1.0, _g85x_short_usd / 1_000_000.0)
-            if _g85x_net_liq in ("LONG", "SHORT") and _g85x_dir in ("BUY", "LONG", "SELL", "SHORT") and _g85x_liq_mag > 0:
+            _g85x_fired = _g85x_net_liq in ("LONG", "SHORT") and _g85x_liq_mag > 0
+            if _g85x_fired and _g85x_dir in ("BUY", "LONG", "SELL", "SHORT"):
                 _g85x_long  = _g85x_dir in ("BUY", "LONG")
                 _g85x_str   = _g85x_liq_mag > 0.5
                 if _g85x_net_liq == "LONG":
@@ -7458,11 +7487,13 @@ class UnitySignalFilter:
                 _g85x_adj = max(-2.0, min(2.0, _g85x_adj))
                 if _g85x_adj != 0.0:
                     quality_score += _g85x_adj
-                    self._logger.debug(
-                        f"[G8.5x LiqCascade v49.0] {symbol} "
-                        f"net_liq={_g85x_net_liq} mag={_g85x_liq_mag:.2f} "
-                        f"dir={_g85x_dir} str={_g85x_str} → {_g85x_adj:+.1f}pts"
-                    )
+                self._logger.debug(
+                    f"[G8.5x LiqCascade v51.0] {symbol} "
+                    f"net_liq={_g85x_net_liq} mag={_g85x_liq_mag:.2f} "
+                    f"dir={_g85x_dir} str={_g85x_str} → {_g85x_adj:+.1f}pts [v51.0]"
+                )
+            # v51.0: record to gate_stats so gate appears in analytics/health
+            self._record("gate_g85x", _g85x_fired)
         except Exception:
             pass
 
@@ -8179,6 +8210,8 @@ class UnitySignalFilter:
         "gate_cvar":      "GCVAR",  # v18.44: Pre-Gate G CVaR tail-risk gate
         "gate_markov":    "GMK",    # v18.44: Pre-Gate M Markov Chain (p_ij≥0.87)
         "gate_vibe":      "G8.5V",  # v18.44: Gate 8.5V Vibe-Trading agent pool
+        "gate_g85w":      "G8.5w",  # v51.0: MTF-Momentum quality adjuster (±2.5pts)
+        "gate_g85x":      "G8.5x",  # v51.0: LiqCascade-Direction quality adjuster (±2.0pts)
     }
 
     def gate_stats_summary(self) -> str:
