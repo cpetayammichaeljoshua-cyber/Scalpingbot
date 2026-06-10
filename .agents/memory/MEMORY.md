@@ -1,6 +1,6 @@
 - [Unity Engine v20.0 upgrades](unity-engine-v20.md) — torch CPU, 4-step strategy validation, 15s heartbeat, BACKUP_7 key pool; engine starts cleanly with no false stall restarts
 - [Unity Engine v21.2 gate calibration](unity-engine-v20-gates.md) — v21.1: IRONS_MIN 65→67(WR<30%), 62→63(WR30-45%), SIGNAL_QUALITY 62→63; v21.2: G8.5q QuantDinger MomVol gate(±3pts), 9 GODMODE combos
-- [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v41.1: mistral-small-3.2-24b + phi-4-reasoning-plus both 404 (2026-06-02); 10 GODMODE combos; both phi-4 variants permanently dead
+- [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v56.0: claude-fable-5+mythos-5 added (404-guarded); 12 GODMODE combos; phi-4 variants permanently dead
 - [Unity Engine v36.0 critical env-override bugs](unity-engine-v36-env-bugs.md) — UNITY_NN_GATE was "0.35" in .replit (design=0.48, 13pp gap); IRONS_MIN_SCORE was "62" (killed WR-relaxed tiers); fixed via setEnvVars shared
 - [Unity Engine health probe architecture](unity-engine-health-probe.md) — background layers (AEGIS_GEX etc) need _bg_layer_health_probe; use self.sovereign_rm (no underscore); probe fires 45s after boot then every 30s; confirmed working v20.5
 - [Unity Engine duplicate-log fix](unity-engine-duplicate-log-fix.md) — v21.5: monkey-patch root logger instance addHandler to reject duplicate FileHandlers; placed module-level after RFH setup; background-task imports (logger.py setup_logging etc) can no longer add second RFH
@@ -12,3 +12,4 @@
 - [Unity Engine v52.0 Railway + OpenRouter fixes](unity-engine-v52.md) — .dockerignore **/*.db glob (32MB DB was slipping through); storm blacklist 21→30; generic-err threshold 8→12; G3 F&G relief 30/70→35/65
 - [Unity Engine v53.0 gate analytics fixes](unity-engine-v53.md) — soft-gate bottleneck exclusion; GOFI zero-call (3 missing record paths); G8.5w dir-guard position; consortium 14→16s
 - [Unity Engine v54.0–v55.0 signal flow recovery](unity-engine-v54.md) — dead zone 2→1h; G1 ExtremeFear R:R −0.10; pre-skip +2pt; CONSORTIUM MIN_MODELS 3→2; IRONS cold-start 45→38
+- [Unity Engine v56.0 upgrades](unity-engine-v56.md) — claude-fable-5+mythos-5 in TIER_MODELS+GODMODE; 12 combos; TurboVec 3-TF momentum in Mythos5 prompt; Dockerfile/nixpacks/requirements synced to v56.0

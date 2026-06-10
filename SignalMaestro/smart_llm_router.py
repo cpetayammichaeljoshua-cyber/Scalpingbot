@@ -78,6 +78,10 @@ class ModelHealth:
 
 MODEL_PRICING = {
     # Anthropic direct / OpenRouter paid
+    # v56.0: Claude Fable 5 + Claude Mythos 5 — next-gen Anthropic frontier models [v56.0]
+    # 404-guard active: if slug returns 404 → auto-disabled by GenericErrGuard/model-disable
+    "anthropic/claude-fable-5":     {"input": 6.0,  "output": 30.0},  # v56.0: Claude Fable 5
+    "anthropic/claude-mythos-5":    {"input": 10.0, "output": 50.0},  # v56.0: Claude Mythos 5
     "claude-sonnet-4-6":            {"input": 3.0,  "output": 15.0},
     "claude-opus-4-5":              {"input": 15.0, "output": 75.0},
     "claude-sonnet-4-5":            {"input": 3.0,  "output": 15.0},
@@ -145,10 +149,19 @@ MODEL_PRICING = {
 
 BASELINE_MODEL = "anthropic/claude-3-5-sonnet-20241022"
 
+# v56.0: Claude Fable 5 + Claude Mythos 5 top-tier paid models (404-guarded)
+# These are added to all TIER_MODELS tiers at position 0 (highest priority).
+# If they 404 on OpenRouter, the existing model-disable system auto-removes them.
+_CLAUDE5_PREMIUM = [
+    "anthropic/claude-fable-5",   # Claude Fable 5 — strategic quant analyst [v56.0]
+    "anthropic/claude-mythos-5",  # Claude Mythos 5 — institutional macro analyst [v56.0]
+]
+
 # v5.9+: TIER_MODELS — paid models first (best quality), then OpenRouter free-tier
 # fallbacks at end so SmartLLMRouter always resolves to a working endpoint.
 # Free models are rate-limited but never return 401 with a valid OpenRouter key.
 # Updated 2026-05-07: replaced 404 models with confirmed-working tier from GODMOD3.
+# v56.0: Claude Fable 5 + Mythos 5 prepended to all tiers (highest priority paid models).
 _FREE_SIMPLE = [
     # v21.0: Dead model purge — 8 confirmed-404 slugs removed, 5 confirmed-working added.
     # REMOVED: qwen/qwen3-coder:free → 404 confirmed v20.5 boot
@@ -216,7 +229,11 @@ TIER_MODELS = {
     # Anthropic/OpenAI direct-API only — they 401/404 on OpenRouter and trigger the
     # 3-failure auto-quarantine on EVERY cold boot → "Free-tier fast-path ACTIVATED".
     # v19.2: Added latest 2026 paid models (claude-3-7-sonnet, gpt-4.1, gemini-2.0-flash).
+    # v56.0: Claude Fable 5 + Mythos 5 prepended — highest-priority paid tier [v56.0]
+    #        404-guarded: auto-disabled if not live on OpenRouter; free-tier fallback always active.
     "SIMPLE": [
+        "anthropic/claude-fable-5",              # v56.0: Claude Fable 5 (404-guarded)
+        "anthropic/claude-mythos-5",             # v56.0: Claude Mythos 5 (404-guarded)
         "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude 3.7
         "anthropic/claude-3-5-haiku-20241022",
         "anthropic/claude-3-haiku-20240307",
@@ -226,6 +243,8 @@ TIER_MODELS = {
         "google/gemini-flash-1.5",
     ] + _FREE_SIMPLE,
     "MEDIUM": [
+        "anthropic/claude-fable-5",              # v56.0: Claude Fable 5 (404-guarded)
+        "anthropic/claude-mythos-5",             # v56.0: Claude Mythos 5 (404-guarded)
         "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude
         "anthropic/claude-3-5-sonnet-20241022",
         "anthropic/claude-3-5-haiku-20241022",
@@ -236,6 +255,8 @@ TIER_MODELS = {
         "google/gemini-pro-1.5",
     ] + _FREE_SIMPLE,
     "COMPLEX": [
+        "anthropic/claude-fable-5",              # v56.0: Claude Fable 5 (404-guarded)
+        "anthropic/claude-mythos-5",             # v56.0: Claude Mythos 5 (404-guarded)
         "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude
         "anthropic/claude-3-5-sonnet-20241022",
         "anthropic/claude-3-opus-20240229",
@@ -246,6 +267,8 @@ TIER_MODELS = {
         "google/gemini-pro-1.5",
     ] + _FREE_REASONING,
     "REASONING": [
+        "anthropic/claude-fable-5",              # v56.0: Claude Fable 5 — deep quant reasoning (404-guarded)
+        "anthropic/claude-mythos-5",             # v56.0: Claude Mythos 5 — macro synthesis (404-guarded)
         "anthropic/claude-3-7-sonnet-20250219",  # v19.2: latest claude reasoning
         "anthropic/claude-3-5-sonnet-20241022",
         "anthropic/claude-3-opus-20240229",

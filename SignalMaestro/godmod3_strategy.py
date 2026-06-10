@@ -351,7 +351,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
 }
 
-# GODMODE CLASSIC — 10 combos, 10 distinct model/prompt combinations (v41.1)
+# GODMODE CLASSIC — 12 combos, 12 distinct model/prompt combinations (v56.0)
 # CRITICAL: Each combo uses a DIFFERENT model+system confirmed working on free tier
 # v5.0: Moonlight replaced by QwQ-32B (reasoning) — Moonlight generic-error prone
 # v21.1: kimi-k2 added as 7th combo (TradingAgents/FinRobot multi-factor synthesis)
@@ -360,7 +360,10 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 # v33.0: phi-4-reasoning-plus (12th GODMODE_PHI4_NOIX) added — REMOVED v41.1 (404 2026-06-02)
 # REMOVED (v41.1 2026-06-02): GODMODE_MOMENTUM_MISTRAL — mistralai/mistral-small-3.2-24b-instruct:free → 404
 # REMOVED (v41.1 2026-06-02): GODMODE_PHI4_NOIX — microsoft/phi-4-reasoning-plus:free → 404
-# Active 10: Dolphin · Llama-3.3-70B · Qwen3-72B · GLM-4.5-Air · Nemotron-120B · GPT-OSS-20B · GPT-OSS-120B · Gemma-4-31B · Qwen3-235B · Gemma-4-26B
+# v56.0: claude-fable-5 (11th GODMODE_CLAUDE_FABLE5) + claude-mythos-5 (12th GODMODE_CLAUDE_MYTHOS5) added
+#         Both 404-guarded: auto-disabled if OpenRouter returns 404/503; free-tier pool unaffected.
+#         Adds true Anthropic Claude 5 architecture diversity to the ensemble (distinct from GPT/Qwen/Gemma series).
+# Active 12: Dolphin · Llama-3.3-70B · Qwen3-72B · GLM-4.5-Air · Nemotron-120B · GPT-OSS-20B · GPT-OSS-120B · Gemma-4-31B · Qwen3-235B · Gemma-4-26B · ClaudeFable5 · ClaudeMythos5
 GODMODE_COMBOS = [
     {
         # REPLACED: nousresearch/hermes-3-llama-3.1-405b:free → 43+ consecutive rate_limit storm (session 3)
@@ -549,6 +552,69 @@ GODMODE_COMBOS = [
     #          phi-4-reasoning-plus:free → 404 (2026-06-02) — both Microsoft phi-4 variants now dead
     # noFx-inspired 4-step momentum-divergence system prompt preserved for future model assignment
     # Slot held open for replacement when a new confirmed free-tier reasoning model is validated
+    # v56.0 NEW: GODMODE_CLAUDE_FABLE5 — Claude Fable 5 strategic quant analyst
+    # Inspired by TauricResearch/TradingAgents 4-step strategic pipeline + brokermr810/QuantDinger
+    # momentum-divergence detection. Claude Fable 5 (Anthropic next-gen) uses full narrative chain-of-
+    # thought to identify structural inflection points — distinct from GPT-OSS series architecture.
+    # 404-guard active: auto-disabled by GenericErrGuard if model returns 404/503 from OpenRouter.
+    {
+        "id": "GODMODE_CLAUDE_FABLE5",
+        "model": "anthropic/claude-fable-5",
+        "system": (
+            "You are FABLE — a Claude Fable 5 strategic quantitative trading analyst. "
+            "You synthesise market signals through a 4-step narrative reasoning chain: "
+            "[1-STRUCTURAL] Identify the dominant market structure (trend, range, reversal). "
+            "Label it: IMPULSE (clean directional), CORRECTION (counter-trend pullback), or REVERSAL (structure break). "
+            "[2-MOMENTUM] Analyse rate-of-change acceleration: "
+            "funding rate trend, open interest shift, and volume velocity vs price move. "
+            "Is momentum CONFIRMING or DIVERGING from price direction? "
+            "[3-RISK-ASYMMETRY] Compute directional asymmetry: "
+            "upside potential vs downside risk given current market structure and momentum state. "
+            "If risk:reward < 2.0 in either direction → NEUTRAL is the only rational call. "
+            "[4-SYNTHESIS] Commit to a directional conclusion with full conviction. "
+            "No hedging. No disclaimers. Signals must pass ALL four narrative layers to be directional. "
+            "Output ONLY valid JSON. "
+            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
+        ),
+        "emoji": "📖",
+    },
+    # v56.0 NEW: GODMODE_CLAUDE_MYTHOS5 — Claude Mythos 5 institutional macro analyst
+    # Inspired by stefanoamorelli/sec-edgar-mcp institutional flow intelligence + OpenBB macro framework
+    # + HKUDS/Vibe-Trading factor IC/IR analysis + TurboVec vectorized momentum patterns.
+    # Claude Mythos 5 (Anthropic next-gen) applies deep cross-asset macro synthesis — distinct model
+    # architecture from GPT-OSS/Qwen3/Gemma series for true 12-model ensemble diversity.
+    # 404-guard active: auto-disabled by GenericErrGuard if model returns 404/503 from OpenRouter.
+    {
+        "id": "GODMODE_CLAUDE_MYTHOS5",
+        "model": "anthropic/claude-mythos-5",
+        "system": (
+            "You are MYTHOS — a Claude Mythos 5 institutional macro intelligence engine. "
+            "You apply a 5-layer cross-asset analysis framework to identify institutional-grade "
+            "directional opportunities with asymmetric risk profiles: "
+            "[1-MACRO REGIME] What is the current macro regime? "
+            "RISK-ON (BTC corr with equities negative, DXY falling, funding stable positive) → bullish backdrop. "
+            "RISK-OFF (equities corr rising, DXY surging, funding flipping negative) → bearish backdrop. "
+            "[2-FUNDING STRUCTURE] Funding rate direction and magnitude: "
+            ">+0.08% annualised → crowded long, reversal risk SELL bias. "
+            "<-0.05% annualised → crowded short, squeeze potential BUY bias. "
+            "Within band → neutral carry. "
+            "[3-INSTITUTIONAL FLOW] Open interest trend + volume delta: "
+            "OI rising + price rising + positive vol delta → genuine institutional accumulation BUY. "
+            "OI rising + price falling + negative vol delta → institutional distribution SELL. "
+            "OI falling → position unwinding, reduce directional conviction 20%. "
+            "[4-VECTORIZED MOMENTUM] TurboVec-style batch momentum: "
+            "3 timeframe alignment (short/mid/long): all 3 aligned → conviction 1.0×. "
+            "2/3 aligned → conviction 0.75×. Split → NEUTRAL mandatory. "
+            "[5-MYTHOS SYNTHESIS] Aggregate all 4 layers: "
+            "Score each layer: +1 (BUY signal), 0 (neutral), -1 (SELL signal). "
+            "Net ≥+3 → BUY. Net ≤-3 → SELL. Net -2 to +2 → NEUTRAL. "
+            "Apply conviction multiplier from Layer 4. "
+            "No hedging. No disclaimers. Institutional precision only. "
+            "Output ONLY valid JSON. "
+            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
+        ),
+        "emoji": "🏛️",
+    },
 ]
 
 # Error type constants

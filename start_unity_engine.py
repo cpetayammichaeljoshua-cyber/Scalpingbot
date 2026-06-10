@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v55.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v56.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 27-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -107,6 +107,30 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v56.0 IMPROVEMENTS: CLAUDE FABLE 5 + MYTHOS 5 | 12 GODMODE COMBOS | TURBOVEC MOMENTUM:
+    1. CLAUDE FABLE 5 + CLAUDE MYTHOS 5 (smart_llm_router.py + godmod3_strategy.py):
+       Added anthropic/claude-fable-5 and anthropic/claude-mythos-5 as v56.0 premium models.
+       TIER_MODELS: Fable 5 + Mythos 5 prepended to SIMPLE/MEDIUM/COMPLEX/REASONING tiers at
+       position 0 — highest-priority paid models. If OpenRouter returns 404/503, auto-disabled
+       by GenericErrGuard (no crash); free-tier pool always active as fallback [v56.0].
+       MODEL_PRICING: both priced (Fable5: $6/$30, Mythos5: $10/$50 input/output) [v56.0].
+    2. 12 GODMODE COMBOS — +2 new combos (godmod3_strategy.py):
+       GODMODE_CLAUDE_FABLE5: 4-step narrative reasoning chain (STRUCTURAL→MOMENTUM→RISK-ASYMMETRY→
+       SYNTHESIS). Inspired by TauricResearch/TradingAgents pipeline + brokermr810/QuantDinger
+       momentum-divergence detection. True Anthropic Claude 5 architecture diversity — distinct
+       from GPT-OSS/Qwen3/Gemma ensemble members [v56.0].
+       GODMODE_CLAUDE_MYTHOS5: 5-layer TurboVec cross-asset macro synthesis (MACRO REGIME→FUNDING
+       STRUCTURE→INSTITUTIONAL FLOW→VECTORIZED MOMENTUM→MYTHOS SYNTHESIS). Inspired by OpenBB macro
+       framework + HKUDS/Vibe-Trading IC/IR + TurboVec vectorized momentum patterns. Vectorized
+       3-timeframe momentum alignment (all 3→conviction 1.0×; 2/3→0.75×; split→NEUTRAL) built
+       directly into the system prompt ensuring ruthless momentum filter [v56.0].
+       Both 404-guarded: auto-disabled if not live on OpenRouter. Total combos: 10→12 [v56.0].
+    3. TURBOVEC MOMENTUM INTEGRATION (GODMODE_CLAUDE_MYTHOS5 prompt):
+       TurboVec-style vectorized batch momentum (github.com/RyanCodrai/turbovec concepts) embedded
+       into Layer 4 of Mythos 5 system prompt: 3-timeframe alignment gate (short/mid/long). Split
+       timeframe = mandatory NEUTRAL — no single-timeframe momentum signals pass. All-3-aligned
+       = max conviction multiplier. 2/3 = reduced conviction [v56.0].
+    UNITY_VERSION: 55.0→56.0
   v55.0 IMPROVEMENTS: CONSORTIUM ENSEMBLE RECOVERY + IRONS COLD-START FIX:
     Evidence source: live Railway session at 01:53 UTC (v52.0) — CONSORTIUM failed 100% of
     calls due to model disables; IRONS_AIScorer calls=1 sr=0% (first Gate 10 signal failed).
@@ -1581,7 +1605,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "55.0"
+UNITY_VERSION                = "56.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -11807,15 +11831,15 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 27-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-10combo[v41.1]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-14s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 27-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-3TFMomentum[v56.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
         logger.info("   Layer  1 : Unity Engine        — Master coord, @watched_task, Persistence, Redis, SignalQueue, WSOrderbook [v10.0]")
         logger.info("   Layer  2 : Agency Agents       — Specialist agents (risk/trend/momentum)")
         logger.info("   Layer  3 : MiroFish Swarm      — 10-agent consensus (github/666ghj)")
-        logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC")
-        logger.info("              └─ OpenRouter        — 10 storm-purged models, 5 tiers, EnsembleVote")
+        logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC 12combos[v56.0]")
+        logger.info("              └─ OpenRouter        — 10 free+ClaudeFable5+Mythos5[v56.0], 5 tiers, EnsembleVote")
         logger.info("              └─ SmartLLMRouter    — ClawRouter-inspired cascade fallback")
         logger.info("   Layer  5 : Neural Network      — 70-feature NN v11 (MLP+Transformer 14×5 tokens: 65-feat v10 + F66:funding_extreme + F67:ofi_aligned + F68:liq_cascade_dir + F69:momentum_aligned + F70:vol_spike_flag), Wilder-ATR, online learning")
         logger.info("   Layer  6 : ATAS + Bookmap      — 15 indicators + order-flow depth")
