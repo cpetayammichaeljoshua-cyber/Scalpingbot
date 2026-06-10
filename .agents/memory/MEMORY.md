@@ -11,3 +11,4 @@
 - [Unity Engine v51.0 gate analytics fix](unity-engine-v51.md) — G8.5w/G8.5x had no _record() calls → invisible to /gates, gate_stats_summary(), gate_bottleneck_str(); fixed by adding _gate_stats entries, _GATE_DISPLAY_LABELS entries, and _record() calls to both gates
 - [Unity Engine v52.0 Railway + OpenRouter fixes](unity-engine-v52.md) — .dockerignore **/*.db glob (32MB DB was slipping through); storm blacklist 21→30; generic-err threshold 8→12; G3 F&G relief 30/70→35/65
 - [Unity Engine v53.0 gate analytics fixes](unity-engine-v53.md) — soft-gate bottleneck exclusion; GOFI zero-call (3 missing record paths); G8.5w dir-guard position; consortium 14→16s
+- [Unity Engine v54.0 signal flow recovery](unity-engine-v54.md) — dead zone 2→1h (Tokyo recovery); G1 Extreme Fear/Greed R:R relief −0.10; pre-skip +2pt tolerance; all from live log evidence

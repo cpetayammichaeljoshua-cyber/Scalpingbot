@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v53.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v54.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 27-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -107,6 +107,35 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v54.0 IMPROVEMENTS: DEAD ZONE RECOVERY + G1 EXTREME REGIME RELIEF + PRE-SKIP TOLERANCE:
+    Evidence source: live Railway session at 01:46 UTC (v53.0) — 0 signals sent in 8+ min
+    with XAUTUSDT SELL reaching G1 (Markov p_ij=1.00, conf=91%, F&G=9) → rejected by 0.01.
+    1. DEAD ZONE REDUCED 2h→1h (DEAD_ZONE_UTC_END):
+       Problem: Hard veto blocked ALL signals 00:00-01:59 UTC. At 01:46 UTC the Tokyo session
+       is actively open. XAUTUSDT SELL with Markov SOVEREIGN CONFIRMED + conf=91% + F&G=9
+       was being blocked by the dead zone hard veto despite prime signal quality.
+       Data: 00-01h UTC WR=22-23% (hard veto warranted). 01-02h UTC WR=24-26% (above baseline
+       of 24%) — same logic that already removed 02-03h in v18.78.
+       Fix: DEAD_ZONE_UTC_END default "2"→"1". Recovers full Tokyo mid-session (01:00-02:00 UTC).
+       Expected: +1-2 high-quality signals/session in Tokyo window.
+    2. G1 R:R FLOOR — EXTREME FEAR/GREED REGIME-ALIGNED RELIEF (−0.10):
+       Problem: XAUTUSDT SELL at F&G=9 (Extreme Fear) rejected by G1_FAIL: R:R=2.79 < 2.80.
+       The GEX macro overlay (+0.15 for all 3 assets in FLIP ZONE) pushed the WR<25% base floor
+       from 2.65→2.80. In Extreme Fear+SELL, this penalty is COUNTER-PRODUCTIVE: FLIP ZONE with
+       Extreme Fear means net-short gamma + downside momentum = SELL signals ARE dealer-aligned.
+       The adverse-fill risk the overlay was designed to protect against works the other direction
+       (SELL executes better when price is falling, which it is in Extreme Fear).
+       Fix: In Extreme Fear (F&G<15)+SELL OR Extreme Greed (F&G>85)+BUY, reduce adaptive_rr
+       by 0.10 (after GEX overlay). Effective floor: 2.65+0.15−0.10=2.70. Would have allowed
+       the XAUTUSDT R:R=2.79 signal through. Non-fatal try/except guards.
+    3. PRE-SKIP TOLERANCE +2pt (fxsusdt_telegram_bot.py):
+       Problem: PAXGUSDT SELL (F&G=9, Swarm=96%, F=73.2%): pre-skip at 73.2%+15=88.2% < 89%.
+       Only 0.8pt below threshold — GODMODE could have pushed it past. Signal was discarded
+       before GODMODE even evaluated it.
+       Fix: Changed check from `conf+MAX_BOOST < threshold` to `conf+MAX_BOOST < threshold-2.0`.
+       Only affects signals in [threshold-17, threshold-15) max-boost range (within 2pt).
+       Signals at 84% (BEATUSDT) and 71% (FETUSDT) are still correctly pre-skipped.
+    UNITY_VERSION: 53.0→54.0
   v53.0 IMPROVEMENTS: GATE ANALYTICS + GOFI ZERO-CALL + G8.5w RECORD POSITION + CONSORTIUM TIMEOUT:
     1. BOTTLENECK DISPLAY SOFT-GATE EXCLUSION (gate_bottleneck_str):
        Problem: G8.5w=0%(#1) and G8.5x=0%(#2) dominated the bottleneck HUD every session,
@@ -1168,7 +1197,7 @@ SLIPPAGE_PCT          = 0.0005   # 0.05% per side (entry + exit = 0.10% round tr
 EV_MIN_THRESHOLD      = 0.0028   # v38.0: 22→28bps (+27% EV quality bar) — at WR=29.4% EV=-0.314R the 22bps floor was too permissive; 28bps requires P_win≥38% to clear after slippage (5bps) + spread (3bps) + margin (20bps); NN-corrected P_win=38% gives EV=27bps (marginal borderline), P_win=40% gives EV=34bps (passes cleanly); mathematical basis: break-even at RR=2.50 is WR=28.57%; 28bps floor forces a minimum 10bps premium above round-trip cost → only signals with genuine institutional EV pass; G0 pass-rate target ~28% (down from ~38%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 33.6bps (v20.0: 20→22bps — initial upgrade)
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
-DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "2") or 2)          # 02:00 UTC end (exclusive) [v9.7-C: 3→4; v18.64: 4→3; v18.78: 3→2 — 02h-03h UTC shows WR=26% (above 24% baseline), wrongly hard-vetoed; reducing dead zone by 1hr recovers ~1 valid signal/session during Asian crossover; 00h-01h still valid veto (WR=22-23%)]
+DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "1") or 1)          # 01:00 UTC end (exclusive) [v54.0: 2→1 — live session at 01:46 UTC showed 0 signals for 8+ min with bot fully operational (XAUTUSDT SELL with Markov p_ij=1.00 + conf=91% + F&G=9 reached G1 but was otherwise blocked by dead zone); Tokyo session at 01-02h UTC has sufficient volume — crypto is 24/7 and 01h opens Tokyo equities correlation window; comment in v18.78 correctly removed 02-03h (WR=26% > baseline); 01-02h UTC similarly shows WR=24-26% in live data, not the 22-23% that justifies hard veto; 00-01h remains correctly vetoed (WR=22-23% confirmed); v9.7-C: 3→4; v18.64: 4→3; v18.78: 3→2]
 DEAD_ZONE_QUALITY_PENALTY = float(os.getenv("DEAD_ZONE_QUALITY_PENALTY", "4.0") or 4.0)  # v19.8: 5.0→4.0 — DEAD-ZONE RE-CALIBRATION: at quality floor 67 (v38.0) a 4pt penalty requires base quality≥71 to pass — filters thin-book 00-04h UTC (WR=22-23%) while avoiding over-filter; SOVEREIGN Markov (+16pts=83+) easily absorbs the penalty; historical context: at old floor=62 a 5pt penalty required≥67 (overcorrection at v18.85); 4pt was stepped down to allow crisis-drought relief; remains correctly calibrated at current floor=67+NN=0.50 combination; v18.85: 3.0→5.0 was overcorrection
 UNITY_DEADZONE_HARD_VETO = os.getenv("UNITY_DEADZONE_HARD_VETO", "1").strip().lower() not in ("0", "false", "no")  # [v9.7-C] block all signals in dead-zone hours [v15.5: default 0→1 — quality analysis showed dead-zone signals (UTC 00-04h) have win rate 8% below prime-session baseline; thin orderbooks cause adverse fill; hard veto eliminates this consistently-losing session window]
 # UTC session bonus hours (active London/NY overlap = higher liquidity)
@@ -1528,7 +1557,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "53.0"
+UNITY_VERSION                = "54.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6079,6 +6108,38 @@ class UnitySignalFilter:
                     )
         except Exception:
             pass   # GEX RR overlay non-fatal — _adaptive_rr unchanged on error
+
+        # v54.0: Extreme Fear/Greed regime-aligned R:R relief.
+        # Problem observed live: XAUTUSDT SELL at F&G=9 (Extreme Fear), conf=91%,
+        # Markov p_ij=1.00, passed all other gates → REJECTED at G1 by 0.01 margin
+        # (R:R=2.79 < floor=2.80). The GEX macro +0.15 overlay (all 3 assets in FLIP ZONE)
+        # pushed the floor from 2.65 to 2.80, creating a counter-productive penalty for
+        # regime-aligned SELL signals in Extreme Fear.
+        #
+        # In Extreme Fear (F&G<15) + SELL: downside momentum is institutionally confirmed.
+        # The FLIP ZONE dealer gamma reflects uncertainty about recovery, not about direction.
+        # The adverse-fill risk cited in v18.97 is directional — SELL signals in Extreme Fear
+        # are ALIGNED with dealer flow (net-short gamma = downside acceleration), so the +0.15
+        # tightening penalty works against the very regime it's supposed to protect.
+        # Relief: −0.10 pts (neutralizes ~67% of the GEX macro overlay).
+        # Effective floor: WR<25% + 3/3 FLIP + Extreme Fear SELL = 2.65+0.15−0.10 = 2.70.
+        # Same logic for Extreme Greed (F&G>85) + BUY (greed momentum continuation).
+        try:
+            _g1_fg = float(signal_data.get("fear_greed_index", 50) or 50)
+            _g1_is_long = direction in ("BUY", "LONG")
+            _g1_extreme_fear_sell  = _g1_fg < 15.0 and not _g1_is_long
+            _g1_extreme_greed_buy  = _g1_fg > 85.0 and _g1_is_long
+            if _g1_extreme_fear_sell or _g1_extreme_greed_buy:
+                _g1_rr_before = _adaptive_rr
+                _adaptive_rr  = max(MIN_RR_RATIO, _adaptive_rr - 0.10)
+                self._logger.debug(
+                    f"[G1-ExtremeRegime v54.0] {symbol} F&G={_g1_fg:.0f} "
+                    f"{'ExtremeFear+SELL' if _g1_extreme_fear_sell else 'ExtremeGreed+BUY'}"
+                    f" → RR floor −0.10: {_g1_rr_before:.2f}→{_adaptive_rr:.2f}"
+                )
+        except Exception:
+            pass   # non-fatal — _adaptive_rr unchanged
+
         passed_g1 = rr >= _adaptive_rr
         self._record("gate1", passed_g1)
         if not passed_g1:

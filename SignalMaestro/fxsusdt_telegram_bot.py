@@ -1992,7 +1992,16 @@ class FXSUSDTTelegramBot:
         # push effective conf below the threshold, causing the full swarm to re-run
         # every cycle (ADAUSDT burned 7-agent swarm 10+×/4min silently).
         # Fix: log at INFO level and set a 90s cooldown (same as EV-fail base).
-        if _pre_boost_conf + _MAX_BOOST < confidence_threshold:
+        # v54.0: +2pt tolerance margin — signals within 2pt of threshold with max boost
+        # can proceed to GODMODE evaluation instead of being pre-skipped.
+        # Evidence: PAXGUSDT SELL (F&G=9, Swarm=96%) was pre-skipped at conf=73.2%+15=88.2%
+        # < 89% threshold — only 0.8pt below. GODMODE could have boosted it past threshold.
+        # 2pt tolerance: only affects signals at [threshold-2, threshold) max-boost range.
+        # Signals at threshold-17+ (e.g. BEATUSDT 84%, FETUSDT 71%) are still correctly skipped.
+        # Prevents wasteful GODMODE calls for genuinely weak signals while recovering
+        # borderline cases that are one partial-agree away from threshold.
+        _PRE_SKIP_TOLERANCE = 2.0  # v54.0: was 0.0 — signals within 2pt of threshold proceed
+        if _pre_boost_conf + _MAX_BOOST < confidence_threshold - _PRE_SKIP_TOLERANCE:
             self._preboost_fail_cooldown[symbol] = time.time() + self._PREBOOST_FAIL_COOLDOWN_SEC
             self.logger.info(
                 f"⏳ [{symbol}] Pre-skip: conf={_pre_boost_conf:.1f}%"
