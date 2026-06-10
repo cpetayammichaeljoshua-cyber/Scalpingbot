@@ -1112,7 +1112,12 @@ class G0DM0D3Engine:
     _CONSORTIUM_SEM_LIMIT    = 3      # v5.4: 8→3 — CONSORTIUM was flooding all 8 models simultaneously.
                                       # 3 concurrent: calls 3 models at a time, cascades through the rest.
                                       # Prevents the "all 8 models 429 simultaneously" scenario.
-    _CONSORTIUM_TIMEOUT      = 14.0   # v20.3: 18.0→14.0 — faster live racing; at 3-model minimum (v20.2) outer guard = 14+3=17s vs 18+3=21s; 4s saved per CONSORTIUM call → ~20-40s/hr at current signal rate; models that don't respond in 14s are consistently slow-tier; fast-tier (gpt-oss-20b, gpt-oss-120b) consistently responds <8s
+    _CONSORTIUM_TIMEOUT      = 16.0   # v53.0: 14.0→16.0 — live logs show gpt-oss-120b:free responding at 12195ms
+                                     # (12.2s), leaving only 1.8s margin before 14s cutoff. At Railway latency,
+                                     # 2-3 additional models respond in the 14-16s window (CONSORTIUM requires
+                                     # ≥2 for ensemble vote). Outer guard = 16+3=19s. Only 1/8 models responded
+                                     # in live session → 16s gives more models a chance to form valid ensemble.
+                                     # v20.3: 18.0→14.0 — fast-tier responds <8s; 14+3=17s effective
     _CONSORTIUM_MIN_VOTES    = 2      # v3.1: reduced from 3 — allow ensemble result with 2+ models responding
     _CONSORTIUM_MIN_MODELS   = 3      # v8.4: 5→4 — v20.2: 4→3 — with 17+ models but many rate-limited, 4-model requirement caused CONSORTIUM to fail and fall back to ULTRAPLINIAN too frequently (observed in live Railway logs); 3-model minimum still guarantees genuine ensemble voting while halving fall-through rate
                                       # With free-tier storms disabling models temporarily, 5 was

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v52.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v53.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 27-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
@@ -107,6 +107,42 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v53.0 IMPROVEMENTS: GATE ANALYTICS + GOFI ZERO-CALL + G8.5w RECORD POSITION + CONSORTIUM TIMEOUT:
+    1. BOTTLENECK DISPLAY SOFT-GATE EXCLUSION (gate_bottleneck_str):
+       Problem: G8.5w=0%(#1) and G8.5x=0%(#2) dominated the bottleneck HUD every session,
+       hiding the real hard-gate bottleneck (G0.5=61%). Root cause: soft/quality-adjuster
+       gates (G8.5w, G8.5x, G8.5V, GMK) record "fail" when no kline buffer data is available
+       at cold start (buffer warms over ~5-10 minutes). Since they CANNOT hard-veto a signal
+       (they only adjust quality_score), a 0% pass rate is "no data" not a true bottleneck.
+       Fix: Added _SOFT_GATE_KEYS = {gate_g85w, gate_g85x, gate_vibe, gate_markov} exclusion
+       inside gate_bottleneck_str(). Now the HUD shows real hard-gate bottlenecks only.
+    2. GOFI ZERO-CALL BUG (Gate OFI):
+       Problem: GOFI only called _record("gate_ofi", True) inside the `if _aligned and bonus>0`
+       block. Three cases NEVER recorded: (a) OFI < 0.5σ noise envelope (most signals — OFI
+       is typically ±0.3-0.5σ), (b) aligned but bonus==0 (weak alignment), (c) opposed-but-
+       below-veto (soft pass). GOFI showed 0 evaluations in gate_stats_summary() despite
+       running on every signal.
+       Fix: Moved self._record("gate_ofi", True) outside the bonus-if, and added
+       `else: self._record("gate_ofi", True)` for the noise-envelope case. Now records every
+       evaluation — True for all non-veto outcomes, False only for OFI_OPPOSED hard veto.
+    3. G8.5w _RECORD() POSITION BUG (Gate 8.5w MTF-Momentum):
+       Problem: _g85w_fired=False AND self._record("gate_g85w", _g85w_fired) were both INSIDE
+       the `if _g85w_dir in ("BUY","LONG","SELL","SHORT"):` block. If direction was empty/None/
+       malformed (can happen during scanner batch processing), the entire block was skipped and
+       _record() was never called. Despite v51.0 adding the _record() call, G8.5w still showed
+       0% evaluations from sessions where direction format didn't match.
+       Fix: Moved _g85w_fired=False BEFORE the direction guard, and moved self._record() to be
+       OUTSIDE (after) the direction guard. Now always records, with fired=False for bad-direction
+       cases and fired=True/False based on actual data availability for valid directions.
+    4. CONSORTIUM TIMEOUT 14.0 → 16.0 (godmod3_strategy.py):
+       Evidence from live Railway logs: gpt-oss-120b:free responded at 12195ms (12.2s), leaving
+       only 1.8s margin before the 14s cutoff. With 10 active GODMODE combos and Railway latency,
+       models that respond in 14-16s were being cut off → only 1/8 models responded → CONSORTIUM
+       fell back to ULTRAPLINIAN every time (CONSORTIUM requires ≥2 responses).
+       Fix: Raised _CONSORTIUM_TIMEOUT 14.0→16.0s. Effective timeout = 16+3=19s outer guard.
+       Expected improvement: CONSORTIUM succeeds with 3+ models instead of always falling back
+       to ULTRAPLINIAN (single-winner), improving ensemble diversity and signal quality.
+    UNITY_VERSION: 52.0→53.0
   v52.0 IMPROVEMENTS: RAILWAY BUILD FIX + OPENROUTER RESILIENCE + G3 REGIME RELIEF EXPANSION:
     1. DOCKERIGNORE CRITICAL FIX — SignalMaestro/advanced_ml_trading.db (32MB) was NOT excluded:
        .dockerignore root-level patterns (e.g. 'advanced_ml_trading.db') are root-relative ONLY
@@ -1492,7 +1528,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "52.0"
+UNITY_VERSION                = "53.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5864,16 +5900,21 @@ class UnitySignalFilter:
                         f"institutional flow pressing the other side [v9.7]",
                         0.0,
                     )
+                # v53.0: Non-veto path (aligned OR opposed-below-veto) — always record pass.
+                # Before v53.0: _record() was only called inside the bonus-if, so opposed-below-veto
+                # and weak-aligned paths NEVER recorded → GOFI showed 0 evaluations in gate_stats.
                 if _aligned:
                     # Linear scaling: 0.5σ→0, 3σ→full bonus
                     _ofi_bonus = UNITY_OFI_Z_BONUS_PTS * max(0.0, (_z_mag - 0.5) / 2.5)
                     if _ofi_bonus > 0:
                         quality_score += _ofi_bonus
-                        self._record("gate_ofi", True)
                         self._logger.debug(
                             f"⚡ [{symbol}] OFI Z aligned: Z={_ofi_z:+.2f}σ "
                             f"→ +{_ofi_bonus:.1f}pts [v9.7]"
                         )
+                self._record("gate_ofi", True)   # v53.0: always fires for non-veto (aligned/opposed-below-veto)
+            else:
+                self._record("gate_ofi", True)   # v53.0: OFI < 0.5σ noise envelope → pass-through
 
         # ── v18.1: Liquidation Cascade Quality Gate (L0.425) ────────────────────
         # _live_liq_data populated by _liq_ws_task() in real-time via Binance
@@ -7407,7 +7448,8 @@ class UnitySignalFilter:
         try:
             _g85w_data = signal_data if isinstance(signal_data, dict) else {}
             _g85w_dir  = (direction or "").upper()
-            _g85w_adj  = 0.0
+            _g85w_adj   = 0.0
+            _g85w_fired = False   # v53.0: moved outside direction guard — _record() fires even if dir invalid/missing
             if _g85w_dir in ("BUY", "LONG", "SELL", "SHORT"):
                 _g85w_long = _g85w_dir in ("BUY", "LONG")
                 _g85w_rets = _g85w_data.get("price_returns", [])
@@ -7423,7 +7465,6 @@ class UnitySignalFilter:
                             for i in range(len(_g85w_cls) - 1)
                             if _g85w_cls[i] > 0
                         ]
-                _g85w_fired = False   # tracks whether gate had data to evaluate
                 if isinstance(_g85w_rets, (list, tuple)) and len(_g85w_rets) >= 4:
                     _g85w_fired = True
                     _g85w_short = (float(_g85w_rets[0]) + float(_g85w_rets[1])) / 2.0
@@ -7453,8 +7494,11 @@ class UnitySignalFilter:
                         f"al_s={_g85w_al_s} al_m={_g85w_al_m} "
                         f"→ {_g85w_adj:+.1f}pts [MTF/v51.0]"
                     )
-                # v51.0: record to gate_stats so gate appears in analytics/health
-                self._record("gate_g85w", _g85w_fired)
+            # v51.0/v53.0: record to gate_stats so gate appears in analytics/health.
+            # v53.0 FIX: moved outside the dir guard — previously only fired for valid
+            # directions ("BUY"/"SELL"/etc.); if direction was missing/invalid, _record()
+            # was never called → G8.5w showed 0% evaluations as false bottleneck #1.
+            self._record("gate_g85w", _g85w_fired)
         except Exception:
             pass
 
@@ -8263,13 +8307,27 @@ class UnitySignalFilter:
         return " ".join(parts)
 
     def gate_bottleneck_str(self) -> str:
-        """v18.36: Returns the 3 worst-performing gates by recent pass rate.
+        """v18.36: Returns the 3 worst-performing HARD gates by recent pass rate.
         Format: 'G0.5=57%(#1) G4=63%(#2) G0=67%(#3)' — instant bottleneck HUD.
         Only includes gates with ≥5 total evaluations (cold-start safe).
         Excludes pass-through gates (100% or N/A) to focus on real bottlenecks.
+        v53.0: Excludes soft/quality-adjuster gates (G8.5w, G8.5x, G8.5V, GMK).
+        These gates adjust quality_score but CANNOT hard-veto a signal — a 0%
+        pass rate means "no data to adjust" (cold-start buffer not warm yet),
+        NOT a true signal bottleneck.  Showing them as #1/#2 hides the real
+        hard-gate bottlenecks (e.g. G0.5=61%) in the HUD.
         """
+        # v53.0: Soft gates — quality adjusters only, no hard-veto capability
+        _SOFT_GATE_KEYS: frozenset = frozenset({
+            "gate_g85w",   # MTF-Momentum ±2.5pt adjuster — cannot block a signal
+            "gate_g85x",   # LiqCascade-Direction ±2.0pt adjuster — cannot block a signal
+            "gate_vibe",   # Vibe agent pool quality adjuster — cannot block a signal
+            "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
+        })
         rates: list = []
         for gate, stats in self._gate_stats.items():
+            if gate in _SOFT_GATE_KEYS:
+                continue  # quality adjusters: 0% "pass" = no data, NOT a true signal block
             label = self._GATE_DISPLAY_LABELS.get(gate, gate)
             _ring = self._gate_stats_recent.get(gate)
             if _ring is not None and len(_ring) >= 5:
