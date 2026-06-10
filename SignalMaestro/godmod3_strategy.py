@@ -1119,7 +1119,7 @@ class G0DM0D3Engine:
                                      # in live session → 16s gives more models a chance to form valid ensemble.
                                      # v20.3: 18.0→14.0 — fast-tier responds <8s; 14+3=17s effective
     _CONSORTIUM_MIN_VOTES    = 2      # v3.1: reduced from 3 — allow ensemble result with 2+ models responding
-    _CONSORTIUM_MIN_MODELS   = 3      # v8.4: 5→4 — v20.2: 4→3 — with 17+ models but many rate-limited, 4-model requirement caused CONSORTIUM to fail and fall back to ULTRAPLINIAN too frequently (observed in live Railway logs); 3-model minimum still guarantees genuine ensemble voting while halving fall-through rate
+    _CONSORTIUM_MIN_MODELS   = 2      # v55.0: 3→2 — live logs show CONSORTIUM failing 100% of calls because only 1-2 models respond (qwen3-72b:free disabled 30s, glm-4.5-air:free disabled 45s); at n_available=1 falls to ULTRAPLINIAN (single winner); n_available=2 still guarantees ensemble voting (2-model majority = both must agree on direction OR explicit score delta); 2-model minimum aligns with _CONSORTIUM_MIN_VOTES=2 (already set); the risk of weaker crowd-truth is offset by actually HAVING a crowd; ULTRAPLINIAN single-winner has no ensemble check at all; v8.4: 5→4; v20.2: 4→3; v55.0: 3→2
                                       # With free-tier storms disabling models temporarily, 5 was
                                       # causing every CONSORTIUM to fail and fall back to ULTRAPLINIAN.
 
