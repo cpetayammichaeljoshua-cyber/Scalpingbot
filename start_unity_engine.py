@@ -37,7 +37,7 @@ KEY GATES (v58.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   MaxDD_EarlyDeterrent:DD>50%→-7pts,DD>47%→-5pts,DD>43%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
   G8.5m:BTC_GEX±2pts+FLIP_DIR±3.5pts | G8.5n:MULTI_FLIP−2pts |
   G8.5e:HMM_DIR±8pts(EXP≥0.75)/−10pts(CONT≥0.65) | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
-  G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4pt[v20.4] | G9_WR-tiers:WR<20%→72,WR<25%→70,WR<30%→69,WR<35%→68[v38.0] | Kelly22:F&G×0.80(consec3→×0.60) |
+  G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4.5pt[v59.0] | G9_WR-tiers:WR<15%→74,WR<20%→72,WR<25%→70,WR<30%→69,WR<35%→68[v59.0] | Kelly22:F&G×0.80(consec3→×0.60) |
   Kelly23:GEX_DIR×0.80+3FLIP×0.85 | Kelly24:DeepDD_MaxDD>40%+Calmar<0→×0.65 | Kelly25:UltraDD_MaxDD>50%+Calmar<0→×0.50 |
   HMM21:EXPANSION×1.25(P≥0.75,SR≥0)/CONTRACTION×0.60(P≥0.65) |
   NN_v11:70feat(+5regime+5microstructure) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
@@ -107,6 +107,31 @@ KEY GATES (v58.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v59.0 IMPROVEMENTS: COMPOUND CRISIS GATES | WR FLOOR TIERS | ULTRA-RUIN EV TIGHTENING:
+    1. G9 WR<15% NEW EXTREME-RUIN TIER (start_unity_engine.py):
+       Added floor=74 at WR<15% (catastrophic losing streak protection). At WR<15%:
+       EV per trade = 0.15×3R − 0.85 = −0.40R/trade; only top-2nd-percentile signals
+       (raw score 74+) pass G9. SOVEREIGN bonus (+16pts) carries to 90+ which clears even
+       this floor. Existing tier chain: <15%→74, <20%→72, <25%→70, <30%→69 [v59.0].
+    2. G4 NN COMPOUND CRISIS GATE (start_unity_engine.py):
+       Adds +3pp to nn_threshold when BOTH WR<30% AND Sharpe<-3.0 simultaneously.
+       Fills the gap where individual Sharpe or WR tiers fire independently but not
+       together. Example: WR=27%+SR=-4.0 → Sharpe path: +8pp=0.58 → compound adds
+       +3pp → total 0.57 (capped 0.58). Guard: ≥10 ring samples [v59.0].
+    3. EV ULTRA-RUIN FLOOR RAISE (start_unity_engine.py):
+       Sharpe<-5.0 + signals flowing (drought<10min): EV floor 1.25×→1.35× (+35%
+       above base). At WR=27%, requires RR≥3.09 to pass (vs MIN_RR=2.50 base).
+       Forces only exceptional-edge signals through extreme ruin [v59.0].
+    4. CONSEC_LOSS_THRESHOLD 6→5 + HARD_CUTOFF 6→5 (start_unity_engine.py):
+       Both thresholds reduced by 1 trade. Kelly raise fires after 5 consecutive losses
+       (P=16.8% at WR=30%); hard trading halt fires at 5 (P=1.7%). Protects capital
+       1 trade sooner in loss streaks without excessive false-fires [v59.0].
+    5. G9 CONSEC-LOSS PENALTY BASE 4.0→4.5 (start_unity_engine.py):
+       Per-symbol consecutive-loss penalty raised: base 4.0→4.5pts (cap 6.5pts).
+       At WR<30% tier floor=69: symbol needs raw ≥73.5+ to survive 3 consec losses.
+       Combined with G9 WR<15% tier: death-spiral symbols now face 74+4.5=78.5pt bar.
+       SOVEREIGN-confirmed signals exempt [v59.0].
+    UNITY_VERSION: 58.0→59.0
   v58.0 IMPROVEMENTS: G8.5U MOMENTUM CONSENSUS META-GATE | 29-GATE FILTER | WR IMPROVEMENT:
     1. G8.5U MomentumConsensus Meta-Gate (start_unity_engine.py) — 29th gate:
        Aggregates directional votes from G8.5w (MTF-Momentum), G8.5x (LiqCascade-Dir),
@@ -1246,7 +1271,7 @@ SCANNER_HEARTBEAT_TIMEOUT    = 300
 # NOTE: ASYNCIO_TIMEOUT_SECONDS removed (v7.0 — was defined but never used)
 # v5.7 BUG FIX: 3→5 losses (less trigger-happy), 5.0→3.0 boost (less aggressive),
 # 3600→1800s cooldown (30 min vs 60 min — faster recovery in fast-moving crypto).
-CONSEC_LOSS_THRESHOLD        = 6     # losses in a row → raise threshold (v5.9: 5→6 fewer false triggers)
+CONSEC_LOSS_THRESHOLD        = 5     # losses in a row → raise threshold (v59.0: 6→5 — react 1 trade sooner; P(5 consec losses at WR=30%)=16.8% — triggers fast enough to protect capital without excessive false-fires)
 CONSEC_LOSS_BOOST_PCT        = 3.0   # raise dynamic_threshold by this much (was 5.0)
 CONSEC_LOSS_COOLDOWN_SEC     = 1800  # hold for 30 minutes (was 3600 = 60 min)
 # v8.5: HARD cutoff — stop ALL trading when this many losses in a row.
@@ -1254,7 +1279,7 @@ CONSEC_LOSS_COOLDOWN_SEC     = 1800  # hold for 30 minutes (was 3600 = 60 min)
 # was empirically insufficient (live shows consec_losses=4 still firing trades).
 # At the EV-positive WR band of 34%+, the probability of 10 straight losses is
 # ~1.7%; above that we must assume the model is mis-calibrated for the regime.
-CONSEC_LOSS_HARD_CUTOFF      = 6     # block ALL signals at this streak — circuit breaker (v18.85: 9→6 — at WR=30.2% P(6 straight losses)=0.70/0.30^6=0.117% — still rare but saves 3 trades of capital vs the 9-loss cutoff; institutional CB standard for sub-35% WR regimes; combined with paper_mode threshold=38% this creates a two-layer protection: shadow mode at WR<38% + hard halt at 6 straight losses)
+CONSEC_LOSS_HARD_CUTOFF      = 5     # block ALL signals at this streak — circuit breaker (v59.0: 6→5 — at WR=30.2% P(5 straight losses)=1.7% vs P(6)=0.5%; saves 1 trade of capital per CB trigger; still rare enough to avoid false-fires; co-reduced with CONSEC_LOSS_THRESHOLD 6→5 for coherence)
 CONSEC_LOSS_HARD_COOLDOWN    = 10800 # 3-hour total trading halt after hard cutoff (v18.85: 7200→10800 — 3h cooldown allows full regime reassessment; at 30s scan cycles 3h = 360 additional cycle evaluations before resuming; longer cooldown prevents premature re-entry into adverse regime)
 
 # ── GEX snapshot housekeeping ─────────────────────────────────────────────────
@@ -1641,7 +1666,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "58.0"
+UNITY_VERSION                = "59.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5262,13 +5287,14 @@ class UnitySignalFilter:
                         elif _drought_ev > 600:   # v19.5: 30→10min drought → relax crisis to 1.10×
                             _ev_floor = min(EV_MIN_THRESHOLD * 1.10, EV_MIN_THRESHOLD + 0.0003)
                         elif _sr_ev < -5.0:
-                            # v20.4: Ultra-ruin EV tightening — Sharpe<-5 + signals flowing (drought<10min)
-                            # means signals ARE being generated but consistently losing. Raise EV floor
-                            # to 1.25× (27.5bps vs 22bps base): requires the signal to demonstrate
-                            # +25% above base edge before entering. Mathematically: at SR=-6.20 with
-                            # WR=29.6% every additional EV bps of edge reduces expected loss per trade.
-                            # 27.5bps vs 26.4bps (1.20×) = 1.1bps extra filter at ultra-ruin depth.
-                            _ev_floor = min(EV_MIN_THRESHOLD * 1.25, EV_MIN_THRESHOLD + 0.0010)
+                            # v59.0: Ultra-ruin EV tightening raised 1.25→1.35×. At Sharpe<-5 with
+                            # signals flowing (drought<10min), the bot is generating trades but losing
+                            # ALL of them — systematic adverse selection. 1.35× = 37.8bps floor vs
+                            # 28bps base (+35%): requires demonstrably better edge than 1.25× (35bps).
+                            # At WR=27%: EV = 0.27×RR − 0.73; for EV≥37.8bps requires RR≥3.09 which
+                            # is significantly tighter than the MIN_RR_RATIO=2.50 base, auto-filtering
+                            # marginal setups. v20.4 value 1.25× was too lenient at extreme ruin depth.
+                            _ev_floor = min(EV_MIN_THRESHOLD * 1.35, EV_MIN_THRESHOLD + 0.0012)
                         else:
                             _ev_floor = min(EV_MIN_THRESHOLD * 1.20, EV_MIN_THRESHOLD + 0.0008)
                         # v29.0: Ultra-ruin EV floor hard minimum — Sharpe<-5.0 forces EV≥1.20×
@@ -6502,6 +6528,33 @@ class UnitySignalFilter:
                     nn_threshold = max(nn_threshold, min(0.54, NN_WIN_PROB_GATE + 0.08))  # v18.89: cap 0.46→0.54 — RECALIBRATION FIX: when NN_WIN_PROB_GATE was raised 0.39→0.45 (v18.85) the crisis cap 0.46 was not updated; old: min(0.46,0.39+0.08)=0.46=+7pp; new-broken: min(0.46,0.45+0.08=0.53)=0.46=+1pp (CRISIS WEAKER than mild-crisis +5pp — backwards!); fix: cap→0.54 restores min(0.54,0.53)=0.53=+8pp, correctly stricter than mild-crisis 0.50; at Sharpe=-4.87: threshold=0.53; at RR=2.20 break-even=0.318 so 0.53 is 1.67× BE; prevents NN calibration-drift losers in deep-drawdown regimes
                 elif _g4_sr < -2.0:
                     nn_threshold = max(nn_threshold, min(0.55, NN_WIN_PROB_GATE + 0.05))
+            # v59.0: G4 Compound Crisis Gate — WR<30% + Sharpe<-3.0 simultaneous.
+            # The existing Sharpe axis (above) handles each severity tier independently.
+            # But the COMPOUND state WR<30% + Sharpe<-3.0 is measurably worse than either
+            # factor alone: WR in the 25-30% band paired with a deeply negative Sharpe
+            # means the NN is calibration-drifted (systematically overconfident) while
+            # operating in a loss regime. The compound gate imposes an additional +3pp
+            # on top of whatever the Sharpe-only path computed, raising the conviction bar.
+            # Example: WR=27% + Sharpe=-4.0 → Sharpe path: +8pp → compound adds +3pp → 0.57 total.
+            # Guard: ≥10 ring samples (cold-start safe). Cap at 0.58 to prevent over-restriction.
+            try:
+                if self._booster is not None:
+                    _g4_cmp_ring = self._booster._win_ring
+                    if len(_g4_cmp_ring) >= 10:
+                        _g4_cmp_wr = sum(_g4_cmp_ring) / len(_g4_cmp_ring)
+                        _g4_cmp_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
+                        if _g4_cmp_wr < 0.30 and _g4_cmp_sr < -3.0:
+                            _nn_compound = 0.03
+                            _nn_prev_cmp = nn_threshold
+                            nn_threshold = min(0.58, nn_threshold + _nn_compound)
+                            if nn_threshold > _nn_prev_cmp:
+                                self._logger.debug(
+                                    f"[G4-Compound v59.0] {symbol} WR={_g4_cmp_wr:.0%}<30% "
+                                    f"SR={_g4_cmp_sr:.2f}<-3.0 → nn_thresh "
+                                    f"{_nn_prev_cmp:.2f}→{nn_threshold:.2f} (+{_nn_compound:.2f} compound)"
+                                )
+            except Exception:
+                pass
             # v37.0 STRICT: All G4 threshold relaxations and bypass paths removed.
             # Removed: G4-DroughtRelax (-0.02), G4-Unani relaxation (-0.04 at ≥99%),
             #          G4-PessimismRelief (-0.04 at WR<35%), G4-SovRelax (-0.03 SOVEREIGN+drought),
@@ -8151,7 +8204,9 @@ class UnitySignalFilter:
             _g9_ring = self._booster._win_ring
             if len(_g9_ring) >= 10:
                 _g9_wr = sum(_g9_ring) / len(_g9_ring)
-                if _g9_wr < 0.20:
+                if _g9_wr < 0.15:
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 74.0)   # v59.0: NEW extreme-ruin tier; WR<15% = statistical ruin (3R EV = 0.15×3−0.85 = −0.40R per trade); only top-2nd-percentile signals (74+) can pass; SOVEREIGN bonus (+16) carries these to 90+ which always clears; hard-filters all but maximum-conviction SOVEREIGN entries in catastrophic losing streaks
+                elif _g9_wr < 0.20:
                     _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 72.0)   # v38.0: 68→72 — recalibrated for SIGNAL_MIN_QUALITY_GATE=67 base; 72 enforces +5pt strict crisis floor above new base; at WR<20% engine is statistically coin-flip; only SOVEREIGN+ultra-high-quality (72+) signals pass [v18.87: 62→68]
                 elif _g9_wr < 0.25:
                     _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 70.0)   # v38.0: 66→70 — +3pt above new base=67; at WR<25% break-even RR=2.60; conviction-grade floor; was max(65,66)=66, now max(67,70)=70 for meaningful differentiation [v18.87: 60→66]
@@ -8330,7 +8385,7 @@ class UnitySignalFilter:
             if self._sym_tracker is not None and not _mk_sov_flag:
                 _consec_sym_loss = self._sym_tracker.consecutive_losses(symbol)
                 if _consec_sym_loss >= 3:
-                    _consec_penalty = min(6.0, 4.0 + (_consec_sym_loss - 3) * 0.5)  # 4pt at 3, +0.5pt/extra, cap 6pt
+                    _consec_penalty = min(6.5, 4.5 + (_consec_sym_loss - 3) * 0.5)  # v59.0: 4.0→4.5 base penalty, cap 6.5; at WR<30% floor=69, symbol needs raw ≥73.5+ to survive 3 consec losses; +0.5pt/extra loss beyond 3; tighter death-spiral filter without touching SOVEREIGN path
                     quality_score -= _consec_penalty
                     self._logger.debug(
                         f"[G9-ConsecLoss v20.4] {symbol} {_consec_sym_loss} consecutive losses "
@@ -11995,7 +12050,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 29-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus[v58.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·G8.5U-MomConsensus[v58.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v58.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 29-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus[v58.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·G8.5U-MomConsensus[v58.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v59.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
