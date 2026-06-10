@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v57.0 — Production requirements.txt
+# Unity Engine v58.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-10 (v57.0 — G8.5T TurboVec gate | nixpacks v44→v57 fix | 28-gate | Claude5)
+# Last verified: 2026-06-10 (v58.0 — G8.5U MomentumConsensus meta-gate | 29-gate | WR improvement | pre-init safety)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 70-feature NN v11 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

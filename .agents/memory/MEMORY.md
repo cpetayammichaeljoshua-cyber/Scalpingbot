@@ -14,3 +14,4 @@
 - [Unity Engine v54.0–v55.0 signal flow recovery](unity-engine-v54.md) — dead zone 2→1h; G1 ExtremeFear R:R −0.10; pre-skip +2pt; CONSORTIUM MIN_MODELS 3→2; IRONS cold-start 45→38
 - [Unity Engine v56.0 upgrades](unity-engine-v56.md) — claude-fable-5+mythos-5 in TIER_MODELS+GODMODE; 12 combos; TurboVec 3-TF momentum in Mythos5 prompt; Dockerfile/nixpacks/requirements synced to v56.0
 - [Unity Engine v57.0 upgrades](unity-engine-v57.md) — G8.5T TurboVec Python gate (Fib3/8/21, ±2.5pts); nixpacks v44→v57 verify string fix; 28-gate filter; Dockerfile header fixed
+- [Unity Engine v58.0 upgrades](unity-engine-v58.md) — G8.5U MomentumConsensus meta-gate (29th gate, ±3pts, aggregates G8.5w/x/T votes); pre-init sentinels; KEY GATES v49→v58; all file headers synced

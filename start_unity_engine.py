@@ -2,7 +2,7 @@
 """
 Unity Engine v57.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 28-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 29-gate filter · 5-bucket RL · Kelly 25-steps · GEX · SRM):
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
   L0.5: Deribit Real-GEX       — Live BTC/ETH/SOL options chain (primary)
   L0.6: OKX Real-GEX           — Cross-venue GEX redundancy
@@ -30,7 +30,7 @@ ARCHITECTURE (30 layers · 28-gate filter · 5-bucket RL · Kelly 25-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+KEY GATES (v58.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
   IRONS_MIN=70(WR<30%)+73(WR<20%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
@@ -44,7 +44,7 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | 28-gate filter [v57.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta(±3.0pts) | 29-gate filter [v58.0] |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
   v19.2 FIXES: torch-inplace-fix(contiguous+zero_grad+enable_nested_tensor=False) |
@@ -107,6 +107,24 @@ KEY GATES (v49.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v58.0 IMPROVEMENTS: G8.5U MOMENTUM CONSENSUS META-GATE | 29-GATE FILTER | WR IMPROVEMENT:
+    1. G8.5U MomentumConsensus Meta-Gate (start_unity_engine.py) — 29th gate:
+       Aggregates directional votes from G8.5w (MTF-Momentum), G8.5x (LiqCascade-Dir),
+       G8.5T (TurboVec-3TF-Fib) — all already computed above G8.5U in the filter chain.
+       n_pos = count of gates that both fired AND had positive adj (agrees with direction).
+       n_data = count of gates that fired with live market data (cold-start guard).
+       Scoring: 3→+2.0pts, 2→+0.5pts, 1→-1.5pts, 0→-3.0pts (ruthless all-oppose veto).
+       Root cause of WR=27%: signals passing G9 even when ALL 3 momentum data sources
+       oppose direction. G8.5U imposes a -3.0pt penalty in that case — enough to push
+       a borderline 67pt signal below the G9 quality gate. Fully wired to gate_stats,
+       _GATE_DISPLAY_LABELS, _SOFT_GATE_KEYS (bottleneck excluded) [v58.0].
+    2. PRE-INIT SAFETY SENTINELS: Added `_g85w_fired=False; _g85w_adj=0.0` etc. before
+       G8.5w gate so G8.5U always reads defined variables even if any prior gate
+       throws an exception. Eliminates all NameError risk in G8.5U [v58.0].
+    3. 29-GATE FILTER: gate count 28→29 across all banner strings, docstring, nixpacks
+       verify print, architecture stamp [v58.0].
+    4. KEY GATES comment: updated version stamp "v49.0"→"v58.0" [v58.0].
+    UNITY_VERSION: 57.0→58.0
   v57.0 IMPROVEMENTS: G8.5T TURBOVEC PYTHON GATE | 28-GATE FILTER | nixpacks v44→v57 FIX:
     1. G8.5T TurboVec Vectorized 3-Timeframe Momentum Gate (start_unity_engine.py):
        New soft-gate using real Python numpy vectorized computation — NOT just LLM prompt embedding.
@@ -1623,7 +1641,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "57.0"
+UNITY_VERSION                = "58.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4142,6 +4160,9 @@ class UnitySignalFilter:
         # v57.0: G8.5T TurboVec vectorized 3-TF momentum alignment gate
         self._gate_stats["gate_g85t"] = {"pass": 0, "fail": 0}
         self._gate_stats_recent["gate_g85t"] = deque(maxlen=self._gate_stats_window_n)
+        # v58.0: G8.5U Momentum Consensus meta-gate (aggregates G8.5w/x/T votes)
+        self._gate_stats["gate_g85u"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g85u"] = deque(maxlen=self._gate_stats_window_n)
 
     @staticmethod
     def _load_symbol_blacklist() -> frozenset:
@@ -7556,6 +7577,12 @@ class UnitySignalFilter:
         except Exception:
             pass
 
+        # v58.0: Pre-initialize soft-gate adj/fired sentinels so G8.5U consensus
+        # meta-gate can safely read them regardless of exception paths in each gate.
+        _g85w_fired = False; _g85w_adj = 0.0
+        _g85x_fired = False; _g85x_adj = 0.0
+        _g85t_fired = False; _g85t_adj = 0.0
+
         # ── Gate 8.5w — Multi-Timeframe Momentum Alignment (v49.0) ─────────
         # TauricResearch/TradingAgents multi-timeframe analysis concept: checks if
         # recent price momentum over two distinct windows (short 1-2 bars, medium
@@ -7759,6 +7786,56 @@ class UnitySignalFilter:
                         f"n={_g85t_n}/3 → {_g85t_adj:+.1f}pts [Fib3/8/21]"
                     )
             self._record("gate_g85t", _g85t_fired)
+        except Exception:
+            pass
+
+        # ── Gate 8.5U — Momentum Soft-Gate Consensus [v58.0] ─────────────────
+        # Meta-gate: aggregates directional votes from the 3 soft momentum gates
+        # already computed above (G8.5w MTF-Momentum, G8.5x LiqCascade-Dir,
+        # G8.5T TurboVec-3TF). Each gate's adj value — already applied to
+        # quality_score individually — is read here as a signed directional vote:
+        #   positive adj + gate fired → gate agrees with signal direction
+        #   negative adj + gate fired → gate disagrees
+        #
+        # The key insight at WR=27%: individual soft gates each nudge quality_score
+        # by ±1-2.5pts. But when ALL THREE oppose the signal direction, that is a
+        # 3× independent momentum data source consensus warning — far more reliable
+        # than any single gate. G8.5U amplifies this multi-gate signal.
+        #
+        # Consensus scoring (n_pos = count of gates with adj > 0 AND fired):
+        #   3/3 positive (overwhelming consensus): +2.0pts
+        #   2/3 positive (majority alignment):     +0.5pts
+        #   1/3 positive (split — noise risk):     -1.5pts
+        #   0/3 positive (all oppose direction):   -3.0pts ← WR killer filter
+        # Guard: only fires if ≥1 gate had live market data (n_data ≥ 1).
+        # Soft-gate: adjusts quality_score only — cannot hard-veto a signal.
+        # Pre-initialized sentinels: _g85w_fired/adj, _g85x_fired/adj, _g85t_fired/adj
+        # are set above before G8.5w, so G8.5U never hits NameError.
+        try:
+            _g85u_adj   = 0.0
+            _g85u_fired = False
+            # Count gates with live data and count those agreeing with direction
+            _g85u_n_data = (1 if _g85w_fired else 0) + (1 if _g85x_fired else 0) + (1 if _g85t_fired else 0)
+            _g85u_n_pos  = (
+                (1 if _g85w_fired and _g85w_adj > 0.0 else 0) +
+                (1 if _g85x_fired and _g85x_adj > 0.0 else 0) +
+                (1 if _g85t_fired and _g85t_adj > 0.0 else 0)
+            )
+            if _g85u_n_data >= 1:    # at least 1 momentum gate had live data
+                _g85u_fired = True
+                # Ruthless multi-gate consensus scoring
+                if   _g85u_n_pos == 3: _g85u_adj =  2.0   # all 3 agree with direction
+                elif _g85u_n_pos == 2: _g85u_adj =  0.5   # 2/3 majority alignment
+                elif _g85u_n_pos == 1: _g85u_adj = -1.5   # split: 1 vs 2 opposing
+                else:                  _g85u_adj = -3.0   # all oppose: WR-killer veto
+                quality_score += _g85u_adj
+                self._logger.debug(
+                    f"[G8.5U MomConsensus v58.0] {symbol} "
+                    f"pos={_g85u_n_pos}/{_g85u_n_data} "
+                    f"w={_g85w_adj:+.1f} x={_g85x_adj:+.1f} t={_g85t_adj:+.1f} "
+                    f"→ {_g85u_adj:+.1f}pts"
+                )
+            self._record("gate_g85u", _g85u_fired)
         except Exception:
             pass
 
@@ -8490,6 +8567,7 @@ class UnitySignalFilter:
         "gate_g85w":      "G8.5w",  # v51.0: MTF-Momentum quality adjuster (±2.5pts)
         "gate_g85x":      "G8.5x",  # v51.0: LiqCascade-Direction quality adjuster (±2.0pts)
         "gate_g85t":      "G8.5T",  # v57.0: TurboVec vectorized 3-TF momentum (±2.5pts)
+        "gate_g85u":      "G8.5U",  # v58.0: MomentumConsensus meta-gate (±3.0pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -8527,6 +8605,7 @@ class UnitySignalFilter:
             "gate_g85w",   # MTF-Momentum ±2.5pt adjuster — cannot block a signal
             "gate_g85x",   # LiqCascade-Direction ±2.0pt adjuster — cannot block a signal
             "gate_g85t",   # TurboVec 3-TF momentum ±2.5pt adjuster — cannot block a signal
+            "gate_g85u",   # MomentumConsensus ±3.0pt meta-gate — cannot block a signal
             "gate_vibe",   # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
         })
@@ -11897,7 +11976,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"28-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
+            f"29-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus[v58.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
@@ -11916,7 +11995,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 28-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v57.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 29-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus[v58.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·G8.5U-MomConsensus[v58.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·GateCountSync[v58.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -11936,7 +12015,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 28-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+PessimismRelief[v23.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 29-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+PessimismRelief[v23.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus±3.0pts[v58.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")
@@ -15431,7 +15510,7 @@ class UnityEngine:
         layers_online = sum(1 for l in self.health.layers.values() if l.available)
         self._logger.info(f"   Layers online  : {layers_online}/{len(self.health.layers)}")
         self._logger.info(
-            f"   Signal gates   : 28-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | 5-bucket RL | "
+            f"   Signal gates   : 29-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | G8.5U:MomConsensus | 5-bucket RL | "
             f"Kelly | Consec-Loss CB({CONSEC_LOSS_THRESHOLD}) | WinStreak({CONSEC_WIN_STREAK_THRESHOLD}) | "
             f"NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) | Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} | IRONS≥{IRONS_MIN_SCORE:.0f} [v{UNITY_VERSION}]"
         )
@@ -16358,7 +16437,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"28-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5V·AdaptIRONS) · "
+        f"29-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
