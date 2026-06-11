@@ -1326,6 +1326,11 @@ class NeuralSignalTrainer:
             except Exception:
                 self._bitnet = None
 
+        # v60.0: HistGradientBoosting ensemble complement (see train() for fitting logic)
+        # Provides axis-aligned threshold effects orthogonal to the MLP's smooth boundary.
+        # None until first successful quality_ok train cycle; used in predict_signal() blend.
+        self._hgbt: Optional[Any] = None
+
         if not _HAS_NUMPY:
             self.logger.warning("⚠️  numpy not found — NeuralSignalTrainer disabled")
             return
@@ -1632,6 +1637,19 @@ class NeuralSignalTrainer:
                 base_prob  = (TorchTransformerPredictor._MLP_WEIGHT * base_prob
                               + TorchTransformerPredictor._TORCH_WEIGHT * torch_prob)
                 base_prob  = float(np.clip(base_prob, 0.05, 1.0))
+
+            # v60.0: HistGBT ensemble blend — 70% MLP + 30% HistGBT when fitted.
+            # Blending happens AFTER the Torch blend (which may have updated base_prob),
+            # so the final probability benefits from all three orthogonal predictors:
+            # MLP (smooth boundary), Transformer (attention sequence), HistGBT (threshold).
+            _hgbt_blend = getattr(self, "_hgbt", None)
+            if _hgbt_blend is not None:
+                try:
+                    _hg_p    = _hgbt_blend.predict_proba(X_norm)
+                    _hg_prob = float(_hg_p[0, 1]) if _hg_p.shape[1] > 1 else float(_hg_p[0, 0])
+                    base_prob = float(np.clip(0.70 * base_prob + 0.30 * _hg_prob, 0.05, 1.0))
+                except Exception:
+                    pass
 
             return base_prob
         except Exception as e:
@@ -2042,11 +2060,33 @@ class NeuralSignalTrainer:
             )
 
             n   = len(X_all)
-            idx = np.random.permutation(n)
-            split = max(10, int(n * 0.85))
-            X_tr_raw, y_tr = X_all[idx[:split]],  y_all[idx[:split]]
-            X_va_raw, y_va = X_all[idx[split:]],   y_all[idx[split:]]
-            sw_tr = _sw_raw[idx[:split]]  # v18.92: time-decay weights for training split
+            # v60.0: Walk-Forward Validation with Embargo — replaces random 85/15 split
+            # for n≥40 trades.  Trades are ordered oldest→newest (time_decay_ratio relies
+            # on this ordering).  Temporal ordering prevents look-ahead bias: the
+            # validation set always lies in the FUTURE relative to training, matching
+            # live deployment reality.  Embargo: drop min(3, train//10) samples at the
+            # split boundary to prevent autocorrelation leakage between adjacent trades
+            # that share the same market session / microstructure episode.
+            # Reference: De Prado (2018) AFML ch.7 — purged/embargoed walk-forward CV.
+            # Fallback for n<40: classic 85/15 random split (too few for temporal CV).
+            if n >= 40:
+                _oos_n     = max(10, int(n * 0.20))   # 20% out-of-sample holdout
+                _train_end = n - _oos_n               # last training index (exclusive)
+                _embargo   = min(3, _train_end // 10) # embargo: up to 3 boundary samples
+                _va_idx    = list(range(_train_end, n))
+                _tr_idx    = list(range(0, _train_end - _embargo))
+                X_tr_raw   = X_all[_tr_idx]
+                y_tr       = y_all[_tr_idx]
+                X_va_raw   = X_all[_va_idx]
+                y_va       = y_all[_va_idx]
+                sw_tr      = _sw_raw[_tr_idx]
+            else:
+                idx = np.random.permutation(n)
+                split = max(10, int(n * 0.85))
+                X_tr_raw, y_tr = X_all[idx[:split]],  y_all[idx[:split]]
+                X_va_raw, y_va = X_all[idx[split:]],   y_all[idx[split:]]
+                sw_tr = _sw_raw[idx[:split]]
+                _va_idx = list(idx[split:].tolist())   # compat: direction calibration uses _va_idx
 
             # FIX 4: Fit z-score normaliser on TRAINING data only to prevent
             # validation/test data leakage into the normalisation statistics.
@@ -2265,7 +2305,7 @@ class NeuralSignalTrainer:
             # what the model predicts on truly unseen data, matching live inference.
             # Also raised cap 0.07 → 0.15 so larger miscalibrations can be applied.
             try:
-                _val_idx      = idx[split:]     # original-data indices of val samples
+                _val_idx      = _va_idx         # v60.0: WFV uses pre-computed _va_idx (time-ordered or shuffled)
                 _buy_mask_val = np.array(
                     [_train_actions[int(i)] == "BUY" for i in _val_idx], dtype=bool
                 )
@@ -2345,6 +2385,43 @@ class NeuralSignalTrainer:
                     f"win_acc={win_acc:.1%} loss_acc={loss_acc:.1%} "
                     f"(need both ≥40%, wins={wins} losses={losses} need both ≥8)"
                 )
+
+            # ── v60.0: HistGradientBoosting ensemble ──────────────────────
+            # Trains a tree-based complement to the MLP.  Trees and neural nets have
+            # orthogonal inductive biases: MLP excels at smooth feature interactions;
+            # HistGBT excels at axis-aligned threshold effects (RSI>70, ATR cliffs,
+            # volume spikes) that appear naturally in crypto microstructure.
+            # Blend: 70% MLP + 30% HistGBT in predict_signal() when fitted.
+            # Only trains when quality_ok=True (≥8 wins+losses, ≥40% per-class accuracy).
+            # Fallback: self._hgbt=None → predict_signal() falls back to MLP-only.
+            try:
+                from sklearn.ensemble import HistGradientBoostingClassifier as _HGBT
+                if quality_ok and len(X_tr) >= 20:
+                    _hgbt_model = _HGBT(
+                        max_iter=100,
+                        max_depth=4,
+                        min_samples_leaf=4,
+                        learning_rate=0.10,
+                        l2_regularization=1.0,
+                        random_state=42,
+                        class_weight="balanced",
+                    )
+                    _hgbt_model.fit(X_tr, y_tr.flatten().astype(int))
+                    self._hgbt = _hgbt_model
+                    _hgbt_va_p   = _hgbt_model.predict_proba(X_va)
+                    _hgbt_va_prob = _hgbt_va_p[:, 1] if _hgbt_va_p.shape[1] > 1 else _hgbt_va_p[:, 0]
+                    _hgbt_va_acc  = float(np.mean(
+                        (_hgbt_va_prob >= 0.5).astype(int) == y_va.flatten().astype(int)
+                    ))
+                    self.logger.info(
+                        f"🌲 [v60.0 HistGBT] Fitted: train={len(X_tr)} "
+                        f"val_acc={_hgbt_va_acc:.1%} blend=70%MLP+30%GBT"
+                    )
+                else:
+                    self._hgbt = None
+            except Exception as _e_hgbt:
+                self._hgbt = None
+                self.logger.debug(f"[v60.0 HistGBT] skipped: {_e_hgbt}")
 
             # ── Train loss-pattern analyzer on normalised dataset ──────────
             try:

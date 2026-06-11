@@ -16,3 +16,4 @@
 - [Unity Engine v57.0 upgrades](unity-engine-v57.md) — G8.5T TurboVec Python gate (Fib3/8/21, ±2.5pts); nixpacks v44→v57 verify string fix; 28-gate filter; Dockerfile header fixed
 - [Unity Engine v58.0 upgrades](unity-engine-v58.md) — G8.5U MomentumConsensus meta-gate (29th gate, ±3pts, aggregates G8.5w/x/T votes); pre-init sentinels; KEY GATES v49→v58; all file headers synced
 - [Unity Engine v59.0 upgrades](unity-engine-v59.md) — G9 WR<15% tier floor=74; G4 compound WR+SR crisis gate (+3pp); EV ultra-ruin 1.25→1.35x; CB threshold 6→5; consec-loss penalty 4.0→4.5pts base
+- [Unity Engine v60.0 upgrades](unity-engine-v60.md) — walk-forward CV with embargo; HistGBT ensemble 70/30 blend; G8.5P BTC-CrossPair 30th gate (±1.5pts); G4 sigma boost (σ>0.15→+2pp); focal gamma 3.5 at SR<-6; 30-gate filter; all headers synced
