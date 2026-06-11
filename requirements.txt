@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v60.0 — Production requirements.txt
+# Unity Engine v61.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-11 (v60.0 — walk-forward CV | HistGBT ensemble | G8.5P BTC-CrossPair 30th gate | G4 sigma boost | focal gamma 3.5)
+# Last verified: 2026-06-11 (v61.0 — isotonic calibration | adaptive GBT blend | walk-fwd 40→30 | G9 recovery bonus | SR<-3.0 25min retrain tier)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 70-feature NN v11 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

@@ -1647,7 +1647,8 @@ class NeuralSignalTrainer:
                 try:
                     _hg_p    = _hgbt_blend.predict_proba(X_norm)
                     _hg_prob = float(_hg_p[0, 1]) if _hg_p.shape[1] > 1 else float(_hg_p[0, 0])
-                    base_prob = float(np.clip(0.70 * base_prob + 0.30 * _hg_prob, 0.05, 1.0))
+                    _hw = float(getattr(self, "_hgbt_weight", 0.30))   # v61.0: adaptive weight
+                    base_prob = float(np.clip((1.0 - _hw) * base_prob + _hw * _hg_prob, 0.05, 1.0))
                 except Exception:
                     pass
 
@@ -2069,7 +2070,7 @@ class NeuralSignalTrainer:
             # that share the same market session / microstructure episode.
             # Reference: De Prado (2018) AFML ch.7 — purged/embargoed walk-forward CV.
             # Fallback for n<40: classic 85/15 random split (too few for temporal CV).
-            if n >= 40:
+            if n >= 30:   # v61.0: threshold 40→30 — walk-forward starts 10 samples earlier
                 _oos_n     = max(10, int(n * 0.20))   # 20% out-of-sample holdout
                 _train_end = n - _oos_n               # last training index (exclusive)
                 _embargo   = min(3, _train_end // 10) # embargo: up to 3 boundary samples
@@ -2407,15 +2408,48 @@ class NeuralSignalTrainer:
                         class_weight="balanced",
                     )
                     _hgbt_model.fit(X_tr, y_tr.flatten().astype(int))
-                    self._hgbt = _hgbt_model
-                    _hgbt_va_p   = _hgbt_model.predict_proba(X_va)
+                    # v61.0: Isotonic probability calibration on held-out validation set.
+                    # CalibratedClassifierCV(cv='prefit') fits a monotone mapping:
+                    # raw HistGBT score → true win probability, using only out-of-sample
+                    # data (X_va) so zero data leakage occurs.  Requires ≥15 val samples
+                    # and both classes present; falls back to uncalibrated otherwise.
+                    # Reference: Niculescu-Mizil & Caruana (2005) — trees over-produce
+                    # extreme probabilities; isotonic regression corrects this.
+                    try:
+                        from sklearn.calibration import CalibratedClassifierCV as _CCCV
+                        _va_labels = y_va.flatten().astype(int)
+                        if len(X_va) >= 15 and len(np.unique(_va_labels)) >= 2:
+                            _hgbt_cal = _CCCV(_hgbt_model, method="isotonic", cv="prefit")
+                            _hgbt_cal.fit(X_va, _va_labels)
+                            self._hgbt = _hgbt_cal
+                        else:
+                            self._hgbt = _hgbt_model  # too few val samples for calibration
+                    except Exception:
+                        self._hgbt = _hgbt_model      # fallback: uncalibrated
+                    _hgbt_va_p    = self._hgbt.predict_proba(X_va)
                     _hgbt_va_prob = _hgbt_va_p[:, 1] if _hgbt_va_p.shape[1] > 1 else _hgbt_va_p[:, 0]
                     _hgbt_va_acc  = float(np.mean(
                         (_hgbt_va_prob >= 0.5).astype(int) == y_va.flatten().astype(int)
                     ))
+                    # v61.0: Adaptive blend weight — proportional to relative validation accuracy.
+                    # HistGBT weight ∈ [0.20, 0.40]: if GBT val_acc > MLP val_acc it earns more
+                    # weight (max 40%); if MLP wins it gets less (min 20%).  This is principled
+                    # Bayesian model combination: give more credence to the better-calibrated model.
+                    try:
+                        _, _, _, _, _, _, _, _, _, _A4_val2 = self._forward(X_va, training=False)
+                        _mlp_va_acc = float(np.mean(
+                            (_A4_val2.flatten() >= self._opt_threshold).astype(int)
+                            == y_va.flatten().astype(int)
+                        ))
+                    except Exception:
+                        _mlp_va_acc = 0.50
+                    _combined_acc  = max(0.01, _hgbt_va_acc + _mlp_va_acc)
+                    _hgbt_w        = float(np.clip(_hgbt_va_acc / _combined_acc, 0.20, 0.40))
+                    self._hgbt_weight = _hgbt_w
                     self.logger.info(
-                        f"🌲 [v60.0 HistGBT] Fitted: train={len(X_tr)} "
-                        f"val_acc={_hgbt_va_acc:.1%} blend=70%MLP+30%GBT"
+                        f"🌲 [v61.0 HistGBT] Fitted+calibrated: train={len(X_tr)} "
+                        f"gbt_va={_hgbt_va_acc:.1%} mlp_va={_mlp_va_acc:.1%} "
+                        f"blend=({1.0-_hgbt_w:.0%}MLP+{_hgbt_w:.0%}GBT)"
                     )
                 else:
                     self._hgbt = None

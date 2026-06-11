@@ -1690,7 +1690,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "60.0"
+UNITY_VERSION                = "61.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -8277,6 +8277,30 @@ class UnitySignalFilter:
         except Exception:
             pass
 
+        # v61.0: G9 Recovery Momentum Bonus — fast-momentum recovery signal.
+        # When the RECENT-20 win rate is improving ≥3pp above the PRIOR-20 win rate
+        # AND Sharpe > -2.0 (not in active ruin), grant a +1.5pt quality bonus.
+        # Rationale: Bayesian WP (p̂) is a slow posterior — it takes 10-15 wins to shift
+        # meaningfully.  This bonus fires on MOMENTUM within 1 scan cycle of the regime
+        # turn, giving the engine a 10-15 cycle head-start on recognising a hot streak.
+        # Guard: Sharpe > -2.0 prevents firing during a noisy blip inside a losing run.
+        if self._booster is not None:
+            try:
+                _rmb_ring = list(getattr(self._booster, "_win_ring", []))
+                if len(_rmb_ring) >= 40:
+                    _rmb_recent20 = sum(_rmb_ring[-20:]) / 20.0
+                    _rmb_prior20  = sum(_rmb_ring[-40:-20]) / 20.0
+                    _rmb_sr       = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
+                    if (_rmb_recent20 - _rmb_prior20) >= 0.03 and _rmb_sr > -2.0:
+                        quality_score += 1.5
+                        self._logger.debug(
+                            f"[v61.0] G9 Recovery Momentum Bonus: "
+                            f"recent20={_rmb_recent20:.1%} prior20={_rmb_prior20:.1%} "
+                            f"Δ={_rmb_recent20-_rmb_prior20:+.1%} SR={_rmb_sr:.2f} → +1.5pts"
+                        )
+            except Exception:
+                pass
+
         quality_score = min(100.0, max(0.0, quality_score))
 
         # ── Gate 9 — Composite quality floor (adaptive v11.3, base v5.8) ──────
@@ -14669,6 +14693,14 @@ class UnityEngine:
             elif _crisis_sharpe < -3.5:
                 _sleep_sec = 1200  # 20min crisis mode [v19.8: -4.5→-3.5 — earlier crisis detection; at Sharpe=-3.5 the drawdown trajectory is already severe; waiting until -4.5 means 2-3 extra 45min cycles of slow NN adaptation before faster retrain fires; -3.5 saves ~90min of calibration lag in early-stage crisis]
                 _mode_label = f"CRISIS-20min[v19.8] Sharpe={_crisis_sharpe:.2f}"
+            elif _crisis_sharpe < -3.0:
+                # v61.0: NEW early-warning tier — Sharpe -3.0 to -3.5 is the inflection zone
+                # where drawdown is beginning to accelerate but hasn't yet triggered the
+                # 20min crisis floor.  Firing the retrain 5min sooner (25min vs standard
+                # 30min) gives the NN 1 extra calibration cycle before the regime goes
+                # critical.  Cost: negligible CPU overhead (1 extra fit per ~25min cycle).
+                _sleep_sec = 1500  # 25min early-warning [v61.0]
+                _mode_label = f"EARLY-WARNING-25min[v61.0] Sharpe={_crisis_sharpe:.2f}"
             elif _retrain_wr < 0.32:
                 _sleep_sec = 2700  # 45min adaptive [v18.8]
                 _mode_label = "ADAPTIVE-45min [v18.8]"
