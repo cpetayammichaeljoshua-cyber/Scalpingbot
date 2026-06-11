@@ -18,3 +18,4 @@
 - [Unity Engine v59.0 upgrades](unity-engine-v59.md) — G9 WR<15% tier floor=74; G4 compound WR+SR crisis gate (+3pp); EV ultra-ruin 1.25→1.35x; CB threshold 6→5; consec-loss penalty 4.0→4.5pts base
 - [Unity Engine v60.0 upgrades](unity-engine-v60.md) — walk-forward CV with embargo; HistGBT ensemble 70/30 blend; G8.5P BTC-CrossPair 30th gate (±1.5pts); G4 sigma boost (σ>0.15→+2pp); focal gamma 3.5 at SR<-6; 30-gate filter; all headers synced
 - [Unity Engine v61.0 upgrades](unity-engine-v61.md) — isotonic calibration for HistGBT (cv='prefit' on val set); adaptive GBT blend weight [0.20,0.40] per val_acc; walk-fwd threshold 40→30; G9 recovery momentum +1.5pts; SR<-3.0 early-warning 25min retrain tier
+- [Unity Engine v62.0 upgrades](unity-engine-v62.md) — CPCV K=2 walk-fwd reliability signal (gap>4%→thresh +3pp); G8.5R HMM-GEX joint coherence 31st gate (±1.5pts); Kelly max-DD scale (>15%DD→progressive de-size, 50% cap); 31-gate filter confirmed 21/21

@@ -2288,6 +2288,59 @@ class NeuralSignalTrainer:
             y_flat = y_all.flatten().astype(int)
             acc    = float(np.mean(preds == y_flat))
 
+            # v62.0: CPCV Reliability Signal — Combinatorial Purged Cross-Validation.
+            # Computes K=2 walk-forward fold OOS accuracy to detect regime overfit.
+            # Reference: De Prado (2018) AFML ch.12 — simplified time-series-safe variant.
+            # When val_acc materially exceeds the CPCV avg (gap > 0.04): the model has
+            # overfit to the most recent regime → raise _opt_threshold by up to +3pp.
+            # Two temporal folds with 2-sample purge at each boundary prevent leakage.
+            # Guard: requires n ≥ 45 (≥15 samples per fold); non-fatal on any error.
+            try:
+                if n >= 45:
+                    _cpcv_accs = []
+                    for _sp in [n // 3, (2 * n) // 3]:
+                        _purge  = min(3, _sp // 10)
+                        _tr_i   = list(range(0, _sp - _purge))
+                        _te_end = min(_sp + max(8, n // 3), n)
+                        _te_i   = list(range(_sp, _te_end))
+                        if len(_tr_i) < 12 or len(_te_i) < 8:
+                            continue
+                        if len(np.unique(y_all[_tr_i].flatten().astype(int))) < 2:
+                            continue
+                        from sklearn.neural_network import MLPClassifier as _MLPC2
+                        _km = _MLPC2(
+                            hidden_layer_sizes=(32,), max_iter=150,
+                            random_state=_sp, alpha=1.0, learning_rate_init=0.01
+                        )
+                        try:
+                            _km.fit(X_all_norm[_tr_i], y_all[_tr_i].flatten().astype(int))
+                            _kp = _km.predict(X_all_norm[_te_i])
+                            _cpcv_accs.append(float(np.mean(_kp == y_all[_te_i].flatten().astype(int))))
+                        except Exception:
+                            pass
+                    if len(_cpcv_accs) >= 1:
+                        _cpcv_avg = float(np.mean(_cpcv_accs))
+                        _cpcv_gap = float(acc - _cpcv_avg)
+                        if _cpcv_gap > 0.04:
+                            _cpcv_adj  = min(0.03, _cpcv_gap * 0.50)
+                            _cpcv_old  = self._opt_threshold
+                            self._opt_threshold = min(0.75, self._opt_threshold + _cpcv_adj)
+                            # re-derive reject/boost thresholds to stay consistent
+                            self._reject_threshold = max(0.38, self._opt_threshold * 0.62)
+                            self._boost_threshold  = min(0.85, self._opt_threshold + 0.15)
+                            self.logger.info(
+                                f"🔬 [v62.0 CPCV] K=2 walk-fwd folds={[f'{a:.1%}' for a in _cpcv_accs]} "
+                                f"avg={_cpcv_avg:.1%} val={acc:.1%} gap={_cpcv_gap:+.1%} "
+                                f"→ thresh {_cpcv_old:.3f}→{self._opt_threshold:.3f} (+{_cpcv_adj:.3f})"
+                            )
+                        else:
+                            self.logger.debug(
+                                f"🔬 [v62.0 CPCV] K=2 walk-fwd: avg={_cpcv_avg:.1%} "
+                                f"val={acc:.1%} gap={_cpcv_gap:+.1%} → thresh unchanged"
+                            )
+            except Exception:
+                pass  # CPCV non-fatal
+
             # ── Direction-aware calibration: correct for BUY/SELL data imbalance ──
             # When training data is BUY-biased, the NN underestimates SELL win
             # probability because fewer SELL examples guided the gradient.

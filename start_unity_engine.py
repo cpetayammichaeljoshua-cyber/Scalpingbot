@@ -44,7 +44,7 @@ KEY GATES (v58.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta(±3.0pts) | G8.5P:BTC-CrossPair(±1.5pts) | 30-gate filter [v60.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta(±3.0pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | 31-gate filter [v62.0] |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
   v19.2 FIXES: torch-inplace-fix(contiguous+zero_grad+enable_nested_tensor=False) |
@@ -1690,7 +1690,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "61.0"
+UNITY_VERSION                = "62.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4212,8 +4212,10 @@ class UnitySignalFilter:
         # v58.0: G8.5U Momentum Consensus meta-gate (aggregates G8.5w/x/T votes)
         self._gate_stats["gate_g85u"] = {"pass": 0, "fail": 0}
         self._gate_stats["gate_g85p"] = {"pass": 0, "fail": 0}  # v60.0: BTC cross-pair momentum alignment
+        self._gate_stats["gate_g85r"] = {"pass": 0, "fail": 0}  # v62.0: HMM-GEX regime coherence
         self._gate_stats_recent["gate_g85u"] = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85p"] = deque(maxlen=self._gate_stats_window_n)  # v60.0
+        self._gate_stats_recent["gate_g85r"] = deque(maxlen=self._gate_stats_window_n)  # v62.0
 
     @staticmethod
     def _load_symbol_blacklist() -> frozenset:
@@ -7977,6 +7979,74 @@ class UnitySignalFilter:
         except Exception:
             pass
 
+        # ── Gate 8.5R — HMM-GEX Regime Coherence (v62.0) ────────────────────
+        # Joint confirmation: when the HMM regime direction AND BTC GEX net
+        # direction BOTH agree with the signal direction, apply a +1.5pt
+        # coherence bonus.  Two orthogonal analytical systems (state-machine
+        # regime and dealer gamma positioning) simultaneously aligned with the
+        # trade creates multiplicatively stronger conviction than either alone.
+        # When they BOTH oppose the signal direction: −1.5pts (incoherence signal).
+        # This gate does NOT double-count with G8.5e (HMM unilateral) or G8.5m
+        # (GEX unilateral) — those apply individual adjustments; G8.5R fires only
+        # on the JOINT (HMM dir == signal dir AND GEX dir == signal dir) condition.
+        # Guards: GEX conf ≥ 35, not FLIP ZONE, GEX snapshot < 120s old.
+        _g85r_adj    = 0.0
+        _g85r_fired  = False
+        try:
+            _g85r_hmm_ref    = getattr(self, "_hmm_regime", None)
+            _g85r_gex_snaps  = getattr(self, "_engine_gex_snapshots", None)
+            _g85r_dir        = (direction or "").upper()
+            if _g85r_hmm_ref is not None and _g85r_gex_snaps is not None and _g85r_dir in ("BUY", "SELL"):
+                _g85r_hmm_str = ""
+                try:
+                    _g85r_hmm_str, _, _ = _g85r_hmm_ref.get_regime()
+                    _g85r_hmm_str = str(_g85r_hmm_str or "").upper()
+                except Exception:
+                    pass
+                _g85r_gex_bull = False
+                _g85r_gex_bear = False
+                try:
+                    _g85r_btc_e = _g85r_gex_snaps.get("BTCUSDT")
+                    if _g85r_btc_e is not None:
+                        _g85r_snap = _g85r_btc_e[0] if isinstance(_g85r_btc_e, tuple) else _g85r_btc_e
+                        _g85r_ts   = float(_g85r_btc_e[1] if isinstance(_g85r_btc_e, tuple) else 0.0)
+                        if time.time() - _g85r_ts < 120.0:
+                            _g85r_net    = float(getattr(_g85r_snap, "net_gex",    0.0) or 0.0)
+                            _g85r_conf   = float(getattr(_g85r_snap, "confidence", 0)   or 0)
+                            _g85r_regime = str(getattr(_g85r_snap, "regime", "") or "").upper()
+                            if _g85r_conf >= 35 and "FLIP" not in _g85r_regime:
+                                _g85r_gex_bull = _g85r_net >  500e6   # long-gamma → bullish
+                                _g85r_gex_bear = _g85r_net < -500e6   # short-gamma → bearish
+                except Exception:
+                    pass
+                _g85r_hmm_bull = _g85r_hmm_str == "EXPANSION"
+                _g85r_hmm_bear = _g85r_hmm_str == "CONTRACTION"
+                if _g85r_dir == "BUY":
+                    if _g85r_hmm_bull and _g85r_gex_bull:
+                        _g85r_adj   = 1.5    # dual bullish confirmation
+                        _g85r_fired = True
+                    elif _g85r_hmm_bear and _g85r_gex_bear:
+                        _g85r_adj   = -1.5   # dual bearish opposition
+                        _g85r_fired = True
+                else:  # SELL
+                    if _g85r_hmm_bear and _g85r_gex_bear:
+                        _g85r_adj   = 1.5    # dual bearish confirmation
+                        _g85r_fired = True
+                    elif _g85r_hmm_bull and _g85r_gex_bull:
+                        _g85r_adj   = -1.5   # dual bullish opposition
+                        _g85r_fired = True
+                if _g85r_fired:
+                    quality_score += _g85r_adj
+                    self._logger.debug(
+                        f"[G8.5R HMM-GEX Coherence v62.0] {symbol} {_g85r_dir} "
+                        f"HMM={_g85r_hmm_str} "
+                        f"GEX={'bull' if _g85r_gex_bull else 'bear' if _g85r_gex_bear else 'n/a'} "
+                        f"→ {_g85r_adj:+.1f}pts joint-coherence"
+                    )
+        except Exception:
+            pass
+        self._record("gate_g85r", _g85r_fired)
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -8733,6 +8803,7 @@ class UnitySignalFilter:
         "gate_g85t":      "G8.5T",  # v57.0: TurboVec vectorized 3-TF momentum (±2.5pts)
         "gate_g85u":      "G8.5U",  # v58.0: MomentumConsensus meta-gate (±3.0pts)
         "gate_g85p":      "G8.5P",  # v60.0: BTC cross-pair momentum alignment (±1.5pts)
+        "gate_g85r":      "G8.5R",  # v62.0: HMM-GEX regime coherence joint confirmation (±1.5pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -10380,6 +10451,22 @@ class UnityProfitBooster:
             pass   # Deep-DD Kelly circuit breaker is non-fatal — Kelly unchanged on error
 
         self.last_kelly_fraction = max(0.0, min(_kelly_ceil, kelly))
+
+        # v62.0: Drawdown-scaled Kelly reduction.
+        # When max drawdown > 15%: gradually reduce Kelly fraction.
+        # Linear scale: 15% DD → ×1.00, 75% DD → ×0.50 (50% reduction cap).
+        # Rationale: during sustained drawdown the edge assumption is weakened;
+        # institutional risk management requires progressive de-sizing.
+        # Formula: scale = max(0.50, 1.0 − (max_dd − 15%) / 60%)
+        # Impact: at max_dd=15% no effect; at 45% DD → ×0.75; at 75% DD → ×0.50.
+        # Cold-start guard: no-op if max_dd = 0 (warm-start not yet accumulated).
+        try:
+            _dd_pct = float(getattr(self, "_max_drawdown_pct", 0.0) or 0.0)
+            if _dd_pct > 15.0:
+                _dd_scale = max(0.50, 1.0 - (_dd_pct - 15.0) / 60.0)
+                self.last_kelly_fraction = max(0.0, self.last_kelly_fraction * _dd_scale)
+        except Exception:
+            pass
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
@@ -12141,7 +12228,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"30-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus[v58.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
+            f"31-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus[v58.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-25·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
@@ -15688,7 +15775,7 @@ class UnityEngine:
         layers_online = sum(1 for l in self.health.layers.values() if l.available)
         self._logger.info(f"   Layers online  : {layers_online}/{len(self.health.layers)}")
         self._logger.info(
-            f"   Signal gates   : 30-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | G8.5U:MomConsensus | G8.5P:BTC-CrossPair | 5-bucket RL | "
+            f"   Signal gates   : 31-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | G8.5U:MomConsensus | G8.5P:BTC-CrossPair | G8.5R:HMM-GEX-Coherence | 5-bucket RL | "
             f"Kelly | Consec-Loss CB({CONSEC_LOSS_THRESHOLD}) | WinStreak({CONSEC_WIN_STREAK_THRESHOLD}) | "
             f"NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) | Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} | IRONS≥{IRONS_MIN_SCORE:.0f} [v{UNITY_VERSION}]"
         )
@@ -16615,7 +16702,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"30-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U·G8.5P·G8.5V·AdaptIRONS) · "
+        f"31-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U·G8.5P·G8.5R·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
