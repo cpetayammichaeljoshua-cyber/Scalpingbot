@@ -1330,6 +1330,8 @@ class NeuralSignalTrainer:
         # Provides axis-aligned threshold effects orthogonal to the MLP's smooth boundary.
         # None until first successful quality_ok train cycle; used in predict_signal() blend.
         self._hgbt: Optional[Any] = None
+        self._et:   Optional[Any] = None    # v63.0: ExtraTreesClassifier 3rd ensemble
+        self._et_weight: float    = 0.15    # v63.0: adaptive weight ∈ [0.10, 0.25]
 
         if not _HAS_NUMPY:
             self.logger.warning("⚠️  numpy not found — NeuralSignalTrainer disabled")
@@ -1649,6 +1651,20 @@ class NeuralSignalTrainer:
                     _hg_prob = float(_hg_p[0, 1]) if _hg_p.shape[1] > 1 else float(_hg_p[0, 0])
                     _hw = float(getattr(self, "_hgbt_weight", 0.30))   # v61.0: adaptive weight
                     base_prob = float(np.clip((1.0 - _hw) * base_prob + _hw * _hg_prob, 0.05, 1.0))
+                except Exception:
+                    pass
+
+            # v63.0: ExtraTreesClassifier 3rd ensemble blend.
+            # Applied after the HistGBT blend so all three orthogonal models
+            # contribute sequentially: MLP (smooth) → HistGBT (optimised thresholds)
+            # → ExtraTrees (random thresholds, noise-robust).
+            _et_blend = getattr(self, "_et", None)
+            if _et_blend is not None:
+                try:
+                    _et_p    = _et_blend.predict_proba(X_norm)
+                    _et_prob = float(_et_p[0, 1]) if _et_p.shape[1] > 1 else float(_et_p[0, 0])
+                    _ew      = float(getattr(self, "_et_weight", 0.15))
+                    base_prob = float(np.clip((1.0 - _ew) * base_prob + _ew * _et_prob, 0.05, 1.0))
                 except Exception:
                     pass
 
@@ -2509,6 +2525,58 @@ class NeuralSignalTrainer:
             except Exception as _e_hgbt:
                 self._hgbt = None
                 self.logger.debug(f"[v60.0 HistGBT] skipped: {_e_hgbt}")
+
+            # ── v63.0: ExtraTreesClassifier — 3rd ensemble member ─────────
+            # ExtraTrees randomises split THRESHOLDS (not just split features),
+            # making it orthogonal to both HistGBT (optimised thresholds) and
+            # MLP (smooth boundaries). Captures noisy/discontinuous features
+            # like RSI cliffs, ATR bands, and funding-rate step changes that
+            # both MLP and HistGBT can over-smooth or over-fit.
+            # Adaptive weight ∈ [0.10, 0.25] based on val_acc comparison.
+            # Isotonic calibration applied when val set ≥ 15 samples.
+            try:
+                if n >= 30 and len(X_tr) >= 20:
+                    from sklearn.ensemble import ExtraTreesClassifier as _ETC
+                    _et_raw = _ETC(
+                        n_estimators=80, max_depth=8, min_samples_leaf=3,
+                        random_state=42, n_jobs=1, class_weight="balanced"
+                    )
+                    _et_raw.fit(X_tr, y_tr.flatten().astype(int))
+                    self._et = None
+                    if len(X_va) >= 15 and len(np.unique(y_va.flatten().astype(int))) > 1:
+                        try:
+                            from sklearn.calibration import CalibratedClassifierCV as _CCCV3
+                            _et_cal3 = _CCCV3(_et_raw, method="isotonic", cv="prefit")
+                            _et_cal3.fit(X_va, y_va.flatten().astype(int))
+                            self._et = _et_cal3
+                        except Exception:
+                            self._et = _et_raw
+                    else:
+                        self._et = _et_raw
+                    # Adaptive weight based on val_acc vs MLP val_acc
+                    try:
+                        _et_va_preds  = (self._et.predict_proba(X_va)[:, 1] >= self._opt_threshold).astype(int)
+                        _et_va_acc    = float(np.mean(_et_va_preds == y_va.flatten().astype(int)))
+                        _, _, _, _, _, _, _, _, _, _A4_et = self._forward(X_va, training=False)
+                        _mlp_et_acc   = float(np.mean(
+                            (_A4_et.flatten() >= self._opt_threshold).astype(int)
+                            == y_va.flatten().astype(int)
+                        ))
+                        _et_comb      = max(0.01, _et_va_acc + _mlp_et_acc)
+                        _et_w         = float(np.clip(_et_va_acc / _et_comb, 0.10, 0.25))
+                        self._et_weight = _et_w
+                        self.logger.info(
+                            f"🌳 [v63.0 ExtraTrees] Fitted+calibrated: train={len(X_tr)} "
+                            f"et_va={_et_va_acc:.1%} mlp_va={_mlp_et_acc:.1%} "
+                            f"et_w={_et_w:.0%}"
+                        )
+                    except Exception:
+                        self._et_weight = 0.15
+                else:
+                    self._et = None
+            except Exception as _e_et:
+                self._et = None
+                self.logger.debug(f"[v63.0 ExtraTrees] skipped: {_e_et}")
 
             # ── Train loss-pattern analyzer on normalised dataset ──────────
             try:

@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v62.0 — Multi-stage Production Dockerfile
+# Unity Engine v63.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
 # Build:  docker build -t unity-engine:44.0 .
