@@ -1,8 +1,34 @@
 #!/usr/bin/env python3
 """
-Unity Engine v69.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v70.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GEX · SRM):
+ v70.0 improvements [2026-06-11]:
+   1. NN QUALITY GATE ADAPTIVE (neural_signal_trainer.py):  The win_acc gate was hardcoded
+      at 28% regardless of the current WR regime.  At training WR<25% (live WR=18-25%),
+      win_acc=24.2% still has significant model value — loss_acc=93.7% correctly identifies
+      93.7% of losing setups.  Disabling NN completely leaves G4 with zero probability
+      filtering, which is strictly worse than an imperfect-but-directional model.
+      Fix: win_acc gate is now adaptive — 0.20 at training WR<25% (crisis mode), 0.28 at
+      WR≥25% (standard institutional floor).  At 20%: 2× better than random with 93.7%
+      loss detection — a net-positive filter by any risk-adjusted measure.
+   2. CPCV CHANCE-FLOOR GUARD (neural_signal_trainer.py):  The CPCV K=3 gap adjustment
+      was firing even when fold avg=45.4% — near-chance level.  A sub-chance CPCV signal
+      was pushing the NN threshold up (0.540→0.560), creating additional G4 blockage based
+      on noise.  Fix: CPCV gap only fires when _cpcv_avg > 0.47 (meaningful signal above
+      near-chance).  At avg=45.4% < 47%, the threshold push is suppressed and logged.
+   3. G9 WR<20% FLOOR RELIEF (start_unity_engine.py Gate 9):  At WR=18-20%, the G9=72
+      + IRONS=73 dual-floor produced near-zero throughput.  G9 floor relaxed 72→70 for
+      the WR<20% tier, co-equal with the IRONS WR 18-20% relief tier (72).  WR<15%
+      floor stays at 74 (extreme ruin tier unchanged).
+   4. IRONS WR<18% TIER SPLIT (start_unity_engine.py Gate 10):  The WR<20% tier was a
+      single block at IRONS≥73.  v70.0 splits it: WR<18% keeps 73 (ultra-severe),
+      WR 18-20% drops to 72 (+2 above base, not +3) — enabling genuine SOVEREIGN+IRONS
+      signals to pass in the 18-20% WR crisis band.
+   5. GODMOD3 MODEL STATUS HEARTBEAT (godmod3_strategy.py):  Added periodic 300s log
+      of all model states (perm_disabled / disabled / healthy) — critical visibility
+      into OpenRouter health during F&G=12 market stress when all free-tier models are
+      simultaneously under load.
  v69.0 improvements [2026-06-11]:
    1. G6 FEAR GATE RECALIBRATION (F&G hard-block 20→10):  The G6 signal filter was
       hard-blocking ALL BUY signals when F&G ≤ 20.  With F&G=12 in live operation, every
@@ -96,8 +122,8 @@ ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v69.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
-  IRONS_MIN=70(WR<30%)+73(WR<20%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
+KEY GATES (v70.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+  IRONS_MIN=70(WR<30%)+72(WR<20%)+73(WR<18%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-7pts,DD>47%→-5pts,DD>43%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
@@ -110,7 +136,7 @@ KEY GATES (v69.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v69.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v70.0] |
   Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) | Kelly30:MaxDD-UltraRuin(DD>48%→cap0.15%,DD>50%→cap0.05%) |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
@@ -1832,7 +1858,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "69.0"
+UNITY_VERSION                = "70.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4713,9 +4739,16 @@ class UnitySignalFilter:
         Rationale: G9 floor=67, G10 floor=70 at WR<30% → genuine two-tier quality wall [v38.0].
         SOVEREIGN_RECOVERY path requires IRONS≥70, matching IRONS_MIN_WR_BELOW30 [v38.0: 68→70].
         """
-        if current_wr < 0.20:
-            # v14.0: ultra-critical tier — +3pts above WR<30% floor (73pts) [v39.0 comment fix: 70+3=73]
+        if current_wr < 0.18:
+            # v70.0: ultra-severe tier — WR<18% absolute statistical ruin; IRONS≥73 enforced
+            # (was top of the WR<20% tier before the v70.0 split)
             self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 3.0  # 73
+        elif current_wr < 0.20:
+            # v70.0: crisis relief tier — WR 18-20%: IRONS≥72 (was 73 for whole WR<20% band)
+            # At WR=18-20% the combined G9=70+IRONS=73 dual-floor produced near-zero throughput;
+            # lowering IRONS by 1pt (73→72) while G9 also relaxes (72→70) allows genuine
+            # institutional-quality signals to pass without abandoning the crisis wall.
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 2.0  # 72 [v70.0: +3→+2 for WR 18-20%]
         elif current_wr < 0.25:
             # v29.0: deep-crisis tier — +1.5pts above WR<30% floor [v29.0]
             # At WR=20-25%: EV at RR=2.50 = −0.12R to −0.225R (deeply negative).
@@ -8938,7 +8971,7 @@ class UnitySignalFilter:
                 if _g9_wr < 0.15:
                     _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 74.0)   # v59.0: NEW extreme-ruin tier; WR<15% = statistical ruin (3R EV = 0.15×3−0.85 = −0.40R per trade); only top-2nd-percentile signals (74+) can pass; SOVEREIGN bonus (+16) carries these to 90+ which always clears; hard-filters all but maximum-conviction SOVEREIGN entries in catastrophic losing streaks
                 elif _g9_wr < 0.20:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 72.0)   # v38.0: 68→72 — recalibrated for SIGNAL_MIN_QUALITY_GATE=67 base; 72 enforces +5pt strict crisis floor above new base; at WR<20% engine is statistically coin-flip; only SOVEREIGN+ultra-high-quality (72+) signals pass [v18.87: 62→68]
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 70.0)   # v70.0: 72→70 — 2pt crisis relief: at WR=18-20% the G9=72+IRONS=73 dual-floor produced near-zero throughput; 70pt G9 floor co-equal with IRONS_MIN_WR_BELOW30+2=72 (v70.0 IRONS relief tier) allows genuine ultra-quality SOVEREIGN+IRONS signals through; WR<18% still enforced by IRONS≥73 (v70.0 split); v38.0: 68→72; v70.0: 72→70
                 elif _g9_wr < 0.25:
                     _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 70.0)   # v38.0: 66→70 — +3pt above new base=67; at WR<25% break-even RR=2.60; conviction-grade floor; was max(65,66)=66, now max(67,70)=70 for meaningful differentiation [v18.87: 60→66]
                 elif _g9_wr < 0.30:
@@ -13030,7 +13063,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-28%[v67.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

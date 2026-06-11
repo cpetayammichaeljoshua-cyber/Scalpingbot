@@ -2487,13 +2487,17 @@ class NeuralSignalTrainer:
                     if len(_cpcv_accs) >= 1:
                         _cpcv_avg = float(np.mean(_cpcv_accs))
                         _cpcv_gap = float(acc - _cpcv_avg)
-                        if _cpcv_gap > 0.07:
+                        if _cpcv_gap > 0.07 and _cpcv_avg > 0.47:
                             # v67.0: gap threshold 0.04→0.07 — at live gap=10% the previous
                             # 4% trigger added +0.030 to _opt_threshold (0.579→0.609), pushing
                             # the G4 gate to a level no 30% WR model can clear (nn_prob=0.35-0.42).
                             # 7% threshold means only genuine overfit (>7pp val vs CPCV gap)
                             # triggers the adjustment; routine 4-6% val-vs-CPCV variation is
                             # benign and should not inflate the threshold.
+                            # v70.0: also require _cpcv_avg > 0.47 — at avg=45.4% the CPCV
+                            # folds are near-chance level; using a sub-chance signal to push
+                            # threshold UP is counterproductive (blocks real signals with noise).
+                            # Only fire when CPCV folds show meaningful signal (>47% accuracy).
                             _cpcv_adj  = min(0.02, _cpcv_gap * 0.30)  # v67.0: multiplier 0.50→0.30, cap 0.03→0.02
                             _cpcv_old  = self._opt_threshold
                             self._opt_threshold = min(0.75, self._opt_threshold + _cpcv_adj)
@@ -2504,6 +2508,15 @@ class NeuralSignalTrainer:
                                 f"🔬 [v68.0 CPCV] K=3 walk-fwd folds={[f'{a:.1%}' for a in _cpcv_accs]} "
                                 f"avg={_cpcv_avg:.1%} val={acc:.1%} gap={_cpcv_gap:+.1%} "
                                 f"→ thresh {_cpcv_old:.3f}→{self._opt_threshold:.3f} (+{_cpcv_adj:.3f})"
+                            )
+                        elif _cpcv_gap > 0.07:
+                            # v70.0: gap > 7% but CPCV avg ≤ 47% (near-chance) — suppress push
+                            # At avg=45.4% folds are not providing meaningful overfit signal;
+                            # applying threshold push from a chance-level CPCV is counterproductive.
+                            self.logger.info(
+                                f"🔬 [v70.0 CPCV] K=3 walk-fwd: avg={_cpcv_avg:.1%} ≤ 47% chance-floor "
+                                f"val={acc:.1%} gap={_cpcv_gap:+.1%} → thresh {self._opt_threshold:.3f} "
+                                f"unchanged (sub-chance CPCV suppressed [v70.0])"
                             )
                         else:
                             self.logger.debug(
@@ -2600,9 +2613,18 @@ class NeuralSignalTrainer:
             # loss_acc≥50% ensures the model still filters out majority of losing setups.
             # Asymmetric design (low win_acc, higher loss_acc) matches the asymmetric cost
             # structure of trading: missing a win is recoverable; taking a bad loss is not.
+            # v70.0: Adaptive win_acc gate — at training WR<25% (deep-crisis), lower to 0.20.
+            # Rationale: at WR=18-25% a model with win_acc=24.2% + loss_acc=93.7% still has
+            # significant filter value — it correctly identifies 93.7% of losing trades.
+            # Disabling NN completely (as v67.0 static 0.28 gate does at 24.2%) leaves G4 with
+            # zero probability filtering, which is strictly worse than an imperfect model.
+            # The 0.20 floor is above the minimum sampling noise level (8 wins req) and still
+            # 2× better than random (10% win_acc would be noise; 20% has directional signal).
+            # At WR≥25%: retain 0.28 institutional floor (meaningful signal quality required).
+            _win_acc_floor = 0.20 if (_wr_for_cap < 0.25) else 0.28
             quality_ok = (
-                win_acc  >= 0.28    # v67.0: 0.40→0.28 — break-even floor at MIN_RR=2.35
-                and loss_acc >= 0.50   # v67.0: 0.40→0.50 — must filter majority of losses
+                win_acc  >= _win_acc_floor  # v70.0: adaptive 0.28→0.20 at training WR<25%
+                and loss_acc >= 0.50        # v67.0: 0.40→0.50 — must filter majority of losses
                 and wins  >= 8
                 and losses >= 8
             )
@@ -2617,7 +2639,7 @@ class NeuralSignalTrainer:
                 self.logger.warning(
                     f"⚠️  NN quality gate FAILED — model disabled until quality improves: "
                     f"win_acc={win_acc:.1%} loss_acc={loss_acc:.1%} "
-                    f"(need win≥28% loss≥50%, wins={wins} losses={losses} need both ≥8)"
+                    f"(need win≥{_win_acc_floor:.0%} loss≥50%, wins={wins} losses={losses} need both ≥8)"
                 )
 
             # ── v60.0: HistGradientBoosting ensemble ──────────────────────

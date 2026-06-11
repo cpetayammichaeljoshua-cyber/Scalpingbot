@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v69.0 — Multi-stage Production Dockerfile
+# Unity Engine v70.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
 # Build:  docker build -t unity-engine:67.0 .
@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v69.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v70.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="69.0"               \
-      description="Unity Engine v69.0 — G6-FearGate10 | FearPenalty8/5/3pt | SessionPermRecover | Kelly30-MaxDD-UltraRuin | ERR_GENERIC-90s | 36-gate | Kelly30 | ZERO-BYPASS-STRICT | AI89/SWARM0.96/RR2.50 | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="70.0"               \
+      description="Unity Engine v70.0 — NNQualGate-Adaptive-20% | CPCVChanceGuard | G9-WR20%-70pt | IRONS-WR18-20%-72 | ModelHeartbeat300s | 36-gate | Kelly30 | ZERO-BYPASS-STRICT | AI89/SWARM0.96/RR2.50 | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

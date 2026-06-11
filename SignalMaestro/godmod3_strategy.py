@@ -1231,6 +1231,7 @@ class G0DM0D3Engine:
         # fail-again loop that burns through error budgets on permanently-dead routes
         # (e.g. claude-fable-5 / claude-mythos-5 which are 404 on the free tier).
         self._session_perm_disabled: set = set()
+        self._last_model_heartbeat: float = 0.0   # v70.0: periodic model-status log
 
         # TimeoutStreakGuard [v36.0]: tracks consecutive asyncio.TimeoutError per model.
         # Before: each timeout → 60s cooldown then retry indefinitely (stall-loop risk).
@@ -1447,6 +1448,36 @@ class G0DM0D3Engine:
         # the 2h disable fired, so the model will be re-banned after 12 NEW generic errors.
         # The re-enable window is guarded by the _disabled_models time-based check — models
         # are only un-session-perm-disabled when the 2h disable timer has fully expired.
+        # v70.0: Periodic model-status heartbeat (every 300s).
+        # During F&G=12 market stress all free-tier models can be simultaneously
+        # disabled; logging this state every 5min provides critical visibility.
+        try:
+            _now = time.time()
+            if _now - self._last_model_heartbeat >= 300.0:
+                self._last_model_heartbeat = _now
+                _all_models = list(getattr(self, "_disabled_models", {}).keys())
+                _perm_dis   = [m for m in _all_models if m in self._session_perm_disabled]
+                _soft_dis   = [
+                    m for m in _all_models
+                    if m not in self._session_perm_disabled
+                    and _now < self._disabled_models.get(m, 0.0)
+                ]
+                _healthy    = [
+                    m for m in _all_models
+                    if m not in self._session_perm_disabled
+                    and _now >= self._disabled_models.get(m, 0.0)
+                ]
+                _total = max(1, len(_all_models))
+                self.logger.info(
+                    f"🔍 [v70.0 ModelHeartbeat] OpenRouter model status: "
+                    f"healthy={len(_healthy)}/{_total} | "
+                    f"soft_disabled={len(_soft_dis)} | "
+                    f"perm_disabled={len(_perm_dis)} "
+                    + (f"({', '.join(_perm_dis[:4])}{'…' if len(_perm_dis)>4 else ''})" if _perm_dis else "(none)")
+                )
+        except Exception:
+            pass
+
         if model in self._session_perm_disabled:
             # Eligible for re-evaluation only after 2h disable has expired
             if time.time() < self._disabled_models.get(model, 0.0):
