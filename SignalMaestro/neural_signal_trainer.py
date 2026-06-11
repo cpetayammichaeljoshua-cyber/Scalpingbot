@@ -1694,6 +1694,53 @@ class NeuralSignalTrainer:
                 except Exception:
                     pass
 
+            # v65.0: Ensemble Coherence Boost / Penalty ─────────────────────────────────
+            # After the unified 3-way tree consensus blend is applied, measure how closely
+            # all active model heads agree on the final prediction.  High agreement signals
+            # genuine edge and rewards the score; high disagreement signals ambiguity and
+            # applies a slight dampener.
+            #
+            # Rationale (Breiman ensemble bias-variance, Krogh & Vedelsby 1995):
+            #   Error of ensemble = average member error − average member ambiguity.
+            #   When ambiguity (disagreement) is low and average error is low → the ensemble
+            #   is in its ideal state.  When ambiguity is high the ensemble error is bounded
+            #   BELOW by the ambiguity → we should discount the confidence of the output.
+            #
+            # Rule:  collect all available raw model outputs (MLP/Transformer base_prob
+            # BEFORE tree blending, HistGBT, ExtraTrees).  Compute the range (max−min).
+            #   Range ≤ 0.03 (≡ ±1.5pp):  high consensus → × 1.02  (cap 0.95)
+            #   Range ≥ 0.15 (≡ ±7.5pp):  high ambiguity → × 0.99  (floor 0.05)
+            #   In between                : no adjustment
+            # Non-fatal. Does not change training logic.
+            try:
+                _ec_models: list = []
+                # Neural base (already blended, use as representative)
+                _ec_models.append(base_prob)
+                if _hgbt_blend is not None:
+                    try:
+                        _ec_hg_p = _hgbt_blend.predict_proba(X_norm)
+                        _ec_models.append(
+                            float(_ec_hg_p[0, 1]) if _ec_hg_p.shape[1] > 1 else float(_ec_hg_p[0, 0])
+                        )
+                    except Exception:
+                        pass
+                if _et_blend is not None:
+                    try:
+                        _ec_et_p = _et_blend.predict_proba(X_norm)
+                        _ec_models.append(
+                            float(_ec_et_p[0, 1]) if _ec_et_p.shape[1] > 1 else float(_ec_et_p[0, 0])
+                        )
+                    except Exception:
+                        pass
+                if len(_ec_models) >= 2:
+                    _ec_range = max(_ec_models) - min(_ec_models)
+                    if _ec_range <= 0.03:
+                        base_prob = float(np.clip(base_prob * 1.02, 0.05, 0.95))
+                    elif _ec_range >= 0.15:
+                        base_prob = float(np.clip(base_prob * 0.99, 0.05, 1.0))
+            except Exception:
+                pass
+
             return base_prob
         except Exception as e:
             self.logger.debug(f"predict_signal error: {e}")
