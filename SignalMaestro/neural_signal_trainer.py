@@ -1640,26 +1640,52 @@ class NeuralSignalTrainer:
                               + TorchTransformerPredictor._TORCH_WEIGHT * torch_prob)
                 base_prob  = float(np.clip(base_prob, 0.05, 1.0))
 
-            # v60.0: HistGBT ensemble blend — 70% MLP + 30% HistGBT when fitted.
-            # Blending happens AFTER the Torch blend (which may have updated base_prob),
-            # so the final probability benefits from all three orthogonal predictors:
-            # MLP (smooth boundary), Transformer (attention sequence), HistGBT (threshold).
+            # v64.0: Unified 3-way tree consensus blend.
+            # When HistGBT + ExtraTrees are both fitted, compute an accuracy-weighted
+            # tree consensus FIRST (prevents double-counting of tree weight when both
+            # are available), then blend the consensus against the neural base_prob.
+            # Total tree contribution is capped at 40% to preserve neural-net dominance.
+            # Fallback: if only one tree is fitted, apply that tree's individual blend.
+            # Sequential v60-v63 design (HistGBT first, then ET) could effectively
+            # over-weight trees when both fit: e.g. 30%+15%=45% combined but compounded.
+            # The unified design is explicit and bounded.
             _hgbt_blend = getattr(self, "_hgbt", None)
-            if _hgbt_blend is not None:
+            _et_blend   = getattr(self, "_et",   None)
+            if _hgbt_blend is not None and _et_blend is not None:
+                # Both tree models fitted → unified accuracy-weighted tree consensus
                 try:
                     _hg_p    = _hgbt_blend.predict_proba(X_norm)
                     _hg_prob = float(_hg_p[0, 1]) if _hg_p.shape[1] > 1 else float(_hg_p[0, 0])
-                    _hw = float(getattr(self, "_hgbt_weight", 0.30))   # v61.0: adaptive weight
+                    _et_p    = _et_blend.predict_proba(X_norm)
+                    _et_prob = float(_et_p[0, 1]) if _et_p.shape[1] > 1 else float(_et_p[0, 0])
+                    _hw       = float(getattr(self, "_hgbt_weight", 0.30))   # v61.0 adaptive
+                    _ew       = float(getattr(self, "_et_weight",   0.15))   # v63.0 adaptive
+                    _tree_sum = _hw + _ew
+                    # Weighted average within the tree ensemble
+                    _tree_consensus = (
+                        (_hw * _hg_prob + _ew * _et_prob) / _tree_sum
+                        if _tree_sum > 0.0
+                        else (_hg_prob + _et_prob) / 2.0
+                    )
+                    # Total tree weight capped at 40% to preserve neural dominance
+                    _total_tree_w = min(_tree_sum, 0.40)
+                    base_prob = float(np.clip(
+                        (1.0 - _total_tree_w) * base_prob + _total_tree_w * _tree_consensus,
+                        0.05, 1.0
+                    ))
+                except Exception:
+                    pass
+            elif _hgbt_blend is not None:
+                # Only HistGBT fitted — single-tree blend (original v60-v63 path)
+                try:
+                    _hg_p    = _hgbt_blend.predict_proba(X_norm)
+                    _hg_prob = float(_hg_p[0, 1]) if _hg_p.shape[1] > 1 else float(_hg_p[0, 0])
+                    _hw      = float(getattr(self, "_hgbt_weight", 0.30))
                     base_prob = float(np.clip((1.0 - _hw) * base_prob + _hw * _hg_prob, 0.05, 1.0))
                 except Exception:
                     pass
-
-            # v63.0: ExtraTreesClassifier 3rd ensemble blend.
-            # Applied after the HistGBT blend so all three orthogonal models
-            # contribute sequentially: MLP (smooth) → HistGBT (optimised thresholds)
-            # → ExtraTrees (random thresholds, noise-robust).
-            _et_blend = getattr(self, "_et", None)
-            if _et_blend is not None:
+            elif _et_blend is not None:
+                # Only ExtraTrees fitted (HistGBT not trained yet)
                 try:
                     _et_p    = _et_blend.predict_proba(X_norm)
                     _et_prob = float(_et_p[0, 1]) if _et_p.shape[1] > 1 else float(_et_p[0, 0])
