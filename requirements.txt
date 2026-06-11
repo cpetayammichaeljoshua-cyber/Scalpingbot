@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v70.0 — Production requirements.txt
+# Unity Engine v71.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-11 (v70.0 — NNQualGate-Adaptive-20% | CPCVChanceGuard | G9-WR20%-70pt | IRONS-WR18-20%-72 | ModelHeartbeat300s)
+# Last verified: 2026-06-11 (v71.0 — StaleFix-G10/G9/IRONS | NNFastBoot2min | ConsortiumDynTimeout | AnthropicNoise-Debug)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 75-feature NN v12 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

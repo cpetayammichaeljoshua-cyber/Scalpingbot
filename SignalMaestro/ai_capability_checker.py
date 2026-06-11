@@ -184,7 +184,7 @@ class AICapabilityChecker:
             "task-auditor-fix=ACTIVE(v19.2 Task-prefix+watched_task-inner-names exempted) | "
             "Kelly24-DeepDD-CB=ACTIVE(v19.3 MaxDD>40%+Calmar<0→×0.65/Sharpe<-4→×0.80) | "
             "HMM21-recal=ACTIVE(v19.3 EXPANSION×1.25 P≥0.75+SR≥0/CONTRACTION×0.60 P≥0.65) | "
-            "IRONS-sync=ACTIVE(v40.0 Bayes×0.85+ring×0.15 blend WR<20%→73/WR<25%→71.5/WR<30%→70/WR30-45%→67) | "
+            "IRONS-sync=ACTIVE(v70.0 Bayes×0.85+ring×0.15 blend WR<18%→73/WR<20%→72/WR<25%→71.5/WR<30%→70/WR30-45%→67) | "
             "shadow-mode-fix=ACTIVE(v19.4 Bayesian-blend WR paper_mode threshold=0.27) | "
             "EV-flow-fix=ACTIVE(v38.0 EV_MIN=28bps stacking-cap=1.20×=33.6bps drought-3×faster Step4b-Bayes) | "
             "G9-SovRecovery-fix=ACTIVE(v19.6 Bayes-blend+threshold 38%→28%) | "

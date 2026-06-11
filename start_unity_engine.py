@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
 """
-Unity Engine v70.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v71.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GEX · SRM):
+ v71.0 improvements [2026-06-11]:
+   1. STALE DISPLAY FIXES — Gate 10 boot label still showed v38.0 tier values
+      (WR<20%→73 for all); updated to v70.0 split: WR<18%→73 | WR<20%→72 | WR<25%→71.5.
+      G9_WR-tiers KEY GATES comment updated WR<20%→72→70 (v70.0 changed G9 floor).
+      IRONS-sync capability stamp updated to v70.0 5-tier split (WR<18%/20%/25%/30%/30-45%).
+      G9 inline comment updated: WR<20%: floor=70 (was stale 72).
+   2. ANTHROPIC LOG NOISE — AIOrchestrationAgent "anthropic not found" was logging at
+      INFO on every boot despite being expected (engine uses OpenRouter, not Anthropic
+      direct). Changed to DEBUG level — no console noise on normal startup.
+   3. NN FAST-BOOT 5min→2min — first NN retrain now fires at 2min post-boot instead
+      of 5min. At WR=18-26% the NN adaptive quality gate (v70.0: 20%) needs to be
+      active as early as possible. 2min allows 2 full scan cycles before first eval.
+   4. CONSORTIUM DYNAMIC TIMEOUT — when perm_disabled models reduce the available pool,
+      consortium now scales its per-model timeout to avoid burning 16s per dead model.
+      Effective timeout = max(6s, 16s × healthy_fraction) — faster fallback to
+      ULTRAPLINIAN when free-tier model storm disables multiple routes simultaneously.
  v70.0 improvements [2026-06-11]:
    1. NN QUALITY GATE ADAPTIVE (neural_signal_trainer.py):  The win_acc gate was hardcoded
       at 28% regardless of the current WR regime.  At training WR<25% (live WR=18-25%),
@@ -122,21 +138,21 @@ ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v70.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+KEY GATES (v71.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
   IRONS_MIN=70(WR<30%)+72(WR<20%)+73(WR<18%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-7pts,DD>47%→-5pts,DD>43%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
   G8.5m:BTC_GEX±2pts+FLIP_DIR±3.5pts | G8.5n:MULTI_FLIP−2pts |
   G8.5e:HMM_DIR±8pts(EXP≥0.75)/−10pts(CONT≥0.65) | G1_GEX_RR:3/3→+0.15 2/3→+0.08 |
-  G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4.5pt[v59.0] | G9_WR-tiers:WR<15%→74,WR<20%→72,WR<25%→70,WR<30%→69,WR<35%→68[v59.0] | Kelly22:F&G×0.80(consec3→×0.60) |
+  G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4.5pt[v59.0] | G9_WR-tiers:WR<15%→74,WR<20%→70,WR<25%→70,WR<30%→69,WR<35%→68[v70.0:WR<20%72→70] | Kelly22:F&G×0.80(consec3→×0.60) |
   Kelly23:GEX_DIR×0.80+3FLIP×0.85 | Kelly24:DeepDD_MaxDD>40%+Calmar<0→×0.65 | Kelly25:UltraDD_MaxDD>50%+Calmar<0→×0.50 |
   HMM21:EXPANSION×1.25(P≥0.75,SR≥0)/CONTRACTION×0.60(P≥0.65) |
   NN_v11:70feat(+5regime+5microstructure) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v70.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v71.0] |
   Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) | Kelly30:MaxDD-UltraRuin(DD>48%→cap0.15%,DD>50%→cap0.05%) |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
@@ -1858,7 +1874,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "70.0"
+UNITY_VERSION                = "71.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -8960,9 +8976,10 @@ class UnitySignalFilter:
 
         # ── Gate 9 — Composite quality floor (adaptive v11.3, base v5.8) ──────
         # v11.3: Floor now scales with demonstrated WR (mirrors IRONS adaptive floor).
-        # WR-tier adaptive floors (v38.0 recalibrated for base=67):
-        # WR<20%: floor=72. WR<25%: floor=70. WR<30%: floor=69. WR<35%: floor=68.
-        # WR 35-50%: base=67. Recovery bonus at WR≥42%+Sharpe>0: floor−1pt. [v38.0]
+        # WR-tier adaptive floors (v70.0 recalibrated; base=67):
+        # WR<15%: floor=74. WR<20%: floor=70. WR<25%: floor=70. WR<30%: floor=69. WR<35%: floor=68.
+        # WR 35-50%: base=67. Recovery bonus at WR≥42%+Sharpe>0: floor−1pt.
+        # v70.0: WR<20% relaxed 72→70 (was 72; co-equal with IRONS WR<18%→73/WR<20%→72 v70.0 split).
         _g9_floor = float(SIGNAL_MIN_QUALITY_GATE)
         if self._booster is not None:
             _g9_ring = self._booster._win_ring
@@ -13063,7 +13080,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·NNFastBoot2min[v71.0]·ConsortiumDynTimeout[v71.0]·IROnSDisplayFix[v71.0]·G9WR-tiers-70[v71.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-DynTimeout[v71.0]·NNFastBoot2min[v71.0]·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -13101,7 +13118,7 @@ class UnityEngine:
         logger.info(f"   Gate 8.5— Dyn Backtester     {_dbt_status}  ← per-symbol 15m proxy strategy backtest, refresh @1800s [v10.0]")
         logger.info(f"   Gate 8.5— MiroFish Sim Bias  {_msim_status}  ← 10-agent swarm simulation, fallback when DYN_BACKTEST has <{UNITY_DBT_MIN_TRADES} trades [v10.0]")
         logger.info(f"   Gate 9  — Quality Floor      ≥ {SIGNAL_MIN_QUALITY_GATE:.0f}/100 composite score")
-        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-73/100 WR-driven [v38.0: WR<30%→70 | WR<25%→71.5 | WR<20%→73 | WR30-45%→67]")
+        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-73/100 WR-driven [v70.0: WR<30%→70 | WR<25%→71.5 | WR<20%→72 | WR<18%→73 | WR30-45%→67]")
         logger.info(f"   Layer 2.7 UT Bot Strategy    {_utbot_status}  ← UT Bot Alerts + STC confirmation [v6.0]")
         logger.info("")
         logger.info("💰 KELLY CRITERION:")
@@ -15442,7 +15459,7 @@ class UnityEngine:
         # retrains soon after startup on the latest accumulated outcomes with
         # class-balanced loss (current snapshot was trained on 952 samples
         # while DB holds 2241+). Subsequent runs use the full 2h interval.
-        await asyncio.sleep(300)
+        await asyncio.sleep(120)  # v71.0: 300s→120s — faster crisis-boot NN init; engine at WR=18-26% needs NN quality-gate (adaptive 20%) active ASAP to begin filtering; 5min was designed for healthy WR; 2min gives the retrain queue 2 full scan cycles to populate before first NN evaluation
 
         while True:
             try:
@@ -16383,7 +16400,7 @@ class UnityEngine:
             self._logger.info(
                 f"✅ [L5] NN Retrain background task started "
                 f"(interval={NN_RETRAIN_INTERVAL_SEC//60}min, "    # v19.7: //3600h→//60min fix
-                f"first run in 5min [v9.0 fast-boot])"
+                f"first run in 2min [v71.0 fast-boot: 5min→2min crisis-boot])"
             )
 
         # v5.2: watchdog + persistence + health-server tasks always start

@@ -1758,9 +1758,9 @@ class AIOrchestrationAgent:
                     f"| fallback cascade: {_fallbacks}"
                 )
             else:
-                self.logger.info("ℹ️  AIOrchestrationAgent: No ANTHROPIC_API_KEY — Claude disabled")
+                self.logger.debug("ℹ️  AIOrchestrationAgent: No ANTHROPIC_API_KEY — Claude disabled (using OpenRouter)")
         except ImportError:
-            self.logger.info("ℹ️  AIOrchestrationAgent: anthropic package not found — Claude disabled")
+            self.logger.debug("ℹ️  AIOrchestrationAgent: anthropic package not found — Claude disabled (using OpenRouter via godmod3)")
         except Exception as e:
             self.logger.debug(f"Claude init error: {e}")
 

@@ -2169,6 +2169,21 @@ class G0DM0D3Engine:
         # Auto-reset soft-disabled models if most are down
         self._auto_reset_soft_disabled(available_models, "consortium_all")
 
+        # v71.0: Dynamic per-model timeout — scale CONSORTIUM_TIMEOUT by the
+        # healthy-model fraction.  When perm_disabled / session storms cut the
+        # available pool to e.g. 4/12 models, waiting the full 16s per model
+        # wastes clock on slots we already know won't respond.
+        # Formula: effective = max(6.0, CONSORTIUM_TIMEOUT × (n_available/n_total))
+        # clamped to [6s, CONSORTIUM_TIMEOUT].  Full pool → full timeout unchanged.
+        _healthy_frac   = n_available / max(1, n_total)
+        _dyn_timeout    = max(6.0, self._CONSORTIUM_TIMEOUT * _healthy_frac)
+        if _dyn_timeout < self._CONSORTIUM_TIMEOUT:
+            self.logger.debug(
+                f"🏛️ CONSORTIUM dynamic timeout: {_dyn_timeout:.1f}s "
+                f"(base {self._CONSORTIUM_TIMEOUT}s × {_healthy_frac:.2f} "
+                f"healthy fraction {n_available}/{n_total} available) [v71.0]"
+            )
+
         # v22.0: Staggered launch — 0.5s delay per model offsets start times so
         # rate-limit windows don't expire and refill simultaneously across all models.
         # Prevents the "simultaneous burst" pattern where all 9 models arrive at the
@@ -2183,7 +2198,7 @@ class G0DM0D3Engine:
                 await asyncio.sleep(_stagger_idx * 0.5)
             return await asyncio.wait_for(
                 self._call_model_consortium(_model, system_prompt, user_prompt, params),
-                timeout=self._CONSORTIUM_TIMEOUT + 3.0,
+                timeout=_dyn_timeout + 3.0,   # v71.0: use dynamic timeout (was hardcoded CONSORTIUM_TIMEOUT+3.0)
             )
 
         consortium_tasks = [
