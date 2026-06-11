@@ -1931,16 +1931,22 @@ class FXSUSDTTelegramBot:
                     elif _fg_val < 20:
                         # NOTE: _fg_val is in (10, 20) here — the <= 10 branch is
                         # handled above.  Tiered penalty: deeper fear = heavier penalty.
+                        # v69.0: Reduced penalties 15/10/5 → 8/5/3.
+                        # Rationale: −15pt at F&G=12 reduced conf ~79→64% → pre-skip
+                        # fires (64+15max_boost=79 < 89% threshold). Signal never
+                        # reaches NN/IRONS quality gates that are better calibrated for
+                        # genuine reversals. −8pt at F&G=12 → conf ~79→71% → pre-skip
+                        # can resolve with boosts. All hard quality gates still apply.
                         if _fg_val < 13:
-                            _fear_penalty = 15.0
+                            _fear_penalty = 8.0    # v69.0: 15→8pt crash-zone
                         elif _fg_val < 15:
-                            _fear_penalty = 10.0
+                            _fear_penalty = 5.0    # v69.0: 10→5pt deep fear
                         else:
-                            _fear_penalty = 5.0
+                            _fear_penalty = 3.0    # v69.0: 5→3pt mild fear
                         signal.confidence = max(0.0, signal.confidence - _fear_penalty)
                         self.logger.info(
                             f"😱 [{symbol}] Fear gate: F&G={_fg_val} < 20 — "
-                            f"BUY penalty -{_fear_penalty:.0f}pt → conf={signal.confidence:.1f}%"
+                            f"BUY penalty -{_fear_penalty:.0f}pt [v69.0] → conf={signal.confidence:.1f}%"
                         )
 
                 # ── v8.2 Fear & Greed DIRECTIONAL REGIME BONUS ───────────────

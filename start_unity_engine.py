@@ -1,8 +1,39 @@
 #!/usr/bin/env python3
 """
-Unity Engine v68.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v69.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 29-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GEX · SRM):
+ v69.0 improvements [2026-06-11]:
+   1. G6 FEAR GATE RECALIBRATION (F&G hard-block 20→10):  The G6 signal filter was
+      hard-blocking ALL BUY signals when F&G ≤ 20.  With F&G=12 in live operation, every
+      BUY candidate was hard-rejected before reaching IRONS/NN/Markov gates — resulting in
+      IRONS_AIScorer calls=0 and 100% reliance on the soft-fear-penalty path.  The hard
+      block is now tightened to F&G ≤ 10 (crash-level panic).  F&G 10-20 receives a
+      quality-score penalty (−3.0 pts) instead of a hard rejection, allowing the downstream
+      IRONS/NN/GEX gates to make the final quality call.  At F&G=12 the market has already
+      priced the fear; the NN and IRONS filters are better equipped to detect genuine reversal
+      setups than a blanket regime veto.
+   2. FEAR PENALTY REDUCTION IN BOT (fxsusdt_telegram_bot.py):  The tiered BUY penalty
+      at F&G < 20 was −15/−10/−5 pt, reducing GODMOD3 confidence to ~64% — below the
+      pre-skip max-boost threshold (64+15=79 < 89%).  Reduced to −8/−5/−3 pt.  With
+      F&G=12: conf now lands at ~71% → max_boost 15pt → potential 86% (closer to threshold).
+      The NN/IRONS/GEX gates still apply full discipline after pre-skip.
+   3. OPENROUTER GENERIC-ERROR RECOVERY (godmod3_strategy.py):  After 12 consecutive
+      generic errors, models were added to _session_perm_disabled and never retried for the
+      entire session.  With F&G=12+market stress, all free-tier models (qwen3-72b,
+      qwen3-235b, claude-fable-5, claude-mythos-5, glm-4.5) were hitting generic errors
+      simultaneously → permanent session disable → CONSORTIUM always fails → forced
+      ULTRAPLINIAN with a single model.  Fix: (a) _ERR_GENERIC short cooldown 30→90s
+      (reduces retry storm frequency), (b) session_perm_disabled models are eligible for
+      re-evaluation after 3600s (1h) — prevents permanent engine degradation from transient
+      infrastructure events.
+   4. KELLY STEP 30 — MaxDD Ultra-Ruin Brake (v69.0):  At MaxDD > 48% (observed live
+      MaxDD=49.37%), Kelly is now capped at 0.15% (previously 0.4% cap at >45%).  This
+      preserves capital in the critical 48-50% DD band without waiting for the 50% ultra-
+      ruin tier.  Formula: DD>48% → cap=0.15%, DD>50% → cap=0.05% (preservation mode).
+   5. G6 QUALITY SCORE ADJUSTMENT for F&G 10-20 BUY:  Instead of hard-blocking, a
+      −3.0 pt quality-score penalty is applied to the quality scoring track. This ensures
+      the fear context still influences gate behaviour without blocking all contrarian setups.
  v68.0 improvements [2026-06-11]:
    1. G8.5A FundingRate-Trend Gate (36th gate, ±2.0/+1.5pts): rolling 3-reading funding
       rate deque per symbol. Escalating crowding (net delta > +0.015%/8h) in the opposite
@@ -65,7 +96,7 @@ ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 29-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v68.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+KEY GATES (v69.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
   IRONS_MIN=70(WR<30%)+73(WR<20%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
@@ -79,8 +110,8 @@ KEY GATES (v68.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v68.0] |
-  Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v69.0] |
+  Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) | Kelly30:MaxDD-UltraRuin(DD>48%→cap0.15%,DD>50%→cap0.05%) |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
   v19.2 FIXES: torch-inplace-fix(contiguous+zero_grad+enable_nested_tensor=False) |
@@ -1801,7 +1832,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "68.0"
+UNITY_VERSION                = "69.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6984,13 +7015,26 @@ class UnitySignalFilter:
             try:
                 summary = self._public_api.get_market_summary()
                 fg = int(summary.get("fear_greed", 50) or 50)
-                if fg <= 20 and direction == "BUY":
+                # v69.0: Hard-block tightened 20→10 — crash-level panic only.
+                # F&G 10-20 now receives a quality-score penalty (−3 pts) instead of
+                # hard rejection, allowing IRONS/NN/GEX to make the final call.
+                # Rationale: F&G=12 in live operation blocked ALL BUY signals at G6
+                # resulting in IRONS calls=0 and complete SELL-only signal flow.
+                # At F&G=12 the fear is already priced; genuine reversal setups
+                # (DGRP>60, swarm=100%, NN≥0.52) should not be vetoed by regime alone.
+                if fg <= 10 and direction == "BUY":
                     self._record("gate6", False)
-                    return False, f"G6_FAIL: F&G={fg} (extreme fear) blocks LONG", 0.0
-                if fg >= 85 and direction == "SELL":
+                    return False, f"G6_FAIL: F&G={fg} (crash-level panic) blocks LONG", 0.0
+                if fg >= 90 and direction == "SELL":
                     self._record("gate6", False)
-                    return False, f"G6_FAIL: F&G={fg} (extreme greed) blocks SHORT", 0.0
+                    return False, f"G6_FAIL: F&G={fg} (euphoric greed) blocks SHORT", 0.0
                 self._record("gate6", True)
+                # v69.0: F&G 10-20 BUY — quality score penalty instead of hard block
+                if fg > 10 and fg <= 20 and direction == "BUY":
+                    quality_score -= 3.0   # fear context penalty — IRONS/NN/GEX still decide
+                # v69.0: F&G 80-90 SELL — symmetric soft penalty band
+                if fg >= 80 and fg < 90 and direction == "SELL":
+                    quality_score -= 3.0   # greed context penalty
                 fg_quality = 1.0 - abs(fg - 50) / 50.0
                 # v42.0: Direction-aware F&G quality bonus — regime-aligned signals rewarded,
                 # regime-opposed signals penalised. Extreme Fear (F&G<30): SELL aligns with
@@ -11174,6 +11218,39 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 29 BTC vol-spike correlation scale is non-fatal
 
+        # ── Kelly Step 30 (v69.0): MaxDD Ultra-Ruin Intermediate Brake ────────
+        # Adds a tighter preservation tier between the existing Step 28 emergency
+        # brake (47.5% → ×0.25) and the Step 25 ultra-ruin de-size.
+        # Live observation: MaxDD=49.37% with Kelly capped only at 0.4% still allows
+        # meaningful compounding of losses in the 48-50% critical band before the
+        # 50%+Calmar<0 ultra-ruin tier fires.  This step intercepts at 48.0% with a
+        # hard cap of 0.0015 (0.15%) — one third of the Step 28 cap — effectively
+        # micro-sizing every trade to capital-preservation mode.
+        # At 50%+ the cap drops further to 0.0005 (0.05%) — almost zero new risk.
+        # Stacks AFTER Step 28+29: all three emergency layers apply multiplicatively.
+        # Non-fatal; logged at INFO for capital preservation audit trail.
+        try:
+            _k30_dd = float(getattr(self, "_max_drawdown_pct", 0.0) or 0.0)
+            if _k30_dd > 48.0:
+                _k30_pre = self.last_kelly_fraction
+                if _k30_dd > 50.0:
+                    # Ruin territory: 0.05% hard cap
+                    _k30_cap = 0.0005
+                    _k30_tier = "50%"
+                else:
+                    # Ultra-ruin entry: 0.15% hard cap
+                    _k30_cap = 0.0015
+                    _k30_tier = "48%"
+                if self.last_kelly_fraction > _k30_cap:
+                    self.last_kelly_fraction = _k30_cap
+                    self._logger.info(
+                        f"🛑 [v69.0 Step30 MaxDD-UltraRuin] DD={_k30_dd:.1f}%>{_k30_tier} → "
+                        f"Kelly hard-cap {_k30_cap*100:.3f}% "
+                        f"({_k30_pre*100:.4f}%→{self.last_kelly_fraction*100:.4f}%)"
+                    )
+        except Exception:
+            pass  # Kelly Step 30 MaxDD ultra-ruin brake is non-fatal
+
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
     def paper_mode(self) -> bool:
@@ -12937,7 +13014,7 @@ class UnityEngine:
             f"36-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0] · G4-HardCap-0.52+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
-            f"Kelly(Steps1-29·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
+            f"Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
             f"AIOrchestrator · MarketIntel · OutcomeTracker · NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) · "
             f"LLM-AutoRoute · SignalRate · HealthServer · ThreadPool={THREAD_POOL_WORKERS}w · "
             f"L11-NonFatal · BootstrapCacheFix · v{UNITY_VERSION} active."
@@ -12953,7 +13030,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-29·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-28%[v67.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-28%[v67.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")

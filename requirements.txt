@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v68.0 — Production requirements.txt
+# Unity Engine v69.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-11 (v68.0 — G8.5A-FundingTrend | Kelly29-BTC-ATR | G8.5U-5gate | NN-v12-75feat | CPCV-K3 | 36-gate filter)
+# Last verified: 2026-06-11 (v69.0 — G6-FearGate10 | FearPenalty8/5/3pt | SessionPermRecover | Kelly30-MaxDD-UltraRuin | ERR_GENERIC-90s)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 75-feature NN v12 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

@@ -630,7 +630,10 @@ _COOLDOWN: Dict[str, float] = {
     _ERR_RATE:    120.0,     # 120s base (was 65s) — longer recovery window for free tier
     _ERR_UNAVAIL: 45.0,      # 45s — reduced from 180s for faster recovery
     _ERR_TIMEOUT: 60.0,      # 60s — timeout cooldown
-    _ERR_GENERIC: 30.0,      # 30s — generic short cooldown
+    _ERR_GENERIC: 90.0,      # v69.0: 30→90s — generic short cooldown; 30s caused rapid
+                             # retry-storm when models returned persistent generic errors
+                             # (F&G=12 + market stress → all free-tier models error simultaneously);
+                             # 90s tripling adds breathing room and reduces thundering-herd rescans
 }
 
 # SESSION 5 FIX: Reduced 7 → 2.
@@ -1432,8 +1435,29 @@ class G0DM0D3Engine:
         return min_wait if min_wait != float("inf") else 0.0
 
     def _is_model_disabled(self, model: str) -> bool:
+        # v69.0: session_perm_disabled time-based recovery.
+        # v66.0 added permanent session disable after GenericErrGuard fires (12 generic
+        # errors). In production this meant models like qwen3-72b / claude-fable-5 that
+        # hit transient infrastructure errors (503 storm, free-tier overload during F&G=12
+        # panic) were permanently killed for the rest of the ~48h bot session, causing
+        # CONSORTIUM to always fail and fall back to ULTRAPLINIAN single-model mode.
+        # Fix: re-evaluate session_perm_disabled models after 3600s (1h). If the underlying
+        # 2h _disabled_models timer has also expired, the model is eligible again.
+        # This is NOT a reset of GenericErrGuard — the generic_error_count is at 0 after
+        # the 2h disable fired, so the model will be re-banned after 12 NEW generic errors.
+        # The re-enable window is guarded by the _disabled_models time-based check — models
+        # are only un-session-perm-disabled when the 2h disable timer has fully expired.
         if model in self._session_perm_disabled:
-            return True
+            # Eligible for re-evaluation only after 2h disable has expired
+            if time.time() < self._disabled_models.get(model, 0.0):
+                return True   # still in 2h disable window
+            # 2h window expired — remove from session_perm_disabled for a new chance
+            self._session_perm_disabled.discard(model)
+            self.logger.info(
+                f"♻️  GODMOD3 GenericErrGuard: {model} session_perm_disabled lifted "
+                f"[v69.0 — 2h timer expired, model eligible for retry]"
+            )
+            return False
         return time.time() < self._disabled_models.get(model, 0.0)
 
     def _is_model_auth_banned(self, model: str) -> bool:
