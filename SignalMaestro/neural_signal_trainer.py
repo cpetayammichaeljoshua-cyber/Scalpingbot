@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 70 features → 14 tokens × 5 dims (70 = 14 × 5) [v49.0: was 13×5=65]
-_TORCH_N_TOKENS  = 14
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v11: 70 = 14×5)
+# Transformer tokenisation: reshape 75 features → 15 tokens × 5 dims (75 = 15 × 5) [v68.0: was 14×5=70]
+_TORCH_N_TOKENS  = 15
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v12: 75 = 15×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 70  # v11 (v49.0): 65 + 5 microstructure features (funding_extreme, ofi_aligned, liq_cascade_dir, momentum_aligned, vol_spike_flag) = 70
+INPUT_DIM          = 75  # v12 (v68.0): 70 + 5 regime/crowding features (funding_trend, btc_atr_spike, corr_regime_flag, dgrp_vel_norm, vol_compress_flag) = 75
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -715,6 +715,44 @@ def build_features(trade: Dict) -> "np.ndarray":
         f.append(-1.0)                                                          # 70 volume drought
     else:
         f.append(0.0)                                                           # 70 normal volume
+
+    # ── v12 Regime/Crowding features (71-75) — v68.0 ─────────────────────────
+    # F71: funding_trend — net direction of 3-reading funding rate delta
+    #   +1.0 = funding escalating in UNFAVORABLE direction for signal (crowding warning)
+    #   -1.0 = funding trending toward 0 / de-crowding (relief signal)
+    #    0.0 = no significant trend or neutral
+    _v12_dir = 1.0 if trade.get("action", "BUY") == "BUY" else -1.0
+    _v12_fr_trend = _safe_float(trade.get("funding_rate_trend", 0.0), 0.0)
+    # fr_trend = net funding delta sign × direction: +1 = bad trend, -1 = favorable trend
+    if abs(_v12_fr_trend) > 0.00015:
+        _v12_f71 = 1.0 if (_v12_fr_trend > 0 and _v12_dir > 0) or (_v12_fr_trend < 0 and _v12_dir < 0) else -1.0
+    else:
+        _v12_f71 = 0.0
+    f.append(_v12_f71)                                                          # 71 funding_trend
+
+    # F72: btc_atr_spike — BTC ATR relative to 20-bar mean
+    #   +1.0 = BTC ATR spike (ATR > 2× mean) → elevated cross-asset vol risk for alts
+    #    0.0 = normal ATR environment
+    _v12_btc_atr_spike = _safe_float(trade.get("btc_atr_spike", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v12_btc_atr_spike)))                           # 72 btc_atr_spike
+
+    # F73: corr_regime_flag — BTC-ALT rolling correlation regime
+    #   +1.0 = high correlation regime (BTC/ALT corr > 0.88) → macro-dominated
+    #    0.0 = normal / low correlation
+    _v12_corr = _safe_float(trade.get("corr_regime_flag", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v12_corr)))                                    # 73 corr_regime_flag
+
+    # F74: dgrp_vel_norm — normalized DGRP velocity (raw velocity / 10, clipped ±1)
+    #   +1.0 = rapidly improving dealer gamma regime (bullish)
+    #   -1.0 = rapidly deteriorating dealer gamma regime (bearish)
+    _v12_dgrp_vel = _safe_float(trade.get("dgrp_velocity", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v12_dgrp_vel / 10.0)))                        # 74 dgrp_vel_norm
+
+    # F75: vol_compress_flag — ATR at historical low-percentile (pre-breakout compression)
+    #   +1.0 = ATR ≤ 25th percentile (compressed, pre-breakout condition)
+    #    0.0 = normal or expanding vol
+    _v12_vc = _safe_float(trade.get("vol_compress_flag", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v12_vc)))                                      # 75 vol_compress_flag
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
@@ -2413,17 +2451,20 @@ class NeuralSignalTrainer:
             y_flat = y_all.flatten().astype(int)
             acc    = float(np.mean(preds == y_flat))
 
-            # v62.0: CPCV Reliability Signal — Combinatorial Purged Cross-Validation.
-            # Computes K=2 walk-forward fold OOS accuracy to detect regime overfit.
+            # v68.0: CPCV Reliability Signal — Combinatorial Purged Cross-Validation K=3.
+            # Upgraded from K=2 → K=3 walk-forward folds for better out-of-sample reliability.
             # Reference: De Prado (2018) AFML ch.12 — simplified time-series-safe variant.
-            # When val_acc materially exceeds the CPCV avg (gap > 0.04): the model has
-            # overfit to the most recent regime → raise _opt_threshold by up to +3pp.
-            # Two temporal folds with 2-sample purge at each boundary prevent leakage.
-            # Guard: requires n ≥ 45 (≥15 samples per fold); non-fatal on any error.
+            # When val_acc materially exceeds the CPCV avg (gap > 0.07): the model has
+            # overfit to the most recent regime → raise _opt_threshold by up to +2pp.
+            # Three temporal folds with purge at each boundary prevent data leakage.
+            # K=3 improves overfit detection reliability: single fold K=2 occasionally passes
+            # genuinely overfit models when the one held-out fold happens to generalize well
+            # by luck; K=3 average is far more robust to this sampling noise.
+            # Guard: requires n ≥ 60 (≥20 samples per fold); non-fatal on any error.
             try:
-                if n >= 45:
+                if n >= 60:
                     _cpcv_accs = []
-                    for _sp in [n // 3, (2 * n) // 3]:
+                    for _sp in [n // 4, n // 2, (3 * n) // 4]:
                         _purge  = min(3, _sp // 10)
                         _tr_i   = list(range(0, _sp - _purge))
                         _te_end = min(_sp + max(8, n // 3), n)
@@ -2460,13 +2501,13 @@ class NeuralSignalTrainer:
                             self._reject_threshold = max(0.38, self._opt_threshold * 0.62)
                             self._boost_threshold  = min(0.85, self._opt_threshold + 0.15)
                             self.logger.info(
-                                f"🔬 [v62.0 CPCV] K=2 walk-fwd folds={[f'{a:.1%}' for a in _cpcv_accs]} "
+                                f"🔬 [v68.0 CPCV] K=3 walk-fwd folds={[f'{a:.1%}' for a in _cpcv_accs]} "
                                 f"avg={_cpcv_avg:.1%} val={acc:.1%} gap={_cpcv_gap:+.1%} "
                                 f"→ thresh {_cpcv_old:.3f}→{self._opt_threshold:.3f} (+{_cpcv_adj:.3f})"
                             )
                         else:
                             self.logger.debug(
-                                f"🔬 [v62.0 CPCV] K=2 walk-fwd: avg={_cpcv_avg:.1%} "
+                                f"🔬 [v68.0 CPCV] K=3 walk-fwd: avg={_cpcv_avg:.1%} "
                                 f"val={acc:.1%} gap={_cpcv_gap:+.1%} → thresh unchanged"
                             )
             except Exception:
