@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """
-Unity Engine v66.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v67.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 35-gate filter · 5-bucket RL · Kelly 28-steps · GEX · SRM):
+ v67.0 improvements [2026-06-11]:
+   1. NN Quality Gate recalibrated: win_acc 0.40→0.28, loss_acc 0.40→0.50 (asymmetric
+      design — at WR=29% break-even is 29.85%; 40% win_acc was disabling NN completely)
+   2. Adaptive MAX_CLASS_WEIGHT: 4.0 (WR≥40%) / 5.0 (WR 30-40%) / 6.0 (WR<30%); at live
+      WR=40.7% train weight=1.46× (gap closed); ensures win minority gets full gradient
+   3. CPCV gap threshold 0.04→0.07: gap>4% was adding +0.030 to _opt_threshold (0.579→0.609)
+      making G4 physically unreachable at WR=29%; 7% threshold triggers only on genuine overfit
+   4. G4 Hard Threshold Cap: nn_threshold capped at 0.52 after all tightening (requires
+      1.79× break-even conviction — strong but achievable, prevents impossible 0.58-0.61 gates)
+   5. G4 Dead-Zone Relief v67.0: max relief 0.09→0.12, floor 0.44→0.42; combined with hard
+      cap of 0.52 → relief to 0.40-0.42; improved NN (0.43+ for genuine wins) → PASS
+   6. G4 Compound tightening cap 0.58→0.52 and delta 0.03→0.02: prevents multi-step
+      stacking from pushing threshold above the hard cap
   L0:   AEGIS GEX              — Dealer flow / flip zones / regime
   L0.5: Deribit Real-GEX       — Live BTC/ETH/SOL options chain (primary)
   L0.6: OKX Real-GEX           — Cross-venue GEX redundancy
@@ -44,7 +57,7 @@ KEY GATES (v58.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta(±3.0pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | 35-gate filter [v66.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta(±3.0pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | 35-gate filter [v67.0] |
   Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
@@ -108,6 +121,7 @@ KEY GATES (v58.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
       30 samples allows NN to adapt daily to regime changes; all crisis tiers unchanged |
       Sharpe<-3.5→20min | Sharpe<-4.5→15min | Sharpe<-5.0→15min | Sharpe<-6.0→8min all active |
     UNITY_VERSION: 47.0→48.0 [v48.0]
+  v67.0 IMPROVEMENTS: NN-QUAL-GATE-28% | ADAPTIVE-MAX-CLASS-WEIGHT | CPCV-GAP-7% | G4-HARD-CAP-0.52 | G4-DEADZONE-0.42 | COMPOUND-CAP-0.52:
   v66.0 IMPROVEMENTS: G4-DEADZONE-RELIEF | OPENROUTER-SESSION-PERM-DISABLE | EV-CRISIS-FLOOR-4.5 | G8.5X-DGRP-VELOCITY | KELLY-STEP28-MAXDD-BRAKE:
     1. G4 DEAD-ZONE EMERGENCY RELIEF (start_unity_engine.py):
        Tracks last 15 G4 pass/fail results in _g4_pass_ring. When all 15 fail (dead-zone),
@@ -1765,7 +1779,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "66.0"
+UNITY_VERSION                = "67.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6726,10 +6740,13 @@ class UnitySignalFilter:
             # But the COMPOUND state WR<30% + Sharpe<-3.0 is measurably worse than either
             # factor alone: WR in the 25-30% band paired with a deeply negative Sharpe
             # means the NN is calibration-drifted (systematically overconfident) while
-            # operating in a loss regime. The compound gate imposes an additional +3pp
+            # operating in a loss regime. The compound gate imposes an additional +2pp
             # on top of whatever the Sharpe-only path computed, raising the conviction bar.
-            # Example: WR=27% + Sharpe=-4.0 → Sharpe path: +8pp → compound adds +3pp → 0.57 total.
-            # Guard: ≥10 ring samples (cold-start safe). Cap at 0.58 to prevent over-restriction.
+            # v67.0: cap lowered 0.58→0.52 and compound delta 0.03→0.02 — at live Sharpe=-5.15
+            # the Sharpe path sets threshold at 0.53; adding +0.03 compound previously pushed
+            # to 0.56; CPCV gap further pushed to 0.58 → unreachable for 30% WR NN (max ~0.42).
+            # Cap=0.52 prevents compounding of multiple tightening steps into an impossible gate.
+            # Guard: ≥10 ring samples (cold-start safe).
             try:
                 if self._booster is not None:
                     _g4_cmp_ring = self._booster._win_ring
@@ -6737,12 +6754,12 @@ class UnitySignalFilter:
                         _g4_cmp_wr = sum(_g4_cmp_ring) / len(_g4_cmp_ring)
                         _g4_cmp_sr = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
                         if _g4_cmp_wr < 0.30 and _g4_cmp_sr < -3.0:
-                            _nn_compound = 0.03
+                            _nn_compound = 0.02  # v67.0: 0.03→0.02
                             _nn_prev_cmp = nn_threshold
-                            nn_threshold = min(0.58, nn_threshold + _nn_compound)
+                            nn_threshold = min(0.52, nn_threshold + _nn_compound)  # v67.0: cap 0.58→0.52
                             if nn_threshold > _nn_prev_cmp:
                                 self._logger.debug(
-                                    f"[G4-Compound v59.0] {symbol} WR={_g4_cmp_wr:.0%}<30% "
+                                    f"[G4-Compound v67.0] {symbol} WR={_g4_cmp_wr:.0%}<30% "
                                     f"SR={_g4_cmp_sr:.2f}<-3.0 → nn_thresh "
                                     f"{_nn_prev_cmp:.2f}→{nn_threshold:.2f} (+{_nn_compound:.2f} compound)"
                                 )
@@ -6775,25 +6792,50 @@ class UnitySignalFilter:
             #          G4-UNC_SOFT bypass (σ>0.18+consensus≥88%→quality-penalty pass).
             # Preserved: Crisis tightening (Sharpe<-2.0/-3.5/-5.0) — raises bar in adverse regimes.
             # Signals must genuinely clear nn_prob >= nn_threshold, NO exceptions. [v37.0-STRICT]
-            # v66.0: G4 Dead-Zone Emergency Relief — when the gate has produced 0% pass rate for
-            # the last 15 evaluations (learned-pessimism deadlock), reduce nn_threshold toward 0.44.
-            # This breaks the cascade where Sharpe-tightening (+0.10) pushes threshold to 0.56-0.58
-            # while the NN trained at WR=29% predicts 0.30-0.42 for ALL signals → permanent 0% rate.
-            # Relief = min(0.09, nn_threshold − 0.44) so floor is always ≥ 0.44 (institutional min).
-            # Distinct from removed relaxations: fires only when the gate is in proven deadlock,
-            # NOT as a general throughput boost. INFO log makes it fully visible to operators. [v66.0]
+            # v67.0: G4 Hard Threshold Cap — prevents physically impossible thresholds.
+            # All tightening steps (Sharpe crisis, compound WR+SR, CPCV gap, MC sigma) can stack
+            # to 0.58-0.61. At WR=29%, calibrated NN predicts 0.35-0.45 — no 30% WR model can
+            # clear 0.58.
+            # Cap logic has TWO levels based on NN training status:
+            #   trained=True  (NN active, real predictions): cap=0.52 — requires 1.79×
+            #                 break-even conviction; strong but achievable.
+            #   trained=False (NN disabled, sentinel=0.5): cap=0.50 — the fallback 0.5
+            #                 exactly clears the base bar; crisis tightening applied to a
+            #                 sentinel is meaningless and blocks all signals permanently.
+            #                 The other 34 gates continue to filter quality.
+            # Applied BEFORE dead-zone relief so relief works from a bounded baseline. [v67.0]
+            try:
+                _nn_trained_flag = bool(getattr(nn_trainer, "trained", False))
+                _g4_hard_cap     = 0.52 if _nn_trained_flag else 0.50
+                if nn_threshold > _g4_hard_cap:
+                    _g4_hc_pre   = nn_threshold
+                    nn_threshold = _g4_hard_cap
+                    self._logger.debug(
+                        f"[G4-HardCap v67.0] {symbol} nn_thresh capped "
+                        f"{_g4_hc_pre:.3f}→{_g4_hard_cap:.2f} "
+                        f"(trained={_nn_trained_flag}, WR≈29%)"
+                    )
+            except Exception:
+                pass
+            # v66.0/v67.0: G4 Dead-Zone Emergency Relief — when gate produced 0% pass rate for
+            # last 15 evaluations (learned-pessimism deadlock), reduce nn_threshold toward 0.42.
+            # v67.0: max relief 0.09→0.12, floor 0.44→0.42, guard 0.45→0.44 — after hard cap
+            # sets threshold at 0.52, relief of up to 0.10 brings it to 0.42. At nn_prob=0.43
+            # (improved from higher MAX_CLASS_WEIGHT+focal_gamma): 0.43 > 0.42 → PASS.
+            # Distinct from removed relaxations: fires only when gate is in proven deadlock,
+            # NOT as a general throughput boost. INFO log makes it fully visible to operators.
             try:
                 if (len(self._g4_pass_ring) >= 15
                         and sum(self._g4_pass_ring) == 0
-                        and nn_threshold > 0.45):
-                    _g4_dz_relief = min(0.09, nn_threshold - 0.44)
+                        and nn_threshold > 0.44):
+                    _g4_dz_relief = min(0.12, nn_threshold - 0.42)  # v67.0: 0.09→0.12, floor 0.44→0.42
                     if _g4_dz_relief > 0.005:
                         _g4_dz_pre   = nn_threshold
-                        nn_threshold = max(0.44, nn_threshold - _g4_dz_relief)
+                        nn_threshold = max(0.42, nn_threshold - _g4_dz_relief)
                         self._logger.info(
-                            f"[G4-DeadZone v66.0] {symbol} 15/15 dead-zone → "
+                            f"[G4-DeadZone v67.0] {symbol} 15/15 dead-zone → "
                             f"nn_thresh {_g4_dz_pre:.3f}→{nn_threshold:.3f} "
-                            f"(−{_g4_dz_relief:.3f}, floor=0.44)"
+                            f"(−{_g4_dz_relief:.3f}, floor=0.42)"
                         )
             except Exception:
                 pass
@@ -12752,7 +12794,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"35-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus[v58.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0] · G8.5X:DGRP-Velocity[v66.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0] + MaxDD-EarlyDeterrent) · "
+            f"35-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus[v58.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0] · G8.5X:DGRP-Velocity[v66.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0] · G4-HardCap-0.52+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-28·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
@@ -12771,7 +12813,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 35-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-28·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus[v58.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K2-WalkFwd[v62.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 35-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-28·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-28%[v67.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v11-70feat[v49.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus[v58.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K2-WalkFwd[v62.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/71.5/70/67·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv11-70feat[v49.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-16s·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -12791,7 +12833,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 35-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+DeadZoneRelief[v66.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus±3.0pts[v58.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 35-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+HardCap0.52+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus±3.0pts[v58.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")

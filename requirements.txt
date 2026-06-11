@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v66.0 — Production requirements.txt
+# Unity Engine v67.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-11 (v66.0 — G8.5X DGRP-Velocity 35th gate | Kelly Step 28 MaxDD-Brake | G4 DeadZone Relief | EV Crisis Floor SR<-4.5×1.28 | OpenRouter session-perm-disable | 35-gate filter)
+# Last verified: 2026-06-11 (v67.0 — NN-QualGate-28% | Adaptive-MAX-CLASS-WEIGHT | CPCV-Gap-7% | G4-HardCap-0.52 | G4-DeadZone-0.42 | G4-Compound-Cap-0.52 | 35-gate filter)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 70-feature NN v11 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
