@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v65.0 — Multi-stage Production Dockerfile
+# Unity Engine v66.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
-# Build:  docker build -t unity-engine:65.0 .
+# Build:  docker build -t unity-engine:66.0 .
 # Railway: Detected automatically via railway.json
 #
 # BASE IMAGE: python:3.11-slim  (Debian/glibc)

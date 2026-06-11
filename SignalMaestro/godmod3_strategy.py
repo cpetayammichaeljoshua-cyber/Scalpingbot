@@ -1222,6 +1222,13 @@ class G0DM0D3Engine:
         # This breaks the previous loop: model_disabled(30s) → re-enable → fail again immediately.
         self._generic_error_counts: Dict[str, int] = {}  # model → consecutive generic failures
 
+        # Session-level permanent disable [v66.0]: models that trigger GenericErrGuard
+        # (≥_GENERIC_ERR_THRESHOLD consecutive generic errors) are added here and NEVER
+        # retried for the rest of the session — prevents the 2h-disable → re-enable →
+        # fail-again loop that burns through error budgets on permanently-dead routes
+        # (e.g. claude-fable-5 / claude-mythos-5 which are 404 on the free tier).
+        self._session_perm_disabled: set = set()
+
         # TimeoutStreakGuard [v36.0]: tracks consecutive asyncio.TimeoutError per model.
         # Before: each timeout → 60s cooldown then retry indefinitely (stall-loop risk).
         # After: 3 consecutive timeouts → 180s soft-disable; resets on first success.
@@ -1425,6 +1432,8 @@ class G0DM0D3Engine:
         return min_wait if min_wait != float("inf") else 0.0
 
     def _is_model_disabled(self, model: str) -> bool:
+        if model in self._session_perm_disabled:
+            return True
         return time.time() < self._disabled_models.get(model, 0.0)
 
     def _is_model_auth_banned(self, model: str) -> bool:
@@ -1492,9 +1501,13 @@ class G0DM0D3Engine:
             self._model_error_type[model] = "soft"
             # Reset generic count after triggering the long disable to avoid perpetual ban
             self._generic_error_counts[model] = 0
+            # v66.0: Session-level permanent disable — after GenericErrGuard fires once, the model
+            # is added to _session_perm_disabled and never retried for the rest of this session.
+            # This prevents the 2h-disable → re-enable → fail-again loop for permanently dead routes.
+            self._session_perm_disabled.add(model)
             self.logger.warning(
                 f"🛡️ GODMOD3 GenericErrGuard: {model} disabled {self._GENERIC_ERR_DISABLE_S/3600:.0f}h "
-                f"after {count} consecutive generic (non-429) errors"
+                f"after {count} consecutive generic (non-429) errors [session-perm-disabled v66.0]"
             )
         else:
             # Short cooldown only — the regular 30s cooldown via error_counts
