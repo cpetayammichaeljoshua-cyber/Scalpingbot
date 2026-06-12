@@ -2521,7 +2521,7 @@ class NeuralSignalTrainer:
                     if len(_cpcv_accs) >= 1:
                         _cpcv_avg = float(np.mean(_cpcv_accs))
                         _cpcv_gap = float(acc - _cpcv_avg)
-                        if _cpcv_gap > 0.07 and _cpcv_avg > 0.47:
+                        if _cpcv_gap > 0.07 and _cpcv_avg > 0.50:  # v73.0: floor 0.47→0.50 (chance boundary)
                             # v67.0: gap threshold 0.04→0.07 — at live gap=10% the previous
                             # 4% trigger added +0.030 to _opt_threshold (0.579→0.609), pushing
                             # the G4 gate to a level no 30% WR model can clear (nn_prob=0.35-0.42).
@@ -2532,7 +2532,7 @@ class NeuralSignalTrainer:
                             # folds are near-chance level; using a sub-chance signal to push
                             # threshold UP is counterproductive (blocks real signals with noise).
                             # Only fire when CPCV folds show meaningful signal (>47% accuracy).
-                            _cpcv_adj  = min(0.02, _cpcv_gap * 0.30)  # v67.0: multiplier 0.50→0.30, cap 0.03→0.02
+                            _cpcv_adj  = min(0.02, _cpcv_gap * 0.25)  # v67.0: 0.50→0.30; v73.0: 0.30→0.25 dampen drift
                             _cpcv_old  = self._opt_threshold
                             self._opt_threshold = min(0.75, self._opt_threshold + _cpcv_adj)
                             # re-derive reject/boost thresholds to stay consistent

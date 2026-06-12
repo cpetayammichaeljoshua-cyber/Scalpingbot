@@ -25,3 +25,4 @@
 - [Unity Engine v70.0 upgrades](unity-engine-v70.md) — NN quality gate adaptive 28%→20% at WR<25%; CPCV chance-floor guard (avg≤47% suppresses push); G9 WR<20% floor 72→70; IRONS WR<18% tier split (73 ultra-severe / 72 crisis-relief); GODMOD3 model heartbeat 300s
 - [Unity Engine v71.0 upgrades](unity-engine-v71.md) — stale IRONS/G9 display strings fixed (Gate 10 boot, KEY GATES, capability stamp); anthropic INFO→DEBUG; NN first-retrain 5min→2min; CONSORTIUM dynamic timeout (healthy-fraction scale)
 - [Unity Engine v72.0 upgrades](unity-engine-v72.md) — G8.5B OFI-Persist 37th gate (±2.0pts, 3-cycle ring); Kelly Step 31 VolExpansion ×0.80; G9 RegimeExpansion +1.5pts bonus; NN v13 INPUT_DIM 75→80 (F76-F80), 16×5 tokens
+- [Unity Engine v73.0 upgrades](unity-engine-v73.md) — 2 critical dead-gate fixes (ofi_z never injected; F76-F80 all 0.0); G8.5C RegimeCoh 38th gate (±2.0pts HMM+GEX dual); Kelly Step 32 OFI-Persist ×1.08/×0.88; CPCV floor 47%→50%
