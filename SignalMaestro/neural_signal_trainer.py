@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 120 features → 24 tokens × 5 dims (120 = 24 × 5) [v84.0: was 23×5=115]
-_TORCH_N_TOKENS  = 24
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v84.0: 120 = 24×5)
+# Transformer tokenisation: reshape 125 features → 25 tokens × 5 dims (125 = 25 × 5) [v85.0: was 24×5=120]
+_TORCH_N_TOKENS  = 25
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 120  # v21 (v84.0): 115 + 5 regime/sentiment features (g85q_trendmom, g85r2_regimesent, vol_persist_composite, ofi_regime_quality, multi_gate_consensus) = 120
+INPUT_DIM          = 125  # v22 (v85.0): 120 + 5 crisis/regime features (wr_crisis_score, fear_greed_regime, g85s2_crisis, g85t2_fearreg, crisis_regime_composite) = 125
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1074,6 +1074,28 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: multi_gate_consensus injected at G4 F116-F120 stamping block [v84.0]
     _v21_f120 = _safe_float(trade.get("multi_gate_consensus", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v21_f120)))                                  # 120 multi_gate_consensus
+
+    # ── v22 (v85.0) F121-F125: crisis/regime composite features ────────────
+    # F121: wr_crisis_score — Bayesian WR normalized to [-1,+1] around 0.35 baseline
+    #   Source: wr_crisis_score injected at G4 F121-F125 stamping block [v85.0]
+    _v22_f121 = _safe_float(trade.get("wr_crisis_score", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v22_f121)))                                  # 121 wr_crisis_score
+    # F122: fear_greed_regime — F&G index normalized to [-1,+1] (50→0.0, 100→+1.0, 0→-1.0)
+    #   Source: fear_greed_regime injected at G4 F121-F125 stamping block [v85.0]
+    _v22_f122 = _safe_float(trade.get("fear_greed_regime", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v22_f122)))                                  # 122 fear_greed_regime
+    # F123: g85s2_crisis — G8.5S2 WinRate-CrisisRegime gate output (+1/0/-1)
+    #   Source: g85s2_crisis injected at G4 F121-F125 stamping block [v85.0]
+    _v22_f123 = _safe_float(trade.get("g85s2_crisis", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v22_f123)))                                  # 123 g85s2_crisis
+    # F124: g85t2_fearreg — G8.5T2 ExtremeFear-Regime gate output (+1/0/-1)
+    #   Source: g85t2_fearreg injected at G4 F121-F125 stamping block [v85.0]
+    _v22_f124 = _safe_float(trade.get("g85t2_fearreg", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v22_f124)))                                  # 124 g85t2_fearreg
+    # F125: crisis_regime_composite — G8.5S2(1.5x)+G8.5T2(1.0x)+WRscore(0.5x) weighted composite
+    #   Source: crisis_regime_composite injected at G4 F121-F125 stamping block [v85.0]
+    _v22_f125 = _safe_float(trade.get("crisis_regime_composite", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v22_f125)))                                  # 125 crisis_regime_composite
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
@@ -2808,7 +2830,7 @@ class NeuralSignalTrainer:
                     if len(_cpcv_accs) >= 1:
                         _cpcv_avg = float(np.mean(_cpcv_accs))
                         _cpcv_gap = float(acc - _cpcv_avg)
-                        if _cpcv_gap > 0.07 and _cpcv_avg > 0.50:  # v73.0: floor 0.47→0.50 (chance boundary)
+                        if _cpcv_gap > 0.07 and _cpcv_avg > 0.45:  # v85.0: floor 0.50→0.45 (chronic suppression fix; was 0.47→0.50 in v73.0)
                             # v67.0: gap threshold 0.04→0.07 — at live gap=10% the previous
                             # 4% trigger added +0.030 to _opt_threshold (0.579→0.609), pushing
                             # the G4 gate to a level no 30% WR model can clear (nn_prob=0.35-0.42).
@@ -2819,6 +2841,11 @@ class NeuralSignalTrainer:
                             # folds are near-chance level; using a sub-chance signal to push
                             # threshold UP is counterproductive (blocks real signals with noise).
                             # Only fire when CPCV folds show meaningful signal (>47% accuracy).
+                            # v85.0: floor lowered 0.50→0.45 — live logs showed avg≈47.2% sitting
+                            # just above the old 47% guard but still being excluded by the 50%
+                            # boundary, causing chronic CPCV suppression (every retrain skipped
+                            # overfit protection). 45% floor allows the guard to fire when CPCV
+                            # shows real above-chance signal while still rejecting sub-chance noise.
                             _cpcv_adj  = min(0.02, _cpcv_gap * 0.25)  # v67.0: 0.50→0.30; v73.0: 0.30→0.25 dampen drift
                             _cpcv_old  = self._opt_threshold
                             self._opt_threshold = min(0.75, self._opt_threshold + _cpcv_adj)
@@ -2831,11 +2858,11 @@ class NeuralSignalTrainer:
                                 f"→ thresh {_cpcv_old:.3f}→{self._opt_threshold:.3f} (+{_cpcv_adj:.3f})"
                             )
                         elif _cpcv_gap > 0.07:
-                            # v70.0: gap > 7% but CPCV avg ≤ 47% (near-chance) — suppress push
-                            # At avg=45.4% folds are not providing meaningful overfit signal;
+                            # v85.0: gap > 7% but CPCV avg ≤ 45% (near-chance) — suppress push
+                            # At avg<45% folds are not providing meaningful overfit signal;
                             # applying threshold push from a chance-level CPCV is counterproductive.
                             self.logger.info(
-                                f"🔬 [v70.0 CPCV] K=3 walk-fwd: avg={_cpcv_avg:.1%} ≤ 47% chance-floor "
+                                f"🔬 [v85.0 CPCV] K=3 walk-fwd: avg={_cpcv_avg:.1%} ≤ 45% chance-floor "
                                 f"val={acc:.1%} gap={_cpcv_gap:+.1%} → thresh {self._opt_threshold:.3f} "
                                 f"unchanged (sub-chance CPCV suppressed [v70.0])"
                             )

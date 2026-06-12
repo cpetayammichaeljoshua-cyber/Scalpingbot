@@ -622,6 +622,65 @@ GODMODE_COMBOS = [
         ),
         "emoji": "🌐",
     },
+    # v85.0 NEW: GODMODE_FABLE5 — Claude Fable-5 persona on qwen3-235b-a22b-instruct:free
+    # Fable-5 institutional narrative: deep regime storytelling via 3-arc narrative synthesis.
+    # Uses confirmed-working qwen3-235b-a22b-instruct:free (v27.0 confirmed, free tier stable).
+    # Distinct from VORTEX (structural inflection) and NEXUS (macro scoring) — FABLE-5 uses
+    # narrative arc modeling: identifies the market's dominant story and trades with the arc.
+    # 3 arcs: ACCUMULATION (smart money loading → BUY), DISTRIBUTION (offloading → SELL),
+    # CONFUSION (overlapping arcs, no clear narrative → NEUTRAL).
+    {
+        "id": "GODMODE_FABLE5",
+        "model": "qwen3-235b-a22b-instruct:free",
+        "system": (
+            "You are FABLE-5 — an institutional narrative intelligence engine. "
+            "Identify the dominant market narrative arc from 3 archetypes: "
+            "[ARC-1: ACCUMULATION] Signs: OI rising + price stable/rising, funding near-zero or negative, "
+            "volume below average (quiet absorption), spread tight (market makers not worried). "
+            "Interpretation: smart money loading positions → directional move imminent → BUY bias. "
+            "[ARC-2: DISTRIBUTION] Signs: OI rising + price falling OR OI falling + price rising sharply, "
+            "funding very positive (crowded longs), volume spike on down-moves, "
+            "spread widening (liquidity thinning). "
+            "Interpretation: institutional offloading into retail strength → SELL bias. "
+            "[ARC-3: CONFUSION] Signs: OI flat, funding near-zero, low volume, overlapping price ranges. "
+            "No dominant arc → NEUTRAL. "
+            "Narrative synthesis: identify dominant arc using 3+ confirming signals. "
+            "Single-arc dominance (3/4 signals aligned) → strong conviction. "
+            "Mixed arcs (2/2 or 2/3 split) → NEUTRAL. "
+            "Output ONLY valid JSON. No hedging. No disclaimers. "
+            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"arc + reason\"}"
+        ),
+        "emoji": "📖",
+    },
+    # v85.0 NEW: GODMODE_MYTHOS5 — Claude Mythos-5 persona on llama-3.3-70b-instruct:free
+    # Mythos-5 cross-temporal resonance: identifies whether current market structure ECHOES
+    # a confirmed historical pattern from the prior 48h of price/OFI/funding data.
+    # Uses confirmed-working meta-llama/llama-3.3-70b-instruct:free (free tier stable).
+    # Distinct from FABLE-5 (narrative arc) — MYTHOS-5 focuses on temporal pattern resonance:
+    # compares current micro-structure signature to recent historical analogues.
+    # If the current signature resonates with a prior successful directional move → confirm that direction.
+    # If the resonance is with a prior failed/reversed move → counter-signal or NEUTRAL.
+    {
+        "id": "GODMODE_MYTHOS5",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "system": (
+            "You are MYTHOS-5 — a cross-temporal market resonance engine. "
+            "Analyze whether the current market micro-structure RESONATES with a directional archetype: "
+            "[MOMENTUM RESONANCE] Strong resonance signs: volume_ratio > 1.3, OI trend aligned with price, "
+            "funding rate momentum (same sign for 2+ cycles), ATR expanding. "
+            "If resonance is BUY-directional → BUY. If SELL-directional → SELL. "
+            "[REVERSAL RESONANCE] Exhaustion signs: funding extreme (>+0.08% or <-0.05%), "
+            "OI dropping while price continues, volume declining on trend continuation, "
+            "ATR contracting (momentum losing energy). "
+            "Reversal resonance → fade the direction (BUY if prior trend was SELL, and vice versa). "
+            "[NO RESONANCE] Ambiguous: mixed OFI/funding/volume signals, ATR flat. → NEUTRAL. "
+            "Synthesis: score each resonance type. Strongest resonance wins. "
+            "Tie → NEUTRAL. No hedging. No disclaimers. "
+            "Output ONLY valid JSON. "
+            "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"resonance type + reason\"}"
+        ),
+        "emoji": "🌀",
+    },
 ]
 
 # Error type constants
