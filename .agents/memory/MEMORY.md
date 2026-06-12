@@ -27,3 +27,4 @@
 - [Unity Engine v72.0 upgrades](unity-engine-v72.md) — G8.5B OFI-Persist 37th gate (±2.0pts, 3-cycle ring); Kelly Step 31 VolExpansion ×0.80; G9 RegimeExpansion +1.5pts bonus; NN v13 INPUT_DIM 75→80 (F76-F80), 16×5 tokens
 - [Unity Engine v73.0 upgrades](unity-engine-v73.md) — 2 critical dead-gate fixes (ofi_z never injected; F76-F80 all 0.0); G8.5C RegimeCoh 38th gate (±2.0pts HMM+GEX dual); Kelly Step 32 OFI-Persist ×1.08/×0.88; CPCV floor 47%→50%
 - [Unity Engine v74.0 upgrades](unity-engine-v74.md) — F78 vol_expansion always-0 fix (getattr→global); stale "36-GATE" string; G8.5D OFI-Velocity 39th gate (±2.0/-1.5pts); G9 FlowStack +1.0pts; Kelly Step 33 EnsembleConf ×1.07/×0.90
+- [Unity Engine v75.0 upgrades](unity-engine-v75.md) — 2 critical silent dead-gate fixes (G8.5P+G8.5Y: self._quant_layer_close_buf→module global); G8.5E CrossCoherence 40th gate (+2.0/+0.8/-1.5pts, 3-vote OFI+HMM+GEX); Kelly Step 34 CrossCoherence ×1.06/×0.87; gate_g85dv explicit init
