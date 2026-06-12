@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 90 features → 18 tokens × 5 dims (90 = 18 × 5) [v77.0: was 17×5=85]
-_TORCH_N_TOKENS  = 18
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v15: 90 = 18×5)
+# Transformer tokenisation: reshape 95 features → 19 tokens × 5 dims (95 = 19 × 5) [v79.0: was 18×5=90]
+_TORCH_N_TOKENS  = 19
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v16: 95 = 19×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 90  # v15 (v77.0): 85 + 5 flow/microtrend features (ofi_flow_asym_norm, microtrend_slope_norm, funding_velocity_norm, spread_ratio_norm, liq_intensity_norm) = 90
+INPUT_DIM          = 95  # v16 (v79.0): 90 + 5 cross-signal coherence features (ofi_hmm_cross, vwap_micro_align, funding_ofi_cross, regime_3gate_vote, gex_net_norm) = 95
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -888,6 +888,42 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: liq_intensity_norm injected at G4 F86-F90 stamping block [v77.0]
     _v15_f90 = _safe_float(trade.get("liq_intensity_norm", 0.0), 0.0)
     f.append(max(0.0, min(1.0, _v15_f90)))                                    # 90 liq_intensity_norm
+
+    # ── v16 Cross-signal coherence features (91-95) — v79.0 ──────────────────
+    # F91: ofi_hmm_cross — OFI z-score × HMM regime alignment [-1, +1]
+    #   Positive = OFI aligned with HMM expanding/trending regime (dual confirm)
+    #   Negative = OFI diverges from HMM regime (conflicting signals)
+    #   Source: ofi_hmm_cross injected at G4 F91-F95 stamping block [v79.0]
+    _v16_f91 = _safe_float(trade.get("ofi_hmm_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v16_f91)))                                   # 91 ofi_hmm_cross
+
+    # F92: vwap_micro_align — VWAP extension × microtrend slope alignment [-1, +1]
+    #   Positive = price above VWAP and microtrend confirms (bullish dual-confirm)
+    #   Negative = price below VWAP and microtrend confirms (bearish dual-confirm)
+    #   Source: vwap_micro_align injected at G4 F91-F95 stamping block [v79.0]
+    _v16_f92 = _safe_float(trade.get("vwap_micro_align", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v16_f92)))                                   # 92 vwap_micro_align
+
+    # F93: funding_ofi_cross — funding rate × OFI flow cross-product [-1, +1]
+    #   Positive = funding and OFI both pointing same directional pressure
+    #   Negative = funding and OFI divergent (regime conflict signal)
+    #   Source: funding_ofi_cross injected at G4 F91-F95 stamping block [v79.0]
+    _v16_f93 = _safe_float(trade.get("funding_ofi_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v16_f93)))                                   # 93 funding_ofi_cross
+
+    # F94: regime_3gate_vote — normalized vote count from G8.5C/G8.5R/G8.5U [-1, +1]
+    #   +1.0 = all 3 regime gates aligned with trade direction (strong regime conf.)
+    #   -1.0 = all 3 gates opposed (strong regime counter-signal)
+    #   Source: regime_3gate_vote injected at G4 F91-F95 stamping block [v79.0]
+    _v16_f94 = _safe_float(trade.get("regime_3gate_vote", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v16_f94)))                                   # 94 regime_3gate_vote
+
+    # F95: gex_net_norm — net GEX exposure normalized to [-1, +1]
+    #   +1.0 = strong positive GEX (dealer hedging creates upward price pressure)
+    #   -1.0 = strong negative GEX (dealer hedging creates downward pressure)
+    #   Source: gex_net_norm injected at G4 F91-F95 stamping block [v79.0]
+    _v16_f95 = _safe_float(trade.get("gex_net_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v16_f95)))                                   # 95 gex_net_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
