@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 75 features → 15 tokens × 5 dims (75 = 15 × 5) [v68.0: was 14×5=70]
-_TORCH_N_TOKENS  = 15
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v12: 75 = 15×5)
+# Transformer tokenisation: reshape 80 features → 16 tokens × 5 dims (80 = 16 × 5) [v72.0: was 15×5=75]
+_TORCH_N_TOKENS  = 16
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v13: 80 = 16×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 75  # v12 (v68.0): 70 + 5 regime/crowding features (funding_trend, btc_atr_spike, corr_regime_flag, dgrp_vel_norm, vol_compress_flag) = 75
+INPUT_DIM          = 80  # v13 (v72.0): 75 + 5 microstructure/regime features (ofi_persistence_score, regime_coherence_score, vol_expansion_flag, hmm_expansion_prob_norm, spread_regime_flag) = 80
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -753,6 +753,40 @@ def build_features(trade: Dict) -> "np.ndarray":
     #    0.0 = normal or expanding vol
     _v12_vc = _safe_float(trade.get("vol_compress_flag", 0.0), 0.0)
     f.append(max(0.0, min(1.0, _v12_vc)))                                      # 75 vol_compress_flag
+
+    # ── v13 Microstructure/Regime features (76-80) — v72.0 ─────────────────────
+    # F76: ofi_persistence_score — rolling 3-cycle OFI direction agreement
+    #   +1.0 = 3/3 OFI readings aligned with trade direction (strong persistent flow confirm)
+    #   -1.0 = 0/3 OFI readings aligned (persistent adverse flow headwind)
+    #    0.0 = mixed / insufficient data
+    _v13_ofi_persist = _safe_float(trade.get("ofi_persistence_score", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v13_ofi_persist)))                            # 76 ofi_persistence_score
+
+    # F77: regime_coherence_score — HMM + GEX dual-confirm alignment
+    #   +1.0 = EXPANSION + GEX bullish both aligned with direction (institutional confirmation)
+    #   -1.0 = CONTRACTION + GEX bearish both against direction (institutional headwind)
+    #    0.0 = mixed or neutral regime confirmation
+    _v13_reg_coh = _safe_float(trade.get("regime_coherence_score", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v13_reg_coh)))                                # 77 regime_coherence_score
+
+    # F78: vol_expansion_flag — recent 7-bar realized vol expanding vs 30-bar baseline
+    #   +1.0 = 7-bar realized vol > 1.5× 30-bar baseline (expanding vol regime — noise up)
+    #    0.0 = normal or compressing vol (stable microstructure)
+    _v13_vol_exp = _safe_float(trade.get("vol_expansion_flag", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v13_vol_exp)))                                 # 78 vol_expansion_flag
+
+    # F79: hmm_expansion_prob_norm — HMM P(EXPANSION) normalized to [-1, +1]
+    #   +1.0 = strong EXPANSION regime (P_exp→1.0)
+    #   -1.0 = strong CONTRACTION regime (P_exp→0.0)
+    #    0.0 = TRANSITION / uncertain (P_exp≈0.5)
+    _v13_hmm_p = _safe_float(trade.get("hmm_expansion_prob", 0.5), 0.5)
+    f.append(max(-1.0, min(1.0, (_v13_hmm_p - 0.5) * 2.0)))                   # 79 hmm_expansion_prob_norm
+
+    # F80: spread_regime_flag — bid-ask spread elevated above 2× rolling 20-bar median
+    #   +1.0 = spread > 2× 20-bar median (high spread / illiquid / execution-cost risk)
+    #    0.0 = normal spread environment (execution costs within expected range)
+    _v13_spr = _safe_float(trade.get("spread_regime_flag", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v13_spr)))                                     # 80 spread_regime_flag
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:

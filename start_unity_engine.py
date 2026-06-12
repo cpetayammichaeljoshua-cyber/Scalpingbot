@@ -1,8 +1,33 @@
 #!/usr/bin/env python3
 """
-Unity Engine v71.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v72.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 37-gate filter · 5-bucket RL · Kelly 31-steps · GEX · SRM):
+ v72.0 improvements [2026-06-12]:
+   1. G8.5B OFI PERSISTENCE GATE (37th gate, ±2.0pts): New soft-gate tracking per-symbol
+      order-flow imbalance (OFI) direction over 3 consecutive scan cycles. When OFI has
+      been consistently aligned with the signal direction for all readings → +2.0pts
+      persistent-flow confirmation. All readings opposed → -2.0pts adverse-flow headwind.
+      2/3 aligned → +0.5pts mild confirmation. Guard: ≥2 readings, 45s min update interval.
+      Wired to gate_stats/_GATE_DISPLAY_LABELS/_SOFT_GATE_KEYS/_record() [v72.0].
+   2. KELLY STEP 31 — VOL-EXPANSION REGIME SCALE (×0.80): When 7-bar BTC realized vol
+      exceeds 1.5× the 30-bar baseline (expanding volatility regime), Kelly is scaled
+      ×0.80. Expanding vol reduces alt WR by increasing noise and adverse fills; the
+      15-30min BTC→ALT propagation lag makes early de-sizing critical. Requires ≥31
+      BTC bars; stacks AFTER Step 30; non-fatal [v72.0].
+   3. G9 HMM+GEX REGIME-EXPANSION BONUS (+1.5pts): When HMM regime is EXPANSION
+      (P≥0.75) AND BTC GEX net > +$500M AND direction=BUY, OR CONTRACTION (P≥0.65) AND
+      GEX net < -$500M AND SELL, a +1.5pt quality_score bonus is applied. Both orthogonal
+      institutional regime sources agreeing provides statistically reliable uplift beyond
+      what G8.5e and G8.5R already capture individually [v72.0].
+   4. NN v13 — INPUT_DIM 75→80 (+5 microstructure/regime features): F76=ofi_persistence_score
+      (rolling 3-cycle OFI direction agreement, -1/0/+1), F77=regime_coherence_score
+      (HMM+GEX dual-confirm, -1/0/+1), F78=vol_expansion_flag (0/1 7-bar>1.5×30-bar vol),
+      F79=hmm_expansion_prob_norm (P_expansion normalized to [-1,+1]), F80=spread_regime_flag
+      (0/1 spread>2×20-bar median). Transformer tokens: 16×5. Weight reset on mismatch.
+   5. STALE STRING FIXES — L5 layer description fixed ("60-feat MLP"→"80-feat NN v13"),
+      KEY GATES NN version fixed (NN_v11:70feat→NN_v13:80feat), all "36-gate" strings
+      updated to "37-gate", all "Kelly 30-steps" updated to "Kelly 31-steps" [v72.0].
  v71.0 improvements [2026-06-11]:
    1. STALE DISPLAY FIXES — Gate 10 boot label still showed v38.0 tier values
       (WR<20%→73 for all); updated to v70.0 split: WR<18%→73 | WR<20%→72 | WR<25%→71.5.
@@ -94,8 +119,8 @@ ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GE
    4. NN v12 — INPUT_DIM 70→75 (+5 regime/crowding features): F71=funding_trend (-1/0/+1
       net funding delta direction), F72=btc_atr_spike (0/1), F73=corr_regime_flag (0/1
       when BTC-ALT rolling corr >0.88), F74=dgrp_vel_norm (DGRP velocity/10 clipped ±1),
-      F75=vol_compress_flag (0/1 ATR at ≤25th pct). Transformer tokens: 15×5. Weight
-      reset on INPUT_DIM mismatch (70→75) → retrain in 5min from first boot.
+      F75=vol_compress_flag (0/1 ATR at ≤25th pct). Transformer tokens: 15×5 (v12); now
+      16×5=80 (v13 v72.0). Weight reset on INPUT_DIM mismatch → retrain from first boot.
    5. Dockerfile LABEL fix: LABEL version was stale at "56.0" — updated to "68.0".
       nixpacks.toml verify print updated v67.0→v68.0. All file headers synced.
  v67.0 improvements [2026-06-11]:
@@ -125,7 +150,7 @@ ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GE
   L2.7: UT Bot Strategy         — UT Bot Alerts + STC signal engine
   L3:   MiroFish Swarm          — 10-agent consensus intelligence
   L4:   G0DM0D3 AI v11.0        — ULTRAPLINIAN+AutoTune+STM+GODMODE | 40+ OpenRouter models
-  L5:   Neural Network          — 60-feat MLP (60%) + PyTorch Transformer 4-head (40%)
+  L5:   Neural Network          — 80-feat NN v13 MLP (60%) + PyTorch Transformer 4-head 16×5 (40%)
   L6:   Market Analysis         — ATAS (15 indicators) + Bookmap order flow
   L7:   Risk Engine             — Sortino+Calmar+Kelly institutional risk calculus
   L8:   AI Orchestrator         — Sentiment + Market Prediction + RL
@@ -138,7 +163,7 @@ ARCHITECTURE (30 layers · 36-gate filter · 5-bucket RL · Kelly 30-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v71.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
+KEY GATES (v72.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive) |
   IRONS_MIN=70(WR<30%)+72(WR<20%)+73(WR<18%) | SIGNAL_QUALITY=67 | SOVEREIGN_RECOVERY=70 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
@@ -148,11 +173,11 @@ KEY GATES (v71.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G9_FULLFLIP_FLOOR:3/3→+3pts(SR≥-4)|crisis-neutral(SR<-4)[v20.3] | G9_MaxDD:>50%→+5pts,>45%→+4pts,>40%→+2pts[v38.0] | G9_ConSecLoss:3+→-4.5pt[v59.0] | G9_WR-tiers:WR<15%→74,WR<20%→70,WR<25%→70,WR<30%→69,WR<35%→68[v70.0:WR<20%72→70] | Kelly22:F&G×0.80(consec3→×0.60) |
   Kelly23:GEX_DIR×0.80+3FLIP×0.85 | Kelly24:DeepDD_MaxDD>40%+Calmar<0→×0.65 | Kelly25:UltraDD_MaxDD>50%+Calmar<0→×0.50 |
   HMM21:EXPANSION×1.25(P≥0.75,SR≥0)/CONTRACTION×0.60(P≥0.65) |
-  NN_v11:70feat(+5regime+5microstructure) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
+  NN_v13:80feat(+5regime+5microstructure+5OFI/regime-coherence/vol-expand/HMM-prob/spread) | LLM_FREETIER_FASTPATH | LLM_AUTO_Q:3fail→1h | NN_RETRAIN=30min |
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | 36-gate filter [v71.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts) | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts) | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | G8.5B:OFI-Persistence(±2.0pts,3-cycle-ring) | 37-gate filter [v72.0] |
   Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) | Kelly30:MaxDD-UltraRuin(DD>48%→cap0.15%,DD>50%→cap0.05%) |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
@@ -1874,7 +1899,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "71.0"
+UNITY_VERSION                = "72.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4409,6 +4434,7 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85z"] = {"pass": 0, "fail": 0}  # v64.0: return autocorrelation persistence
         self._gate_stats["gate_g85y"] = {"pass": 0, "fail": 0}  # v65.0: ATR volatility compression/expansion
         self._gate_stats["gate_g85a"] = {"pass": 0, "fail": 0}  # v68.0: FundingRate trend/crowding momentum
+        self._gate_stats["gate_g85b"] = {"pass": 0, "fail": 0}  # v72.0: OFI Persistence 3-cycle ring (±2.0pts)
         self._gate_stats_recent["gate_g85u"] = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85p"] = deque(maxlen=self._gate_stats_window_n)  # v60.0
         self._gate_stats_recent["gate_g85r"] = deque(maxlen=self._gate_stats_window_n)  # v62.0
@@ -4416,11 +4442,17 @@ class UnitySignalFilter:
         self._gate_stats_recent["gate_g85z"] = deque(maxlen=self._gate_stats_window_n)  # v64.0
         self._gate_stats_recent["gate_g85y"] = deque(maxlen=self._gate_stats_window_n)  # v65.0
         self._gate_stats_recent["gate_g85a"] = deque(maxlen=self._gate_stats_window_n)  # v68.0
+        self._gate_stats_recent["gate_g85b"] = deque(maxlen=self._gate_stats_window_n)  # v72.0
         # v68.0: G8.5A FundingRate-Trend gate — per-symbol rolling funding rate deque.
         # Stores (timestamp, funding_rate) pairs; maxlen=3 → 3-reading trend window.
         # Protected by _fr_trend_last_update guard (30s min update interval per symbol).
         self._funding_rate_ring: Dict[str, Any] = {}   # symbol → deque(maxlen=3) of float fr values
         self._fr_trend_last_update: Dict[str, float] = {}  # symbol → last update timestamp
+        # v72.0: G8.5B OFI-Persistence gate — per-symbol rolling OFI direction ring.
+        # Stores OFI direction signs (+1/-1) for 3 most recent qualified readings (|ofi_z|≥0.3).
+        # Protected by _ofi_persist_last_update guard (45s min update interval per symbol).
+        self._ofi_persist_ring: Dict[str, Any] = {}          # symbol → deque(maxlen=3) of int (+1/-1)
+        self._ofi_persist_last_update: Dict[str, float] = {} # symbol → last update timestamp
 
     @staticmethod
     def _load_symbol_blacklist() -> frozenset:
@@ -8648,6 +8680,62 @@ class UnitySignalFilter:
         except Exception:
             pass  # G8.5A FundingTrend is non-fatal soft-gate
 
+        # ── Gate 8.5B — OFI Persistence Direction (v72.0) ────────────────────
+        # Tracks per-symbol order-flow imbalance (OFI) direction over 3 consecutive
+        # scan cycles.  When OFI has been consistently aligned with the signal
+        # direction for all 3 readings → strong directional order-flow conviction (+2.0pts).
+        # When all 3 readings oppose signal direction → adverse flow head-wind (-2.0pts).
+        # 2/3 aligned (3-reading ring) → mild confirmation (+0.5pts); 1/3 → neutral.
+        # Source: signal_data["ofi_z"] (NumpyOFI Z-score, already computed each cycle).
+        # Guard: |ofi_z|≥0.3 to filter noise; ≥2 readings required (cold-start safe);
+        # 45s min update interval to prevent over-sampling within one scan burst.
+        # Soft-gate: quality_score adjuster only — cannot hard-veto a signal. [v72.0 — 37th gate]
+        try:
+            _g85b_adj   = 0.0
+            _g85b_fired = False
+            _b_sym = (symbol or "UNKNOWN").upper()
+            _b_now = time.time()
+            _b_last = self._ofi_persist_last_update.get(_b_sym, 0.0)
+            if _b_now - _b_last >= 45.0:
+                _b_ofi_z = float(signal_data.get("ofi_z") or 0.0)
+                if abs(_b_ofi_z) >= 0.3:   # only record directional OFI readings (filter noise)
+                    if _b_sym not in self._ofi_persist_ring:
+                        self._ofi_persist_ring[_b_sym] = deque(maxlen=3)
+                    _b_sign = 1 if _b_ofi_z > 0 else -1
+                    self._ofi_persist_ring[_b_sym].append(_b_sign)
+                    self._ofi_persist_last_update[_b_sym] = _b_now
+            _b_ring = self._ofi_persist_ring.get(_b_sym)
+            if _b_ring is not None and len(_b_ring) >= 2:
+                _g85b_fired = True
+                _b_readings = list(_b_ring)
+                _b_dir_sign = 1 if (direction or "").upper() == "BUY" else -1
+                _b_aligned  = sum(1 for r in _b_readings if r == _b_dir_sign)
+                _b_n        = len(_b_readings)
+                if _b_aligned == _b_n:         # all readings aligned with direction
+                    _g85b_adj = +2.0
+                    quality_score += _g85b_adj
+                    self._logger.debug(
+                        f"[G8.5B OFI-Persist v72.0] {symbol} {_b_n}/{_b_n} OFI readings "
+                        f"aligned dir={direction} → +2.0pts persistent-flow-confirm"
+                    )
+                elif _b_aligned == 0:           # all readings opposed to direction
+                    _g85b_adj = -2.0
+                    quality_score += _g85b_adj
+                    self._logger.debug(
+                        f"[G8.5B OFI-Persist v72.0] {symbol} 0/{_b_n} OFI readings "
+                        f"aligned dir={direction} → -2.0pts persistent-flow-headwind"
+                    )
+                elif _b_aligned >= 2 and _b_n >= 3:   # 2/3 aligned — mild confirmation
+                    _g85b_adj = +0.5
+                    quality_score += _g85b_adj
+                    self._logger.debug(
+                        f"[G8.5B OFI-Persist v72.0] {symbol} {_b_aligned}/{_b_n} OFI "
+                        f"readings aligned dir={direction} → +0.5pts mild-flow-confirm"
+                    )
+            self._record("gate_g85b", _g85b_fired)
+        except Exception:
+            pass  # G8.5B OFI Persistence is non-fatal soft-gate
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -9127,6 +9215,47 @@ class UnitySignalFilter:
         except Exception:
             pass
 
+        # v72.0: G9 HMM+GEX Regime-Expansion Bonus ────────────────────────────────────────
+        # When HMM regime is EXPANSION (P≥0.75) AND BTC GEX net > +$500M AND direction=BUY,
+        # OR HMM is CONTRACTION (P≥0.65) AND GEX net < -$500M AND direction=SELL, a +1.5pt
+        # quality_score bonus is applied. Both orthogonal institutional regime sources (HMM=
+        # market microstructure state machine + GEX=dealer option positioning) simultaneously
+        # confirming the signal direction eliminates a large class of false signals that each
+        # individually pass but lack cross-source institutional validation. This is ADDITIVE
+        # with G8.5e (HMM-DIR ±8pts) and G8.5R (HMM-GEX-Coherence ±1.5pts) — each of those
+        # gates already incorporates HMM/GEX independently; the G9 bonus adds a final
+        # confirmation layer that applies AFTER all quality accumulation. Non-fatal.
+        try:
+            _g9_hmm_eng = getattr(self, "_hmm_regime", None)
+            if _g9_hmm_eng is not None:
+                _g9_hmm_str, _g9_hmm_pexp, _ = _g9_hmm_eng.get_regime()
+                _g9_gex_net = 0.0
+                _g9_gex_snaps = getattr(self, "_gex_snaps", None)
+                if _g9_gex_snaps is not None:
+                    try:
+                        _g9_snap = _g9_gex_snaps[-1] if len(_g9_gex_snaps) > 0 else None
+                        if _g9_snap is not None:
+                            _g9_gex_net = float(getattr(_g9_snap, "net_gex", 0.0) or 0.0)
+                    except Exception:
+                        pass
+                _g9_dir_u = (direction or "").upper()
+                _g9_exp_bonus = False
+                if (_g9_hmm_str == "EXPANSION" and float(_g9_hmm_pexp or 0.0) >= 0.75
+                        and _g9_gex_net > 500_000_000 and _g9_dir_u == "BUY"):
+                    _g9_exp_bonus = True
+                elif (_g9_hmm_str == "CONTRACTION" and float(_g9_hmm_pexp or 0.0) >= 0.65
+                      and _g9_gex_net < -500_000_000 and _g9_dir_u == "SELL"):
+                    _g9_exp_bonus = True
+                if _g9_exp_bonus:
+                    quality_score += 1.5
+                    self._logger.debug(
+                        f"[G9-RegimeExpansion v72.0] {symbol} HMM={_g9_hmm_str}"
+                        f"(P={float(_g9_hmm_pexp or 0.0):.2f}) GEX={_g9_gex_net/1e9:.2f}B "
+                        f"dir={_g9_dir_u} → +1.5pts dual-regime-confirm"
+                    )
+        except Exception:
+            pass  # G9 regime-expansion bonus is non-fatal
+
         # v37.0: G9 drought softening REMOVED — quality floor is absolute; no drought exemption [v37.0-STRICT]
         # ── v18.51: SOVEREIGN RECOVERY Mode — Gate 9 floor tightening (ALL signals) ────
         # When rolling-20 WR < SOVEREIGN_RECOVERY_WR (28%), the engine enters
@@ -9432,6 +9561,7 @@ class UnitySignalFilter:
         "gate_g85y":      "G8.5Y",  # v65.0: ATR volatility compression/expansion (±2.0pts/-1.5pts)
         "gate_g85dv":     "G8.5X",  # v66.0: DGRP velocity (rapid-deterioration −2.0pts, rapid-improve +1.5pts)
         "gate_g85a":      "G8.5A",  # v68.0: FundingRate trend/crowding momentum (-2.0/+1.5pts)
+        "gate_g85b":      "G8.5B",  # v72.0: OFI Persistence 3-cycle ring (±2.0pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -9479,6 +9609,7 @@ class UnitySignalFilter:
             "gate_g85y",   # ATR vol-compress ±2.0pt/-1.5pt adjuster — cannot block a signal [v65.0]
             "gate_g85dv",  # DGRP-Velocity ±2.0pt/-1.5pt adjuster — cannot block a signal [v66.0]
             "gate_g85a",   # FundingTrend -2.0/+1.5pt adjuster — cannot block a signal [v68.0]
+            "gate_g85b",   # OFI-Persistence ±2.0pt adjuster — cannot block a signal [v72.0]
             "gate_vibe",   # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
         })
@@ -11301,6 +11432,37 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 30 MaxDD ultra-ruin brake is non-fatal
 
+        # ── Kelly Step 31 (v72.0): Vol-Expansion Regime Scale ─────────────────
+        # When recent realized volatility is expanding significantly vs historical baseline,
+        # scale down Kelly to prevent compounding losses during vol-expansion regimes.
+        # Expanding volatility increases noise and adverse fills across all alts — BTC vol
+        # expands 15-30min before alts, making early de-sizing from BTC data critical.
+        # Metric: 7-bar realized vol (SD of log-returns on BTC closes) vs 30-bar realized vol.
+        # When 7-bar vol > 1.5× 30-bar vol (≈40% expansion): Kelly × 0.80.
+        # Uses _quant_layer_close_buf BTCUSDT as the vol-expansion signal source.
+        # Guard: ≥31 BTC bars required for reliable 30-bar baseline (cold-start safe).
+        # Stacks AFTER Step 30 — multiplicative with all prior Kelly adjustments. Non-fatal.
+        try:
+            _k31_btc_buf = list(getattr(self, "_quant_layer_close_buf", {}).get("BTCUSDT", []))
+            if len(_k31_btc_buf) >= 31:
+                import numpy as _np31
+                _k31_closes = _np31.array(_k31_btc_buf[-31:], dtype=float)
+                _k31_rets   = _np31.diff(
+                    _np31.log(_np31.maximum(_k31_closes, 1e-8))
+                )
+                _k31_vol7   = float(_np31.std(_k31_rets[-7:]))  if len(_k31_rets) >= 7  else 0.0
+                _k31_vol30  = float(_np31.std(_k31_rets))       if len(_k31_rets) >= 29 else 0.0
+                if _k31_vol30 > 0.0 and _k31_vol7 > 1.5 * _k31_vol30:
+                    _k31_pre = self.last_kelly_fraction
+                    self.last_kelly_fraction = self.last_kelly_fraction * 0.80
+                    self._logger.info(
+                        f"📊 [v72.0 Step31 VolExpansion] BTC vol7={_k31_vol7:.5f} > "
+                        f"1.5×vol30={_k31_vol30:.5f} → Kelly ×0.80 "
+                        f"({_k31_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                    )
+        except Exception:
+            pass  # Kelly Step 31 Vol-Expansion Regime Scale is non-fatal
+
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
     def paper_mode(self) -> bool:
@@ -13061,10 +13223,10 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"36-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0] · G4-HardCap-0.52+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
+            f"37-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5B:OFI-Persist[v72.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0]+RegimeExp[v72.0] · G4-HardCap-0.52+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
-            f"Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
+            f"Kelly(Steps1-31·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion[v72.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
             f"AIOrchestrator · MarketIntel · OutcomeTracker · NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) · "
             f"LLM-AutoRoute · SignalRate · HealthServer · ThreadPool={THREAD_POOL_WORKERS}w · "
             f"L11-NonFatal · BootstrapCacheFix · v{UNITY_VERSION} active."
@@ -13080,7 +13242,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 36-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-30·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v12-75feat[v68.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·NNFastBoot2min[v71.0]·ConsortiumDynTimeout[v71.0]·IROnSDisplayFix[v71.0]·G9WR-tiers-70[v71.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv12-75feat[v68.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-DynTimeout[v71.0]·NNFastBoot2min[v71.0]·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 37-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-31·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion-x0.80[v72.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G9-RegimeExp[v72.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v13-80feat[v72.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·NNFastBoot2min[v71.0]·ConsortiumDynTimeout[v71.0]·IROnSDisplayFix[v71.0]·G9WR-tiers-70[v71.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv13-80feat[v72.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·G8.5B[v72.0]·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-DynTimeout[v71.0]·NNFastBoot2min[v71.0]·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -13090,7 +13252,7 @@ class UnityEngine:
         logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC 12combos[v56.0]")
         logger.info("              └─ OpenRouter        — 10 free+ClaudeFable5+Mythos5[v56.0], 5 tiers, EnsembleVote")
         logger.info("              └─ SmartLLMRouter    — ClawRouter-inspired cascade fallback")
-        logger.info("   Layer  5 : Neural Network      — 75-feature NN v12 (MLP+Transformer 15×5 tokens: 70-feat v11 + F71:funding_trend + F72:btc_atr_spike + F73:corr_regime_flag + F74:dgrp_vel_norm + F75:vol_compress_flag), Wilder-ATR, online learning")
+        logger.info("   Layer  5 : Neural Network      — 80-feature NN v13 (MLP+Transformer 16×5 tokens: 75-feat v12 + F76:ofi_persistence_score + F77:regime_coherence_score + F78:vol_expansion_flag + F79:hmm_expansion_prob_norm + F80:spread_regime_flag), Wilder-ATR, online learning")
         logger.info("   Layer  6 : ATAS + Bookmap      — 15 indicators + order-flow depth")
         logger.info("   Layer  7 : Risk+Kelly Engine   — SmartDynamic SL/TP + Leveraging + Kelly")
         logger.info("   Layer  8 : AI Orchestrator     — Sentiment + Prediction + RL")
@@ -16608,7 +16770,7 @@ class UnityEngine:
         layers_online = sum(1 for l in self.health.layers.values() if l.available)
         self._logger.info(f"   Layers online  : {layers_online}/{len(self.health.layers)}")
         self._logger.info(
-            f"   Signal gates   : 36-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | G8.5U:MomConsensus-5gate | G8.5P:BTC-CrossPair | G8.5R:HMM-GEX-Coherence | G8.5S:SpreadStress-FLIPx2[v65.0] | G8.5Z:AutoCorr[v64.0] | G8.5Y:ATR-VolCompress[v65.0] | G8.5X:DGRP-Velocity[v66.0] | G8.5A:FundingTrend[v68.0] | 5-bucket RL | "
+            f"   Signal gates   : 37-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | G8.5U:MomConsensus-5gate | G8.5P:BTC-CrossPair | G8.5R:HMM-GEX-Coherence | G8.5S:SpreadStress-FLIPx2[v65.0] | G8.5Z:AutoCorr[v64.0] | G8.5Y:ATR-VolCompress[v65.0] | G8.5X:DGRP-Velocity[v66.0] | G8.5A:FundingTrend[v68.0] | G8.5B:OFI-Persist[v72.0] | 5-bucket RL | "
             f"Kelly | Consec-Loss CB({CONSEC_LOSS_THRESHOLD}) | WinStreak({CONSEC_WIN_STREAK_THRESHOLD}) | "
             f"NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) | Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} | IRONS≥{IRONS_MIN_SCORE:.0f} [v{UNITY_VERSION}]"
         )
@@ -17535,7 +17697,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"36-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5V·AdaptIRONS) · "
+        f"37-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
