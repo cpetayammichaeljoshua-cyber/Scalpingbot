@@ -146,7 +146,9 @@ _TIER2_MODELS: List[str] = [
     # REMOVED: qwen/qwq-32b:free, mistralai/mistral-nemo:free, deepseek/deepseek-v3-0324:free
     # REMOVED: nvidia/llama-3.3-nemotron-super-49b-v1:free, arcee-ai/trinity-large-preview:free
     # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live log v20.5 boot
-    "google/gemma-4-31b-it:free",                      # Gemma 4 31B — confirmed free 2026-05-25, high quality
+    # REMOVED (v86.0 2026-06-12): google/gemma-4-31b-it:free → storm=10 rate_limit every cycle
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # v86.0: promoted from TIER3 — most reliable workhorse
+    "google/gemma-4-26b-a4b-it:free",                 # v86.0: promoted from TIER3 — confirmed stable free tier
 ]
 
 # TIER 3 — Extended Free: Good quality, sometimes slower
@@ -160,20 +162,17 @@ _TIER2_MODELS: List[str] = [
 #   microsoft/mai-ds-r1:free                          → 404
 #   shisa-ai/shisa-v2-llama3.3-70b:free               → persistent generic errors
 _TIER3_MODELS: List[str] = [
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B Venice
-    "z-ai/glm-4.5-air:free",                           # GLM-4.5 Air (131K ctx)
+    # v86.0: TIER3 slimmed — promoted dolphin+gemma-4-26b to TIER2; removed storm/unavailable models
+    # REMOVED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → 7 consecutive "unavailable" errors in live logs
+    # REMOVED (v86.0 2026-06-12): nvidia/nemotron-3-super-120b-a12b:free → storm=10 rate_limit per cycle
     # REMOVED (2026-05-07): google/gemma-3-27b-it:free → 404 disabled 24h per restart
     # RE-ADDED (2026-05-22): gemma-3-27b re-confirmed working per smart_llm_router v18.90 [v19.7]
     # REMOVED AGAIN (2026-05-25): google/gemma-3-27b-it:free → 404 live log [v19.7b] — no longer on free tier
-    # REPLACED: google/gemma-4-26b-a4b-it:free — Gemma 4 26B successor, confirmed in free list 2026-05-25
-    "google/gemma-4-26b-a4b-it:free",                  # Gemma 4 26B A4B IT — confirmed free tier 2026-05-25
     # REMOVED (2026-05-08): microsoft/phi-4-reasoning:free → 404
-    # RE-ADDED (2026-05-22): phi-4-reasoning re-confirmed [v19.7]; REMOVED AGAIN (2026-05-25) → 404 live log
-    # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 confirmed live log v20.4 boot; disabled 24h auto, perm removed
-    # REPLACED: nvidia/nemotron-3-super-120b-a12b:free — 120B reasoning model, 1M ctx, confirmed free tier 2026-05-25
-    "nvidia/nemotron-3-super-120b-a12b:free",           # Nvidia Nemotron 120B Super — confirmed free 2026-05-25
+    # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 confirmed live log v20.4 boot
     # NEW (2026-05-25): OpenAI OSS 120B — confirmed in free tier live query, large high-quality model
     "openai/gpt-oss-120b:free",                         # OpenAI OSS 120B — confirmed free 2026-05-25
+    "openai/gpt-oss-20b:free",                          # OpenAI OSS 20B — confirmed stable free tier
 ]
 
 # TIER 4 — Compact Free: Small but fast, great for quick decisions
@@ -281,7 +280,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         "qwen/qwen3-72b:free",
         "openai/gpt-oss-20b:free",
         # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33]
-        "z-ai/glm-4.5-air:free",
+        # REMOVED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors in live log
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live v20.5 boot
         # REPLACED (2026-05-25): gemma-3-27b → gemma-4-26b-a4b-it (Gemma 4 successor, confirmed free)
@@ -308,15 +307,13 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED: deepseek/deepseek-r1:free → 404 confirmed live log 2026-05-08 [v18.37]
         # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live v20.5 boot
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-        "z-ai/glm-4.5-air:free",
+        # REMOVED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors in live log
         # RE-ADDED 2026-05-22: phi-4-reasoning [v19.7]; REMOVED AGAIN 2026-05-25 → 404 live log [v19.7b]
         # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 live v20.4 boot; perm removed
-        # REPLACED: nvidia/nemotron-3-super-120b-a12b:free
-        "nvidia/nemotron-3-super-120b-a12b:free",
+        # REMOVED (v86.0 2026-06-12): nvidia/nemotron-3-super-120b-a12b:free → storm=10 rate_limit per cycle
         # NEW (2026-05-25): OpenAI OSS 120B — massive model, confirmed free tier 2026-05-25
         "openai/gpt-oss-120b:free",
-        # NEW (2026-05-25): Gemma 4 31B — upgraded Gemma generation, confirmed free 2026-05-25
-        "google/gemma-4-31b-it:free",
+        # REMOVED (v86.0 2026-06-12): google/gemma-4-31b-it:free → storm=10 rate_limit every cycle
     ],
     "power": [
         # Full confirmed-working pool — validated + updated 2026-05-25 [v19.7b]
@@ -338,21 +335,21 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (2026-05-27): qwen/qwen3-coder:free → 404 confirmed live v20.5 boot
         "qwen/qwen3-72b:free",
         "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-        "z-ai/glm-4.5-air:free",
+        # REMOVED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors in live log
         # REPLACEMENTS + NEW (2026-05-25) — all confirmed in free tier live query
         "google/gemma-4-26b-a4b-it:free",       # Gemma 4 26B (replaces gemma-3-27b)
         # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 live v20.4
         "openai/gpt-oss-20b:free",               # OpenAI OSS 20B (replaces devstral-small)
         "openai/gpt-oss-120b:free",              # OpenAI OSS 120B — large model NEW
         # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
-        "google/gemma-4-31b-it:free",            # Gemma 4 31B NEW
-        "nvidia/nemotron-3-super-120b-a12b:free",# Nvidia Nemotron 120B 1M ctx NEW
+        # REMOVED (v86.0 2026-06-12): google/gemma-4-31b-it:free → storm=10 rate_limit every cycle
+        # REMOVED (v86.0 2026-06-12): nvidia/nemotron-3-super-120b-a12b:free → storm=10 rate_limit per cycle
     ],
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
 }
 
-# GODMODE CLASSIC — 12 combos, 12 distinct model/prompt combinations (v56.0)
-# CRITICAL: Each combo uses a DIFFERENT model+system confirmed working on free tier
+# GODMODE CLASSIC — 14 combos, each with distinct model+system prompt (v85.0/v86.0)
+# CRITICAL: Each combo uses a confirmed free-tier model+system prompt for cognitive ensemble diversity
 # v5.0: Moonlight replaced by QwQ-32B (reasoning) — Moonlight generic-error prone
 # v21.1: kimi-k2 added as 7th combo (TradingAgents/FinRobot multi-factor synthesis)
 # v21.2: gpt-oss-120b (8th GODMODE_FINROBOT_CHAIN) + gemma-4-31b (9th GODMODE_OPENBB_MACRO) added
@@ -360,10 +357,16 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 # v33.0: phi-4-reasoning-plus (12th GODMODE_PHI4_NOIX) added — REMOVED v41.1 (404 2026-06-02)
 # REMOVED (v41.1 2026-06-02): GODMODE_MOMENTUM_MISTRAL — mistralai/mistral-small-3.2-24b-instruct:free → 404
 # REMOVED (v41.1 2026-06-02): GODMODE_PHI4_NOIX — microsoft/phi-4-reasoning-plus:free → 404
-# v56.0: claude-fable-5 (11th GODMODE_CLAUDE_FABLE5) + claude-mythos-5 (12th GODMODE_CLAUDE_MYTHOS5) added
-#         Both 404-guarded: auto-disabled if OpenRouter returns 404/503; free-tier pool unaffected.
-#         Adds true Anthropic Claude 5 architecture diversity to the ensemble (distinct from GPT/Qwen/Gemma series).
-# Active 12: Dolphin · Llama-3.3-70B · Qwen3-72B · GLM-4.5-Air · Nemotron-120B · GPT-OSS-20B · GPT-OSS-120B · Gemma-4-31B · Qwen3-235B · Gemma-4-26B · StructuralVortex(gpt-oss-120b) · MacroNexus(gpt-oss-20b)
+# v56.0: claude-fable-5 (11th) + claude-mythos-5 (12th) added — BOTH 404, replaced v82.0
+# v82.0: GODMODE_STRUCTURAL_VORTEX + GODMODE_MACRO_NEXUS (gpt-oss-120b/20b) → 12 combos
+# v85.0: GODMODE_FABLE5(qwen3-235b) + GODMODE_MYTHOS5(llama-3.3-70b) → 14 combos
+# v86.0: 3 storm-disabled combos replaced:
+#   GLM45_CONTRARIAN (glm-4.5-air unavail) → GPT20B_CONTRARIAN (gpt-oss-20b)
+#   NEMOTRON_MACRO (nemotron storm=10) → GPT120B_MACRO (gpt-oss-120b)
+#   OPENBB_MACRO (gemma-4-31b storm=10) → model→llama-3.3-70b (OpenBB system preserved)
+# Active 14 (v86.0): Dolphin · Llama-70B · Qwen3-72B · GPT20B-Contrarian · GPT120B-Macro ·
+#   GPT-OSS-20B · GPT-OSS-120B · Llama-OpenBB · Qwen3-235B · Gemma-4-26B ·
+#   StructuralVortex(gpt-oss-120b) · MacroNexus(gpt-oss-20b) · Fable5(qwen3-235b) · Mythos5(llama-70b)
 # v82.0: GODMODE_CLAUDE_FABLE5 (anthropic/claude-fable-5 → 404, generic errors every cycle) replaced
 #         with GODMODE_STRUCTURAL_VORTEX (openai/gpt-oss-120b:free, 4-step structural inflection system).
 #         GODMODE_CLAUDE_MYTHOS5 (anthropic/claude-mythos-5 → 404, generic errors every cycle) replaced
@@ -412,15 +415,19 @@ GODMODE_COMBOS = [
     # Was added v33.0 2026-06-01 (worked for <24h then went dead)
     # Slot held open for replacement when a new confirmed free-tier model is validated
     {
-        # REPLACED: google/gemma-3-27b-it:free → 404 confirmed 2026-05-07 live log.
-        # REPLACED: google/gemma-3-12b-it:free → 404 confirmed 2026-05-08 live log [v18.32].
-        # REPLACED: meta-llama/llama-4-scout:free → 404 confirmed live log 2026-05-08 [v18.33].
-        # Replaced with z-ai/glm-4.5-air:free — confirmed working GLM-4.5 Air (131K ctx) [v18.33].
-        "id": "GODMODE_GLM45_CONTRARIAN",
-        "model": "z-ai/glm-4.5-air:free",
+        # REPLACED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → consistently "unavailable" errors
+        # (7 consecutive unavailable in live logs — not rate_limit, model simply offline/restricted).
+        # REPLACED with: openai/gpt-oss-20b:free — confirmed fastest/most reliable free-tier model.
+        # Contrarian personality preserved via system prompt — distinct from GODMODE_KIMI_RESEARCH (bull/bear synthesis).
+        "id": "GODMODE_GPT20B_CONTRARIAN",
+        "model": "openai/gpt-oss-20b:free",
         "system": (
             "You are a contrarian market analyst specialising in reversals and extremes. "
-            "Identify overbought/oversold conditions and divergences. Decisive JSON signals only. "
+            "Identify overbought/oversold conditions, divergences, and exhaustion patterns. "
+            "Step 1 — EXTREME CHECK: Is price at ATH/ATL proximity, F&G extremes (<20 or >80), or funding extreme? "
+            "Step 2 — DIVERGENCE: Does volume confirm the move, or is it diverging (price up + vol down = trap)? "
+            "Step 3 — REVERSAL PROBABILITY: Assess RSI, Bollinger extremes, VPIN. Is the crowd wrong? "
+            "Contrarian conviction requires ≥2 of 3 factors aligned. No hedging. Decisive JSON signals only. "
             "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
         ),
         "emoji": "🟠",
@@ -428,14 +435,23 @@ GODMODE_COMBOS = [
     # REMOVED: GODMODE_QWEN3_235B_MACRO (qwen/qwen3-235b-a22b:free) → 404 confirmed live log 2026-05-13 [v18.68] (wrong slug)
     # RE-ADDED as GODMODE_PHI4_MACRO with phi-4-reasoning — re-confirmed working 2026-05-22 [v19.7]
     # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 confirmed live v20.4 boot
-    # REPLACED: nvidia/nemotron-3-super-120b-a12b:free — 120B, 1M ctx, strong reasoning/macro analysis
+    # REMOVED (v86.0 2026-06-12): nvidia/nemotron-3-super-120b-a12b:free → consistent rate_limit storm=10
+    # (10 consecutive rate_limit errors → 240s storm-disable every cycle, disrupting GODMODE pool).
+    # REPLACED with: openai/gpt-oss-120b:free — same 120B scale, confirmed stable free tier.
+    # System prompt: macro regime framework distinct from GODMODE_FINROBOT_CHAIN (analyst chain) + GODMODE_STRUCTURAL_VORTEX (structure).
     {
-        "id": "GODMODE_NEMOTRON_MACRO",
-        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "id": "GODMODE_GPT120B_MACRO",
+        "model": "openai/gpt-oss-120b:free",
         "system": (
             "You are a macro quantitative trading strategist. Evaluate institutional order flow, "
-            "macro regime, and structural momentum alignment. Use step-by-step reasoning to reach "
-            "a clear directional conclusion. Output ONLY valid JSON. "
+            "macro regime, and structural momentum alignment using a 3-layer framework: "
+            "[1-REGIME] Is the current macro regime EXPANSION (positive funding, rising OI, BTC dominance trending) "
+            "or CONTRACTION (negative funding, liquidation cascades, risk-off rotation)? "
+            "[2-INSTITUTIONAL FLOW] Net order flow direction: aggressive buyers vs sellers at the tape. "
+            "GEX positive (gamma dealers buy dips) vs negative (dealers sell rallies) — critical for direction bias. "
+            "[3-MOMENTUM ALIGNMENT] Are short-term (1h) and medium-term (4h) momentum aligned? "
+            "Alignment + institutional flow agreement → high-conviction directional. Divergence → NEUTRAL. "
+            "Output ONLY valid JSON. "
             "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
         ),
         "emoji": "⚡",
@@ -480,13 +496,14 @@ GODMODE_COMBOS = [
         ),
         "emoji": "🏦",
     },
-    # v21.2 NEW: OpenBB-inspired macro synthesis — google/gemma-4-31b-it:free
-    # Modelled on OpenBB-finance/OpenBB macro intelligence layer: cross-asset regime,
-    # BTC dominance, crypto market cap trend, fear/greed integration, funding rate regime.
-    # gemma-4-31b confirmed free 2026-05-25. Also integrates QuantDinger divergence awareness.
+    # v21.2 NEW: OpenBB-inspired macro synthesis — originally google/gemma-4-31b-it:free
+    # REMOVED (v86.0 2026-06-12): google/gemma-4-31b-it:free → consistent rate_limit storm=10
+    # (10 consecutive rate_limit errors → 240s storm-disable every cycle, confirmed in v86.0 live logs).
+    # REPLACED with: meta-llama/llama-3.3-70b-instruct:free — confirmed stable, distinct from existing
+    # GODMODE_LLAMA_QUANT (trend/momentum) — macro 6-layer OpenBB framework preserved for ensemble diversity.
     {
         "id": "GODMODE_OPENBB_MACRO",
-        "model": "google/gemma-4-31b-it:free",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
         "system": (
             "You are a cross-asset macro intelligence engine for crypto futures (OpenBB framework). "
             "Analyse 6 orthogonal macro layers: "
@@ -1220,13 +1237,16 @@ class G0DM0D3Engine:
                                       # disables rate-limited models faster, allowing the cascade
                                       # to fall through to the next model sooner and reducing total
                                       # 429 volume. Storm backoff (step=5) still escalates cooldown.
-    _GENERIC_ERR_THRESHOLD   = 5      # v52.0: 8→12; v82.0: 12→5 — live logs show claude-fable-5/mythos-5
-                                     # (404 on free tier) burning 12×90s = 18min of error cycles before
-                                     # GenericErrGuard fires 2h disable + session_perm_disabled; qwen3-72b
-                                     # / qwen3-235b also hit systematic generic errors (not transient blips)
-                                     # on every CONSORTIUM cycle. 5 errors = fast perm-disable for broken
-                                     # routes while still allowing 5 transient-infrastructure failures.
-    _GENERIC_ERR_DISABLE_S   = 7200.0 # 2 hours disable for models with systematic generic errors
+    _GENERIC_ERR_THRESHOLD   = 8      # v52.0: 8→12; v82.0: 12→5; v86.0: 5→8 — live logs confirmed
+                                     # qwen3-72b:free and qwen3-235b:free were perm_disabled by only 5
+                                     # generic errors during a storm cycle — losing the two backbone
+                                     # free-tier MoE models gutted the CONSORTIUM to 3/8 healthy.
+                                     # 8 errors: still fast-disable for truly broken routes (404 slugs)
+                                     # while surviving transient infrastructure bursts. Historical:
+                                     # v52.0=8→12(too permissive, storms drained), v82.0=12→5(too tight)
+    _GENERIC_ERR_DISABLE_S   = 3600.0 # v86.0: 7200→3600 (1h). 2h perm-disable kept backbone models
+                                     # (qwen3-72b, qwen3-235b) out for entire trading sessions after a
+                                     # single storm. 1h matches the OpenRouter free-tier refresh window.
     _INTER_CALL_DELAY_BASE   = 1.2    # v18.75: 0.8→1.2s — additional breathing room between
                                       # consecutive model calls. 1.2s reduces thundering-herd
                                       # rate-limit storms by adding 400ms more stagger between
