@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 80 features → 16 tokens × 5 dims (80 = 16 × 5) [v72.0: was 15×5=75]
-_TORCH_N_TOKENS  = 16
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v13: 80 = 16×5)
+# Transformer tokenisation: reshape 85 features → 17 tokens × 5 dims (85 = 17 × 5) [v76.0: was 16×5=80]
+_TORCH_N_TOKENS  = 17
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v14: 85 = 17×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 80  # v13 (v72.0): 75 + 5 microstructure/regime features (ofi_persistence_score, regime_coherence_score, vol_expansion_flag, hmm_expansion_prob_norm, spread_regime_flag) = 80
+INPUT_DIM          = 85  # v14 (v76.0): 80 + 5 timing/microstructure features (avwap_dist_norm, cusum_flag, depth_slip_norm, mark_div_norm, ob_imbalance_norm) = 85
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -787,6 +787,63 @@ def build_features(trade: Dict) -> "np.ndarray":
     #    0.0 = normal spread environment (execution costs within expected range)
     _v13_spr = _safe_float(trade.get("spread_regime_flag", 0.0), 0.0)
     f.append(max(0.0, min(1.0, _v13_spr)))                                     # 80 spread_regime_flag
+
+    # ── v14 Timing/Microstructure features (81-85) — v76.0 ──────────────────
+    # F81: avwap_dist_norm — Anchored VWAP extension normalized to [-1, +1]
+    #   +1.0 = price strongly extended above VWAP (≥100bps premium; momentum territory)
+    #   -1.0 = price strongly extended below VWAP (≥100bps discount; oversold territory)
+    #    0.0 = price at or near VWAP anchor (equilibrium / mean-reversion zone)
+    #   Source: avwap_dist_bps from _timing_state.avwap_distance_bps() [v76.0]
+    _v14_avwap = _safe_float(trade.get("avwap_dist_bps", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v14_avwap / 100.0)))                         # 81 avwap_dist_norm
+
+    # F82: cusum_flag — de Prado symmetric CUSUM event active binary (0/1)
+    #   1.0 = CUSUM regime-shift event is live within TTL window (statistical breakout)
+    #   0.0 = no active CUSUM event (stable regime, no detected volatility shift)
+    #   Source: cusum_active / cusum_flag from _timing_state [v76.0]
+    _v14_cusum_raw = trade.get("cusum_flag") or trade.get("cusum_active")
+    if _v14_cusum_raw is None:
+        _v14_cusum = 0.0
+    elif isinstance(_v14_cusum_raw, bool):
+        _v14_cusum = 1.0 if _v14_cusum_raw else 0.0
+    else:
+        _v14_cusum = max(0.0, min(1.0, _safe_float(_v14_cusum_raw, 0.0)))
+    f.append(_v14_cusum)                                                        # 82 cusum_flag
+
+    # F83: depth_slip_norm — execution slippage cost pressure normalized to [0, 1]
+    #   1.0 = severe execution cost (≥3bps round-trip; wide spread / illiquid market)
+    #   0.0 = minimal slippage (tight, liquid market — execution at quoted prices)
+    #   Reference: 3bps round-trip (0.003 raw) = 100th percentile / max reference [v76.0]
+    _v14_dslip = _safe_float(trade.get("depth_slip_norm", 0.0), 0.0)
+    if abs(_v14_dslip) < 1e-9:
+        # fallback: compute from raw depth_slip_rt if norm not stamped
+        _v14_dslip_raw = _safe_float(trade.get("depth_slip_rt", 0.0), 0.0)
+        _v14_dslip = max(0.0, min(1.0, _v14_dslip_raw / 0.003))
+    f.append(max(0.0, min(1.0, _v14_dslip)))                                  # 83 depth_slip_norm
+
+    # F84: mark_div_norm — mark-price premium/discount normalized to [-1, +1]
+    #   +1.0 = strong premium (mark significantly above index, ≥50bps; funding pressure)
+    #   -1.0 = strong discount (mark significantly below index, ≤-50bps; funding relief)
+    #    0.0 = mark ≈ index price (fair value; no significant premium or discount)
+    #   Source: mark_divergence_bps from MarketStateSnapshot [v76.0]
+    _v14_mdiv = _safe_float(trade.get("mark_div_norm", 0.0), 0.0)
+    if abs(_v14_mdiv) < 1e-9:
+        # fallback: compute from raw mark_divergence_bps if norm not stamped
+        _v14_mdiv_raw = _safe_float(trade.get("mark_divergence_bps", 0.0), 0.0)
+        _v14_mdiv = max(-1.0, min(1.0, _v14_mdiv_raw / 50.0))
+    f.append(max(-1.0, min(1.0, _v14_mdiv)))                                  # 84 mark_div_norm
+
+    # F85: ob_imbalance_norm — orderbook bid/ask pressure centered on 0 [-1, +1]
+    #   +1.0 = pure bid-side pressure (ob_imbalance→1.0; strong buying demand)
+    #   -1.0 = pure ask-side pressure (ob_imbalance→0.0; strong selling pressure)
+    #    0.0 = balanced orderbook (ob_imbalance=0.5; no directional pressure signal)
+    #   Source: ob_imbalance from MarketStateSnapshot (bid_vol / total_vol) [v76.0]
+    _v14_obimb = _safe_float(trade.get("ob_imbalance_norm", 0.0), 0.0)
+    if abs(_v14_obimb) < 1e-9:
+        # fallback: compute from raw ob_imbalance if norm not stamped
+        _v14_obimb_raw = _safe_float(trade.get("ob_imbalance", 0.5), 0.5)
+        _v14_obimb = max(-1.0, min(1.0, (_v14_obimb_raw - 0.5) * 2.0))
+    f.append(max(-1.0, min(1.0, _v14_obimb)))                                 # 85 ob_imbalance_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:

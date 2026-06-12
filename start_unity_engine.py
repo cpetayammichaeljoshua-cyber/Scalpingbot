@@ -1,8 +1,52 @@
 #!/usr/bin/env python3
 """
-Unity Engine v75.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v76.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 40-gate filter · 5-bucket RL · Kelly 34-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 42-gate filter · 5-bucket RL · Kelly 35-steps · GEX · SRM):
+ v76.0 improvements [2026-06-12]:
+   1. G8.5F VWAP-EXTENSION GATE (41st gate, ±2.0/+1.5pts): New soft-gate measuring how far
+      price has moved from the Anchored VWAP (in basis points). When price is significantly
+      extended (>80bps) AGAINST the trade direction → -2.0pts (mean-reversion risk: price is
+      stretched the wrong way, TP targets may face AVWAP magnetic pull-back). When price is
+      extended >80bps IN the trade direction → +1.5pts (momentum extension confirmation: price
+      has broken decisively away from VWAP anchor). Sources: `avwap_dist_bps` from
+      `_timing_state.avwap_distance_bps()` (already computed by timing layer every tick).
+      Uses signal_data["avwap_dist_bps"] injected at G4 stamping block. Zero-API-call gate —
+      reads existing in-cycle timing state. Wired to gate_stats/_GATE_DISPLAY_LABELS/
+      _SOFT_GATE_KEYS/_record() [v76.0].
+   2. G8.5G CUSUM-BREAKOUT GATE (42nd gate, ±1.5pts): New soft-gate leveraging the de Prado
+      symmetric CUSUM event filter already running in L9 (institutional timing layer). CUSUM
+      fires when a statistically significant volatility regime shift is detected. When CUSUM is
+      ACTIVE and the trade direction is aligned with the breakout → +1.5pts (entering WITH a
+      confirmed statistical breakout = higher realized follow-through probability). When CUSUM
+      is active but the trade OPPOSES the breakout direction → -1.5pts (entering AGAINST a
+      confirmed statistical move = elevated adverse selection risk). Sources: `cusum_active`
+      from `_timing_state.cusum_event_active()` + breakout direction inferred from OFI z-score
+      (positive OFI during CUSUM = buy-side breakout). Wired to gate_stats/
+      _GATE_DISPLAY_LABELS/_SOFT_GATE_KEYS/_record() [v76.0].
+   3. KELLY STEP 35: AVWAP-EXTENSION SIZING: When price is extended >150bps AGAINST the trade
+      direction (major AVWAP divergence = mean-reversion headwind) → Kelly ×0.82 (de-size:
+      AVWAP acts as a magnetic anchor pulling price back against the trade). When price is
+      extended >150bps IN the trade direction AND CUSUM is simultaneously active (breakout
+      confirmed by two independent statistical systems) → Kelly ×1.04 (amplify: two quant
+      systems confirm momentum extension). Guard: avwap_dist_bps must be non-zero (timing
+      state warm); stacks AFTER Step 34; non-fatal [v76.0].
+   4. NN v14 — INPUT_DIM 80→85 (+5 microstructure/timing features): F81=avwap_dist_norm
+      (avwap_dist_bps / 100 clipped ±1; VWAP extension normalized); F82=cusum_flag (1.0 if
+      CUSUM event active, 0.0 otherwise; statistical breakout binary); F83=depth_slip_norm
+      (depth_slip_rt / 0.003 clipped 0-1; execution cost pressure normalized to 3bps ref);
+      F84=mark_div_norm (mark_divergence_bps / 50 clipped ±1; premium/discount regime);
+      F85=ob_imbalance_norm ((ob_imbalance - 0.5) × 2 clipped ±1; orderbook pressure
+      centered on 0=balanced). Transformer tokens: 17×5=85. Weight reset on INPUT_DIM
+      mismatch 80→85 → retrain in 2min from first boot [v76.0].
+   5. F81-F85 INJECTION AT G4 STAMPING BLOCK: All 5 new NN features are injected into
+      signal_data at the G4 gate evaluation block (same pattern as F76-F80 injection in
+      v73.0). Data sourced from MarketStateSnapshot fields: avwap_dist_bps, cusum_active,
+      depth_slip_rt, mark_divergence_bps, ob_imbalance — all already computed in-cycle
+      with zero extra API calls [v76.0].
+   6. KEY GATES HEADER UPDATE → v76.0. 40-gate → 42-gate filter. Kelly 34-steps → 35-steps.
+      All architecture stamps, boot banners, capability stamps, wire_all() logs updated
+      to reflect 42-gate filter and Kelly Steps 1-35 [v76.0].
  v75.0 improvements [2026-06-12]:
    1. G8.5P BTC-CROSSPAIR DEAD-GATE FIX (critical bug since v60.0): G8.5P at line ~8499
       used `self._quant_layer_close_buf.get("BTCUSDT", [])` — but `_quant_layer_close_buf`
@@ -244,7 +288,7 @@ ARCHITECTURE (30 layers · 40-gate filter · 5-bucket RL · Kelly 34-steps · GE
   L2.7: UT Bot Strategy         — UT Bot Alerts + STC signal engine
   L3:   MiroFish Swarm          — 10-agent consensus intelligence
   L4:   G0DM0D3 AI v11.0        — ULTRAPLINIAN+AutoTune+STM+GODMODE | 40+ OpenRouter models
-  L5:   Neural Network          — 80-feat NN v13 MLP (60%) + PyTorch Transformer 4-head 16×5 (40%)
+  L5:   Neural Network          — 85-feat NN v14 MLP (60%) + PyTorch Transformer 4-head 17×5 (40%)
   L6:   Market Analysis         — ATAS (15 indicators) + Bookmap order flow
   L7:   Risk Engine             — Sortino+Calmar+Kelly institutional risk calculus
   L8:   AI Orchestrator         — Sentiment + Market Prediction + RL
@@ -271,9 +315,9 @@ KEY GATES (v74.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:12models+12combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts)[v75.0-FIX] | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts)[v75.0-FIX] | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | G8.5B:OFI-Persistence(±2.0pts,3-cycle-ring) | G8.5C:RegimeCoh(±2.0pts) | G8.5D:OFI-Velocity(±2.0/-1.5pts) | G8.5E:CrossCoherence(+2.0/+0.8/-1.5pts) | 40-gate filter [v75.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts)[v75.0-FIX] | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts)[v75.0-FIX] | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | G8.5B:OFI-Persistence(±2.0pts,3-cycle-ring) | G8.5C:RegimeCoh(±2.0pts) | G8.5D:OFI-Velocity(±2.0/-1.5pts) | G8.5E:CrossCoherence(+2.0/+0.8/-1.5pts) | G8.5F:VWAP-Extension(±2.0/+1.5pts)[v76.0] | G8.5G:CUSUM-Breakout(±1.5pts)[v76.0] | 42-gate filter [v76.0] |
   Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) | Kelly30:MaxDD-UltraRuin(DD>48%→cap0.15%,DD>50%→cap0.05%) |
-  Kelly31:VolExpansion-Regime-Scale(BTC-vol-expand-15bar→×0.80) | Kelly32:OFI-PersistKelly(3/3-aligned→×1.08,0/3→×0.88) | Kelly33:EnsembleConf-Uncertainty(unc<0.08→×1.07,unc≥0.15→×0.90) | Kelly34:CrossCoherence-G8.5E(3/3→×1.06,0/3→×0.87) |
+  Kelly31:VolExpansion-Regime-Scale(BTC-vol-expand-15bar→×0.80) | Kelly32:OFI-PersistKelly(3/3-aligned→×1.08,0/3→×0.88) | Kelly33:EnsembleConf-Uncertainty(unc<0.08→×1.07,unc≥0.15→×0.90) | Kelly34:CrossCoherence-G8.5E(3/3→×1.06,0/3→×0.87) | Kelly35:AVWAP-Extension-Sizing(>150bps-against→×0.82,>150bps-in-dir+CUSUM→×1.04)[v76.0] |
   MLP_EPOCHS:500(was400) TRANSFORMER_EPOCHS:150(was100) PATIENCE:40/25(was30/18) |
   SOVEREIGN [1.00]: torch 2.3.1+cpu ✅ | sklearn 1.8.0 ✅ | ZERO DEGRADED
   v19.2 FIXES: torch-inplace-fix(contiguous+zero_grad+enable_nested_tensor=False) |
@@ -1994,7 +2038,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "75.0"
+UNITY_VERSION                = "76.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4550,6 +4594,14 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85e"]        = {"pass": 0, "fail": 0}  # v75.0: cross-signal coherence (+2.0/+0.8/-1.5pts)
         self._gate_stats_recent["gate_g85e"] = deque(maxlen=self._gate_stats_window_n)  # v75.0
         self._last_g85e_votes: int = -1   # v75.0: store G8.5E vote count for Kelly Step 34 (-1 = not evaluated)
+        # v76.0: G8.5F VWAP-Extension gate init (41st gate, ±2.0/+1.5pts)
+        self._gate_stats["gate_g85f"]        = {"pass": 0, "fail": 0}  # v76.0: AVWAP extension direction quality adjuster
+        self._gate_stats_recent["gate_g85f"] = deque(maxlen=self._gate_stats_window_n)  # v76.0
+        # v76.0: G8.5G CUSUM-Breakout gate init (42nd gate, ±1.5pts)
+        self._gate_stats["gate_g85g"]        = {"pass": 0, "fail": 0}  # v76.0: de Prado CUSUM event breakout confirmation
+        self._gate_stats_recent["gate_g85g"] = deque(maxlen=self._gate_stats_window_n)  # v76.0
+        self._last_g85f_avwap_dist: float = 0.0   # v76.0: store AVWAP dist for Kelly Step 35 (0=no data)
+        self._last_g85g_cusum_active: bool = False  # v76.0: store CUSUM state for Kelly Step 35
         # v68.0: G8.5A FundingRate-Trend gate — per-symbol rolling funding rate deque.
         # Stores (timestamp, funding_rate) pairs; maxlen=3 → 3-reading trend window.
         # Protected by _fr_trend_last_update guard (30s min update interval per symbol).
@@ -7038,8 +7090,107 @@ class UnitySignalFilter:
                             except Exception:
                                 pass
                             signal_data.setdefault("spread_regime_flag", _v73_spr_flag)
+
+                            # ── v76.0 F81-F85 injection block ───────────────────────────────
+                            # Five new NN v14 features injected at G4 stamping block, same
+                            # pattern as F76-F80. Sources from MarketStateSnapshot (already
+                            # computed in-cycle — zero extra API calls).
+                            # F81: avwap_dist_norm — AVWAP extension normalized [-1, +1]
+                            #   +1 = price extended far above VWAP (100bps+)
+                            #   -1 = price extended far below VWAP (-100bps)
+                            #    0 = price at or near VWAP anchor
+                            try:
+                                _v76_avwap_raw = float(
+                                    signal_data.get("avwap_dist_bps") or 0.0
+                                )
+                                if abs(_v76_avwap_raw) < 0.01:
+                                    # fallback: read from timing_state if not stamped yet
+                                    _v76_ts = getattr(self, "_timing_state", None)
+                                    if _v76_ts is not None:
+                                        try:
+                                            _v76_avwap_raw = float(
+                                                _v76_ts.avwap_distance_bps(
+                                                    _v73_sym,
+                                                    float(
+                                                        (self._ws_state_ref or {})
+                                                        .get(_v73_sym, {})
+                                                        .get("close", 0.0) or 0.0
+                                                    )
+                                                )
+                                            )
+                                        except Exception:
+                                            pass
+                                signal_data.setdefault(
+                                    "avwap_dist_bps", _v76_avwap_raw
+                                )
+                                _v76_avwap_norm = max(
+                                    -1.0, min(1.0, _v76_avwap_raw / 100.0)
+                                )
+                            except Exception:
+                                _v76_avwap_norm = 0.0
+                            signal_data.setdefault("avwap_dist_norm", _v76_avwap_norm)
+
+                            # F82: cusum_flag — CUSUM event active binary (0/1)
+                            #   1.0 = de Prado symmetric CUSUM event is live (regime shift)
+                            #   0.0 = no active CUSUM event (normal regime)
+                            try:
+                                _v76_cusum_raw = signal_data.get("cusum_active")
+                                if _v76_cusum_raw is None:
+                                    _v76_ts2 = getattr(self, "_timing_state", None)
+                                    _v76_cusum_raw = (
+                                        bool(_v76_ts2.cusum_event_active(_v73_sym))
+                                        if _v76_ts2 is not None else False
+                                    )
+                                _v76_cusum_flag = 1.0 if _v76_cusum_raw else 0.0
+                            except Exception:
+                                _v76_cusum_flag = 0.0
+                            signal_data.setdefault("cusum_flag", _v76_cusum_flag)
+
+                            # F83: depth_slip_norm — execution slippage pressure [0, 1]
+                            #   1.0 = severe slippage (≥3bps round-trip, wide spread / illiquid)
+                            #   0.0 = minimal slippage (tight, liquid market)
+                            try:
+                                _v76_ob3 = (self._ws_state_ref or {}).get(_v73_sym, {})
+                                _v76_dslip = float(
+                                    _v76_ob3.get("depth_slip_rt", 0.0) or 0.0
+                                )
+                                # 3bps round-trip reference (0.0003 raw ÷ reference)
+                                _v76_dslip_norm = max(0.0, min(1.0, _v76_dslip / 0.003))
+                            except Exception:
+                                _v76_dslip_norm = 0.0
+                            signal_data.setdefault("depth_slip_norm", _v76_dslip_norm)
+
+                            # F84: mark_div_norm — mark-price premium/discount [-1, +1]
+                            #   +1 = strong premium (mark >> index, ≥50bps)
+                            #   -1 = strong discount (mark << index, ≤-50bps)
+                            #    0 = mark ≈ index (fair value)
+                            try:
+                                _v76_ob4 = (self._ws_state_ref or {}).get(_v73_sym, {})
+                                _v76_mdiv = float(
+                                    _v76_ob4.get("mark_divergence_bps", 0.0) or 0.0
+                                )
+                                _v76_mdiv_norm = max(-1.0, min(1.0, _v76_mdiv / 50.0))
+                            except Exception:
+                                _v76_mdiv_norm = 0.0
+                            signal_data.setdefault("mark_div_norm", _v76_mdiv_norm)
+
+                            # F85: ob_imbalance_norm — orderbook pressure centered on 0
+                            #   +1 = pure bid-side pressure (ob_imbalance→1.0)
+                            #   -1 = pure ask-side pressure (ob_imbalance→0.0)
+                            #    0 = balanced book (ob_imbalance=0.5)
+                            try:
+                                _v76_ob5 = (self._ws_state_ref or {}).get(_v73_sym, {})
+                                _v76_obimb = float(
+                                    _v76_ob5.get("ob_imbalance", 0.5) or 0.5
+                                )
+                                _v76_obimb_norm = max(
+                                    -1.0, min(1.0, (_v76_obimb - 0.5) * 2.0)
+                                )
+                            except Exception:
+                                _v76_obimb_norm = 0.0
+                            signal_data.setdefault("ob_imbalance_norm", _v76_obimb_norm)
                         except Exception:
-                            pass  # v73.0 F76-F80 injection block is non-fatal
+                            pass  # v76.0 F81-F85 injection block is non-fatal (extends v73.0 F76-F80 block)
                     if isinstance(signal_data, dict) and callable(_pfd):
                         nn_prob = float(_pfd(signal_data))
                     elif not isinstance(signal_data, dict) and callable(_ps):
@@ -9231,6 +9382,141 @@ class UnitySignalFilter:
         except Exception:
             pass  # G8.5E Cross-Signal Coherence is non-fatal soft-gate
 
+        # ── Gate 8.5F — VWAP-Extension Direction Adjuster (v76.0) ────────────
+        # Measures how far the current price has moved from the Anchored VWAP
+        # in basis points. AVWAP acts as a mean-reversion magnet: price extended
+        # far AGAINST the trade direction means TP targets face an AVWAP pull-back
+        # headwind (de-rate quality). Price extended far IN the trade direction
+        # confirms momentum has broken decisively from the VWAP anchor (boost quality).
+        #
+        # Scoring (avwap_dist_bps signed: positive = price above VWAP):
+        #   Against direction >80bps: −2.0pts  (mean-reversion risk, AVWAP headwind)
+        #   Against direction 40-80bps: −1.0pts (mild extension against, caution)
+        #   In direction >80bps: +1.5pts        (breakout momentum confirmed by VWAP)
+        #   In direction 40-80bps: +0.8pts      (mild extension in direction, support)
+        #   |dist| < 40bps: silent (0 pts)      (near VWAP equilibrium, no edge)
+        #
+        # Source: signal_data["avwap_dist_bps"] stamped by F81-F85 injection block
+        # above (from _timing_state.avwap_distance_bps()). Guard: dist must be
+        # non-trivially non-zero (data present from timing state warm-up).
+        # Also stores avwap_dist in self._last_g85f_avwap_dist for Kelly Step 35.
+        # Non-fatal soft-gate — _record() wired to gate_stats analytics [v76.0].
+        try:
+            _g85f_fired   = False
+            _g85f_avwap   = float(signal_data.get("avwap_dist_bps") or 0.0)
+            _g85f_dir     = (direction or "").upper()
+            _g85f_is_buy  = (_g85f_dir == "BUY" or _g85f_dir == "LONG")
+            # Signed distance: positive = price above VWAP, negative = price below
+            # For BUY: above VWAP = extended in direction; below VWAP = against
+            # For SELL: below VWAP = extended in direction; above VWAP = against
+            if abs(_g85f_avwap) >= 1.0:   # timing state has data (not cold-start zero)
+                self._last_g85f_avwap_dist = _g85f_avwap   # store for Kelly Step 35
+                # Determine if extension is in direction or against direction
+                _g85f_in_dir = (
+                    (_g85f_is_buy  and _g85f_avwap > 0.0) or   # BUY + price above VWAP
+                    (not _g85f_is_buy and _g85f_avwap < 0.0)    # SELL + price below VWAP
+                )
+                _g85f_abs = abs(_g85f_avwap)
+                _g85f_fired = True
+                if _g85f_in_dir:
+                    if _g85f_abs >= 80.0:
+                        quality_score += 1.5
+                        self._logger.debug(
+                            f"[G8.5F VWAP-Extension v76.0] {symbol} {_g85f_dir} "
+                            f"dist={_g85f_avwap:+.1f}bps (>80bps in dir) → +1.5pts breakout"
+                        )
+                    elif _g85f_abs >= 40.0:
+                        quality_score += 0.8
+                        self._logger.debug(
+                            f"[G8.5F VWAP-Extension v76.0] {symbol} {_g85f_dir} "
+                            f"dist={_g85f_avwap:+.1f}bps (40-80bps in dir) → +0.8pts mild extension"
+                        )
+                    # else: <40bps in dir — near VWAP, silent
+                else:
+                    # Extension against direction — mean-reversion risk
+                    if _g85f_abs >= 80.0:
+                        quality_score -= 2.0
+                        self._logger.debug(
+                            f"[G8.5F VWAP-Extension v76.0] {symbol} {_g85f_dir} "
+                            f"dist={_g85f_avwap:+.1f}bps (>80bps against dir) → −2.0pts AVWAP headwind"
+                        )
+                    elif _g85f_abs >= 40.0:
+                        quality_score -= 1.0
+                        self._logger.debug(
+                            f"[G8.5F VWAP-Extension v76.0] {symbol} {_g85f_dir} "
+                            f"dist={_g85f_avwap:+.1f}bps (40-80bps against dir) → −1.0pts mild headwind"
+                        )
+                    # else: <40bps against — near VWAP equilibrium, silent
+            self._record("gate_g85f", _g85f_fired)
+        except Exception:
+            pass  # G8.5F VWAP-Extension is non-fatal soft-gate
+
+        # ── Gate 8.5G — CUSUM-Breakout Statistical Confirmation (v76.0) ──────
+        # Leverages the de Prado symmetric CUSUM event filter already running in
+        # L9 (institutional timing layer). The CUSUM filter fires when a sequence
+        # of log-returns accumulates enough evidence of a volatility-regime shift
+        # to exceed the K-sigma threshold (default UNITY_CUSUM_K_SIGMA=3.0).
+        #
+        # When CUSUM is active, a statistically significant directional move has
+        # been detected in the last UNITY_CUSUM_EVENT_TTL_SEC seconds (default 300s).
+        # Aligning WITH that move = elevated follow-through probability.
+        # Entering AGAINST that confirmed breakout = elevated adverse selection risk.
+        #
+        # Direction of the CUSUM breakout is inferred from the OFI z-score at the
+        # time of evaluation: OFI > 0 = buy-side institutional flow (bullish CUSUM);
+        # OFI < 0 = sell-side flow (bearish CUSUM). Guard: OFI z-score must have
+        # magnitude ≥ 0.3 to determine direction (avoids zero-OFI false signal).
+        # If CUSUM active but OFI is ambiguous (|ofi_z| < 0.3), gate is silent.
+        #
+        # Scoring:
+        #   CUSUM active + aligned with OFI breakout direction: +1.5pts
+        #   CUSUM active + opposed to OFI breakout direction:   −1.5pts
+        #   CUSUM not active: silent (0 pts)
+        #
+        # Source: _timing_state.cusum_event_active() + _timing_state.ofi_zscore()
+        # — both already computed per-cycle in L9 with zero extra API calls.
+        # Also stores cusum state in self._last_g85g_cusum_active for Kelly Step 35.
+        # Non-fatal soft-gate — _record() wired to gate_stats analytics [v76.0].
+        try:
+            _g85g_fired   = False
+            _g85g_ts      = getattr(self, "_timing_state", None)
+            if _g85g_ts is not None:
+                _g85g_sym     = (symbol or "").upper()
+                _g85g_cusum   = bool(_g85g_ts.cusum_event_active(_g85g_sym))
+                self._last_g85g_cusum_active = _g85g_cusum   # store for Kelly Step 35
+                if _g85g_cusum:
+                    # CUSUM event is live — determine its direction from OFI z-score
+                    try:
+                        _g85g_ofi_z = float(_g85g_ts.ofi_zscore(_g85g_sym))
+                    except Exception:
+                        _g85g_ofi_z = 0.0
+                    _g85g_dir     = (direction or "").upper()
+                    _g85g_is_buy  = (_g85g_dir == "BUY" or _g85g_dir == "LONG")
+                    if abs(_g85g_ofi_z) >= 0.3:
+                        # OFI direction is determinate — score alignment
+                        _g85g_cusum_bull = (_g85g_ofi_z > 0.0)   # positive OFI = buy-side breakout
+                        _g85g_aligned    = (
+                            (_g85g_is_buy  and _g85g_cusum_bull) or
+                            (not _g85g_is_buy and not _g85g_cusum_bull)
+                        )
+                        _g85g_fired = True
+                        if _g85g_aligned:
+                            quality_score += 1.5
+                            self._logger.debug(
+                                f"[G8.5G CUSUM-Breakout v76.0] {symbol} {_g85g_dir} "
+                                f"CUSUM active ofi_z={_g85g_ofi_z:+.2f} aligned → +1.5pts breakout confirm"
+                            )
+                        else:
+                            quality_score -= 1.5
+                            self._logger.debug(
+                                f"[G8.5G CUSUM-Breakout v76.0] {symbol} {_g85g_dir} "
+                                f"CUSUM active ofi_z={_g85g_ofi_z:+.2f} opposed → −1.5pts adverse selection risk"
+                            )
+                    # |ofi_z| < 0.3: CUSUM active but direction ambiguous — gate silent
+            self._record("gate_g85g", _g85g_fired)
+        except Exception:
+            pass  # G8.5G CUSUM-Breakout is non-fatal soft-gate
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -10090,6 +10376,8 @@ class UnitySignalFilter:
         "gate_g85c":      "G8.5C",  # v73.0: Regime-Coherence dual HMM+GEX confirm (±2.0pts)
         "gate_g85d":      "G8.5D",  # v74.0: OFI-Velocity signed acceleration (±2.0/-1.5pts)
         "gate_g85e":      "G8.5E",  # v75.0: Quant Cross-Signal Coherence (+2.0/+0.8/-1.5pts)
+        "gate_g85f":      "G8.5F",  # v76.0: VWAP-Extension direction quality adjuster (±2.0/+1.5pts)
+        "gate_g85g":      "G8.5G",  # v76.0: CUSUM-Breakout statistical confirmation (±1.5pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -10141,6 +10429,8 @@ class UnitySignalFilter:
             "gate_g85c",   # Regime-Coherence ±2.0pt adjuster — cannot block a signal [v73.0]
             "gate_g85d",   # OFI-Velocity ±2.0/-1.5pt adjuster — cannot block a signal [v74.0]
             "gate_g85e",   # Quant Cross-Signal Coherence +2.0/+0.8/-1.5pt adjuster — cannot block [v75.0]
+            "gate_g85f",   # VWAP-Extension ±2.0/+1.5pt adjuster — cannot block a signal [v76.0]
+            "gate_g85g",   # CUSUM-Breakout ±1.5pt adjuster — cannot block a signal [v76.0]
             "gate_vibe",   # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
         })
@@ -12089,6 +12379,60 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 34 Cross-Signal Coherence Sizing is non-fatal
 
+        # ── Kelly Step 35 (v76.0): AVWAP-Extension Sizing ────────────────────
+        # Uses the G8.5F VWAP-Extension gate result (avwap_dist_bps, signed) and
+        # G8.5G CUSUM-Breakout state to adjust Kelly position sizing.
+        #
+        # Rationale:
+        #   When price is significantly extended AGAINST the trade direction from
+        #   the Anchored VWAP, the AVWAP acts as a mean-reversion magnet. TP targets
+        #   face a higher probability of AVWAP-driven pull-back → de-size to reduce
+        #   the cost of an early exit (worst-case = position sized at normal Kelly but
+        #   closes at AVWAP before TP2/TP3).
+        #
+        #   When price is extended IN the trade direction AND the CUSUM filter
+        #   simultaneously confirms a live regime-shift breakout (two independent quant
+        #   signals both pointing in the same direction), the statistical evidence for
+        #   continuation is elevated → amplify to capture extended follow-through.
+        #
+        # Rules:
+        #   |avwap_dist| > 150bps AGAINST direction:           Kelly ×0.82
+        #   |avwap_dist| > 150bps IN direction + CUSUM active: Kelly ×1.04
+        #   All other cases:                                    no change
+        #
+        # Guard: _last_g85f_avwap_dist must be non-trivially non-zero (timing state
+        # has warm-up data). Direction from the active signal (buy/sell string arg
+        # passed in at call-site). Stacks AFTER Step 34; non-fatal.
+        try:
+            _k35_avwap = float(getattr(self, "_last_g85f_avwap_dist", 0.0))
+            if abs(_k35_avwap) >= 1.0:   # timing state has data
+                _k35_cusum  = bool(getattr(self, "_last_g85g_cusum_active", False))
+                _k35_dir    = (direction or "").upper()
+                _k35_is_buy = (_k35_dir == "BUY" or _k35_dir == "LONG")
+                # Determine if avwap extension is in direction or against
+                _k35_in_dir = (
+                    (_k35_is_buy  and _k35_avwap > 0.0) or
+                    (not _k35_is_buy and _k35_avwap < 0.0)
+                )
+                _k35_abs  = abs(_k35_avwap)
+                _k35_pre  = self.last_kelly_fraction
+                if not _k35_in_dir and _k35_abs > 150.0:
+                    # Price extended far AGAINST direction — mean-reversion headwind
+                    self.last_kelly_fraction = self.last_kelly_fraction * 0.82
+                    self._logger.debug(
+                        f"📊 [v76.0 Step35 AVWAP-Extension] avwap={_k35_avwap:+.1f}bps >150bps against dir "
+                        f"→ Kelly ×0.82 ({_k35_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                    )
+                elif _k35_in_dir and _k35_abs > 150.0 and _k35_cusum:
+                    # Price extended far IN direction AND CUSUM confirms breakout
+                    self.last_kelly_fraction = self.last_kelly_fraction * 1.04
+                    self._logger.debug(
+                        f"📊 [v76.0 Step35 AVWAP-Extension] avwap={_k35_avwap:+.1f}bps >150bps in dir + CUSUM "
+                        f"→ Kelly ×1.04 ({_k35_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                    )
+        except Exception:
+            pass  # Kelly Step 35 AVWAP-Extension Sizing is non-fatal
+
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
     def paper_mode(self) -> bool:
@@ -13849,10 +14193,10 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"40-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0,v75.0-FIX] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5B:OFI-Persist[v72.0] · G8.5C:RegimeCoh-HMM+GEX[v73.0] · G8.5D:OFI-Velocity[v74.0] · G8.5E:CrossCoherence[v75.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0]+RegimeExp[v72.0]+FlowStack[v74.0] · G4-HardCap-0.52+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
+            f"42-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0,v75.0-FIX] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5B:OFI-Persist[v72.0] · G8.5C:RegimeCoh-HMM+GEX[v73.0] · G8.5D:OFI-Velocity[v74.0] · G8.5E:CrossCoherence[v75.0] · G8.5F:VWAP-Extension[v76.0] · G8.5G:CUSUM-Breakout[v76.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0]+RegimeExp[v72.0]+FlowStack[v74.0] · G4-HardCap-0.52+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
-            f"Kelly(Steps1-34·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion[v72.0]·OFI-PersistKelly[v73.0]·EnsembleConf[v74.0]·CrossCoherence[v75.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
+            f"Kelly(Steps1-35·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion[v72.0]·OFI-PersistKelly[v73.0]·EnsembleConf[v74.0]·CrossCoherence[v75.0]·AVWAP-Extension[v76.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
             f"AIOrchestrator · MarketIntel · OutcomeTracker · NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) · "
             f"LLM-AutoRoute · SignalRate · HealthServer · ThreadPool={THREAD_POOL_WORKERS}w · "
             f"L11-NonFatal · BootstrapCacheFix · v{UNITY_VERSION} active."
@@ -13868,7 +14212,7 @@ class UnityEngine:
         logger.info("=" * 90)
         logger.info(f"⚡ UNITY ENGINE v{UNITY_VERSION} — ALL SYSTEMS UNITED — PRODUCTION TRADING")
         logger.info("=" * 90)
-        logger.info(f"📐 ARCHITECTURE (30 layers, 40-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-34·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion-x0.80[v72.0]·OFI-PersistKelly-x1.08[v73.0]·G8.5C-RegimeCoh[v73.0]·CPCVFloor50%[v73.0]·SpreadMedianBuf[v73.0]·F76-F80-Injected[v73.0]·G8.5D-OFI-Vel[v74.0]·G9-FlowStack[v74.0]·Kelly33-EnsConf[v74.0]·F78Fix[v74.0]·G8.5P-Fix[v75.0]·G8.5Y-Fix[v75.0]·G8.5E-CrossCoh[v75.0]·Kelly34-CrossCoh[v75.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G9-RegimeExp[v72.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v13-80feat[v72.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·NNFastBoot2min[v71.0]·ConsortiumDynTimeout[v71.0]·IROnSDisplayFix[v71.0]·G9WR-tiers-70[v71.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv13-80feat[v72.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·G8.5B[v72.0]·G8.5C[v73.0]·G8.5D[v74.0]·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-DynTimeout[v71.0]·NNFastBoot2min[v71.0]·LLM-FreeFirst v{UNITY_VERSION}):")
+        logger.info(f"📐 ARCHITECTURE (30 layers, 42-gate filter, G5-SoftVeto, 5-bucket RL, Kelly(Steps1-35·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsecEsc·GEXDir·UltraDD50%·DDScale[v62.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·NNQualGate-20%WR<25%[v70.0]·CPCV-ChanceGuard[v70.0]·G9-WR20%-70pt[v70.0]·IRONS-WR18-20%-72[v70.0]·G4HardCap-0.52[v67.0]·CPCV-Gap-7%[v67.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion-x0.80[v72.0]·OFI-PersistKelly-x1.08[v73.0]·G8.5C-RegimeCoh[v73.0]·CPCVFloor50%[v73.0]·SpreadMedianBuf[v73.0]·F76-F80-Injected[v73.0]·G8.5D-OFI-Vel[v74.0]·G9-FlowStack[v74.0]·Kelly33-EnsConf[v74.0]·F78Fix[v74.0]·G8.5P-Fix[v75.0]·G8.5Y-Fix[v75.0]·G8.5E-CrossCoh[v75.0]·Kelly34-CrossCoh[v75.0]·G8.5F-VWAP-Ext[v76.0]·G8.5G-CUSUM-Break[v76.0]·NN-v14-85feat[v76.0]·F81-F85-Injected[v76.0]·Kelly35-AVWAP-Ext[v76.0]), GEX, SRM[L0.97], VibeAgents[G8.5V], MiroFishSim, HFT-DualDir, SovRecovery, ATR-Vol·HTF-Align·AdaptIRONS·PSIER·ISB·SessionIntel·G9MaxDD·G9FlipFloor·G9ConSecLoss·G9WR-tiers·G9RecoveryBonus·G9-SortinoUC[v65.0]·G9-RegimeExp[v72.0]·G1-GEX-RR·G8.5m-FLIPDIR·G8.5e-HMMDIR·VPIN-UltraClean·NN-v14-85feat[v76.0]·G8.5w-MTF-Momentum[v50.0]·G8.5x-LiqCascadeDir[v50.0]·G8.5T-TurboVec-3TF-Fib[v57.0]·G8.5U-MomConsensus-5gate[v68.0]·G8.5P-BTC-CrossPair[v60.0]·G8.5R-HMM-GEX-Coherence[v62.0]·G8.5S-SpreadStress-FLIPx2[v65.0]·G8.5Z-AutoCorr-Persistence[v64.0]·G8.5Y-ATR-VolCompress[v65.0]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·NNFastBoot2min[v71.0]·ConsortiumDynTimeout[v71.0]·IROnSDisplayFix[v71.0]·G9WR-tiers-70[v71.0]·NNQualGate-Adaptive-20%[v70.0]·CPCVChanceGuard[v70.0]·G9WR20-70pt[v70.0]·IRONSTier18-20%-72[v70.0]·ModelHeartbeat300s[v70.0]·G6-FearGate10[v69.0]·FearPenalty8-5-3[v69.0]·SessionPermRecover[v69.0]·G4-Compound-WR+SR[v59.0]·G9-WR<15%-floor74[v59.0]·WalkForwardCV[v60.0]·HistGBT-Ensemble[v60.0]·ExtraTrees3rdEnsemble[v63.0]·TreeConsensus3way[v64.0]·EnsembleCoherence[v65.0]·CPCV-K3-WalkFwd[v68.0]·EV-WR-Tighten35pct[v63.0]·G4-Sigma-Boost[v60.0]·FocalGamma3.5[v60.0]·NN-DeepCrisis15min·NNGamma-Adaptive·NNDecayRatio-Adaptive·RLDeltaSharpe·RLBucket30-35pct·RLStarv·HTTP202-SoftSkip·EVFloor15min·EVFloorSR-5·ModelCostCleanup·GODMODE-12combo[v56.0]·GODMODE-QWEN235B-SOVEREIGN·GODMODE-GEMMA26B-VIBE·GODMODE-CLAUDE-FABLE5[v56.0]·GODMODE-CLAUDE-MYTHOS5[v56.0]·TurboVec-Python-G8.5T[v57.0]·ZeroBypasses[v37.0]·DeadZone50min[v39.0]·IRONS-tiers-73/72/71.5/70/67[v70.0]·StaleValueAudit[v40.0]·CompoundHostileGate[v41.0]·DirAwareFG[v42.0]·DirAwareHostile[v42.0]·MaxDD-Recal[v42.0]·EVDirRelief[v42.0]·DirAwareG3[v43.0]·IRDirRelief[v43.0]·NNv14-85feat[v76.0]·DirMetrics[v43.0]·HeadlessScanFix·Railway·orjson·asyncio.Queue·WS·Redis·@watched_task·ScanCycleMatrix·NumpyOFI·TaskAuditor·HMM·VPIN·Kalman·Dispersion·PCA·CSM·IVCrush·BSGreeks·FactorICIR·PBO1000rep·ScanParallel76·G8.5L·G8.5m·G8.5n·G8.5w·G8.5x·G8.5T·G8.5U·G8.5A·G8.5B[v72.0]·G8.5C[v73.0]·G8.5D[v74.0]·G8.5E[v75.0]·G8.5F[v76.0]·G8.5G[v76.0]·EV-UltraRuin1.35x[v59.0]·CB5[v59.0]·LLM-AutoQ·GODMOD3-FastFirst·CONSORTIUM-DynTimeout[v71.0]·NNFastBoot2min[v71.0]·LLM-FreeFirst v{UNITY_VERSION}):")
         logger.info("   Layer 0.0: AEGIS GEX Engine   — Dealer Flow / GEX regime / DGRP scoring")
         logger.info("   Layer 0.9: DynBacktest         — Per-symbol 15M proxy backtest, Gate 8.5 quality bias [v10.0]")
         logger.info("   Layer 0.95: MiroFish Sim       — 10-agent swarm simulation (Trend/Mom/Vol/OFI/Regime/Composite) [v10.0]")
@@ -13878,7 +14222,7 @@ class UnityEngine:
         logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC 12combos[v56.0]")
         logger.info("              └─ OpenRouter        — 10 free+ClaudeFable5+Mythos5[v56.0], 5 tiers, EnsembleVote")
         logger.info("              └─ SmartLLMRouter    — ClawRouter-inspired cascade fallback")
-        logger.info("   Layer  5 : Neural Network      — 80-feature NN v13 (MLP+Transformer 16×5 tokens: 75-feat v12 + F76:ofi_persistence_score + F77:regime_coherence_score + F78:vol_expansion_flag + F79:hmm_expansion_prob_norm + F80:spread_regime_flag), Wilder-ATR, online learning")
+        logger.info("   Layer  5 : Neural Network      — 85-feature NN v14 (MLP+Transformer 17×5 tokens: 80-feat v13 + F81:avwap_dist_norm + F82:cusum_flag + F83:depth_slip_norm + F84:mark_div_norm + F85:ob_imbalance_norm), Wilder-ATR, online learning")
         logger.info("   Layer  6 : ATAS + Bookmap      — 15 indicators + order-flow depth")
         logger.info("   Layer  7 : Risk+Kelly Engine   — SmartDynamic SL/TP + Leveraging + Kelly")
         logger.info("   Layer  8 : AI Orchestrator     — Sentiment + Prediction + RL")
@@ -13888,7 +14232,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 40-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+HardCap0.52+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus-5gate±3.5pts[v68.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0,v75.0-FIX] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5A:FundingTrend-2.0/+1.5pts[v68.0] · G8.5B:OFI-Persist±2.0pts[v72.0] · G8.5C:RegimeCoh±2.0pts[v73.0] · G8.5D:OFI-Velocity±2.0/-1.5pts[v74.0] · G8.5E:CrossCoherence+2.0/+0.8/-1.5pts[v75.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0]+FlowStack[v74.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 42-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+HardCap0.52+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus-5gate±3.5pts[v68.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0,v75.0-FIX] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5A:FundingTrend-2.0/+1.5pts[v68.0] · G8.5B:OFI-Persist±2.0pts[v72.0] · G8.5C:RegimeCoh±2.0pts[v73.0] · G8.5D:OFI-Velocity±2.0/-1.5pts[v74.0] · G8.5E:CrossCoherence+2.0/+0.8/-1.5pts[v75.0] · G8.5F:VWAP-Extension±2.0/+1.5pts[v76.0] · G8.5G:CUSUM-Breakout±1.5pts[v76.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0]+FlowStack[v74.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")
@@ -17396,7 +17740,7 @@ class UnityEngine:
         layers_online = sum(1 for l in self.health.layers.values() if l.available)
         self._logger.info(f"   Layers online  : {layers_online}/{len(self.health.layers)}")
         self._logger.info(
-            f"   Signal gates   : 40-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5w:MTF-Momentum | G8.5x:LiqCascadeDir | G8.5T:TurboVec-3TF | G8.5U:MomConsensus-5gate | G8.5P:BTC-CrossPair[v75FIX] | G8.5R:HMM-GEX-Coherence | G8.5S:SpreadStress-FLIPx2[v65.0] | G8.5Z:AutoCorr[v64.0] | G8.5Y:ATR-VolCompress[v75FIX] | G8.5X:DGRP-Velocity[v66.0] | G8.5A:FundingTrend[v68.0] | G8.5B:OFI-Persist[v72.0] | G8.5C:RegimeCoh-HMM+GEX[v73.0] | G8.5D:OFI-Velocity[v74.0] | G8.5E:CrossCoherence[v75.0] | 5-bucket RL | "
+            f"   Signal gates   : 42-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5E:CrossCoherence[v75.0] | G8.5F:VWAP-Extension[v76.0] | G8.5G:CUSUM-Breakout[v76.0] | 5-bucket RL | "
             f"Kelly | Consec-Loss CB({CONSEC_LOSS_THRESHOLD}) | WinStreak({CONSEC_WIN_STREAK_THRESHOLD}) | "
             f"NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) | Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} | IRONS≥{IRONS_MIN_SCORE:.0f} [v{UNITY_VERSION}]"
         )
@@ -18323,7 +18667,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"40-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5V·AdaptIRONS) · "
+        f"42-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
