@@ -5,9 +5,9 @@
   "sell_signals_sent": 0,
   "buy_signals_sent": 0,
   "win_count": 774,
-  "loss_count": 1859,
-  "total_profit_pct": -592.0029738439503,
-  "scan_cycles": 15625,
+  "loss_count": 1860,
+  "total_profit_pct": -593.0491161940344,
+  "scan_cycles": 15688,
   "last_signal_quality": 0.0,
   "trade_returns": [
     1.85,
@@ -214,5 +214,5 @@
   "peak_equity": 101.85,
   "current_equity": 52.516700685738876,
   "max_drawdown_pct": 49.373795692078595,
-  "saved_at": "2026-06-12T21:15:27.964895"
+  "saved_at": "2026-06-12T21:25:31.934177"
 }
