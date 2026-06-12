@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 95 features → 19 tokens × 5 dims (95 = 19 × 5) [v79.0: was 18×5=90]
-_TORCH_N_TOKENS  = 19
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v16: 95 = 19×5)
+# Transformer tokenisation: reshape 100 features → 20 tokens × 5 dims (100 = 20 × 5) [v80.0: was 19×5=95]
+_TORCH_N_TOKENS  = 20
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 95  # v16 (v79.0): 90 + 5 cross-signal coherence features (ofi_hmm_cross, vwap_micro_align, funding_ofi_cross, regime_3gate_vote, gex_net_norm) = 95
+INPUT_DIM          = 100  # v17 (v80.0): 95 + 5 volume/pressure/meta features (vol_ofi_cross, funding_spread_cross, vpr_signal, spread_liq_score, regime_5gate_meta) = 100
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -924,6 +924,48 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: gex_net_norm injected at G4 F91-F95 stamping block [v79.0]
     _v16_f95 = _safe_float(trade.get("gex_net_norm", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v16_f95)))                                   # 95 gex_net_norm
+
+    # ── v17 Volume/Pressure/Meta features (96-100) — v80.0 ───────────────────
+    # F96: vol_ofi_cross — volume_ratio × OFI direction cross-product [-1, +1]
+    #   +1.0 = high-volume surge aligned with OFI direction (institutional confirmation)
+    #   -1.0 = high-volume surge opposed to OFI direction (institutional counter-flow)
+    #    0.0 = low volume or OFI ambiguous (no regime signal)
+    #   Source: vol_ofi_cross injected at G4 F96-F100 stamping block [v80.0]
+    _v17_f96 = _safe_float(trade.get("vol_ofi_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v17_f96)))                                   # 96 vol_ofi_cross
+
+    # F97: funding_spread_cross — funding velocity × spread deviation cross [-1, +1]
+    #   Positive = funding rising AND spread wide (illiquid + rate-rising = compounded risk)
+    #   Negative = funding falling AND spread wide (unusual; relief pattern)
+    #    0.0 = normal environment (funding flat or spread neutral)
+    #   Source: funding_spread_cross injected at G4 F96-F100 stamping block [v80.0]
+    _v17_f97 = _safe_float(trade.get("funding_spread_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v17_f97)))                                   # 97 funding_spread_cross
+
+    # F98: vpr_signal — G8.5L2 VolumePressure-Regime gate result [-1, 0, +1]
+    #   +1.0 = G8.5L2 fired aligned (vol surge + OFI confirm direction)
+    #   -1.0 = G8.5L2 fired opposed (vol surge + OFI counter direction)
+    #    0.0 = G8.5L2 neutral (low volume or OFI ambiguous)
+    #   Source: vpr_signal injected at G4 F96-F100 stamping block [v80.0]
+    _v17_f98 = _safe_float(trade.get("vpr_signal", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v17_f98)))                                   # 98 vpr_signal
+
+    # F99: spread_liq_score — combined spread pressure + liq_intensity score [-1, +1]
+    #   +1.0 = high spread deviation AND high liquidation intensity (execution stress)
+    #    0.0 = normal spread and liq environment
+    #   -1.0 = very tight spread and no liquidation activity (ideal execution)
+    #   Source: spread_liq_score injected at G4 F96-F100 stamping block [v80.0]
+    _v17_f99 = _safe_float(trade.get("spread_liq_score", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v17_f99)))                                   # 99 spread_liq_score
+
+    # F100: regime_5gate_meta — normalized 5-gate meta-vote [-1, +1]
+    #   Aggregates HMM + OFI + spread + G8.5J + G8.5L2 signals into one meta-regime signal.
+    #   +1.0 = all 5 gates aligned bullish/bearish with direction (maximum confluence)
+    #   -1.0 = all 5 gates opposed (maximum headwind; strong no-trade signal)
+    #    0.0 = mixed/neutral regime (no edge from meta-vote)
+    #   Source: regime_5gate_meta injected at G4 F96-F100 stamping block [v80.0]
+    _v17_f100 = _safe_float(trade.get("regime_5gate_meta", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v17_f100)))                                  # 100 regime_5gate_meta
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
