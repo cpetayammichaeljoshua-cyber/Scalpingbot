@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 85 features → 17 tokens × 5 dims (85 = 17 × 5) [v76.0: was 16×5=80]
-_TORCH_N_TOKENS  = 17
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v14: 85 = 17×5)
+# Transformer tokenisation: reshape 90 features → 18 tokens × 5 dims (90 = 18 × 5) [v77.0: was 17×5=85]
+_TORCH_N_TOKENS  = 18
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v15: 90 = 18×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 85  # v14 (v76.0): 80 + 5 timing/microstructure features (avwap_dist_norm, cusum_flag, depth_slip_norm, mark_div_norm, ob_imbalance_norm) = 85
+INPUT_DIM          = 90  # v15 (v77.0): 85 + 5 flow/microtrend features (ofi_flow_asym_norm, microtrend_slope_norm, funding_velocity_norm, spread_ratio_norm, liq_intensity_norm) = 90
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -844,6 +844,50 @@ def build_features(trade: Dict) -> "np.ndarray":
         _v14_obimb_raw = _safe_float(trade.get("ob_imbalance", 0.5), 0.5)
         _v14_obimb = max(-1.0, min(1.0, (_v14_obimb_raw - 0.5) * 2.0))
     f.append(max(-1.0, min(1.0, _v14_obimb)))                                 # 85 ob_imbalance_norm
+
+    # ── v15 Flow/Microtrend features (86-90) — v77.0 ─────────────────────────
+    # F86: ofi_flow_asym_norm — OFI z-score × OB imbalance cross-product [-1, +1]
+    #   Cross-product of two orthogonal flow signals: positive = dual buy-side confirm,
+    #   negative = dual sell-side confirm, near-zero = divergent/neutral flow.
+    #   Source: ofi_flow_asym_norm injected at G4 F86-F90 stamping block [v77.0]
+    _v15_f86 = _safe_float(trade.get("ofi_flow_asym_norm", 0.0), 0.0)
+    if abs(_v15_f86) < 1e-9:
+        # fallback: recompute from raw components if available
+        try:
+            _v15_ofi_z    = _safe_float(trade.get("ofi_zscore", 0.0), 0.0)
+            _v15_obimb_ctr = _safe_float(trade.get("ob_imbalance", 0.5), 0.5) - 0.5
+            _v15_f86 = max(-1.0, min(1.0, _v15_ofi_z * _v15_obimb_ctr * 2.0))
+        except Exception:
+            _v15_f86 = 0.0
+    f.append(max(-1.0, min(1.0, _v15_f86)))                                   # 86 ofi_flow_asym_norm
+
+    # F87: microtrend_slope_norm — 10-bar close linear regression slope [-1, +1]
+    #   Positive = price trending up over last 10 minutes (buy-side microtrend)
+    #   Negative = price trending down (sell-side microtrend)
+    #   Source: microtrend_slope_norm injected at G4 F86-F90 stamping block [v77.0]
+    _v15_f87 = _safe_float(trade.get("microtrend_slope_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v15_f87)))                                   # 87 microtrend_slope_norm
+
+    # F88: funding_velocity_norm — funding rate delta between last 2 readings [-1, +1]
+    #   Positive = funding rate accelerating upward (crowd getting more long)
+    #   Negative = funding rate decelerating/going negative (crowd turning short)
+    #   Source: funding_velocity_norm injected at G4 F86-F90 stamping block [v77.0]
+    _v15_f88 = _safe_float(trade.get("funding_velocity_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v15_f88)))                                   # 88 funding_velocity_norm
+
+    # F89: spread_ratio_norm — bid-ask spread relative to 20-bar median [-1, +1]
+    #   Positive = spread elevated above median (illiquid regime, higher slippage risk)
+    #   Near-zero = spread at median baseline (normal liquidity)
+    #   Source: spread_ratio_norm injected at G4 F86-F90 stamping block [v77.0]
+    _v15_f89 = _safe_float(trade.get("spread_ratio_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v15_f89)))                                   # 89 spread_ratio_norm
+
+    # F90: liq_intensity_norm — recent liquidation cascade total notional [0, +1]
+    #   Higher values = more recent forced liquidations (elevated cascade risk)
+    #   0.0 = no recent liquidations; 1.0 = ≥$500k notional cascaded recently
+    #   Source: liq_intensity_norm injected at G4 F86-F90 stamping block [v77.0]
+    _v15_f90 = _safe_float(trade.get("liq_intensity_norm", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v15_f90)))                                    # 90 liq_intensity_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
