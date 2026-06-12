@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 100 features → 20 tokens × 5 dims (100 = 20 × 5) [v80.0: was 19×5=95]
-_TORCH_N_TOKENS  = 20
+_TORCH_N_TOKENS  = 21
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 100  # v17 (v80.0): 95 + 5 volume/pressure/meta features (vol_ofi_cross, funding_spread_cross, vpr_signal, spread_liq_score, regime_5gate_meta) = 100
+INPUT_DIM          = 105  # v18 (v81.0): 100 + 5 funding/liquidation/meta features (funding_momentum_norm, vol_surge_persist, liq_cascade_intensity, ofi_fund_cross, meta_8gate_vote) = 105
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -966,6 +966,48 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: regime_5gate_meta injected at G4 F96-F100 stamping block [v80.0]
     _v17_f100 = _safe_float(trade.get("regime_5gate_meta", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v17_f100)))                                  # 100 regime_5gate_meta
+
+    # ── v18 (v81.0) F101-F105: funding/liquidation/meta features ─────────────
+    # F101: funding_momentum_norm — funding_rate_trend × direction alignment [-1, +1]
+    #   -1.0 = funding trend strongly opposed to direction (crowding risk warning)
+    #   +1.0 = funding trend strongly aligned with direction (crowd momentum confirms)
+    #    0.0 = neutral/weak funding trend
+    #   Source: funding_momentum_norm injected at G4 F101-F105 stamping block [v81.0]
+    _v18_f101 = _safe_float(trade.get("funding_momentum_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v18_f101)))                                  # 101 funding_momentum_norm
+
+    # F102: vol_surge_persist — vol_ratio consecutive surge persistence score [-1, +1]
+    #   +1.0 = extreme volume surge (vol_ratio >> 1.5x, strong institutional activity)
+    #    0.0 = normal volume (vol_ratio near 1.0x baseline)
+    #   -1.0 = volume drought (vol_ratio < 1.0x)
+    #   Source: vol_surge_persist injected at G4 F101-F105 stamping block [v81.0]
+    _v18_f102 = _safe_float(trade.get("vol_surge_persist", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v18_f102)))                                  # 102 vol_surge_persist
+
+    # F103: liq_cascade_intensity — liq_intensity_norm × liq_net_side cross [-1, +1]
+    #   +1.0 = strong liquidation cascade aligned with direction (forced exits fuel move)
+    #   -1.0 = strong liquidation cascade opposed to direction (forced exits against move)
+    #    0.0 = no significant liquidation activity
+    #   Source: liq_cascade_intensity injected at G4 F101-F105 stamping block [v81.0]
+    _v18_f103 = _safe_float(trade.get("liq_cascade_intensity", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v18_f103)))                                  # 103 liq_cascade_intensity
+
+    # F104: ofi_fund_cross — ofi_z × funding_rate_trend combined regime pressure [-1, +1]
+    #   +1.0 = OFI aligned AND funding tail-wind (dual regime confirmation)
+    #   -1.0 = OFI opposed AND funding head-wind (dual regime headwind)
+    #    0.0 = mixed or neutral signals
+    #   Source: ofi_fund_cross injected at G4 F101-F105 stamping block [v81.0]
+    _v18_f104 = _safe_float(trade.get("ofi_fund_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v18_f104)))                                  # 104 ofi_fund_cross
+
+    # F105: meta_8gate_vote — 8-gate meta-vote /8 [-1, +1]
+    #   Aggregates HMM+OFI+spread+G8.5J+G8.5L2+G8.5N2+liq+funding into one meta signal.
+    #   +1.0 = all 8 gates aligned (maximum institutional confluence)
+    #   -1.0 = all 8 gates opposed (maximum headwind)
+    #    0.0 = mixed/neutral (no directional edge from meta-vote)
+    #   Source: meta_8gate_vote injected at G4 F101-F105 stamping block [v81.0]
+    _v18_f105 = _safe_float(trade.get("meta_8gate_vote", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v18_f105)))                                  # 105 meta_8gate_vote
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:

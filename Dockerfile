@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v80.0 — Multi-stage Production Dockerfile
+# Unity Engine v81.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
-# Build:  docker build -t unity-engine:80.0 .
+# Build:  docker build -t unity-engine:81.0 .
 # Railway: Detected automatically via railway.json
 #
 # BASE IMAGE: python:3.11-slim  (Debian/glibc)
@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v80.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v81.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="80.0"               \
-      description="Unity Engine v80.0 — G8.5L2-VolPressure | Kelly39-VolOFI | NN-v17-100feat | 47-gate | Kelly39 | ZERO-BYPASS-STRICT | AI89/SWARM0.96/RR2.50 | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="81.0"               \
+      description="Unity Engine v81.0 — G8.5N2-FundMomPersist | Kelly40-FundMom | NN-v18-105feat | 48-gate | ZERO-BYPASS-STRICT | AI89/SWARM0.96/RR2.50 | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity
