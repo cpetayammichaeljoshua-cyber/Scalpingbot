@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 125 features → 25 tokens × 5 dims (125 = 25 × 5) [v85.0: was 24×5=120]
-_TORCH_N_TOKENS  = 25
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5)
+# Transformer tokenisation: reshape 130 features → 26 tokens × 5 dims (130 = 26 × 5) [v87.0: was 25×5=125]
+_TORCH_N_TOKENS  = 26
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 125  # v22 (v85.0): 120 + 5 crisis/regime features (wr_crisis_score, fear_greed_regime, g85s2_crisis, g85t2_fearreg, crisis_regime_composite) = 125
+INPUT_DIM          = 130  # v23 (v87.0): 125 + 5 VoV/flow features (vov_stability, funding_extreme_norm, oi_velocity_norm, depth_ratio_norm, liq_net_momentum) = 130
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1096,6 +1096,28 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: crisis_regime_composite injected at G4 F121-F125 stamping block [v85.0]
     _v22_f125 = _safe_float(trade.get("crisis_regime_composite", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v22_f125)))                                  # 125 crisis_regime_composite
+
+    # ── v23 (v87.0) F126-F130: VoV-stability and live-flow features ─────────
+    # F126: vov_stability — VoV-StabilityRegime gate output (+1=stable, 0=neutral, -1=chaotic)
+    #   Source: vov_stability injected at G4 F126-F130 stamping block [v87.0]
+    _v23_f126 = _safe_float(trade.get("vov_stability", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v23_f126)))                                  # 126 vov_stability
+    # F127: funding_extreme_norm — extreme funding direction signal [-1,+1]
+    #   Source: funding_extreme_norm injected at G4 F126-F130 stamping block [v87.0]
+    _v23_f127 = _safe_float(trade.get("funding_extreme_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v23_f127)))                                  # 127 funding_extreme_norm
+    # F128: oi_velocity_norm — OI change rate direction from mark-price WS [-1,+1]
+    #   Source: oi_velocity_norm injected at G4 F126-F130 stamping block [v87.0]
+    _v23_f128 = _safe_float(trade.get("oi_velocity_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v23_f128)))                                  # 128 oi_velocity_norm
+    # F129: depth_ratio_norm — bid/ask depth asymmetry from live orderbook [-1,+1]
+    #   Source: depth_ratio_norm injected at G4 F126-F130 stamping block [v87.0]
+    _v23_f129 = _safe_float(trade.get("depth_ratio_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v23_f129)))                                  # 129 depth_ratio_norm
+    # F130: liq_net_momentum — net liquidation pressure direction [-1,+1]
+    #   Source: liq_net_momentum injected at G4 F126-F130 stamping block [v87.0]
+    _v23_f130 = _safe_float(trade.get("liq_net_momentum", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v23_f130)))                                  # 130 liq_net_momentum
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
