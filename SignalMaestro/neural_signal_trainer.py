@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 110 features → 22 tokens × 5 dims (110 = 22 × 5) [v82.0: was 21×5=105]
-_TORCH_N_TOKENS  = 22
+_TORCH_N_TOKENS  = 23
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 110  # v19 (v82.0): 105 + 5 regime/coherence features (wr_regime_norm, consec_loss_norm, ev_coherence_gate, sharpe_norm, meta_regime_composite) = 110
+INPUT_DIM          = 115  # v20 (v83.0): 110 + 5 EV/risk features (ev_crisis_norm, max_dd_norm, ev_crisis_gate, kelly_fraction_norm, risk_composite) = 115
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1008,6 +1008,50 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: meta_8gate_vote injected at G4 F101-F105 stamping block [v81.0]
     _v18_f105 = _safe_float(trade.get("meta_8gate_vote", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v18_f105)))                                  # 105 meta_8gate_vote
+
+    # ── v19 (v82.0) F106-F110: WR/regime/coherence features ─────────────────
+    # F106: wr_regime_norm — session WR normalized (50%→0.0, 30%→-0.4, 70%→+0.4)
+    #   Source: wr_regime_norm injected at G4 F106-F110 stamping block [v82.0]
+    _v19_f106 = _safe_float(trade.get("wr_regime_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v19_f106)))                                  # 106 wr_regime_norm
+    # F107: consec_loss_norm — consecutive losses normalized (0→0.0, 5+→-1.0)
+    #   Source: consec_loss_norm injected at G4 F106-F110 stamping block [v82.0]
+    _v19_f107 = _safe_float(trade.get("consec_loss_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(0.0, _v19_f107)))                                  # 107 consec_loss_norm
+    # F108: ev_coherence_gate — G8.5O2 WinRateEV coherence gate output (-1/0/+1)
+    #   Source: ev_coherence_gate injected at G4 F106-F110 stamping block [v82.0]
+    _v19_f108 = _safe_float(trade.get("ev_coherence_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v19_f108)))                                  # 108 ev_coherence_gate
+    # F109: sharpe_norm — Sharpe ratio normalized (clip to [-3,+3] → [-1,+1])
+    #   Source: sharpe_norm injected at G4 F106-F110 stamping block [v82.0]
+    _v19_f109 = _safe_float(trade.get("sharpe_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v19_f109)))                                  # 109 sharpe_norm
+    # F110: meta_regime_composite — WR+consec+G8.5O2+Sharpe combined [-1, +1]
+    #   Source: meta_regime_composite injected at G4 F106-F110 stamping block [v82.0]
+    _v19_f110 = _safe_float(trade.get("meta_regime_composite", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v19_f110)))                                  # 110 meta_regime_composite
+
+    # ── v20 (v83.0) F111-F115: EV/risk crisis features ───────────────────────
+    # F111: ev_crisis_norm — session EV normalized (-0.50R→-1.0, 0R→0.0, +0.30R→+0.6)
+    #   Source: ev_crisis_norm injected at G4 F111-F115 stamping block [v83.0]
+    _v20_f111 = _safe_float(trade.get("ev_crisis_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v20_f111)))                                  # 111 ev_crisis_norm
+    # F112: max_dd_norm — MaxDD normalized (0%→0.0, 50%→-1.0, clipped [-1, 0])
+    #   Source: max_dd_norm injected at G4 F111-F115 stamping block [v83.0]
+    _v20_f112 = _safe_float(trade.get("max_dd_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(0.0, _v20_f112)))                                  # 112 max_dd_norm
+    # F113: ev_crisis_gate — G8.5P2 EV-crisis gate output (-1=ultra-crisis, 0=neutral)
+    #   Source: ev_crisis_gate injected at G4 F111-F115 stamping block [v83.0]
+    _v20_f113 = _safe_float(trade.get("ev_crisis_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(0.0, _v20_f113)))                                  # 113 ev_crisis_gate
+    # F114: kelly_fraction_norm — Kelly fraction normalized (0%→-1.0, 1%→0.0, 2%+→+1.0)
+    #   Source: kelly_fraction_norm injected at G4 F111-F115 stamping block [v83.0]
+    _v20_f114 = _safe_float(trade.get("kelly_fraction_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v20_f114)))                                  # 114 kelly_fraction_norm
+    # F115: risk_composite — EV+MaxDD+EV-gate+Kelly combined meta-feature [-1, +1]
+    #   Source: risk_composite injected at G4 F111-F115 stamping block [v83.0]
+    _v20_f115 = _safe_float(trade.get("risk_composite", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v20_f115)))                                  # 115 risk_composite
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:

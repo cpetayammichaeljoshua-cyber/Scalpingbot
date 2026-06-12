@@ -1196,7 +1196,11 @@ class G0DM0D3Engine:
                                      # ≥2 for ensemble vote). Outer guard = 16+3=19s. Only 1/8 models responded
                                      # in live session → 16s gives more models a chance to form valid ensemble.
                                      # v20.3: 18.0→14.0 — fast-tier responds <8s; 14+3=17s effective
-    _CONSORTIUM_MIN_VOTES    = 2      # v3.1: reduced from 3 — allow ensemble result with 2+ models responding
+    _CONSORTIUM_MIN_VOTES    = 1      # v3.1: 3→2; v83.0: 2→1 — live logs show CONSORTIUM always falls to
+                                     # ULTRAPLINIAN when only 1 model (gpt-oss-20b or gpt-oss-120b) responds;
+                                     # MIN_VOTES=2 requires 2 matching direction votes, impossible with 1 model;
+                                     # MIN_VOTES=1 allows single-model CONSORTIUM result (same quality checks
+                                     # applied) instead of always triggering ULTRAPLINIAN single-winner path
     _CONSORTIUM_MIN_MODELS   = 1      # v55.0: 3→2; v82.0: 2→1 — live logs confirm CONSORTIUM fails 100% of
                                       # calls because only openai/gpt-oss-20b and gpt-oss-120b respond
                                       # reliably (all other models rate-limited or generic-erroring); with
