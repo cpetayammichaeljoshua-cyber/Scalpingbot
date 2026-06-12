@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 100 features → 20 tokens × 5 dims (100 = 20 × 5) [v80.0: was 19×5=95]
-_TORCH_N_TOKENS  = 21
+# Transformer tokenisation: reshape 110 features → 22 tokens × 5 dims (110 = 22 × 5) [v82.0: was 21×5=105]
+_TORCH_N_TOKENS  = 22
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 105  # v18 (v81.0): 100 + 5 funding/liquidation/meta features (funding_momentum_norm, vol_surge_persist, liq_cascade_intensity, ofi_fund_cross, meta_8gate_vote) = 105
+INPUT_DIM          = 110  # v19 (v82.0): 105 + 5 regime/coherence features (wr_regime_norm, consec_loss_norm, ev_coherence_gate, sharpe_norm, meta_regime_composite) = 110
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).

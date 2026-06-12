@@ -1,6 +1,6 @@
 - [Unity Engine v20.0 upgrades](unity-engine-v20.md) — torch CPU, 4-step strategy validation, 15s heartbeat, BACKUP_7 key pool; engine starts cleanly with no false stall restarts
 - [Unity Engine v21.2 gate calibration](unity-engine-v20-gates.md) — v21.1: IRONS_MIN 65→67(WR<30%), 62→63(WR30-45%), SIGNAL_QUALITY 62→63; v21.2: G8.5q QuantDinger MomVol gate(±3pts), 9 GODMODE combos
-- [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v56.0: claude-fable-5+mythos-5 added (404-guarded); 12 GODMODE combos; phi-4 variants permanently dead
+- [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v82.0: claude-fable-5+mythos-5 → 404 confirmed, replaced with StructuralVortex(gpt-oss-120b)+MacroNexus(gpt-oss-20b); _GENERIC_ERR_THRESHOLD 12→5; _CONSORTIUM_MIN_MODELS 2→1
 - [Unity Engine v36.0 critical env-override bugs](unity-engine-v36-env-bugs.md) — UNITY_NN_GATE was "0.35" in .replit (design=0.48, 13pp gap); IRONS_MIN_SCORE was "62" (killed WR-relaxed tiers); fixed via setEnvVars shared
 - [Unity Engine health probe architecture](unity-engine-health-probe.md) — background layers (AEGIS_GEX etc) need _bg_layer_health_probe; use self.sovereign_rm (no underscore); probe fires 45s after boot then every 30s; confirmed working v20.5
 - [Unity Engine duplicate-log fix](unity-engine-duplicate-log-fix.md) — v21.5: monkey-patch root logger instance addHandler to reject duplicate FileHandlers; placed module-level after RFH setup; background-task imports (logger.py setup_logging etc) can no longer add second RFH
@@ -34,3 +34,4 @@
 - [Unity Engine v79.0 upgrades](unity-engine-v79.md) — G8.5K SpreadLiquidity 46th gate (±2.0/+1.5pts, spread percentile ring); Kelly Step 38 SpreadLiq (×0.86/×1.03); NN v16 INPUT_DIM 90→95 (F91-F95); build_features F91-F95 fix; ScanParallel 78→80
 - [Unity Engine v80.0 upgrades](unity-engine-v80.md) — G8.5L2 VolumePressure-Regime 47th gate (±2.0/+1.5pts, vol_ratio≥1.5×OFI cross); Kelly Step 39 VolPressure (×0.85/×1.04); NN v17 INPUT_DIM 95→100 (F96-F100); build_features F96-F100; ScanParallel 80→82
 - [Unity Engine v81.0 upgrades](unity-engine-v81.md) — G8.5N2 FundingMomentum-Persistence 48th gate (±2.0/+1.5pts, |fr_trend|>0.0002 crowd-vs-dir); Kelly Step 40 FundMom (×0.86/×1.03); NN v18 INPUT_DIM 100→105 (F101-F105); ScanParallel 82→84
+- [Unity Engine v82.0 upgrades](unity-engine-v82.md) — OpenRouter storm fix (claude-fable/mythos-5 404→StructuralVortex+MacroNexus); G8.5O2 WinRateEV-Coherence 49th gate; Kelly Step 41 WRCoh; NN v19 INPUT_DIM 105→110 (F106-F110); ScanParallel 84→86

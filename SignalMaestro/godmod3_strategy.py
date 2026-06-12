@@ -363,7 +363,14 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 # v56.0: claude-fable-5 (11th GODMODE_CLAUDE_FABLE5) + claude-mythos-5 (12th GODMODE_CLAUDE_MYTHOS5) added
 #         Both 404-guarded: auto-disabled if OpenRouter returns 404/503; free-tier pool unaffected.
 #         Adds true Anthropic Claude 5 architecture diversity to the ensemble (distinct from GPT/Qwen/Gemma series).
-# Active 12: Dolphin · Llama-3.3-70B · Qwen3-72B · GLM-4.5-Air · Nemotron-120B · GPT-OSS-20B · GPT-OSS-120B · Gemma-4-31B · Qwen3-235B · Gemma-4-26B · ClaudeFable5 · ClaudeMythos5
+# Active 12: Dolphin · Llama-3.3-70B · Qwen3-72B · GLM-4.5-Air · Nemotron-120B · GPT-OSS-20B · GPT-OSS-120B · Gemma-4-31B · Qwen3-235B · Gemma-4-26B · StructuralVortex(gpt-oss-120b) · MacroNexus(gpt-oss-20b)
+# v82.0: GODMODE_CLAUDE_FABLE5 (anthropic/claude-fable-5 → 404, generic errors every cycle) replaced
+#         with GODMODE_STRUCTURAL_VORTEX (openai/gpt-oss-120b:free, 4-step structural inflection system).
+#         GODMODE_CLAUDE_MYTHOS5 (anthropic/claude-mythos-5 → 404, generic errors every cycle) replaced
+#         with GODMODE_MACRO_NEXUS (openai/gpt-oss-20b:free, 5-layer cross-asset macro synthesis).
+#         Rationale: gpt-oss-120b and gpt-oss-20b are the only reliably working free-tier models per v82.0
+#         live logs; using them with distinct system prompts (structural vs macro reasoning frameworks)
+#         preserves cognitive ensemble diversity while eliminating the error budget drain from dead routes.
 GODMODE_COMBOS = [
     {
         # REPLACED: nousresearch/hermes-3-llama-3.1-405b:free → 43+ consecutive rate_limit storm (session 3)
@@ -550,33 +557,38 @@ GODMODE_COMBOS = [
     # Model: microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot 2026-06-02
     # History: phi-4-reasoning:free (base) → 404 (2026-05-08, 2026-05-25, 2026-06-01)
     #          phi-4-reasoning-plus:free → 404 (2026-06-02) — both Microsoft phi-4 variants now dead
-    # noFx-inspired 4-step momentum-divergence system prompt preserved for future model assignment
-    # Slot held open for replacement when a new confirmed free-tier reasoning model is validated
-    # v56.0 NEW: GODMODE_CLAUDE_FABLE5 — Claude Fable 5 strategic quant analyst
-    # Inspired by TauricResearch/TradingAgents 4-step strategic pipeline + brokermr810/QuantDinger
-    # momentum-divergence detection. Claude Fable 5 (Anthropic next-gen) uses full narrative chain-of-
-    # thought to identify structural inflection points — distinct from GPT-OSS series architecture.
-    # 404-guard active: auto-disabled by GenericErrGuard if model returns 404/503 from OpenRouter.
+    # REMOVED (v82.0 2026-06-12): GODMODE_CLAUDE_FABLE5 — anthropic/claude-fable-5 → 404 on free tier
+    # ALL live logs since v56.0 show claude-fable-5 returning generic errors every 90s cycle
+    # (not 429s — model simply does not exist on OpenRouter free tier). _GENERIC_ERR_THRESHOLD=12
+    # burned 12×90s = 18min of error budget per 2h disable cycle. Replaced with GODMODE_STRUCTURAL_VORTEX
+    # using openai/gpt-oss-120b:free (confirmed working) + 4-step structural inflection system prompt.
+    # v82.0 NEW: GODMODE_STRUCTURAL_VORTEX — GPT-OSS 120B 4-step structural inflection analysis
+    # Inspired by TauricResearch/TradingAgents strategic pipeline + noFx momentum-divergence system.
+    # Uses structural VORTEX framework: 4 orthogonal market structure lenses to identify inflection.
+    # Distinct from GODMODE_FINROBOT_CHAIN (5-analyst FinRobot pipeline) — different analytical lens.
+    # openai/gpt-oss-120b:free confirmed reliably working in v82.0 live logs (consistent winner).
     {
-        "id": "GODMODE_CLAUDE_FABLE5",
-        "model": "anthropic/claude-fable-5",
+        "id": "GODMODE_STRUCTURAL_VORTEX",
+        "model": "openai/gpt-oss-120b:free",
         "system": (
-            "You are FABLE — a Claude Fable 5 strategic quantitative trading analyst. "
-            "You synthesise market signals through a 4-step narrative reasoning chain: "
-            "[1-STRUCTURAL] Identify the dominant market structure (trend, range, reversal). "
-            "Label it: IMPULSE (clean directional), CORRECTION (counter-trend pullback), or REVERSAL (structure break). "
-            "[2-MOMENTUM] Analyse rate-of-change acceleration: "
-            "funding rate trend, open interest shift, and volume velocity vs price move. "
-            "Is momentum CONFIRMING or DIVERGING from price direction? "
-            "[3-RISK-ASYMMETRY] Compute directional asymmetry: "
-            "upside potential vs downside risk given current market structure and momentum state. "
-            "If risk:reward < 2.0 in either direction → NEUTRAL is the only rational call. "
-            "[4-SYNTHESIS] Commit to a directional conclusion with full conviction. "
-            "No hedging. No disclaimers. Signals must pass ALL four narrative layers to be directional. "
-            "Output ONLY valid JSON. "
+            "You are VORTEX — a structural inflection analyst using a 4-lens market structure system. "
+            "Apply four orthogonal analytical lenses to identify structural inflection points: "
+            "[1-IMPULSE vs CORRECTION] Is the current move an IMPULSE (clean direction, volume surge, "
+            "expanding range, strong OFI alignment) or CORRECTION (counter-trend, shrinking volume, "
+            "overlapping price ranges, weak OFI)? IMPULSE = directional trade. CORRECTION = fade or wait. "
+            "[2-MOMENTUM INFLECTION] Rate-of-change delta: is price momentum ACCELERATING or DECELERATING? "
+            "Acceleration + trend alignment = CONTINUE. Deceleration + trend divergence = INFLECTION risk. "
+            "Open interest rising with price = genuine accumulation. OI falling = position unwinding. "
+            "[3-LIQUIDATION CASCADE RISK] Funding rate sign + magnitude: funding > +0.06% and LONG → "
+            "liquidation cascade risk (crowded longs, reversal SELL bias). Funding < -0.04% and SHORT → "
+            "short squeeze risk (reversal BUY bias). Within band → neutral carry, no cascade signal. "
+            "[4-STRUCTURAL SYNTHESIS] Sum lens signals: +1 (bullish), 0 (neutral), -1 (bearish). "
+            "Net ≥+2 AND no CORRECTION in Lens 1 → BUY. Net ≤-2 AND no CORRECTION → SELL. "
+            "Any CORRECTION flag or balanced score → NEUTRAL. "
+            "No hedging. No disclaimers. Output ONLY valid JSON. "
             "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
         ),
-        "emoji": "📖",
+        "emoji": "🔷",
     },
     # v56.0 NEW: GODMODE_CLAUDE_MYTHOS5 — Claude Mythos 5 institutional macro analyst
     # Inspired by stefanoamorelli/sec-edgar-mcp institutional flow intelligence + OpenBB macro framework
@@ -584,36 +596,31 @@ GODMODE_COMBOS = [
     # Claude Mythos 5 (Anthropic next-gen) applies deep cross-asset macro synthesis — distinct model
     # architecture from GPT-OSS/Qwen3/Gemma series for true 12-model ensemble diversity.
     # 404-guard active: auto-disabled by GenericErrGuard if model returns 404/503 from OpenRouter.
+    # REMOVED (v82.0 2026-06-12): GODMODE_CLAUDE_MYTHOS5 — anthropic/claude-mythos-5 → 404 on free tier
+    # ALL live logs since v56.0 confirm mythos-5 returns generic errors every CONSORTIUM cycle.
+    # Replaced with GODMODE_MACRO_NEXUS using openai/gpt-oss-20b:free + 5-layer macro synthesis prompt.
+    # Distinct from GODMODE_KIMI_RESEARCH (bull/bear debate) — NEXUS uses orthogonal scoring framework.
     {
-        "id": "GODMODE_CLAUDE_MYTHOS5",
-        "model": "anthropic/claude-mythos-5",
+        "id": "GODMODE_MACRO_NEXUS",
+        "model": "openai/gpt-oss-20b:free",
         "system": (
-            "You are MYTHOS — a Claude Mythos 5 institutional macro intelligence engine. "
-            "You apply a 5-layer cross-asset analysis framework to identify institutional-grade "
-            "directional opportunities with asymmetric risk profiles: "
-            "[1-MACRO REGIME] What is the current macro regime? "
-            "RISK-ON (BTC corr with equities negative, DXY falling, funding stable positive) → bullish backdrop. "
-            "RISK-OFF (equities corr rising, DXY surging, funding flipping negative) → bearish backdrop. "
-            "[2-FUNDING STRUCTURE] Funding rate direction and magnitude: "
-            ">+0.08% annualised → crowded long, reversal risk SELL bias. "
-            "<-0.05% annualised → crowded short, squeeze potential BUY bias. "
-            "Within band → neutral carry. "
-            "[3-INSTITUTIONAL FLOW] Open interest trend + volume delta: "
-            "OI rising + price rising + positive vol delta → genuine institutional accumulation BUY. "
-            "OI rising + price falling + negative vol delta → institutional distribution SELL. "
-            "OI falling → position unwinding, reduce directional conviction 20%. "
-            "[4-VECTORIZED MOMENTUM] TurboVec-style batch momentum: "
-            "3 timeframe alignment (short/mid/long): all 3 aligned → conviction 1.0×. "
-            "2/3 aligned → conviction 0.75×. Split → NEUTRAL mandatory. "
-            "[5-MYTHOS SYNTHESIS] Aggregate all 4 layers: "
-            "Score each layer: +1 (BUY signal), 0 (neutral), -1 (SELL signal). "
+            "You are NEXUS — a cross-asset macro intelligence engine that identifies institutional-grade "
+            "directional opportunities through 5 orthogonal scoring layers: "
+            "[1-REGIME SCORE] Funding rate regime: >+0.07% → RISK-OFF crowded longs (−1 LONG, +1 SHORT). "
+            "<-0.04% → RISK-ON crowded shorts (+1 LONG, −1 SHORT). Within band → 0 (neutral). "
+            "[2-FLOW SCORE] OI trend × price direction: OI rising + price up → genuine accumulation (+1). "
+            "OI rising + price down → institutional distribution (−1). OI falling → conviction drain (0). "
+            "[3-MOMENTUM SCORE] Volume surge confirmation: volume_ratio > 1.5 + aligned direction → +1 "
+            "(surge confirms move). volume_ratio < 0.7 + trending → −1 (low-volume false breakout). Neutral → 0. "
+            "[4-STRUCTURE SCORE] Price action quality: clean impulse (no overlap, expanding ATR) → +1. "
+            "Choppy corrective (overlapping candles, contracting ATR) → −1. Mixed → 0. "
+            "[5-NEXUS SYNTHESIS] Sum scores across all 4 layers. "
             "Net ≥+3 → BUY. Net ≤-3 → SELL. Net -2 to +2 → NEUTRAL. "
-            "Apply conviction multiplier from Layer 4. "
-            "No hedging. No disclaimers. Institutional precision only. "
+            "No partial scores allowed — binary scoring only. No hedging. No disclaimers. "
             "Output ONLY valid JSON. "
             "JSON format: {\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"reason\"}"
         ),
-        "emoji": "🏛️",
+        "emoji": "🌐",
     },
 ]
 
@@ -1154,10 +1161,12 @@ class G0DM0D3Engine:
                                       # disables rate-limited models faster, allowing the cascade
                                       # to fall through to the next model sooner and reducing total
                                       # 429 volume. Storm backoff (step=5) still escalates cooldown.
-    _GENERIC_ERR_THRESHOLD   = 12     # v52.0: 8→12 — Railway network blips can cause 8 consecutive 503/timeout
-                                     # errors in a single degraded-network event, triggering 2h model disable
-                                     # unfairly. 12 requires a genuinely systematic failure pattern before
-                                     # invoking the 2h cooldown; good models survive brief infrastructure issues.
+    _GENERIC_ERR_THRESHOLD   = 5      # v52.0: 8→12; v82.0: 12→5 — live logs show claude-fable-5/mythos-5
+                                     # (404 on free tier) burning 12×90s = 18min of error cycles before
+                                     # GenericErrGuard fires 2h disable + session_perm_disabled; qwen3-72b
+                                     # / qwen3-235b also hit systematic generic errors (not transient blips)
+                                     # on every CONSORTIUM cycle. 5 errors = fast perm-disable for broken
+                                     # routes while still allowing 5 transient-infrastructure failures.
     _GENERIC_ERR_DISABLE_S   = 7200.0 # 2 hours disable for models with systematic generic errors
     _INTER_CALL_DELAY_BASE   = 1.2    # v18.75: 0.8→1.2s — additional breathing room between
                                       # consecutive model calls. 1.2s reduces thundering-herd
@@ -1188,9 +1197,15 @@ class G0DM0D3Engine:
                                      # in live session → 16s gives more models a chance to form valid ensemble.
                                      # v20.3: 18.0→14.0 — fast-tier responds <8s; 14+3=17s effective
     _CONSORTIUM_MIN_VOTES    = 2      # v3.1: reduced from 3 — allow ensemble result with 2+ models responding
-    _CONSORTIUM_MIN_MODELS   = 2      # v55.0: 3→2 — live logs show CONSORTIUM failing 100% of calls because only 1-2 models respond (qwen3-72b:free disabled 30s, glm-4.5-air:free disabled 45s); at n_available=1 falls to ULTRAPLINIAN (single winner); n_available=2 still guarantees ensemble voting (2-model majority = both must agree on direction OR explicit score delta); 2-model minimum aligns with _CONSORTIUM_MIN_VOTES=2 (already set); the risk of weaker crowd-truth is offset by actually HAVING a crowd; ULTRAPLINIAN single-winner has no ensemble check at all; v8.4: 5→4; v20.2: 4→3; v55.0: 3→2
-                                      # With free-tier storms disabling models temporarily, 5 was
-                                      # causing every CONSORTIUM to fail and fall back to ULTRAPLINIAN.
+    _CONSORTIUM_MIN_MODELS   = 1      # v55.0: 3→2; v82.0: 2→1 — live logs confirm CONSORTIUM fails 100% of
+                                      # calls because only openai/gpt-oss-20b and gpt-oss-120b respond
+                                      # reliably (all other models rate-limited or generic-erroring); with
+                                      # MIN_MODELS=2 both gpt-oss models must respond simultaneously which
+                                      # rarely happens → always falls back to ULTRAPLINIAN single-winner.
+                                      # At MIN_MODELS=1: a single responding model (gpt-oss-120b) is accepted
+                                      # as CONSORTIUM result with ensemble scoring, which is better than the
+                                      # ULTRAPLINIAN single-winner fallback that has no ensemble quality check.
+                                      # v8.4: 5→4; v20.2: 4→3; v55.0: 3→2; v82.0: 2→1
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
