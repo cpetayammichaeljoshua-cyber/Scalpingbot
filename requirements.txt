@@ -1,10 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v81.0 — Production requirements.txt
+# Unity Engine v84.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-12 (v81.0 — G8.5N2-FundMomPersist | Kelly40-FundMom | NN-v18-105feat | 48-gate | ScanParallel84)
+# Last verified: 2026-06-12 (v84.0 — G8.5Q-TrendMomPersist | G8.5R2-RegimeSentiment | Kelly43/44 | NN-v21-120feat | 52-gate | ScanParallel90)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
-# sklearn              → SOVEREIGN [1.00] — sklearn MLP 105-feature NN v18 ensemble
+# sklearn              → SOVEREIGN [1.00] — sklearn MLP 120-feature NN v21 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
 # ZERO DEGRADED 0.75 guarantee — nuclear DEGRADED blocker active on all paths
 # NOTE: torch + transformers are installed SEPARATELY in Dockerfile/nixpacks

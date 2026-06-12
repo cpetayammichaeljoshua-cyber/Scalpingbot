@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 110 features → 22 tokens × 5 dims (110 = 22 × 5) [v82.0: was 21×5=105]
-_TORCH_N_TOKENS  = 23
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5)
+# Transformer tokenisation: reshape 120 features → 24 tokens × 5 dims (120 = 24 × 5) [v84.0: was 23×5=115]
+_TORCH_N_TOKENS  = 24
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v84.0: 120 = 24×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 115  # v20 (v83.0): 110 + 5 EV/risk features (ev_crisis_norm, max_dd_norm, ev_crisis_gate, kelly_fraction_norm, risk_composite) = 115
+INPUT_DIM          = 120  # v21 (v84.0): 115 + 5 regime/sentiment features (g85q_trendmom, g85r2_regimesent, vol_persist_composite, ofi_regime_quality, multi_gate_consensus) = 120
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1052,6 +1052,28 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: risk_composite injected at G4 F111-F115 stamping block [v83.0]
     _v20_f115 = _safe_float(trade.get("risk_composite", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v20_f115)))                                  # 115 risk_composite
+
+    # ── v21 (v84.0) F116-F120: regime/sentiment composite features ───────────
+    # F116: g85q_trendmom — G8.5Q TrendMomentum-Persistence gate output (+1/0/-1)
+    #   Source: g85q_trendmom injected at G4 F116-F120 stamping block [v84.0]
+    _v21_f116 = _safe_float(trade.get("g85q_trendmom", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v21_f116)))                                  # 116 g85q_trendmom
+    # F117: g85r2_regimesent — G8.5R2 RegimeSentiment-Composite gate output (+1/0/-1)
+    #   Source: g85r2_regimesent injected at G4 F116-F120 stamping block [v84.0]
+    _v21_f117 = _safe_float(trade.get("g85r2_regimesent", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v21_f117)))                                  # 117 g85r2_regimesent
+    # F118: vol_persist_composite — VolPressure+FundMom combined meta-signal [-1,+1]
+    #   Source: vol_persist_composite injected at G4 F116-F120 stamping block [v84.0]
+    _v21_f118 = _safe_float(trade.get("vol_persist_composite", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v21_f118)))                                  # 118 vol_persist_composite
+    # F119: ofi_regime_quality — OFI persistence ring majority vote direction [-1,+1]
+    #   Source: ofi_regime_quality injected at G4 F116-F120 stamping block [v84.0]
+    _v21_f119 = _safe_float(trade.get("ofi_regime_quality", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v21_f119)))                                  # 119 ofi_regime_quality
+    # F120: multi_gate_consensus — weighted 5-gate consensus G8.5Q/R2/O2/L2/N2 [-1,+1]
+    #   Source: multi_gate_consensus injected at G4 F116-F120 stamping block [v84.0]
+    _v21_f120 = _safe_float(trade.get("multi_gate_consensus", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v21_f120)))                                  # 120 multi_gate_consensus
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
