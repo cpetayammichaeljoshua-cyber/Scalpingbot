@@ -1,13 +1,13 @@
 {
   "total_signals_sent": 1028,
-  "total_signals_evaluated": 6258,
-  "total_signals_rejected": 5120,
+  "total_signals_evaluated": 6263,
+  "total_signals_rejected": 5125,
   "sell_signals_sent": 0,
   "buy_signals_sent": 0,
   "win_count": 774,
-  "loss_count": 1866,
-  "total_profit_pct": -609.0611771632558,
-  "scan_cycles": 16035,
+  "loss_count": 1867,
+  "total_profit_pct": -610.050623073546,
+  "scan_cycles": 16066,
   "last_signal_quality": 0.0,
   "trade_returns": [
     1.85,
@@ -214,5 +214,5 @@
   "peak_equity": 101.85,
   "current_equity": 52.516700685738876,
   "max_drawdown_pct": 49.373795692078595,
-  "saved_at": "2026-06-13T02:38:07.746392"
+  "saved_at": "2026-06-13T02:43:20.113796"
 }
