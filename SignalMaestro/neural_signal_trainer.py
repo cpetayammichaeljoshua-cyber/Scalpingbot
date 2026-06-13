@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 130 features → 26 tokens × 5 dims (130 = 26 × 5) [v87.0: was 25×5=125]
-_TORCH_N_TOKENS  = 29
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5; v88.0: 135 = 27×5; v89.0: 140 = 28×5; v90.0: 145 = 29×5)
+# Transformer tokenisation: reshape 175 features → 35 tokens × 5 dims (175 = 35 × 5) [v96.0: was 29×5=145]
+_TORCH_N_TOKENS  = 35
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 155  # v28 (v92.0): 150 + 5 RMS/sync features (rms_3source_sync, hmm_ofi_sync, ofi_fund_sync, hmm_fund_sync, rms_quality) = 155
+INPUT_DIM          = 175  # v32 (v96.0): 170 + 5 Regime-Drawdown-WinRate triple-risk features (rs_ddm_sync, rs_wrt_sync, ddm_wrt_sync, triple_rdw_quality, d3_gate_output) = 175
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1250,6 +1250,90 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   1.0 = all 3 sources agree strongly; 0.0 = random/mixed signals
     _v28_f155 = _safe_float(trade.get("rms_quality_norm", 0.0), 0.0)
     f.append(max(0.0, min(1.0, _v28_f155)))                                   # 155 rms_quality_norm
+
+    # ── v29 / v93.0: F156-F160 — VPIN-OFI-Funding Triple-Confluence features ──────────────
+    # F156: vpin_ofi_conf_norm -- VPIN×OFI cross-source alignment [-1,+1]
+    #   +1=both clean/confirm direction, -1=both hostile/toxic, 0=one neutral
+    _v29_f156 = _safe_float(trade.get("vpin_ofi_conf_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v29_f156)))                                  # 156 vpin_ofi_conf_norm
+    # F157: vpin_fund_conf_norm -- VPIN×Funding cross-source alignment [-1,+1]
+    #   +1=VPIN clean + funding neutral/supportive, -1=VPIN toxic + funding adverse
+    _v29_f157 = _safe_float(trade.get("vpin_fund_conf_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v29_f157)))                                  # 157 vpin_fund_conf_norm
+    # F158: ofi_fund_conf_norm -- OFI×Funding cross-source alignment [-1,+1]
+    #   +1=OFI flow + funding both support direction; -1=both oppose
+    _v29_f158 = _safe_float(trade.get("ofi_fund_conf_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v29_f158)))                                  # 158 ofi_fund_conf_norm
+    # F159: triple_conf_quality -- 3-way absolute agreement fraction [0,1]
+    #   1.0=all 3 sources agree in direction; 0.5=neutral/mixed
+    _v29_f159 = _safe_float(trade.get("triple_conf_quality", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v29_f159)))                                   # 159 triple_conf_quality
+    # F160: vpc_gate_output -- G8.5A3 VPIN-OFI-Funding gate output (+1/-1/0)
+    _v29_f160 = _safe_float(trade.get("vpc_gate_output", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v29_f160)))                                  # 160 vpc_gate_output
+
+    # ── v30 / v94.0: F161-F165 — HMM-OFI-Spread Triple-Sync features ────────────────────
+    # F161: hmm_ofi_sync_norm -- HMM state × OFI z-score direction agreement [-1,+1]
+    #   +1=HMM regime + OFI flow both align with direction; -1=both oppose
+    _v30_f161 = _safe_float(trade.get("hmm_ofi_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v30_f161)))                                  # 161 hmm_ofi_sync_norm
+    # F162: hmm_spread_sync_norm -- HMM state × SpreadLiq gate agreement [-1,+1]
+    #   +1=regime + liquidity both favour direction; -1=regime fine but illiquid spread
+    _v30_f162 = _safe_float(trade.get("hmm_spread_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v30_f162)))                                  # 162 hmm_spread_sync_norm
+    # F163: ofi_spread_sync_norm -- OFI flow × SpreadLiq gate agreement [-1,+1]
+    #   +1=flow + liquidity both confirm; -1=flow present but spread hostile
+    _v30_f163 = _safe_float(trade.get("ofi_spread_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v30_f163)))                                  # 163 ofi_spread_sync_norm
+    # F164: triple_hmm_quality -- 3-way HMM-OFI-Spread alignment quality [0,1]
+    #   1.0=all 3 sources active and agree; 0.5=neutral/mixed
+    _v30_f164 = _safe_float(trade.get("triple_hmm_quality", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v30_f164)))                                   # 164 triple_hmm_quality
+    # F165: b3_gate_output -- G8.5B3 HMM-OFI-Spread gate output (+1/-1/0)
+    _v30_f165 = _safe_float(trade.get("b3_gate_output", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v30_f165)))                                  # 165 b3_gate_output
+
+    # ── v31 / v95.0: F166-F170 — VolumeFlow-OFI-EV Triple-Convergence features ──────────
+    # F166: ofi_vpr_sync_norm -- OFI-Persist × VolPressure-Regime agreement [-1,+1]
+    #   +1=OFI flow + vol pressure both aligned with direction; -1=both opposed
+    _v31_f166 = _safe_float(trade.get("ofi_vpr_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v31_f166)))                                  # 166 ofi_vpr_sync_norm
+    # F167: ofi_ev_sync_norm -- OFI flow × EV quality tier agreement [-1,+1]
+    #   +1=strong OFI + EV≥0.8R; -1=OFI opposed + EV<0.4R (adverse-flow + poor edge)
+    _v31_f167 = _safe_float(trade.get("ofi_ev_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v31_f167)))                                  # 167 ofi_ev_sync_norm
+    # F168: vpr_ev_sync_norm -- VolPressure × EV quality tier agreement [-1,+1]
+    #   +1=vol pressure + good EV both favour direction; -1=both adverse
+    _v31_f168 = _safe_float(trade.get("vpr_ev_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v31_f168)))                                  # 168 vpr_ev_sync_norm
+    # F169: triple_voe_quality -- 3-way VolumeFlow-OFI-EV alignment quality [0,1]
+    #   1.0=all 3 sources active and aligned; 0.5=neutral/mixed
+    _v31_f169 = _safe_float(trade.get("triple_voe_quality", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v31_f169)))                                   # 169 triple_voe_quality
+    # F170: c3_gate_output -- G8.5C3 VolumeFlow-OFI-EV gate output (+1/-1/0)
+    _v31_f170 = _safe_float(trade.get("c3_gate_output", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v31_f170)))                                  # 170 c3_gate_output
+
+    # ── v32 / v96.0: F171-F175 — Regime-Drawdown-WinRate Triple-Risk features ───────────
+    # F171: rs_ddm_sync_norm -- RegimeSentiment × DrawdownMomentum agreement [-1,+1]
+    #   +1=healthy regime + recovering DD both confirm direction; -1=both adverse
+    _v32_f171 = _safe_float(trade.get("rs_ddm_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v32_f171)))                                  # 171 rs_ddm_sync_norm
+    # F172: rs_wrt_sync_norm -- RegimeSentiment × WinRateTrajectory agreement [-1,+1]
+    #   +1=healthy regime + improving WR trajectory; -1=hostile regime + declining WR
+    _v32_f172 = _safe_float(trade.get("rs_wrt_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v32_f172)))                                  # 172 rs_wrt_sync_norm
+    # F173: ddm_wrt_sync_norm -- DrawdownMomentum × WinRateTrajectory agreement [-1,+1]
+    #   +1=DD recovering + WR improving (dual risk-on); -1=both adverse (dual risk-off)
+    _v32_f173 = _safe_float(trade.get("ddm_wrt_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v32_f173)))                                  # 173 ddm_wrt_sync_norm
+    # F174: triple_rdw_quality -- 3-way Regime-DD-WR alignment quality [0,1]
+    #   1.0=all 3 risk sources active and aligned; 0.5=neutral/mixed
+    _v32_f174 = _safe_float(trade.get("triple_rdw_quality", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v32_f174)))                                   # 174 triple_rdw_quality
+    # F175: d3_gate_output -- G8.5D3 Regime-Drawdown-WinRate gate output (+1/-1/0)
+    _v32_f175 = _safe_float(trade.get("d3_gate_output", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v32_f175)))                                  # 175 d3_gate_output
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
