@@ -1,8 +1,8 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v85.0 — Production requirements.txt
+# Unity Engine v88.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-12 (v85.0 — G8.5S2-WRCrisisRegime | G8.5T2-ExtremeFearRegime | Kelly45/46 | NN-v22-125feat | 54-gate | ScanParallel92)
+# Last verified: 2026-06-13 (v88.0 — G8.5V2-OBPressure | Kelly48-OBPressure | NN-v24-135feat | 56-gate | ScanParallel96)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 125-feature NN v22 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS

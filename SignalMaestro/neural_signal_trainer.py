@@ -79,8 +79,8 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 130 features → 26 tokens × 5 dims (130 = 26 × 5) [v87.0: was 25×5=125]
-_TORCH_N_TOKENS  = 26
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5)
+_TORCH_N_TOKENS  = 27
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5; v88.0: 135 = 27×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 130  # v23 (v87.0): 125 + 5 VoV/flow features (vov_stability, funding_extreme_norm, oi_velocity_norm, depth_ratio_norm, liq_net_momentum) = 130
+INPUT_DIM          = 135  # v24 (v88.0): 130 + 5 OB-pressure/spread/flow features (ob_pressure_imbalance, ob_bid_dominance, ob_ask_dominance, spread_vol_norm, trade_flow_intensity) = 135
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1118,6 +1118,33 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: liq_net_momentum injected at G4 F126-F130 stamping block [v87.0]
     _v23_f130 = _safe_float(trade.get("liq_net_momentum", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v23_f130)))                                  # 130 liq_net_momentum
+
+    # ── v24 (v88.0) F131-F135: OrderBook Pressure and live-flow features ────────
+    # F131: ob_pressure_imbalance — direction-weighted OB depth imbalance gate output [-1,+1]
+    #   +1=strong aligned OB pressure, -1=strong opposing OB pressure, 0=neutral
+    #   Source: ob_pressure_imbalance injected at G4 F131-F135 stamping block [v88.0]
+    _v24_f131 = _safe_float(trade.get("ob_pressure_imbalance", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v24_f131)))                                  # 131 ob_pressure_imbalance
+    # F132: ob_bid_dominance — normalized bid depth dominance from WS orderbook [0,1]
+    #   1.0=fully bid-dominated, 0.0=fully ask-dominated, 0.5=balanced
+    #   Source: ob_bid_dominance injected at G4 F131-F135 stamping block [v88.0]
+    _v24_f132 = _safe_float(trade.get("ob_bid_dominance", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v24_f132)))                                   # 132 ob_bid_dominance
+    # F133: ob_ask_dominance — normalized ask depth dominance from WS orderbook [0,1]
+    #   1.0=fully ask-dominated (sell pressure), 0.0=no ask dominance
+    #   Source: ob_ask_dominance injected at G4 F131-F135 stamping block [v88.0]
+    _v24_f133 = _safe_float(trade.get("ob_ask_dominance", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v24_f133)))                                   # 133 ob_ask_dominance
+    # F134: spread_vol_norm — rolling spread volatility (std/mean) normalized to [-1,+1]
+    #   +1=low spread vol (stable liquidity), -1=high spread vol (erratic liquidity)
+    #   Source: spread_vol_norm injected at G4 F131-F135 stamping block [v88.0]
+    _v24_f134 = _safe_float(trade.get("spread_vol_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v24_f134)))                                  # 134 spread_vol_norm
+    # F135: trade_flow_intensity — aggressor buy ratio direction from WS aggtrade [-1,+1]
+    #   +1=aggressive buyer-dominated, -1=aggressive seller-dominated, 0=balanced
+    #   Source: trade_flow_intensity injected at G4 F131-F135 stamping block [v88.0]
+    _v24_f135 = _safe_float(trade.get("trade_flow_intensity", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v24_f135)))                                  # 135 trade_flow_intensity
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
