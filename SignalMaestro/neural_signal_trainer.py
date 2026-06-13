@@ -79,8 +79,8 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 130 features → 26 tokens × 5 dims (130 = 26 × 5) [v87.0: was 25×5=125]
-_TORCH_N_TOKENS  = 27
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5; v88.0: 135 = 27×5)
+_TORCH_N_TOKENS  = 28
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5; v88.0: 135 = 27×5; v89.0: 140 = 28×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 135  # v24 (v88.0): 130 + 5 OB-pressure/spread/flow features (ob_pressure_imbalance, ob_bid_dominance, ob_ask_dominance, spread_vol_norm, trade_flow_intensity) = 135
+INPUT_DIM          = 140  # v25 (v89.0): 135 + 5 drawdown/risk/regime features (dd_sentiment_norm, sharpe_norm_g, ev_session_norm, dd_gate_output, kelly_health_norm) = 140
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1145,6 +1145,31 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: trade_flow_intensity injected at G4 F131-F135 stamping block [v88.0]
     _v24_f135 = _safe_float(trade.get("trade_flow_intensity", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v24_f135)))                                  # 135 trade_flow_intensity
+    # ── v25 (v89.0) F136-F140: DrawdownMomentum / risk / regime features ─────
+    # F136: dd_sentiment_norm — MaxDD normalized to [-1,0]; 0=no DD, -1=MaxDD at 50%
+    #   Source: dd_sentiment_norm injected at G4 F136-F140 stamping block [v89.0]
+    _v25_f136 = _safe_float(trade.get("dd_sentiment_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(0.0, _v25_f136)))                                  # 136 dd_sentiment_norm
+    # F137: sharpe_norm_g — Sharpe ratio normalized [-1,+1]; clamp(Sharpe/5, -1, +1)
+    #   +1=strong Sharpe(+5), -1=deep crisis Sharpe(-5), 0=neutral
+    #   Source: sharpe_norm_g injected at G4 F136-F140 stamping block [v89.0]
+    _v25_f137 = _safe_float(trade.get("sharpe_norm_g", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v25_f137)))                                  # 137 sharpe_norm_g
+    # F138: ev_session_norm — session EV/R normalized [-1,+1]; clamp(EV/0.5, -1, +1)
+    #   +1=EV≥+0.5R (profitable), -1=EV≤-0.5R (crisis), 0=EV≈0
+    #   Source: ev_session_norm injected at G4 F136-F140 stamping block [v89.0]
+    _v25_f138 = _safe_float(trade.get("ev_session_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v25_f138)))                                  # 138 ev_session_norm
+    # F139: dd_gate_output — G8.5W2 DrawdownMomentum-Sentinel gate output (+1/-1/0)
+    #   +1=healthy regime, -1=drawdown warning, 0=neutral/insufficient data
+    #   Source: dd_gate_output injected at G4 F136-F140 stamping block [v89.0]
+    _v25_f139 = _safe_float(trade.get("dd_gate_output", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v25_f139)))                                  # 139 dd_gate_output
+    # F140: kelly_health_norm — Kelly fraction / Kelly cap [0,1]; 1.0=full cap
+    #   0.0=at floor (de-sized), 1.0=at cap (full-sized), ~0.5=normal
+    #   Source: kelly_health_norm injected at G4 F136-F140 stamping block [v89.0]
+    _v25_f140 = _safe_float(trade.get("kelly_health_norm", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v25_f140)))                                   # 140 kelly_health_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
