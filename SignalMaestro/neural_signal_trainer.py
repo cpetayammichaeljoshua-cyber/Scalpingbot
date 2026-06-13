@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 175 features → 35 tokens × 5 dims (175 = 35 × 5) [v96.0: was 29×5=145]
-_TORCH_N_TOKENS  = 35
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5)
+# Transformer tokenisation: reshape 180 features → 36 tokens × 5 dims (180 = 36 × 5) [v97.0: was 35×5=175]
+_TORCH_N_TOKENS  = 36
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 175  # v32 (v96.0): 170 + 5 Regime-Drawdown-WinRate triple-risk features (rs_ddm_sync, rs_wrt_sync, ddm_wrt_sync, triple_rdw_quality, d3_gate_output) = 175
+INPUT_DIM          = 180  # v33 (v97.0): 175 + 5 EV-FundMom-OFI Triple-Pressure features (ev_fmp_sync_norm, ev_ofi_sync_norm, fmp_ofi_sync_norm, triple_efo_quality, e3_gate_output) = 180
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1334,6 +1334,27 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F175: d3_gate_output -- G8.5D3 Regime-Drawdown-WinRate gate output (+1/-1/0)
     _v32_f175 = _safe_float(trade.get("d3_gate_output", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v32_f175)))                                  # 175 d3_gate_output
+
+    # ── v33 / v97.0: F176-F180 — EV-FundMom-OFI Triple-Pressure features ──────────
+    # F176: ev_fmp_sync_norm -- EV-tier × FundMom-Persist agreement [-1,+1]
+    #   +1.0=both confirm direction; -1.0=opposed; 0.0=one or both neutral
+    _v33_f176 = _safe_float(trade.get("ev_fmp_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v33_f176)))                                  # 176 ev_fmp_sync_norm
+    # F177: ev_ofi_sync_norm -- EV-tier × OFI-Persist agreement [-1,+1]
+    #   +1.0=EV strong and OFI confirm; -1.0=EV weak and OFI oppose; 0.0=neutral
+    _v33_f177 = _safe_float(trade.get("ev_ofi_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v33_f177)))                                  # 177 ev_ofi_sync_norm
+    # F178: fmp_ofi_sync_norm -- FundMom-Persist × OFI-Persist agreement [-1,+1]
+    #   +1.0=funding momentum and order-flow both aligned; -1.0=opposed; 0.0=neutral
+    _v33_f178 = _safe_float(trade.get("fmp_ofi_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v33_f178)))                                  # 178 fmp_ofi_sync_norm
+    # F179: triple_efo_quality -- 3-way EV-FundMom-OFI alignment quality [0,1]
+    #   1.0=all 3 pressure sources active and aligned; 0.5=neutral/mixed
+    _v33_f179 = _safe_float(trade.get("triple_efo_quality", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v33_f179)))                                   # 179 triple_efo_quality
+    # F180: e3_gate_output -- G8.5E3 EV-FundMom-OFI gate output (+1/-1/0)
+    _v33_f180 = _safe_float(trade.get("e3_gate_output", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v33_f180)))                                  # 180 e3_gate_output
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
