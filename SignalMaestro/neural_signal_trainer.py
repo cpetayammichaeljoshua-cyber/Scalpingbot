@@ -79,8 +79,8 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 130 features → 26 tokens × 5 dims (130 = 26 × 5) [v87.0: was 25×5=125]
-_TORCH_N_TOKENS  = 28
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5; v88.0: 135 = 27×5; v89.0: 140 = 28×5)
+_TORCH_N_TOKENS  = 29
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100 = 20×5; v85.0: 125 = 25×5; v87.0: 130 = 26×5; v88.0: 135 = 27×5; v89.0: 140 = 28×5; v90.0: 145 = 29×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 140  # v25 (v89.0): 135 + 5 drawdown/risk/regime features (dd_sentiment_norm, sharpe_norm_g, ev_session_norm, dd_gate_output, kelly_health_norm) = 140
+INPUT_DIM          = 145  # v26 (v90.0): 140 + 5 WR-trajectory features (rolling_5wr_norm, rolling_20wr_norm, wr_trajectory_norm, recent_loss_streak_norm, recent_win_streak_norm) = 145
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1170,6 +1170,33 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: kelly_health_norm injected at G4 F136-F140 stamping block [v89.0]
     _v25_f140 = _safe_float(trade.get("kelly_health_norm", 0.5), 0.5)
     f.append(max(0.0, min(1.0, _v25_f140)))                                   # 140 kelly_health_norm
+    # ── v26 (v90.0) F141-F145: WR-Trajectory features ─────────────────────────
+    # F141: rolling_5wr_norm — recent booster-ring WR normalized [-1,+1]
+    #   +1=WR=100%, -1=WR=0%, 0=WR=50% breakeven; proxy for recent win momentum
+    #   Source: rolling_5wr_norm injected at G4 F141-F145 stamping block [v90.0]
+    _v26_f141 = _safe_float(trade.get("rolling_5wr_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v26_f141)))                                  # 141 rolling_5wr_norm
+    # F142: rolling_20wr_norm — all-time session WR normalized [-1,+1]
+    #   +1=alltime WR=100%, -1=WR=0%, 0=WR=50%; session-level baseline quality
+    #   Source: rolling_20wr_norm injected at G4 F141-F145 stamping block [v90.0]
+    _v26_f142 = _safe_float(trade.get("rolling_20wr_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v26_f142)))                                  # 142 rolling_20wr_norm
+    # F143: wr_trajectory_norm — delta(recent - alltime) WR normalized [-1,+1]
+    #   +1=recent WR strongly above alltime (recovering), -1=strongly below (deteriorating)
+    #   clamp((recent_wr - alltime_wr) * 5.0, -1, +1); 20pp delta = ±1.0
+    #   Source: wr_trajectory_norm injected at G4 F141-F145 stamping block [v90.0]
+    _v26_f143 = _safe_float(trade.get("wr_trajectory_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v26_f143)))                                  # 143 wr_trajectory_norm
+    # F144: recent_loss_streak_norm — G8.5X2 gate output polarity [−0.5, +0.5]
+    #   +0.5=deteriorating trajectory (loss streak proxy), −0.5=recovering, 0.0=neutral
+    #   Source: recent_loss_streak_norm injected at G4 F141-F145 stamping block [v90.0]
+    _v26_f144 = _safe_float(trade.get("recent_loss_streak_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v26_f144)))                                  # 144 recent_loss_streak_norm
+    # F145: recent_win_streak_norm — recent booster-ring WR raw [0,1]
+    #   1.0=all recent trades won, 0.0=all lost; win-streak momentum signal
+    #   Source: recent_win_streak_norm injected at G4 F141-F145 stamping block [v90.0]
+    _v26_f145 = _safe_float(trade.get("recent_win_streak_norm", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v26_f145)))                                   # 145 recent_win_streak_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
