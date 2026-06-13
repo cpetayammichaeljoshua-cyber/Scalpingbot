@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 145  # v26 (v90.0): 140 + 5 WR-trajectory features (rolling_5wr_norm, rolling_20wr_norm, wr_trajectory_norm, recent_loss_streak_norm, recent_win_streak_norm) = 145
+INPUT_DIM          = 150  # v27 (v91.0): 145 + 5 HMM/VPIN features (hmm_expansion_prob, vpin_pct_norm, hmm_vpin_coherence, hmm_regime_norm, vpin_toxic_norm) = 150
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1197,6 +1197,35 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: recent_win_streak_norm injected at G4 F141-F145 stamping block [v90.0]
     _v26_f145 = _safe_float(trade.get("recent_win_streak_norm", 0.5), 0.5)
     f.append(max(0.0, min(1.0, _v26_f145)))                                   # 145 recent_win_streak_norm
+    # -- v27 (v91.0) F146-F150: HMM-regime / VPIN-flow coherence features --------
+    # F146: hmm_expansion_prob_norm -- HMM expansion-state probability [0,1]
+    #   1.0 = HMM fully in EXPANSION regime; 0.0 = CONTRACTION; 0.5 = uncertain/TRANSITION
+    #   Source: hmm_expansion_prob injected at G4 F146-F150 stamping block [v91.0]
+    _v27_f146 = _safe_float(trade.get("hmm_expansion_prob_norm", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v27_f146)))                                   # 146 hmm_expansion_prob_norm
+    # F147: vpin_pct_norm -- VPIN flow toxicity percentile [0,1]
+    #   0.0 = ultra-clean flow (institutional accumulation);
+    #   1.0 = highly toxic (informed-trader dominated, adverse selection risk)
+    #   Source: vpin_pct_norm injected at G4 F146-F150 stamping block [v91.0]
+    _v27_f147 = _safe_float(trade.get("vpin_pct_norm", 0.5), 0.5)
+    f.append(max(0.0, min(1.0, _v27_f147)))                                   # 147 vpin_pct_norm
+    # F148: hmm_vpin_coherence_norm -- joint HMM+VPIN signal normalized [-1,+1]
+    #   +1 = EXPANSION + clean VPIN (strong institutional buy-side);
+    #   -1 = CONTRACTION + toxic VPIN (institutional distribution);
+    #    0 = mixed/neutral regime
+    #   Source: hmm_vpin_coherence_norm injected at G4 F146-F150 stamping block [v91.0]
+    _v27_f148 = _safe_float(trade.get("hmm_vpin_coherence_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v27_f148)))                                  # 148 hmm_vpin_coherence_norm
+    # F149: hmm_regime_norm -- HMM regime encoded [-1,+1]
+    #   +1.0 = EXPANSION, -1.0 = CONTRACTION, 0.0 = TRANSITION/UNKNOWN
+    #   Source: hmm_regime_norm injected at G4 F146-F150 stamping block [v91.0]
+    _v27_f149 = _safe_float(trade.get("hmm_regime_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v27_f149)))                                  # 149 hmm_regime_norm
+    # F150: vpin_toxic_norm -- binary VPIN toxicity indicator [0,1]
+    #   1.0 = flow classified as toxic (pct >= 0.80); 0.0 = clean flow
+    #   Source: vpin_toxic_norm injected at G4 F146-F150 stamping block [v91.0]
+    _v27_f150 = _safe_float(trade.get("vpin_toxic_norm", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v27_f150)))                                   # 150 vpin_toxic_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
