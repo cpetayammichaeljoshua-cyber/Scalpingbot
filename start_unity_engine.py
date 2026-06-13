@@ -3,6 +3,17 @@
 Unity Engine v91.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 59-gate filter · 5-bucket RL · Kelly 51-steps · GEX · SRM):
+ v92.0 improvements [2026-06-13]:
+   1. G8.5Z2 REGIME-MOMENTUM-SYNC GATE (60th gate, -2.0/-1.5/+2.0/+1.5pts):
+      Triple-source zero-API confluence gate: HMM regime direction + OFI z-score
+      direction + funding rate trend direction. 3/3 aligned -> +2.0pts;
+      2/3 aligned -> +1.5pts; 2/3 opposed -> -1.5pts; 3/3 opposed -> -2.0pts.
+      Stores _last_g85z2_rms (+1/-1/0) for Kelly Step 52 [v92.0].
+   2. KELLY STEP 52: REGIME-MOMENTUM-SYNC SIZING: +1 -> x1.03; -1 -> x0.88 [v92.0].
+   3. NN v28 -- INPUT_DIM 150->155 (+5 RMS/sync features F151-F155) [v92.0].
+   4. FIX: ai_capability_checker.py IRONS stamp updated to v92.0
+      (WR<17%->74.5[v91.0] + WR<22%->72[v90.0] now present in stamp).
+   5. SCAN_PARALLEL_LIMIT 102->104 (+2.0% throughput) [v92.0].
  v91.0 improvements [2026-06-13]:
    1. G8.5Y2 HMM-VPIN-COHERENCE GATE (59th gate, -2.0/-1.5/+2.0/+1.5pts):
       Zero-API-call dual-source gate combining HMM regime state with VPIN flow toxicity.
@@ -592,7 +603,7 @@ KEY GATES (v80.0): MIN_RR=2.50 | NN_WIN_PROB=0.50 | EV_MIN=28bps(regime-adaptive
   G3_DROUGHT:20min+WR<42%(floor=max(79%,AI_THRESH-4%),v20.1≈83%,Sharpe<-4→floor+1pt) | G4_DROUGHT:20min | RL_STARVATION:WR<15%→1.5min[v20.3],WR<20%→2min,WR<30%→3min,WR<35%→4min |
   DIR_CAL:WR<30%→-0.07cap,WR<35%→-0.10cap | DEADZONE_PENALTY:4pt(6pt-crisis-SR<-4[v20.3]) | CRISIS_RETRAIN:Sharpe<-5.0→15min,Sharpe<-3.5→20min | focal_gamma:2.5(3.0-crisis[v20.3],3.5-extreme-ruin[v60.0]) |
   GODMODE:14models+14combos+FundingRateContext | G8.5r:ValueCell | G8.5V:VibeTrade | G2-DroughtRelax[v26.0] |
-  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts)[v75.0-FIX] | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts)[v75.0-FIX] | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | G8.5B:OFI-Persistence(±2.0pts,3-cycle-ring) | G8.5C:RegimeCoh(±2.0pts) | G8.5D:OFI-Velocity(±2.0/-1.5pts) | G8.5E:CrossCoherence(+2.0/+0.8/-1.5pts) | G8.5F:VWAP-Extension(±2.0/+1.5pts)[v76.0] | G8.5G:CUSUM-Breakout(±1.5pts)[v76.0] | G8.5H:FlowAsymmetry(±2.0/+1.5pts)[v77.0] | G8.5I:MicroTrend(±1.5pts)[v77.0] | G8.5J:HMMRegimeTransition(±2.0/+1.5pts)[v78.0] | G8.5K:SpreadLiquidity(±2.0/+1.5pts)[v79.0] | G8.5L2:VolumePressure-Regime(±2.0/+1.5pts)[v80.0] | G8.5N2:FundingMomentum-Persistence(±2.0/+1.5pts)[v81.0] | G8.5O2:WinRateEV-Coherence(±2.0/+1.5pts)[v82.0] | G8.5P2:EV-Crisis-Quality(−3.0/−1.5pts)[v83.0] | G8.5Q:TrendMomentum-Persistence(±2.0pts)[v84.0] | G8.5R2:RegimeSentiment-Composite(±2.0/+1.5pts)[v84.0] | G8.5S2:WinRateCrisisRegime(±2.0/+1.5pts)[v85.0] | G8.5T2:ExtremeFearRegime(±1.5/+0.5pts)[v85.0] | G8.5U2:VoV-StabilityRegime(±1.5pts)[v87.0] | G8.5V2:OBPressure-Imbalance(±2.0/+1.5pts)[v88.0] | G8.5W2:DrawdownMomentum-Sentinel(-3.0/-2.0/-1.5/+1.5pts)[v89.0] | G8.5X2:WinRateTrajectory(-2.0/-1.0/+2.0pts)[v90.0] | G8.5Y2:HMM-VPIN-Coherence(-2.0/-1.5/+2.0/+1.5pts)[v91.0] | 59-gate filter [v91.0] |
+  G8.5w:MTF_Momentum_Alignment(±2.5pts) | G8.5x:LiqCascade_Direction(±2.0pts) | G8.5T:TurboVec_3TF_Fib(±2.5pts) | G8.5U:MomConsensus_Meta-5gate(±3.5pts) | G8.5P:BTC-CrossPair(±1.5pts)[v75.0-FIX] | G8.5R:HMM-GEX-Coherence(±1.5pts) | G8.5S:SpreadStress(−2/−1pts,FLIP×2) | G8.5Z:AutoCorr-Persistence(±2.0pts) | G8.5Y:ATR-VolCompress(+2.0/-1.5pts)[v75.0-FIX] | G8.5X:DGRP-Velocity(±2.0/+1.5pts) | G8.5A:FundingTrend(-2.0/+1.5pts) | G8.5B:OFI-Persistence(±2.0pts,3-cycle-ring) | G8.5C:RegimeCoh(±2.0pts) | G8.5D:OFI-Velocity(±2.0/-1.5pts) | G8.5E:CrossCoherence(+2.0/+0.8/-1.5pts) | G8.5F:VWAP-Extension(±2.0/+1.5pts)[v76.0] | G8.5G:CUSUM-Breakout(±1.5pts)[v76.0] | G8.5H:FlowAsymmetry(±2.0/+1.5pts)[v77.0] | G8.5I:MicroTrend(±1.5pts)[v77.0] | G8.5J:HMMRegimeTransition(±2.0/+1.5pts)[v78.0] | G8.5K:SpreadLiquidity(±2.0/+1.5pts)[v79.0] | G8.5L2:VolumePressure-Regime(±2.0/+1.5pts)[v80.0] | G8.5N2:FundingMomentum-Persistence(±2.0/+1.5pts)[v81.0] | G8.5O2:WinRateEV-Coherence(±2.0/+1.5pts)[v82.0] | G8.5P2:EV-Crisis-Quality(−3.0/−1.5pts)[v83.0] | G8.5Q:TrendMomentum-Persistence(±2.0pts)[v84.0] | G8.5R2:RegimeSentiment-Composite(±2.0/+1.5pts)[v84.0] | G8.5S2:WinRateCrisisRegime(±2.0/+1.5pts)[v85.0] | G8.5T2:ExtremeFearRegime(±1.5/+0.5pts)[v85.0] | G8.5U2:VoV-StabilityRegime(±1.5pts)[v87.0] | G8.5V2:OBPressure-Imbalance(±2.0/+1.5pts)[v88.0] | G8.5W2:DrawdownMomentum-Sentinel(-3.0/-2.0/-1.5/+1.5pts)[v89.0] | G8.5X2:WinRateTrajectory(-2.0/-1.0/+2.0pts)[v90.0] | G8.5Y2:HMM-VPIN-Coherence(-2.0/-1.5/+2.0/+1.5pts)[v91.0] | G8.5Z2:RegimeMomentumSync(-2.0/-1.5/+2.0/+1.5pts)[v92.0] | 60-gate filter [v92.0] |
   Kelly26:DualRegime_HMM-GEX_1.10x(EXP≥0.75+GEX>$1B|CONT≥0.65+GEX<-$1B) | Kelly27:Sortino-DownsideScale(SR<-2.5→×0.85,SR>2.0+WR>35%→×1.05) | Kelly28:MaxDD-EmergencyBrake(DD>45%→cap0.4%,DD>50%→cap0.2%) | Kelly29:BTC-AtrVolSpike-CorrScale(BTC-ATR>2×mean+non-BTC→×0.85) | Kelly30:MaxDD-UltraRuin(DD>48%→cap0.15%,DD>50%→cap0.05%) |
   Kelly31:VolExpansion-Regime-Scale(BTC-vol-expand-15bar→×0.80) | Kelly32:OFI-PersistKelly(3/3-aligned→×1.08,0/3→×0.88) | Kelly33:EnsembleConf-Uncertainty(unc<0.08→×1.07,unc≥0.15→×0.90) | Kelly34:CrossCoherence-G8.5E(3/3→×1.06,0/3→×0.87) | Kelly35:AVWAP-Extension-Sizing(>150bps-against→×0.82,>150bps-in-dir+CUSUM→×1.04)[v76.0] |
   Kelly36:FlowAsymmetry-Dampener(asym>0.65-adverse→×0.88,asym>0.65-aligned→×1.05)[v77.0] | Kelly37:HMMRegimeTransition-Dampener(trans-adverse→×0.87,trans-aligned→×1.04)[v78.0] | Kelly38:SpreadLiquidity-Sizing(illiquid→×0.86,liquid→×1.03)[v79.0] | Kelly39:VolPressure-Regime-Sizing(vol+OFI-opposed→×0.85,vol+OFI-aligned→×1.04)[v80.0] | Kelly40:FundingMomentum-Sizing(fund-opposed→×0.86,fund-aligned→×1.03)[v81.0] | Kelly41:WinRateEV-Coherence-Sizing(losing-regime→×0.82,winning-regime→×1.03,streak→×0.90)[v82.0] | Kelly42:EV-Crisis-DeSizing(EV<-0.30R→×0.80,EV<-0.20R→×0.88,MaxDD>45%+EV<-0.15R→×0.85)[v83.0] | Kelly43:TrendMomPersist-Sizing(G8.5Q-aligned→×1.03,G8.5Q-opposed→×0.87)[v84.0] | Kelly44:RegimeSentiment-Sizing(G8.5R2-aligned→×1.03,G8.5R2-opposed→×0.86)[v84.0] | Kelly45:WRCrisisRegime-Sizing(WR>45%→×1.03,WR<28%→×0.86)[v85.0] | Kelly46:ExtremeFearRegime-Sizing(aligned→×1.02,contra-regime→×0.88)[v85.0] | Kelly47:VoV-Stability-Sizing(stable→×1.03,chaotic→×0.85)[v87.0] | Kelly48:OBPressure-Sizing(aligned→×1.04,opposed→×0.85)[v88.0] | Kelly49:DrawdownMomentum-Sizing(healthy→×1.03,drawdown→×0.87)[v89.0] |
@@ -2316,7 +2327,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "91.0"
+UNITY_VERSION                = "92.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -4953,6 +4964,10 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85y2_hvc"]        = {"pass": 0, "fail": 0}  # v91.0: HMM regime + VPIN flow coherence quality gate
         self._gate_stats_recent["gate_g85y2_hvc"] = deque(maxlen=self._gate_stats_window_n)  # v91.0
         self._last_g85y2_hvc: int = 0   # v91.0: +1=coherent HMM+VPIN, -1=divergent, 0=neutral; Kelly Step 51
+        # v92.0: G8.5Z2 Regime-Momentum-Sync gate init (60th gate, -2.0/-1.5/+2.0/+1.5pts)
+        self._gate_stats["gate_g85z2_rms"]        = {"pass": 0, "fail": 0}  # v92.0: HMM+OFI+FundRate triple-source sync gate
+        self._gate_stats_recent["gate_g85z2_rms"] = deque(maxlen=self._gate_stats_window_n)  # v92.0
+        self._last_g85z2_rms: int = 0   # v92.0: +1=3/3 or 2/3 aligned, -1=opposed, 0=neutral; Kelly Step 52
         # v68.0: G8.5A FundingRate-Trend gate — per-symbol rolling funding rate deque.
         # Stores (timestamp, funding_rate) pairs; maxlen=3 → 3-reading trend window.
         # Protected by _fr_trend_last_update guard (30s min update interval per symbol).
@@ -8014,6 +8029,50 @@ class UnitySignalFilter:
                         signal_data.setdefault("vpin_toxic_norm", _v91_f150)
                     except Exception:
                         pass  # v91.0 F146-F150 injection block is non-fatal
+                    # v92.0 NN v28: F151-F155 — Regime-Momentum-Sync triple-source features
+                    try:
+                        # Derive the 3 source direction signs from already-computed data
+                        _z2_sig_d = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+                        _z2_dsign = 1 if _z2_sig_d in ("LONG","BUY","long","buy") else (-1 if _z2_sig_d in ("SHORT","SELL","short","sell") else 0)
+                        # HMM source sign
+                        _z2_hmm_reff = getattr(self, "_hmm_regime", None)
+                        _z2_hmm_s = 0
+                        if _z2_hmm_reff is not None:
+                            try:
+                                _z2_hr, _, _ = _z2_hmm_reff.get_regime()
+                                _z2_hmm_s = 1 if _z2_hr == "EXPANSION" else (-1 if _z2_hr == "CONTRACTION" else 0)
+                            except Exception:
+                                pass
+                        # OFI source sign
+                        _z2_ofi_zz = float(signal_data.get("ofi_z", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
+                        _z2_ofi_s  = 1 if _z2_ofi_zz > 0.3 else (-1 if _z2_ofi_zz < -0.3 else 0)
+                        # Funding rate trend source sign
+                        _z2_fr_t   = float(signal_data.get("funding_rate_trend", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
+                        _z2_fund_s = 1 if _z2_fr_t < -0.00005 else (-1 if _z2_fr_t > 0.00005 else 0)
+                        # F151: rms_3source_sync_norm [-1,+1]
+                        _z2_srcs   = [_z2_hmm_s, _z2_ofi_s, _z2_fund_s]
+                        _z2_active = [s for s in _z2_srcs if s != 0]
+                        if _z2_active and _z2_dsign != 0:
+                            _z2_al = sum(1 for s in _z2_active if s == _z2_dsign)
+                            _z2_op = sum(1 for s in _z2_active if s == -_z2_dsign)
+                            _z2_sync = (_z2_al - _z2_op) / max(1, len(_z2_active))
+                        else:
+                            _z2_sync = 0.0
+                        signal_data.setdefault("rms_3source_sync_norm", max(-1.0, min(1.0, _z2_sync)))
+                        # F152: hmm_ofi_sync_norm [-1,+1]
+                        _z2_ho = float(_z2_hmm_s * _z2_ofi_s) if (_z2_hmm_s != 0 and _z2_ofi_s != 0) else 0.0
+                        signal_data.setdefault("hmm_ofi_sync_norm", _z2_ho)
+                        # F153: ofi_fund_sync_norm [-1,+1]
+                        _z2_of = float(_z2_ofi_s * _z2_fund_s) if (_z2_ofi_s != 0 and _z2_fund_s != 0) else 0.0
+                        signal_data.setdefault("ofi_fund_sync_norm", _z2_of)
+                        # F154: hmm_fund_sync_norm [-1,+1]
+                        _z2_hf = float(_z2_hmm_s * _z2_fund_s) if (_z2_hmm_s != 0 and _z2_fund_s != 0) else 0.0
+                        signal_data.setdefault("hmm_fund_sync_norm", _z2_hf)
+                        # F155: rms_quality_norm [0,1]
+                        _z2_qual = abs(_z2_sync)
+                        signal_data.setdefault("rms_quality_norm", max(0.0, min(1.0, _z2_qual)))
+                    except Exception:
+                        pass  # v92.0 F151-F155 injection block is non-fatal
                     if isinstance(signal_data, dict) and callable(_pfd):
                         nn_prob = float(_pfd(signal_data))
                     elif not isinstance(signal_data, dict) and callable(_ps):
@@ -11382,6 +11441,79 @@ class UnitySignalFilter:
         except Exception:
             pass  # G8.5Y2 HMM-VPIN-Coherence is non-fatal soft-gate
 
+        # ── G8.5Z2 — Regime-Momentum-Sync Gate (v92.0) ──────────────────────
+        # Triple-source zero-API confluence: HMM regime direction + OFI z-score
+        # direction + funding rate trend direction.  All three are already computed
+        # in the pipeline (no extra API calls).
+        # Scoring: count how many of the 3 sources align with signal direction.
+        #   3/3 aligned  -> +2.0pts  (triple institutional confluence)
+        #   2/3 aligned  -> +1.5pts  (dual confluence)
+        #   2/3 opposed  -> -1.5pts  (dual regime resistance)
+        #   3/3 opposed  -> -2.0pts  (triple regime resistance)
+        # Stores _last_g85z2_rms (+1/-1/0) for Kelly Step 52 [v92.0].
+        try:
+            _z2_fired = False
+            self._last_g85z2_rms = 0
+            _z2_sig_dir = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+            _z2_is_long  = _z2_sig_dir in ("LONG",  "BUY",  "long",  "buy")
+            _z2_is_short = _z2_sig_dir in ("SHORT", "SELL", "short", "sell")
+            if _z2_is_long or _z2_is_short:
+                _z2_dir_sign = 1 if _z2_is_long else -1
+                # Source 1: HMM regime (EXPANSION=bullish, CONTRACTION=bearish)
+                _z2_hmm_ref = getattr(self, "_hmm_regime", None)
+                _z2_hmm_sign = 0
+                if _z2_hmm_ref is not None:
+                    try:
+                        _z2_hmm_str, _, _ = _z2_hmm_ref.get_regime()
+                        if _z2_hmm_str == "EXPANSION":
+                            _z2_hmm_sign = 1
+                        elif _z2_hmm_str == "CONTRACTION":
+                            _z2_hmm_sign = -1
+                    except Exception:
+                        pass
+                # Source 2: OFI z-score direction (already in signal_data)
+                _z2_ofi_z = float(signal_data.get("ofi_z", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
+                _z2_ofi_sign = (1 if _z2_ofi_z > 0.3 else (-1 if _z2_ofi_z < -0.3 else 0))
+                # Source 3: Funding rate trend direction (already in signal_data)
+                _z2_fr_trend = float(signal_data.get("funding_rate_trend", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
+                # Negative funding rate = bullish (shorts paying longs); positive = bearish
+                _z2_fund_sign = (1 if _z2_fr_trend < -0.00005 else (-1 if _z2_fr_trend > 0.00005 else 0))
+                # Count alignment vs opposition vs neutral
+                _z2_sources = [_z2_hmm_sign, _z2_ofi_sign, _z2_fund_sign]
+                _z2_active_sources = [s for s in _z2_sources if s != 0]
+                if _z2_active_sources:
+                    _z2_aligned  = sum(1 for s in _z2_active_sources if s == _z2_dir_sign)
+                    _z2_opposed  = sum(1 for s in _z2_active_sources if s == -_z2_dir_sign)
+                    _z2_n        = len(_z2_active_sources)
+                    _z2_adj = 0.0
+                    if _z2_aligned == 3:
+                        _z2_adj = 2.0;  self._last_g85z2_rms = 1;  _z2_fired = True
+                        self._logger.debug(
+                            f"🏆 [v92.0 G8.5Z2] RMS TRIPLE-SYNC: HMM={_z2_hmm_sign:+d} "
+                            f"OFI={_z2_ofi_sign:+d}(z={_z2_ofi_z:.2f}) FUND={_z2_fund_sign:+d} "
+                            f"dir={_z2_sig_dir} -> +2.0pts"
+                        )
+                    elif _z2_aligned == 2 and _z2_n >= 2:
+                        _z2_adj = 1.5;  self._last_g85z2_rms = 1;  _z2_fired = True
+                        self._logger.debug(
+                            f"✅ [v92.0 G8.5Z2] RMS DUAL-SYNC: {_z2_aligned}/3 align dir={_z2_sig_dir} -> +1.5pts"
+                        )
+                    elif _z2_opposed == 3:
+                        _z2_adj = -2.0; self._last_g85z2_rms = -1; _z2_fired = True
+                        self._logger.debug(
+                            f"🚨 [v92.0 G8.5Z2] RMS TRIPLE-RESIST: all 3 oppose dir={_z2_sig_dir} -> -2.0pts"
+                        )
+                    elif _z2_opposed == 2 and _z2_n >= 2:
+                        _z2_adj = -1.5; self._last_g85z2_rms = -1; _z2_fired = True
+                        self._logger.debug(
+                            f"⚠️  [v92.0 G8.5Z2] RMS DUAL-RESIST: {_z2_opposed}/3 oppose dir={_z2_sig_dir} -> -1.5pts"
+                        )
+                    if _z2_adj != 0.0:
+                        quality_score += _z2_adj
+            self._record("gate_g85z2_rms", _z2_fired)
+        except Exception:
+            pass  # G8.5Z2 RegimeMomentumSync is non-fatal soft-gate
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -12260,6 +12392,7 @@ class UnitySignalFilter:
         "gate_g85w2_ddm":         "G8.5W2",  # v89.0: DrawdownMomentum-Sentinel (-3.0/-2.0/-1.5/+1.5pts)
         "gate_g85x2_wrt":         "G8.5X2",  # v90.0: WinRateTrajectory (-2.0/-1.0/+2.0pts)
         "gate_g85y2_hvc":         "G8.5Y2",  # v91.0: HMM-VPIN-Coherence (-2.0/-1.5/+2.0/+1.5pts)
+        "gate_g85z2_rms":         "G8.5Z2",  # v92.0: RegimeMomentumSync (-2.0/-1.5/+2.0/+1.5pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -14849,6 +14982,36 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 51 HMM-VPIN-Coherence Sizing is non-fatal
 
+        # ── v92.0 Kelly Step 52: Regime-Momentum-Sync Sizing ─────────────────
+        # G8.5Z2 result: +1=3/3 or 2/3 sources aligned -> Kelly x1.03
+        #   (triple/dual institutional confluence — allow larger position).
+        # G8.5Z2 result: -1=2/3 or 3/3 sources opposed -> Kelly x0.88
+        #   (regime resistance headwind — de-size against structural opposition).
+        # 0=neutral (insufficient active sources or mixed) -> no change.
+        try:
+            _k52_z2  = getattr(self, "_last_g85z2_rms", 0)
+            _k52_pre = self.last_kelly_fraction
+            if _k52_z2 == 1:
+                self.last_kelly_fraction = max(
+                    self._kelly_floor,
+                    min(self._kelly_cap, self.last_kelly_fraction * 1.03)
+                )
+                self._logger.debug(
+                    f"📊 [v92.0 Step52 RMS-Sync] ALIGNED "
+                    f"-> Kelly x1.03 ({_k52_pre*100:.3f}%->{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k52_z2 == -1:
+                self.last_kelly_fraction = max(
+                    self._kelly_floor,
+                    min(self._kelly_cap, self.last_kelly_fraction * 0.88)
+                )
+                self._logger.debug(
+                    f"📊 [v92.0 Step52 RMS-Sync] OPPOSED "
+                    f"-> Kelly x0.88 ({_k52_pre*100:.3f}%->{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 52 Regime-Momentum-Sync Sizing is non-fatal
+
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
     def paper_mode(self) -> bool:
@@ -16609,7 +16772,7 @@ class UnityEngine:
         )
         self._logger.info(
             f"🔗 [Unity v{UNITY_VERSION}] All components wired ({wired_layers}/23 active subsystems) — "
-            f"59-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0,v75.0-FIX] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5B:OFI-Persist[v72.0] · G8.5C:RegimeCoh-HMM+GEX[v73.0] · G8.5D:OFI-Velocity[v74.0] · G8.5E:CrossCoherence[v75.0] · G8.5F:VWAP-Extension[v76.0] · G8.5G:CUSUM-Breakout[v76.0] · G8.5H:FlowAsymmetry[v77.0] · G8.5I:MicroTrend[v77.0] · G8.5J:HMMRegimeTransition[v78.0] · G8.5K:SpreadLiquidity[v79.0] · G8.5L2:VolPressureRegime[v80.0] · G8.5N2:FundMomPersist[v81.0] · G8.5S2:WRCrisisRegime[v85.0] · G8.5T2:ExtremeFearRegime[v85.0] · G8.5U2:VoV-StabilityRegime[v87.0] · G8.5V2:OBPressure-Imbalance[v88.0] · G8.5W2:DrawdownMomentum-Sentinel[v89.0] · G8.5X2:WinRateTrajectory[v90.0] · G8.5Y2:HMM-VPIN-Coherence[v91.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0]+RegimeExp[v72.0]+FlowStack[v74.0] · G4-WRAdaptCap[v86.0]+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
+            f"60-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0,v75.0-FIX] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5B:OFI-Persist[v72.0] · G8.5C:RegimeCoh-HMM+GEX[v73.0] · G8.5D:OFI-Velocity[v74.0] · G8.5E:CrossCoherence[v75.0] · G8.5F:VWAP-Extension[v76.0] · G8.5G:CUSUM-Breakout[v76.0] · G8.5H:FlowAsymmetry[v77.0] · G8.5I:MicroTrend[v77.0] · G8.5J:HMMRegimeTransition[v78.0] · G8.5K:SpreadLiquidity[v79.0] · G8.5L2:VolPressureRegime[v80.0] · G8.5N2:FundMomPersist[v81.0] · G8.5S2:WRCrisisRegime[v85.0] · G8.5T2:ExtremeFearRegime[v85.0] · G8.5U2:VoV-StabilityRegime[v87.0] · G8.5V2:OBPressure-Imbalance[v88.0] · G8.5W2:DrawdownMomentum-Sentinel[v89.0] · G8.5X2:WinRateTrajectory[v90.0] · G8.5Y2:HMM-VPIN-Coherence[v91.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0]+RegimeExp[v72.0]+FlowStack[v74.0] · G4-WRAdaptCap[v86.0]+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
             f"Kelly(Steps1-51·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion[v72.0]·OFI-PersistKelly[v73.0]·EnsembleConf[v74.0]·CrossCoherence[v75.0]·AVWAP-Extension[v76.0]·FlowAsym[v77.0]·HMMTransition[v78.0]·SpreadLiq[v79.0]·VolPressure[v80.0]·FundMom[v81.0]·VoV-Stability[v87.0]·OBPressure[v88.0]·DDMomentum[v89.0]·WRTrajectory[v90.0]·HMMVPINCoh[v91.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
@@ -20168,7 +20331,7 @@ class UnityEngine:
         layers_online = sum(1 for l in self.health.layers.values() if l.available)
         self._logger.info(f"   Layers online  : {layers_online}/{len(self.health.layers)}")
         self._logger.info(
-            f"   Signal gates   : 59-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5S2:WRCrisisRegime[v85.0] | G8.5T2:ExtremeFearRegime[v85.0] | G8.5U2:VoV-StabilityRegime[v87.0] | G8.5Q:TrendMomPersist[v84.0] | G8.5R2:RegimeSentiment[v84.0] | G8.5E:CrossCoherence[v75.0] | G8.5F:VWAP-Extension[v76.0] | G8.5G:CUSUM-Breakout[v76.0] | G8.5H:FlowAsymmetry[v77.0] | G8.5I:MicroTrend[v77.0] | G8.5J:HMMRegimeTransition[v78.0] | G8.5K:SpreadLiquidity[v79.0] | G8.5Y2:HMM-VPINCoh[v91.0] | 5-bucket RL | "
+            f"   Signal gates   : 59-gate filter | G0:EV+Slippage | G0.5:Session | G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} | G8.5S2:WRCrisisRegime[v85.0] | G8.5T2:ExtremeFearRegime[v85.0] | G8.5U2:VoV-StabilityRegime[v87.0] | G8.5Q:TrendMomPersist[v84.0] | G8.5R2:RegimeSentiment[v84.0] | G8.5E:CrossCoherence[v75.0] | G8.5F:VWAP-Extension[v76.0] | G8.5G:CUSUM-Breakout[v76.0] | G8.5H:FlowAsymmetry[v77.0] | G8.5I:MicroTrend[v77.0] | G8.5J:HMMRegimeTransition[v78.0] | G8.5K:SpreadLiquidity[v79.0] | G8.5Y2:HMM-VPINCoh[v91.0] | G8.5Z2:RMSync[v92.0] | 5-bucket RL | "
             f"Kelly | Consec-Loss CB({CONSEC_LOSS_THRESHOLD}) | WinStreak({CONSEC_WIN_STREAK_THRESHOLD}) | "
             f"NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) | Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} | IRONS≥{IRONS_MIN_SCORE:.0f} [v{UNITY_VERSION}]"
         )

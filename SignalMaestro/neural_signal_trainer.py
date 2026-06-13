@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 150  # v27 (v91.0): 145 + 5 HMM/VPIN features (hmm_expansion_prob, vpin_pct_norm, hmm_vpin_coherence, hmm_regime_norm, vpin_toxic_norm) = 150
+INPUT_DIM          = 155  # v28 (v92.0): 150 + 5 RMS/sync features (rms_3source_sync, hmm_ofi_sync, ofi_fund_sync, hmm_fund_sync, rms_quality) = 155
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1226,6 +1226,30 @@ def build_features(trade: Dict) -> "np.ndarray":
     #   Source: vpin_toxic_norm injected at G4 F146-F150 stamping block [v91.0]
     _v27_f150 = _safe_float(trade.get("vpin_toxic_norm", 0.0), 0.0)
     f.append(max(0.0, min(1.0, _v27_f150)))                                   # 150 vpin_toxic_norm
+    # -- v28 (v92.0) F151-F155: Regime-Momentum-Sync triple-source features --------
+    # F151: rms_3source_sync_norm -- [-1,+1] triple sync score
+    #   +1.0 = 3/3 sources align; +0.67 = 2/3; -0.67 = 2/3 opposed; -1.0 = 3/3 opposed
+    _v28_f151 = _safe_float(trade.get("rms_3source_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v28_f151)))                                  # 151 rms_3source_sync_norm
+    # F152: hmm_ofi_sync_norm -- HMM direction x OFI z-score direction [-1,+1]
+    #   +1 = both EXPANSION+OFI long or CONTRACTION+OFI short (aligned)
+    #   -1 = HMM and OFI z-score directly oppose each other
+    _v28_f152 = _safe_float(trade.get("hmm_ofi_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v28_f152)))                                  # 152 hmm_ofi_sync_norm
+    # F153: ofi_fund_sync_norm -- OFI direction x funding trend direction [-1,+1]
+    #   +1 = OFI z-score and funding trend both confirm same direction
+    #   -1 = OFI and funding rate trend diverge (crowd vs order-flow misalignment)
+    _v28_f153 = _safe_float(trade.get("ofi_fund_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v28_f153)))                                  # 153 ofi_fund_sync_norm
+    # F154: hmm_fund_sync_norm -- HMM direction x funding trend direction [-1,+1]
+    #   +1 = HMM regime and funding rate trend align (e.g. EXPANSION + negative funding)
+    #   -1 = HMM regime and funding trend diverge
+    _v28_f154 = _safe_float(trade.get("hmm_fund_sync_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v28_f154)))                                  # 154 hmm_fund_sync_norm
+    # F155: rms_quality_norm -- absolute strength of sync agreement [0,1]
+    #   1.0 = all 3 sources agree strongly; 0.0 = random/mixed signals
+    _v28_f155 = _safe_float(trade.get("rms_quality_norm", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v28_f155)))                                   # 155 rms_quality_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] != INPUT_DIM:
