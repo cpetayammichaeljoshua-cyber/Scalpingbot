@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 180 features → 36 tokens × 5 dims (180 = 36 × 5) [v97.0: was 35×5=175]
-_TORCH_N_TOKENS  = 36
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5)
+# Transformer tokenisation: reshape 185 features → 37 tokens × 5 dims (185 = 37 × 5) [v102.0: was 36×5=180]
+_TORCH_N_TOKENS  = 37
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 180  # v33 (v97.0): 175 + 5 EV-FundMom-OFI Triple-Pressure features (ev_fmp_sync_norm, ev_ofi_sync_norm, fmp_ofi_sync_norm, triple_efo_quality, e3_gate_output) = 180
+INPUT_DIM          = 185  # v34 (v102.0): 180 + 5 SharpeVelocity-QualityMomentum features (sharpe_velocity_norm, wrt_sharpe_sync, kelly_health_tier, g85g3_svq_gate, quality_momentum_composite) = 185
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1356,9 +1356,29 @@ def build_features(trade: Dict) -> "np.ndarray":
     _v33_f180 = _safe_float(trade.get("e3_gate_output", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v33_f180)))                                  # 180 e3_gate_output
 
+    # ── v34 (v102.0): F181-F185 — SharpeVelocity-QualityMomentum features ─────
+    # F181: sharpe_velocity_norm — Sharpe ratio delta (recent 5 vs all-time), clipped [-1,+1]
+    _v34_f181 = _safe_float(trade.get("sharpe_velocity_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v34_f181)))                                  # 181 sharpe_velocity_norm
+    # F182: wrt_sharpe_sync — WinRateTrajectory × Sharpe alignment (+1/-1/0)
+    _v34_f182 = _safe_float(trade.get("wrt_sharpe_sync", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v34_f182)))                                  # 182 wrt_sharpe_sync
+    # F183: kelly_health_tier — Kelly sizing tier [-1,0,+1] (crisis/normal/healthy)
+    _v34_f183 = _safe_float(trade.get("kelly_health_tier", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v34_f183)))                                  # 183 kelly_health_tier
+    # F184: g85g3_svq_gate — G8.5G3 SVQ gate output (+1/-1/0)
+    _v34_f184 = _safe_float(trade.get("g85g3_svq_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v34_f184)))                                  # 184 g85g3_svq_gate
+    # F185: quality_momentum_composite — composite of WRT+Sharpe+Kelly meta-quality [-1,+1]
+    _v34_f185 = _safe_float(trade.get("quality_momentum_composite", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v34_f185)))                                  # 185 quality_momentum_composite
+
     arr = np.array(f, dtype=np.float32)
-    if arr.shape[0] != INPUT_DIM:
-        raise ValueError(f"Feature shape {arr.shape[0]} ≠ {INPUT_DIM}")
+    if arr.shape[0] < INPUT_DIM:
+        # Pad with zeros for backward-compat with trades stored before INPUT_DIM upgrade [v102.0]
+        arr = np.concatenate([arr, np.zeros(INPUT_DIM - arr.shape[0], dtype=np.float32)])
+    elif arr.shape[0] > INPUT_DIM:
+        raise ValueError(f"Feature shape {arr.shape[0]} > {INPUT_DIM} (too many features)")
     return arr
 
 
