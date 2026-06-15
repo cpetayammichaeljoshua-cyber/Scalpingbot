@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 240 features → 48 tokens × 5 dims (240 = 48 × 5) [v114.0: was 47×5=235]
-_TORCH_N_TOKENS  = 48
+_TORCH_N_TOKENS  = 49
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 240  # v45 (v114.0): 235 + 5 Z3/A4 regime-crisis-quality/flow-volume-regime triple-sync features (z3_rqt_gate, z3_reg_norm, z3_wrc_norm, a4_fvr_gate, a4_vov_cross) = 240
+INPUT_DIM          = 245  # v46 (v115.0): 240 + 5 B4 rolling-WR/Sharpe/EV momentum sentinel features (b4_rws_gate, b4_roll15_wr, b4_wrt_trend, b4_sharpe_floor, b4_ev_min_dist) = 245
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1562,6 +1562,25 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F240: a4_vov_cross — VoV × OBP cross product [-1,+1] (vol-stability × OB-pressure alignment cross-signal)
     _v45_f240 = _safe_float(trade.get("a4_vov_cross", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v45_f240)))                                  # 240 a4_vov_cross
+
+    # ── v46 (v115.0): F241-F245 — B4 RollingWR-Momentum-Sentinel features ──
+    # G8.5B4 RollingWR-Momentum-Sentinel gate: tracks last-15 outcome WR to detect
+    # rolling momentum (hot streak vs losing run vs catastrophic collapse).
+    # F241: b4_rws_gate — G8.5B4 RollingWR-Sentinel gate output {-3,-2,-1,0,+1}
+    _v46_f241 = _safe_float(trade.get("b4_rws_gate", 0.0), 0.0)
+    f.append(max(-3.0, min(1.0, _v46_f241)) / 3.0)                            # 241 b4_rws_gate normalised [-1,+0.33]
+    # F242: b4_roll15_wr — rolling 15-signal WR normalized [(WR-0.35)/0.20 clipped ±1]
+    _v46_f242 = _safe_float(trade.get("b4_roll15_wr", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v46_f242)))                                  # 242 b4_roll15_wr
+    # F243: b4_wrt_trend — WR trend direction: recent-12 vs prior-12 delta, ±1 normalized
+    _v46_f243 = _safe_float(trade.get("b4_wrt_trend", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v46_f243)))                                  # 243 b4_wrt_trend
+    # F244: b4_sharpe_floor — Sharpe floor distance: (SR - (-4.5)) / 2.0 clipped [-1,+1]
+    _v46_f244 = _safe_float(trade.get("b4_sharpe_floor", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v46_f244)))                                  # 244 b4_sharpe_floor
+    # F245: b4_ev_min_dist — EV / EV_MIN_THRESHOLD ratio normalized [(EV/EV_MIN - 1.0) / 2.0] clipped [-1,+1]
+    _v46_f245 = _safe_float(trade.get("b4_ev_min_dist", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v46_f245)))                                  # 245 b4_ev_min_dist
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
@@ -3301,6 +3320,17 @@ class NeuralSignalTrainer:
                     if len(_cpcv_accs) >= 1:
                         _cpcv_avg = float(np.mean(_cpcv_accs))
                         _cpcv_gap = float(acc - _cpcv_avg)
+                        # v115.0: Near-random model rejection — if CPCV avg < 51% (barely above random
+                        # 50% baseline), the model has no meaningful out-of-sample predictive power.
+                        # At CPCV=50.2% the model is essentially random; deploying it adds noise to G4.
+                        # Guard: require CPCV avg >= 0.51 before any threshold adjustment or deployment.
+                        if _cpcv_avg < 0.51:
+                            logger.warning(
+                                f"⚠️  [v115.0 CPCV-REJECT] K=3 CPCV avg={_cpcv_avg:.1%} < 51% threshold — "
+                                f"near-random model rejected; keeping previous model. "
+                                f"val={acc:.1%} folds={[f'{a:.1%}' for a in _cpcv_accs]}"
+                            )
+                            return  # reject this model — previous version is better than random
                         if _cpcv_gap > 0.07 and _cpcv_avg > 0.45:  # v85.0: floor 0.50→0.45 (chronic suppression fix; was 0.47→0.50 in v73.0)
                             # v67.0: gap threshold 0.04→0.07 — at live gap=10% the previous
                             # 4% trigger added +0.030 to _opt_threshold (0.579→0.609), pushing
