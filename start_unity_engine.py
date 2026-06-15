@@ -1856,7 +1856,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 114      # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8% — 114 syms×100=11,400 calls/min within Binance rate envelope via 0.5s stagger)
+SCAN_PARALLEL_LIMIT   = 116      # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8% — 116 syms×100=11,600 calls/min within Binance rate envelope via 0.5s stagger)
 CYCLE_SLEEP_MIN       = 10       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster; v18.69: 12→10 — 20% faster cycling at 80-symbol universe; combined with SCAN_PARALLEL_LIMIT=72 yields ~+25% total scan throughput vs v18.68)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -2343,7 +2343,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "99.0"
+UNITY_VERSION                = "100.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -12882,7 +12882,9 @@ class UnitySignalFilter:
                 passed_g10 = irons_score >= _irons_min   # v37.0: strict — no quality-override relaxation
                 self._record("gate10", passed_g10)
                 # v6.2 FIX: record IRONS health call so calls counter shows > 0
-                self._health.record_call("IRONS_AIScorer", success=passed_g10)
+                # v100.0 FIX: success=True when scorer COMPUTED a valid score (health=scorer availability,
+                # not gate pass rate).  success=False is reserved for exceptions only (scorer broken).
+                self._health.record_call("IRONS_AIScorer", success=True)
                 if not passed_g10:
                     return False, (
                         f"G10_FAIL: IRONS score={irons_score:.1f}/100 < {_irons_min:.0f} "
@@ -13717,6 +13719,25 @@ class UnityProfitBooster:
             rl_threshold = min(95.0, max(base + CONSEC_LOSS_BOOST_PCT, base + delta + streak_bonus))
         else:
             rl_threshold = min(95.0, max(65.0, base + delta + streak_bonus))
+
+        # v100.0: WR-adaptive RL cap — prevents 91-95% death-spiral lockout during sustained losses.
+        # When WR<30% the RL threshold climbs toward 95%, starving the NN retrainer of data and
+        # locking the system into a self-reinforcing cycle: high threshold → fewer signals → less
+        # training data → poor NN accuracy → more losses → higher threshold.  A WR-proportional cap
+        # breaks this spiral while preserving quality discipline at healthier WR levels.
+        # WR<25%→87%  WR<30%→89%  WR<35%→91%  WR<40%→93%  WR≥40%→95%
+        _rl_wr_cap = (
+            87.0 if recent_wr < 0.25 else
+            89.0 if recent_wr < 0.30 else
+            91.0 if recent_wr < 0.35 else
+            93.0 if recent_wr < 0.40 else 95.0
+        )
+        if rl_threshold > _rl_wr_cap:
+            self._logger.debug(
+                f"[v100.0] RL WR-cap applied: threshold {rl_threshold:.1f}% → {_rl_wr_cap:.1f}% "
+                f"(WR={recent_wr:.1%} cap-tier={_rl_wr_cap:.0f}%)"
+            )
+            rl_threshold = _rl_wr_cap
 
         self.dynamic_threshold = rl_threshold
         self._logger.debug(

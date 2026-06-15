@@ -1573,7 +1573,7 @@ if _HAS_TORCH:
         Project:  each token (5-dim) → d_model via learnable linear
         CLS:      prepend learnable CLS token → (B, 12, d_model)
         Positional: add learned positional embeddings
-        Encode:   2-layer pre-norm TransformerEncoder (4-head, GELU, dropout=0.10)
+        Encode:   2-layer pre-norm TransformerEncoder (4-head, GELU, dropout=0.15)
         Head:     CLS output → LayerNorm → Linear(16) → GELU → Dropout → Linear(1) → Sigmoid
         Output:   win_probability ∈ [0, 1]
 
@@ -1585,7 +1585,7 @@ if _HAS_TORCH:
         """
 
         def __init__(self, d_model: int = _TORCH_D_MODEL, nhead: int = 4,
-                     num_layers: int = 2, dropout: float = 0.10):
+                     num_layers: int = 2, dropout: float = 0.15):
             super().__init__()
             self.input_proj = _nn.Linear(_TORCH_TOKEN_DIM, d_model, bias=True)
             self.cls_token  = _nn.Parameter(_torch.zeros(1, 1, d_model))
@@ -1667,7 +1667,7 @@ class TorchTransformerPredictor:
     # ── Train ────────────────────────────────────────────────────────────────
 
     def fit(self, X_norm: "np.ndarray", y: "np.ndarray",
-            epochs: int = 150, batch_size: int = 32, lr: float = 3e-4,   # v19.7: 100→150 — Transformer benefits more from longer training than MLP since attention weights need more gradient steps to converge on sparse 30% WR data; early-stopping (patience→25) prevents overfit
+            epochs: int = 120, batch_size: int = 32, lr: float = 3e-4,   # v100.0: 150→120 — CPCV gap=17.6% (val 68.6% vs CPCV 51.0%) signals severe overfit; reducing epochs stops gradient from memorizing noise; v19.7: 100→150 — Transformer benefits from longer training
             sample_weight: "Optional[np.ndarray]" = None) -> bool:
         """
         Train on normalised (N, 55) feature matrix + binary labels (0/1).
@@ -1718,7 +1718,7 @@ class TorchTransformerPredictor:
                 return loss_per_sample.mean()
 
             opt = _torch.optim.AdamW(
-                self._model.parameters(), lr=lr, weight_decay=1e-4
+                self._model.parameters(), lr=lr, weight_decay=2e-4  # v100.0: 1e-4→2e-4 stronger L2 regularization reduces CPCV overfitting gap (was 17.6%)
             )
             sched = _torch.optim.lr_scheduler.CosineAnnealingLR(
                 opt, T_max=epochs, eta_min=1e-5
@@ -1768,7 +1768,7 @@ class TorchTransformerPredictor:
                     no_imp   = 0
                 else:
                     no_imp += 1
-                    if no_imp >= 25:   # v19.7: 18→25 — wider patience for attention convergence
+                    if no_imp >= 20:   # v100.0: 25→20 — tighter early-stopping reduces overfit; v19.7: 18→25 — wider patience for attention convergence
                         break
 
             self._model.load_state_dict(best_sd)
