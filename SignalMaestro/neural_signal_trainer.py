@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 205 features → 41 tokens × 5 dims (205 = 41 × 5) [v106.0: was 40×5=200]
-_TORCH_N_TOKENS  = 44
+_TORCH_N_TOKENS  = 45
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 220  # v41 (v109.0): 215 + 5 T3/U3 regime-flow-spread-sync health features (t3_regime_flow_norm, u3_kalman_spread_norm, t3_u3_sync, regime_ofi_persistence, spread_kalman_health) = 220
+INPUT_DIM          = 225  # v42 (v110.0): 220 + 5 V3 triple-EV-confidence-persistence features (v3_wrt_norm, v3_hvc_norm, v3_wnq_norm, v3_tec_gate, v3_ev_conf_cross) = 225
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -433,7 +433,10 @@ def build_features(trade: Dict) -> "np.ndarray":
     if not _HAS_NUMPY:
         raise ImportError("numpy required for neural signal trainer")
 
-    votes = json.loads(trade.get("agent_votes_json", "{}"))
+    try:
+        votes = json.loads(trade.get("agent_votes_json", "{}") or "{}")
+    except Exception:
+        votes = {}
     # All 10 agent votes (FLOOPAgent added in v5.0 — auto-generated from AGENT_ORDER)
     agent_feats = [_VOTE.get(votes.get(a, "NEUTRAL"), 0.0) for a in AGENT_ORDER]
 
@@ -1489,6 +1492,23 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F220: spread_kalman_health — composite (OFI-HMM-MicroTrend+TrendQuality+CrisisConsensus)/3 [-1,+1]
     _v41_f220 = _safe_float(trade.get("spread_kalman_health", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v41_f220)))                                  # 220 spread_kalman_health
+
+    # ── v42 (v110.0): F221-F225 — V3 triple-EV-confidence-persistence features ──────────────
+    # F221: v3_wrt_norm — WinRateTrajectory gate output ±1 (improving vs declining recent WR)
+    _v42_f221 = _safe_float(trade.get("v3_wrt_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v42_f221)))                                  # 221 v3_wrt_norm
+    # F222: v3_hvc_norm — HMM-VPIN-Coherence gate output ±1 (regime+flow coherence)
+    _v42_f222 = _safe_float(trade.get("v3_hvc_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v42_f222)))                                  # 222 v3_hvc_norm
+    # F223: v3_wnq_norm — WinRate-CPCV-NNQual Coherence gate output ±1 (3-source quality)
+    _v42_f223 = _safe_float(trade.get("v3_wnq_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v42_f223)))                                  # 223 v3_wnq_norm
+    # F224: v3_tec_gate — G8.5V3 TripleEV-Confidence-Persistence gate output ±1
+    _v42_f224 = _safe_float(trade.get("v3_tec_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v42_f224)))                                  # 224 v3_tec_gate
+    # F225: v3_ev_conf_cross — WRT × HVC cross product [-1,+1] (EV-confidence alignment signal)
+    _v42_f225 = _safe_float(trade.get("v3_ev_conf_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v42_f225)))                                  # 225 v3_ev_conf_cross
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
