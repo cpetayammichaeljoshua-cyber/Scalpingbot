@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 230 features → 46 tokens × 5 dims (230 = 46 × 5) [v111.0: was 45×5=225]
-_TORCH_N_TOKENS  = 46
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5)
+# Transformer tokenisation: reshape 235 features → 47 tokens × 5 dims (235 = 47 × 5) [v113.0: was 46×5=230]
+_TORCH_N_TOKENS  = 47
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 230  # v43 (v111.0): 225 + 5 W3 momentum-stack-OFI-microtrend triple-sync features (w3_mot_gate, w3_tmq_norm, w3_ofi_norm, w3_mt_norm, w3_mot_cross) = 230
+INPUT_DIM          = 235  # v44 (v113.0): 230 + 5 X3/Y3 crisis-compass/momentum-coh triple-sync features (x3_cds_gate, x3_ddm_norm, x3_wrt_norm, y3_mcs_gate, y3_mom_consensus) = 235
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1527,6 +1527,24 @@ def build_features(trade: Dict) -> "np.ndarray":
     _v43_f230_tmq = _safe_float(trade.get("w3_tmq_norm", 0.0), 0.0)
     _v43_f230_ofi = _safe_float(trade.get("w3_ofi_norm", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v43_f230_tmq * _v43_f230_ofi)))              # 230 w3_mot_cross
+
+    # ── v44 (v113.0): F231-F235 — X3 CrisisCompass-DDM-WRT / Y3 MomentumCoh-TripleSync features ──
+    # F231: x3_cds_gate — G8.5X3 CrisisCompass-DDM-WRT Triple-Safety gate output ±1
+    _v44_f231 = _safe_float(trade.get("x3_cds_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v44_f231)))                                  # 231 x3_cds_gate
+    # F232: x3_ddm_norm — DrawdownMomentum-Sentinel gate output ±1 (G8.5W2 source)
+    _v44_f232 = _safe_float(trade.get("x3_ddm_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v44_f232)))                                  # 232 x3_ddm_norm
+    # F233: x3_wrt_norm — WinRateTrajectory gate output ±1 (G8.5X2 source)
+    _v44_f233 = _safe_float(trade.get("x3_wrt_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v44_f233)))                                  # 233 x3_wrt_norm
+    # F234: y3_mcs_gate — G8.5Y3 MomentumCoh-TripleSync Meta gate output ±1
+    _v44_f234 = _safe_float(trade.get("y3_mcs_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v44_f234)))                                  # 234 y3_mcs_gate
+    # F235: y3_mom_consensus — W3 × N3 cross product [-1,+1] (MOT × IRC alignment cross-signal)
+    _v44_f235_mot = _safe_float(trade.get("w3_mot_gate", 0.0), 0.0)
+    _v44_f235_irc = _safe_float(trade.get("y3_mom_consensus", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v44_f235_mot * _v44_f235_irc)))              # 235 y3_mom_consensus
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
