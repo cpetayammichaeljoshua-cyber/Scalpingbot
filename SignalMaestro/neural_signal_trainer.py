@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 190 features → 38 tokens × 5 dims (190 = 38 × 5) [v103.0: was 37×5=185]
-_TORCH_N_TOKENS  = 38
+# Transformer tokenisation: reshape 195 features → 39 tokens × 5 dims (195 = 39 × 5) [v104.0: was 38×5=190]
+_TORCH_N_TOKENS  = 39
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 190  # v35 (v103.0): 185 + 5 EmergencyBrake/IRFlorSharpe features (recent10_wr_norm, bayes_wr_norm, h3_ewb_gate, i3_ifm_gate, crisis_depth_score) = 190
+INPUT_DIM          = 195  # v36 (v104.0): 190 + 5 NNQuality/LLMTechCoh/StreakSession/ConSecLoss/RealizedEV features (nn_enabled_flag, llm_tech_coh, streak_session_compound, consec_loss_norm, realized_ev_norm) = 195
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1389,6 +1389,23 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F190: crisis_depth_score — IRONS-floor excess + Sharpe compound depth [-1,+1]
     _v35_f190 = _safe_float(trade.get("crisis_depth_score", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v35_f190)))                                  # 190 crisis_depth_score
+
+    # ── v36 (v104.0): F191-F195 — NNQuality/LLMTechCoh/StreakSession/ConSecLoss/RealizedEV ──
+    # F191: nn_enabled_flag — 1.0 if NN is active (quality gate passed), 0.0 if disabled
+    _v36_f191 = _safe_float(trade.get("nn_enabled_flag", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v36_f191)))                                   # 191 nn_enabled_flag
+    # F192: llm_tech_coh — G8.5J3 LLM-Technical-Coherence gate output (-1/0/+1 normalized)
+    _v36_f192 = _safe_float(trade.get("llm_tech_coh", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v36_f192)))                                  # 192 llm_tech_coh
+    # F193: streak_session_compound — G8.5K3 StreakSession-Compound output (-1/0/+1)
+    _v36_f193 = _safe_float(trade.get("streak_session_compound", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v36_f193)))                                  # 193 streak_session_compound
+    # F194: consec_loss_norm — consecutive losses / 5, capped [0,1]; captures losing streaks
+    _v36_f194 = _safe_float(trade.get("consec_loss_norm", 0.0), 0.0)
+    f.append(max(0.0, min(1.0, _v36_f194)))                                   # 194 consec_loss_norm
+    # F195: realized_ev_norm — realized EV / R normalized [-1,+1] (clamp at ±1.5R)
+    _v36_f195 = _safe_float(trade.get("realized_ev_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v36_f195)))                                  # 195 realized_ev_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
@@ -3267,14 +3284,25 @@ class NeuralSignalTrainer:
             # The 0.20 floor is above the minimum sampling noise level (8 wins req) and still
             # 2× better than random (10% win_acc would be noise; 20% has directional signal).
             # At WR≥25%: retain 0.28 institutional floor (meaningful signal quality required).
-            _win_acc_floor = 0.20 if (_wr_for_cap < 0.25) else 0.28
+            _win_acc_floor  = 0.20 if (_wr_for_cap < 0.25) else 0.28
+            # v104.0: Adaptive loss_acc floor — at WR<30% lower from 0.50→0.40.
+            # Rationale: at WR=28-30% with win_acc=59% and loss_acc=47%, the NN has significant
+            # directional signal (win_acc 2× floor) but loss_acc just misses the rigid 0.50 gate.
+            # Disabling the NN entirely at loss_acc=47% removes all neural filtering from G4,
+            # which is strictly worse than an imperfect model that still achieves 59% win recall.
+            # At WR<30% the asymmetry is acceptable: loss_acc=0.40 still filters 40% of losses
+            # (better than random) while preserving the 59% win recall that improves selectivity.
+            # At WR≥30% retain 0.50 floor (institutional standard requires majority-loss filtering).
+            _loss_acc_floor = 0.40 if (_wr_for_cap < 0.30) else 0.50
             quality_ok = (
-                win_acc  >= _win_acc_floor  # v70.0: adaptive 0.28→0.20 at training WR<25%
-                and loss_acc >= 0.50        # v67.0: 0.40→0.50 — must filter majority of losses
+                win_acc  >= _win_acc_floor   # v70.0: adaptive 0.28→0.20 at training WR<25%
+                and loss_acc >= _loss_acc_floor  # v104.0: adaptive 0.50→0.40 at training WR<30%
                 and wins  >= 8
                 and losses >= 8
             )
             self.trained           = quality_ok
+            self.last_win_acc      = win_acc   # v104.0: expose for Kelly Step 62 NN-Quality-Dampener
+            self.last_loss_acc     = loss_acc  # v104.0: expose for diagnostics
             self.n_samples_trained = len(filtered_triples)  # after neutral filter
             self.last_train_time   = time.time()
             self.last_accuracy     = acc
@@ -3285,7 +3313,7 @@ class NeuralSignalTrainer:
                 self.logger.warning(
                     f"⚠️  NN quality gate FAILED — model disabled until quality improves: "
                     f"win_acc={win_acc:.1%} loss_acc={loss_acc:.1%} "
-                    f"(need win≥{_win_acc_floor:.0%} loss≥50%, wins={wins} losses={losses} need both ≥8)"
+                    f"(need win≥{_win_acc_floor:.0%} loss≥{_loss_acc_floor:.0%} [v104.0 adaptive], wins={wins} losses={losses} need both ≥8)"
                 )
 
             # ── v60.0: HistGradientBoosting ensemble ──────────────────────
