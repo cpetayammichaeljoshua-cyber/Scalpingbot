@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v104.0 — Multi-stage Production Dockerfile
+# Unity Engine v109.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
 # Build:  docker build -t unity-engine:88.0 .
@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v102.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v109.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="102.0"              \
-      description="Unity Engine v102.0 — G8.5G3-SVQMomentum[v102.0] | Kelly58-MLCCoherence[v102.0] | Kelly59-SVQMomentum[v102.0] | NN-v34-185feat[v102.0] | 67-gate | ScanParallel120[v102.0] | _last_g85f3_mlc-Fix[v102.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="109.0"              \
+      description="Unity Engine v109.0 — G8.5T3-RegimeFlowOFIWR[v109.0] | G8.5U3-KalmanHMMSpread[v109.0] | Kelly72-RFWTripleAlign[v109.0] | Kelly73-KHSTripleSync[v109.0] | NN-v41-220feat[v109.0] | IRONS-WR4%-83.5[v109.0] | 81-gate | ScanParallel134[v109.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

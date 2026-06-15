@@ -58,4 +58,5 @@
 - [Unity Engine v103.0 upgrades](unity-engine-v103.md) — G8.5H3 EWBrake(pnl_ring WR-10) + G8.5I3 IRFlorSharpe compound 68th/69th gates; IRONS WR<15%=75.5; Kelly60+61; NN v35 190feat F186-F190; ScanParallel122
 - [Unity Engine v102.0 upgrades](unity-engine-v102.md) — G8.5G3 SVQMomentum 67th gate; Kelly58+59; NN v34 185feat; _last_g85f3_mlc sentinel fix; F181-F185 in neural_signal_trainer.py with pad-on-mismatch; ScanParallel120
 - [Unity Engine v108.0 upgrades](unity-engine-v108.md) — G8.5R3-BWOTripleMomentum(78th)+G8.5S3-QSCCompositeHealth(79th gates); Kelly70+71; NN v40 INPUT_DIM 215feat; IRONS WR<5%=82.0; ScanParallel132; clean 21/21 boot
+- [Unity Engine v109.0 upgrades](unity-engine-v109.md) — G8.5T3-RFWTripleAlign(80th)+G8.5U3-KHSTripleSync(81st gates); Kelly72+73; NN v41 INPUT_DIM 220feat F216-F220; IRONS WR<4%=83.5; ScanParallel134; 5 stale 79-gate banner strings fixed to 81-gate
 - [Unity Engine v107.0 upgrades](unity-engine-v107.md) — 6 storm-models replaced (dolphin/llama33/qwen72b/qwen235b/gemma26b→nemotron+gemma31b+gpt-oss); G8.5P3/Q3 76th/77th gates; Kelly68+69; NN v39 210feat; IRONS WR<6%=80.5; ScanParallel130

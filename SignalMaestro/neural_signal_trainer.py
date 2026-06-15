@@ -79,8 +79,8 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 205 features → 41 tokens × 5 dims (205 = 41 × 5) [v106.0: was 40×5=200]
-_TORCH_N_TOKENS  = 43
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5)
+_TORCH_N_TOKENS  = 44
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 215  # v40 (v108.0): 210 + 5 BWO/QSC momentum-quality health features (bwo_triple_norm, qsc_composite_norm, r3_s3_consensus, meta_quality_health, momentum_stack_norm) = 215
+INPUT_DIM          = 220  # v41 (v109.0): 215 + 5 T3/U3 regime-flow-spread-sync health features (t3_regime_flow_norm, u3_kalman_spread_norm, t3_u3_sync, regime_ofi_persistence, spread_kalman_health) = 220
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1472,6 +1472,23 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F215: momentum_stack_norm — composite (BWO+FOS+RKE)/3 momentum-regime stack [-1,+1]
     _v40_f215 = _safe_float(trade.get("momentum_stack_norm", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v40_f215)))                                  # 215 momentum_stack_norm
+
+    # ── v41 (v109.0): F216-F220 — T3/U3 regime-flow-spread-sync health features ──────────────
+    # F216: t3_regime_flow_norm — G8.5T3 RegimeFlow-OFI-WR TripleAlignment output ±1
+    _v41_f216 = _safe_float(trade.get("t3_regime_flow_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v41_f216)))                                  # 216 t3_regime_flow_norm
+    # F217: u3_kalman_spread_norm — G8.5U3 Kalman-HMM-Spread TripleSync output ±1
+    _v41_f217 = _safe_float(trade.get("u3_kalman_spread_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v41_f217)))                                  # 217 u3_kalman_spread_norm
+    # F218: t3_u3_sync — combined T3+U3 consensus score [-1,+1]
+    _v41_f218 = _safe_float(trade.get("t3_u3_sync", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v41_f218)))                                  # 218 t3_u3_sync
+    # F219: regime_ofi_persistence — composite (TrendMom+RegimeSent+FundMomPersist)/3 [-1,+1]
+    _v41_f219 = _safe_float(trade.get("regime_ofi_persistence", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v41_f219)))                                  # 219 regime_ofi_persistence
+    # F220: spread_kalman_health — composite (OFI-HMM-MicroTrend+TrendQuality+CrisisConsensus)/3 [-1,+1]
+    _v41_f220 = _safe_float(trade.get("spread_kalman_health", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v41_f220)))                                  # 220 spread_kalman_health
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
