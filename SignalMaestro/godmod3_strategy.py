@@ -1274,7 +1274,7 @@ class G0DM0D3Engine:
     _CONSORTIUM_SEM_LIMIT    = 3      # v5.4: 8→3 — CONSORTIUM was flooding all 8 models simultaneously.
                                       # 3 concurrent: calls 3 models at a time, cascades through the rest.
                                       # Prevents the "all 8 models 429 simultaneously" scenario.
-    _CONSORTIUM_TIMEOUT      = 16.0   # v53.0: 14.0→16.0 — live logs show gpt-oss-120b:free responding at 12195ms
+    _CONSORTIUM_TIMEOUT      = 22.0   # v99.0: 16.0→22.0 — gpt-oss models respond at 12-16s; dynamic floor raised 6→10s
                                      # (12.2s), leaving only 1.8s margin before 14s cutoff. At Railway latency,
                                      # 2-3 additional models respond in the 14-16s window (CONSORTIUM requires
                                      # ≥2 for ensemble vote). Outer guard = 16+3=19s. Only 1/8 models responded
@@ -2304,7 +2304,7 @@ class G0DM0D3Engine:
         # Formula: effective = max(6.0, CONSORTIUM_TIMEOUT × (n_available/n_total))
         # clamped to [6s, CONSORTIUM_TIMEOUT].  Full pool → full timeout unchanged.
         _healthy_frac   = n_available / max(1, n_total)
-        _dyn_timeout    = max(6.0, self._CONSORTIUM_TIMEOUT * _healthy_frac)
+        _dyn_timeout    = max(10.0, self._CONSORTIUM_TIMEOUT * _healthy_frac)  # v99.0: floor 6→10s
         if _dyn_timeout < self._CONSORTIUM_TIMEOUT:
             self.logger.debug(
                 f"🏛️ CONSORTIUM dynamic timeout: {_dyn_timeout:.1f}s "

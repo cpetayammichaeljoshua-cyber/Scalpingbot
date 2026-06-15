@@ -2343,7 +2343,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "98.0"
+UNITY_VERSION                = "99.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -8068,7 +8068,7 @@ class UnitySignalFilter:
                     # v92.0 NN v28: F151-F155 — Regime-Momentum-Sync triple-source features
                     try:
                         # Derive the 3 source direction signs from already-computed data
-                        _z2_sig_d = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+                        _z2_sig_d = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
                         _z2_dsign = 1 if _z2_sig_d in ("LONG","BUY","long","buy") else (-1 if _z2_sig_d in ("SHORT","SELL","short","sell") else 0)
                         # HMM source sign
                         _z2_hmm_reff = getattr(self, "_hmm_regime", None)
@@ -8127,7 +8127,7 @@ class UnitySignalFilter:
                         _a3_fr_t   = float(signal_data.get("funding_rate_trend", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
                         _a3_fund_s = 1 if _a3_fr_t < -0.00005 else (-1 if _a3_fr_t > 0.00005 else 0)
                         # Signal direction sign
-                        _a3_sd     = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+                        _a3_sd     = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
                         _a3_dsign  = 1 if _a3_sd in ("LONG","BUY","long","buy") else (-1 if _a3_sd in ("SHORT","SELL","short","sell") else 0)
                         # VPIN sign: clean=aligned, toxic=opposing
                         _a3_vpin_s = (-1 if _a3_vpin_pct > 0.60 else (1 if _a3_vpin_pct < 0.40 else 0))
@@ -8157,7 +8157,7 @@ class UnitySignalFilter:
                     try:
                         # Source 1: HMM state alignment with signal direction
                         _b3_hmm_state  = signal_data.get("hmm_state", None) if isinstance(signal_data, dict) else None
-                        _b3_sd         = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+                        _b3_sd         = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
                         _b3_is_long    = _b3_sd in ("LONG", "BUY", "long", "buy")
                         _b3_is_short   = _b3_sd in ("SHORT", "SELL", "short", "sell")
                         _b3_dir_sign   = 1 if _b3_is_long else (-1 if _b3_is_short else 0)
@@ -11594,7 +11594,7 @@ class UnitySignalFilter:
         try:
             _y2_fired = False
             self._last_g85y2_hvc = 0  # reset each cycle
-            _y2_sig_dir = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+            _y2_sig_dir = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
             # HMM regime state
             _y2_hmm_ref = getattr(self, "_hmm_regime", None)
             _y2_hmm_regime = "UNKNOWN"
@@ -11690,7 +11690,7 @@ class UnitySignalFilter:
         try:
             _z2_fired = False
             self._last_g85z2_rms = 0
-            _z2_sig_dir = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+            _z2_sig_dir = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
             _z2_is_long  = _z2_sig_dir in ("LONG",  "BUY",  "long",  "buy")
             _z2_is_short = _z2_sig_dir in ("SHORT", "SELL", "short", "sell")
             if _z2_is_long or _z2_is_short:
@@ -11767,7 +11767,7 @@ class UnitySignalFilter:
         try:
             _a3_fired = False
             self._last_g85a3_vpc = 0
-            _a3_sig_dir  = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+            _a3_sig_dir  = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
             _a3_is_long  = _a3_sig_dir in ("LONG",  "BUY",  "long",  "buy")
             _a3_is_short = _a3_sig_dir in ("SHORT", "SELL", "short", "sell")
             if _a3_is_long or _a3_is_short:
@@ -11850,7 +11850,7 @@ class UnitySignalFilter:
         try:
             _b3_fired = False
             self._last_g85b3_hos = 0
-            _b3_sd       = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+            _b3_sd       = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
             _b3_is_long  = _b3_sd in ("LONG",  "BUY",  "long",  "buy")
             _b3_is_short = _b3_sd in ("SHORT", "SELL", "short", "sell")
             if _b3_is_long or _b3_is_short:
@@ -11922,7 +11922,7 @@ class UnitySignalFilter:
         try:
             _c3_fired = False
             self._last_g85c3_voe = 0
-            _c3_sd       = signal_data.get("direction", "") if isinstance(signal_data, dict) else ""
+            _c3_sd       = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""  # v99.0: "action" key fix
             _c3_is_long  = _c3_sd in ("LONG",  "BUY",  "long",  "buy")
             _c3_is_short = _c3_sd in ("SHORT", "SELL", "short", "sell")
             if _c3_is_long or _c3_is_short:
@@ -13036,6 +13036,9 @@ class UnitySignalFilter:
             "gate_g85u2_vov",          # VoV-StabilityRegime ±1.5pt adjuster — cannot block a signal [v87.0]
             "gate_g85v2_obp",          # OBPressure-Imbalance ±2.0/+1.5pt adjuster — cannot block a signal [v88.0]
             "gate_g85w2_ddm",          # DrawdownMomentum-Sentinel -3.0/-2.0/-1.5/+1.5pt adjuster — cannot block a signal [v89.0]
+            "gate_g85x2_wrt",          # WinRateTrajectory -2.0/-1.0/+2.0pt adjuster — cannot block a signal [v90.0]
+            "gate_g85y2_hvc",          # HMM-VPIN-Coherence ±2.0/±1.5pt adjuster — cannot block a signal [v91.0]
+            "gate_g85z2_rms",          # RegimeMomentumSync ±2.0/±1.5pt adjuster — cannot block a signal [v92.0]
             "gate_g85a3_vpc",          # VPIN-OFI-Funding Triple-Confluence -2.0/-1.5/+2.0/+1.5pt adjuster — cannot block a signal [v93.0]
             "gate_g85b3_hos",          # HMM-OFI-Spread Triple-Sync -2.0/-1.5/+2.0/+1.5pt adjuster — cannot block a signal [v94.0]
             "gate_g85c3_voe",          # VolumeFlow-OFI-EV Triple-Convergence -2.0/-1.5/+2.0/+1.5pt adjuster — cannot block a signal [v95.0]

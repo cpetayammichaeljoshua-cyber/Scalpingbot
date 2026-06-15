@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v98.0 — Multi-stage Production Dockerfile
+# Unity Engine v99.0 — Multi-stage Production Dockerfile
 # Optimised for Railway.app deployment
 #
 # Build:  docker build -t unity-engine:88.0 .
@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v98.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v99.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="98.0"               \
-      description="Unity Engine v98.0 — has_available_models-fix[v98.0] | MAX_AI_CALLS_8[v98.0] | MODEL_MAX_CALLS_3[v98.0] | BootGrace120s[v98.0] | G8.5E3-EFOTriplePressure[v97.0] | 65-gate | NN-v33-180feat | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="99.0"               \
+      description="Unity Engine v99.0 — DirectionKeyFix-8gates[v99.0] | SoftGateKeys-X2Y2Z2[v99.0] | CONSORTIUMTimeout22s[v99.0] | has_available_models-fix[v98.0] | MAX_AI_CALLS_8[v98.0] | G8.5E3-EFOTriplePressure[v97.0] | 65-gate | NN-v33-180feat | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity
