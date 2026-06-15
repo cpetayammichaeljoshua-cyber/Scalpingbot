@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 195 features → 39 tokens × 5 dims (195 = 39 × 5) [v104.0: was 38×5=190]
-_TORCH_N_TOKENS  = 40
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5)
+# Transformer tokenisation: reshape 205 features → 41 tokens × 5 dims (205 = 41 × 5) [v106.0: was 40×5=200]
+_TORCH_N_TOKENS  = 41
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 200  # v37 (v105.0): 195 + 5 CrisisState/TrendQuality features (recent_wr20_norm, max_dd_norm, sharpe_norm, crisis_consensus_gate, trend_quality_gate) = 200
+INPUT_DIM          = 205  # v38 (v106.0): 200 + 5 momentum/quality-coherence features (ofi_vel_gate_norm, hmm_vpin_coh_norm, irc_triple_gate, wnq_coherence_gate, quality_persistence_score) = 205
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1406,6 +1406,40 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F195: realized_ev_norm — realized EV / R normalized [-1,+1] (clamp at ±1.5R)
     _v36_f195 = _safe_float(trade.get("realized_ev_norm", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v36_f195)))                                  # 195 realized_ev_norm
+
+    # ── v37 (v105.0): F196-F200 — CrisisConsensus / TrendQuality / DD+Sharpe composite ──
+    # F196: crisis_consensus_gate — G8.5L3 CrisisConsensus-Compound output normalized [-1,+1]
+    _v37_f196 = _safe_float(trade.get("crisis_consensus_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v37_f196)))                                  # 196 crisis_consensus_gate
+    # F197: trend_quality_gate — G8.5M3 TrendQuality-Persistence output normalized [-1,+1]
+    _v37_f197 = _safe_float(trade.get("trend_quality_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v37_f197)))                                  # 197 trend_quality_gate
+    # F198: sharpe_norm — Sharpe ratio normalized [-1,+1] (SR/5, clamped)
+    _v37_f198 = _safe_float(trade.get("sharpe_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v37_f198)))                                  # 198 sharpe_norm
+    # F199: dd_sharpe_composite — max-DD severity cross Sharpe direction [-1,+1]
+    _v37_f199 = _safe_float(trade.get("dd_sharpe_composite", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v37_f199)))                                  # 199 dd_sharpe_composite
+    # F200: wr_trajectory_norm — recent-vs-alltime WR delta normalized [-1,+1]
+    _v37_f200 = _safe_float(trade.get("wr_trajectory_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v37_f200)))                                  # 200 wr_trajectory_norm
+
+    # ── v38 (v106.0): F201-F205 — OFI/HMM/MicroTrend triple + WNQ coherence ──
+    # F201: ofi_vel_gate_norm — G8.5D OFI-Velocity gate direction output [-1,+1]
+    _v38_f201 = _safe_float(trade.get("ofi_vel_gate_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v38_f201)))                                  # 201 ofi_vel_gate_norm
+    # F202: hmm_vpin_coh_norm — G8.5Y2 HMM-VPIN-Coherence gate direction output [-1,+1]
+    _v38_f202 = _safe_float(trade.get("hmm_vpin_coh_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v38_f202)))                                  # 202 hmm_vpin_coh_norm
+    # F203: irc_triple_gate — G8.5N3 OFI-HMM-MicroTrend TripleSync output ±1
+    _v38_f203 = _safe_float(trade.get("irc_triple_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v38_f203)))                                  # 203 irc_triple_gate
+    # F204: wnq_coherence_gate — G8.5O3 WinRate-CPCV-NNQuality coherence output ±1
+    _v38_f204 = _safe_float(trade.get("wnq_coherence_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v38_f204)))                                  # 204 wnq_coherence_gate
+    # F205: quality_persistence_score — composite (G8.5N3+G8.5O3+G8.5M3)/3 clamped [-1,+1]
+    _v38_f205 = _safe_float(trade.get("quality_persistence_score", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v38_f205)))                                  # 205 quality_persistence_score
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
