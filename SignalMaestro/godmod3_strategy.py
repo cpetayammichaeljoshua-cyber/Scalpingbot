@@ -726,9 +726,12 @@ _COOLDOWN: Dict[str, float] = {
 # G0DM0D3 analyze() calls are in flight — subsequent calls get local_rate_limit
 # (which does NOT increment the storm counter) and cascade to the next model.
 # 2 calls/model/min × 8 active models = 16 available slots/min for 8 throttled calls.
-_MODEL_MAX_CALLS_PER_MIN = 1   # v8.4: 2→1 — halves per-model request pressure;
-                               # 1/min × 8 active models = 8 slots/min, well within
-                               # OpenRouter free-tier limits (~5-10 req/min/model).
+_MODEL_MAX_CALLS_PER_MIN = 3   # v98.0: 1→3 — previous value of 1 caused has_available_models()
+                               # to return False after the VERY FIRST call to any model,
+                               # blocking the AI Signal Gate for the entire 60s window.
+                               # With 80 parallel scans, _MODEL_MAX_CALLS_PER_MIN=1 triggered
+                               # immediately on scan cycle start. 3/min × 9 active models =
+                               # 27 slots/min; free-tier cap ~8-10 req/min/model — well within.
 
 # Auto-reset cooldown guard: minimum seconds between auto-resets for the same tier.
 # v5.1 session 3: raised 90→300s — prevents rapid re-enable of storming models.
@@ -1262,7 +1265,9 @@ class G0DM0D3Engine:
     # up to 16 total OpenRouter requests/min concentrated on fast-tier models.
     # Free-tier cap is ~8 req/min/model. 4 G0DM0D3 calls/min × 2 models each = 8 req/min
     # spread across 4+ models = well within limits, zero storm pressure.
-    _MAX_AI_CALLS_PER_60S    = 4
+    _MAX_AI_CALLS_PER_60S    = 8   # v98.0: 4→8 — previous value throttled 94% of signals;
+                                   # with 80 parallel symbols 4 calls/min blocked all but
+                                   # 5% of scan cycle. 8/min gives meaningful AI coverage.
 
     # CONSORTIUM mode constants (z4ptacticsbot/src/lib/consortium.ts architecture)
     # "CONSORTIUM distils GROUND TRUTH from the crowd" — all models vote, no early stopping.
@@ -1355,6 +1360,7 @@ class G0DM0D3Engine:
         }
 
         # AI availability tracking (for signal gate)
+        self._init_monotonic:            float = time.monotonic()  # v98.0: boot-grace reference
         self._last_successful_call_time: float = 0.0     # monotonic timestamp
         self._recent_success_model:      str   = ""
 
@@ -1486,23 +1492,36 @@ class G0DM0D3Engine:
 
     def has_available_models(self) -> bool:
         """
-        Returns True if at least one model across all tiers is not disabled AND
-        has remaining calls in the current rate-limit window.
+        Returns True if at least one model is not genuinely disabled
+        (not in session_perm_disabled AND not in storm/cooldown window).
+
+        v98.0 CRITICAL BUG FIX: Previous version checked per-minute rate-limiter
+        bucket usage. With _MODEL_MAX_CALLS_PER_MIN=1 (now 3), any model that
+        received ONE call in the last 60s appeared "unavailable". With 80 parallel
+        symbol scans the bucket filled on the very first cycle — every subsequent
+        AI Signal Gate check returned False, blocking 100% of signals falsely.
+
+        Separation of concerns:
+          • "Model unavailable" = storm blacklisted / perm-disabled / in 2h cooldown
+          • "Rate limited this minute" = soft flow-control, handled by can_call()
+        The AI gate must only block when NO model can be called at all. Transient
+        per-minute rate limiting is normal operation, not an outage.
 
         Used by the AI signal gate — only emit signals when AI is operational.
-        Sync approximation (no await) — safe to call from non-async contexts.
+        Sync, no await — safe to call from non-async contexts. [v98.0]
         """
-        now      = time.time()
-        mono_now = time.monotonic()
+        now = time.time()
         for model in ALL_FREE_MODELS:
-            until = self._disabled_models.get(model, 0.0)
-            if now >= until:
-                times  = self._rate_limiter._times.get(model)
-                if times is None:
-                    return True   # No calls yet — definitely available
-                active = sum(1 for t in times if (mono_now - t) <= 60.0)
-                if active < _MODEL_MAX_CALLS_PER_MIN:
-                    return True
+            # Skip models in session_perm_disabled with active 2h disable timer
+            if model in self._session_perm_disabled:
+                if now < self._disabled_models.get(model, 0.0):
+                    continue   # still inside 2h disable window
+                # 2h window expired — eligible for retry (_is_model_disabled will clean up)
+            # Skip models in temporary storm/rate-limit cooldown
+            elif now < self._disabled_models.get(model, 0.0):
+                continue
+            # At least one model is not genuinely disabled — AI is available
+            return True
         return False
 
     def was_recently_available(self, seconds: float = None) -> bool:
@@ -1512,16 +1531,27 @@ class G0DM0D3Engine:
         Used for signal gate: no signals if AI has been dark for 5+ minutes.
 
         v9 FIX: Cold-start case — if API key is configured and at least one model
-        is not rate-limited, allow the first call through (don't require prior success).
-        Previously this always returned False at startup, blocking all G0DM0D3 calls
-        until one had already succeeded — a chicken-and-egg problem.
+        is not disabled, allow the first call through (don't require prior success).
+
+        v98.0 BOOT-GRACE FIX: Added 120s boot-grace period from engine init.
+        During the first 120s, GODMODE calls are still in-flight (ULTRAPLINIAN race
+        can take 6-15s per call; 80-symbol scan has staggered starts). If the AI gate
+        checks was_recently_available() before the first GODMODE success is recorded
+        (_last_successful_call_time == 0.0), the v9 cold-start path is used which
+        calls has_available_models() — now correctly non-rate-limit-aware. Boot grace
+        extends this to 120s so even slow first-call models (gpt-oss-120b ~12s) are
+        covered before the signal gate could falsely conclude AI is dark.
         """
         if seconds is None:
             seconds = self._AI_AVAILABLE_WINDOW
-        if self._last_successful_call_time == 0.0:
-            # Cold-start: return True only if we have a valid API key and available models
+        mono_now = time.monotonic()
+        # v98.0: 120s boot-grace — treat engine as available during warm-up
+        if (mono_now - self._init_monotonic) < 120.0:
             return self.is_available() and self.has_available_models()
-        return (time.monotonic() - self._last_successful_call_time) <= seconds
+        if self._last_successful_call_time == 0.0:
+            # Cold-start outside grace window: require API key + non-disabled model
+            return self.is_available() and self.has_available_models()
+        return (mono_now - self._last_successful_call_time) <= seconds
 
     def get_next_available_seconds(self) -> float:
         """Returns estimated seconds until at least one model becomes available."""
