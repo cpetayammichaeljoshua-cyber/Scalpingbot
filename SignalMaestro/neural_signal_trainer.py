@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 240 features → 48 tokens × 5 dims (240 = 48 × 5) [v114.0: was 47×5=235]
-_TORCH_N_TOKENS  = 49
+_TORCH_N_TOKENS  = 50
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 245  # v46 (v115.0): 240 + 5 B4 rolling-WR/Sharpe/EV momentum sentinel features (b4_rws_gate, b4_roll15_wr, b4_wrt_trend, b4_sharpe_floor, b4_ev_min_dist) = 245
+INPUT_DIM          = 250  # v47 (v116.0): 245 + 5 C4 AdaptiveEV-Persistence features (c4_aev_gate, c4_roll10_ev, c4_ev_trend, c4_sharpe_regime, c4_dd_distance) = 250
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1581,6 +1581,23 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F245: b4_ev_min_dist — EV / EV_MIN_THRESHOLD ratio normalized [(EV/EV_MIN - 1.0) / 2.0] clipped [-1,+1]
     _v46_f245 = _safe_float(trade.get("b4_ev_min_dist", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v46_f245)))                                  # 245 b4_ev_min_dist
+
+    # ── v47 (v116.0): F246-F250 — C4 AdaptiveEV-Persistence features ──
+    # F246: c4_aev_gate    — G8.5C4 gate output {-3,-2,-1,0,+1}/3.0 → [-1.0,+0.33]
+    # F247: c4_roll10_ev   — rolling 10-trade avg R-multiple [(avg+0.30)/0.30 clipped ±1]
+    # F248: c4_ev_trend    — recent-10 vs prior-10 EV delta [delta/0.30 clipped ±1]
+    # F249: c4_sharpe_reg  — Sharpe regime (SR+5.0)/2.0 clipped [-1,+1]
+    # F250: c4_dd_dist     — MaxDD distance (MaxDD%-45.0)/10.0 clipped [-1,+1]
+    _v47_f246 = _safe_float(trade.get("c4_aev_gate",       0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v47_f246 / 3.0)))                                # 246 c4_aev_gate normalised
+    _v47_f247 = _safe_float(trade.get("c4_roll10_ev",      0.0), 0.0)
+    f.append(max(-1.0, min(1.0, (_v47_f247 + 0.30) / 0.30)))                      # 247 c4_roll10_ev normalised
+    _v47_f248 = _safe_float(trade.get("c4_ev_trend",       0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v47_f248 / 0.30)))                               # 248 c4_ev_trend normalised
+    _v47_f249 = _safe_float(trade.get("c4_sharpe_regime",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v47_f249)))                                      # 249 c4_sharpe_regime
+    _v47_f250 = _safe_float(trade.get("c4_dd_distance",    0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v47_f250)))                                      # 250 c4_dd_distance
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
@@ -3331,7 +3348,7 @@ class NeuralSignalTrainer:
                                 f"val={acc:.1%} folds={[f'{a:.1%}' for a in _cpcv_accs]}"
                             )
                             return  # reject this model — previous version is better than random
-                        if _cpcv_gap > 0.07 and _cpcv_avg > 0.45:  # v85.0: floor 0.50→0.45 (chronic suppression fix; was 0.47→0.50 in v73.0)
+                        if _cpcv_gap > 0.09 and _cpcv_avg > 0.45:  # v116.0: gap 0.07→0.09 (tighter suppression when val diverges from CPCV)  # v85.0: floor 0.50→0.45 (chronic suppression fix; was 0.47→0.50 in v73.0)
                             # v67.0: gap threshold 0.04→0.07 — at live gap=10% the previous
                             # 4% trigger added +0.030 to _opt_threshold (0.579→0.609), pushing
                             # the G4 gate to a level no 30% WR model can clear (nn_prob=0.35-0.42).
@@ -3358,7 +3375,7 @@ class NeuralSignalTrainer:
                                 f"avg={_cpcv_avg:.1%} val={acc:.1%} gap={_cpcv_gap:+.1%} "
                                 f"→ thresh {_cpcv_old:.3f}→{self._opt_threshold:.3f} (+{_cpcv_adj:.3f})"
                             )
-                        elif _cpcv_gap > 0.07:
+                        elif _cpcv_gap > 0.09:  # v116.0: gap 0.07→0.09
                             # v85.0: gap > 7% but CPCV avg ≤ 45% (near-chance) — suppress push
                             # At avg<45% folds are not providing meaningful overfit signal;
                             # applying threshold push from a chance-level CPCV is counterproductive.

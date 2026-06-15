@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Unity Engine v115.0 — Production requirements.txt
+# I6.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
 # Last verified: 2026-06-15 (v109.0 — G8.5T3-RegimeFlowOFIWR | G8.5U3-KalmanHMMSpread | Kelly72-73 | NN-v41-220feat | IRONS-83.5 | 81-gate | ScanParallel134)
