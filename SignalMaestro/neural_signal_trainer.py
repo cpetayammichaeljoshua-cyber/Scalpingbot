@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 205 features → 41 tokens × 5 dims (205 = 41 × 5) [v106.0: was 40×5=200]
-_TORCH_N_TOKENS  = 45
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5)
+# Transformer tokenisation: reshape 230 features → 46 tokens × 5 dims (230 = 46 × 5) [v111.0: was 45×5=225]
+_TORCH_N_TOKENS  = 46
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 225  # v42 (v110.0): 220 + 5 V3 triple-EV-confidence-persistence features (v3_wrt_norm, v3_hvc_norm, v3_wnq_norm, v3_tec_gate, v3_ev_conf_cross) = 225
+INPUT_DIM          = 230  # v43 (v111.0): 225 + 5 W3 momentum-stack-OFI-microtrend triple-sync features (w3_mot_gate, w3_tmq_norm, w3_ofi_norm, w3_mt_norm, w3_mot_cross) = 230
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1509,6 +1509,24 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F225: v3_ev_conf_cross — WRT × HVC cross product [-1,+1] (EV-confidence alignment signal)
     _v42_f225 = _safe_float(trade.get("v3_ev_conf_cross", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v42_f225)))                                  # 225 v3_ev_conf_cross
+
+    # ── v43 (v111.0): F226-F230 — W3 MomentumStack-OFI-MicroTrend Triple-Sync features ──────────────
+    # F226: w3_mot_gate — G8.5W3 MOTTripleSync gate output ±1 (momentum+OFI+microtrend triple-sync)
+    _v43_f226 = _safe_float(trade.get("w3_mot_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v43_f226)))                                  # 226 w3_mot_gate
+    # F227: w3_tmq_norm — TrendMomPersist gate output ±1 (3-src: close slope+OFI+VPR)
+    _v43_f227 = _safe_float(trade.get("w3_tmq_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v43_f227)))                                  # 227 w3_tmq_norm
+    # F228: w3_ofi_norm — OFI-Velocity gate output ±1 (signed OFI acceleration)
+    _v43_f228 = _safe_float(trade.get("w3_ofi_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v43_f228)))                                  # 228 w3_ofi_norm
+    # F229: w3_mt_norm — MicroTrend gate output ±1 (10-bar LinReg slope direction)
+    _v43_f229 = _safe_float(trade.get("w3_mt_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v43_f229)))                                  # 229 w3_mt_norm
+    # F230: w3_mot_cross — TMQ × OFI cross product [-1,+1] (momentum+OFI alignment cross-signal)
+    _v43_f230_tmq = _safe_float(trade.get("w3_tmq_norm", 0.0), 0.0)
+    _v43_f230_ofi = _safe_float(trade.get("w3_ofi_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v43_f230_tmq * _v43_f230_ofi)))              # 230 w3_mot_cross
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:

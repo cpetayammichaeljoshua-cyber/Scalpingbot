@@ -61,3 +61,4 @@
 - [Unity Engine v110.0 upgrades](unity-engine-v110.md) — G8.5T3/U3 _direction_int+quality_score critical fixes (8 occurrences); G8.5V3 82nd gate; Kelly74; NN v42 225feat F221-F225; IRONS WR<3%=85.0; ScanParallel136; 21/21 boot
 - [Unity Engine v109.0 upgrades](unity-engine-v109.md) — G8.5T3-RFWTripleAlign(80th)+G8.5U3-KHSTripleSync(81st gates); Kelly72+73; NN v41 INPUT_DIM 220feat F216-F220; IRONS WR<4%=83.5; ScanParallel134; 5 stale 79-gate banner strings fixed to 81-gate
 - [Unity Engine v107.0 upgrades](unity-engine-v107.md) — 6 storm-models replaced (dolphin/llama33/qwen72b/qwen235b/gemma26b→nemotron+gemma31b+gpt-oss); G8.5P3/Q3 76th/77th gates; Kelly68+69; NN v39 210feat; IRONS WR<6%=80.5; ScanParallel130
+- [Unity Engine v111.0 upgrades](unity-engine-v111.md) — 5 storm-model replacements (nemotron/gemma31b/qwen235b→gpt-oss-120b/20b); G8.5W3 MOT-TripleSync 83rd gate (±2.0/±1.5pts); Kelly Step 75; NN v43 230feat; G7 DGRP 43→40; ScanParallel138

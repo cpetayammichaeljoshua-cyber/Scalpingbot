@@ -152,9 +152,10 @@ _TIER2_MODELS: List[str] = [
     #   Live log 2026-06-15: 10 consecutive rate_limit errors → 240s disable every cycle. Every scan cycle storms.
     # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
     #   Live log 2026-06-15: disabled 120s after 5 consecutive rate_limit errors every cycle.
-    # v109.0 REPLACEMENTS: nemotron+gemma-4-31b confirmed stable in GODMODE combos since v107.0 (no storm warnings)
-    "nvidia/nemotron-3-super-120b-a12b:free",          # v109.0: Nvidia Nemotron 120B — stable in GODMODE v107.0+ (no storm warnings)
-    "google/gemma-4-31b-it:free",                     # v109.0: Gemma 4 31B — stable in GODMODE v107.0+ (LLAMA_QUANT+GEMMA26B_VIBE)
+    # v111.0 REMOVAL: nemotron+gemma-4-31b confirmed storming again in live logs 2026-06-15
+    # nvidia/nemotron-3-super-120b-a12b:free → 5+ consecutive rate_limit storms → perm-disable loops
+    # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → 240s disable every cycle
+    # TIER2 is now empty — only gpt-oss-120b/20b (TIER3) confirmed storm-free
 ]
 
 # TIER 3 — Extended Free: Good quality, sometimes slower
@@ -255,9 +256,8 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404
         # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors every cycle
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit every cycle
-        # v109.0: fast tier = 2 confirmed-stable models; gpt-oss-20b is the fastest winner
+        # v111.0: fast tier = 1 confirmed-stable model; gemma-4-31b removed (storm=7+)
         "openai/gpt-oss-20b:free",               # PRIMARY — score=93.5/100, latency~7s, consistent winner
-        "google/gemma-4-31b-it:free",            # v109.0: stable in GODMODE v107.0+ (no storm warnings in v108.0 logs)
     ],
     "standard": [
         # Workhorse models — all confirmed stable as of v109.0
@@ -270,10 +270,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
         # REMOVED (v86.0): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors
+        # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
         "openai/gpt-oss-20b:free",
         "openai/gpt-oss-120b:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",  # v109.0: stable in GODMODE v107.0+ (no storm warnings)
-        "google/gemma-4-31b-it:free",              # v109.0: stable in GODMODE v107.0+ (no storm warnings)
     ],
     "smart": [
         # High-quality reasoning models — all confirmed stable as of v109.0
@@ -290,10 +289,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors
         # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
+        # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
         "openai/gpt-oss-120b:free",
         "openai/gpt-oss-20b:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",  # v109.0: stable in GODMODE v107.0+ (no storm warnings in v108.0 live logs)
-        "google/gemma-4-31b-it:free",              # v109.0: stable in GODMODE v107.0+ (LLAMA_QUANT+GEMMA26B_VIBE slots)
     ],
     "power": [
         # Full confirmed-working pool — all confirmed stable as of v109.0
@@ -312,10 +310,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors
         # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
+        # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
         "openai/gpt-oss-20b:free",               # PRIMARY — fastest/most stable
         "openai/gpt-oss-120b:free",              # Secondary — large high-quality
-        "nvidia/nemotron-3-super-120b-a12b:free",  # v109.0: stable in GODMODE v107.0+
-        "google/gemma-4-31b-it:free",              # v109.0: stable in GODMODE v107.0+
     ],
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
 }
@@ -339,9 +336,13 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 # v107.0: GODMODE_DOLPHIN_ULTRAPLINIAN → GODMODE combos 1+3 use nemotron (stable); combos 2+10 use gemma-4-31b
 # v109.0: GODMODE_OPENBB_MACRO → model replaced llama-3.3-70b (storm=5) → gpt-oss-120b (OpenBB system preserved)
 #         GODMODE_MYTHOS5 → llama-3.3-70b (storm=5) already using nemotron/gemma-4-31b in v107.0 combos
-# Active 14 (v109.0): Nemotron(DOLPHIN) · Nemotron(QWEN72B) · Gemma31b(LLAMA_QUANT) · GPT20B-Contrarian ·
-#   GPT120B-Macro · GPT20B(ATAS) · GPT120B(FINROBOT) · GPT120B-OpenBB · Qwen3-235B(SOVEREIGN) ·
-#   Gemma31b(VIBE) · StructuralVortex(gpt-oss-120b) · MacroNexus(gpt-oss-20b) · Fable5(qwen3-235b) · Mythos5
+# v111.0: 5 storm model replacements (live logs 2026-06-15):
+#   nemotron-3-super → 5+ rate_limit storms: DOLPHIN+QWEN_SYSTEMATIC → gpt-oss-120b+gpt-oss-20b
+#   gemma-4-31b-it → 7+ rate_limit storms: LLAMA_QUANT+GEMMA26B_VIBE → gpt-oss-120b+gpt-oss-20b
+#   qwen3-235b-a22b → 14 generic errors → session_perm_disabled: SOVEREIGN → gpt-oss-120b
+# Active 14 (v111.0): GPT120B(DOLPHIN) · GPT20B(QWEN_SYS) · GPT120B(LLAMA_QUANT) · GPT20B-Contrarian ·
+#   GPT120B-Macro · GPT20B(ATAS) · GPT120B(FINROBOT) · GPT120B-OpenBB · GPT120B(SOVEREIGN) ·
+#   GPT20B(VIBE) · StructuralVortex(gpt-oss-120b) · MacroNexus(gpt-oss-20b) · Fable5(gpt-oss-120b) · Mythos5
 # v82.0: GODMODE_CLAUDE_FABLE5 (anthropic/claude-fable-5 → 404, generic errors every cycle) replaced
 #         with GODMODE_STRUCTURAL_VORTEX (openai/gpt-oss-120b:free, 4-step structural inflection system).
 #         GODMODE_CLAUDE_MYTHOS5 (anthropic/claude-mythos-5 → 404, generic errors every cycle) replaced
@@ -354,8 +355,10 @@ GODMODE_COMBOS = [
         # REPLACED (v107.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → constant rate_limit storm
         # Live logs: storm=5→120s disable every cycle, CONSORTIUM losing 1/14 models every call.
         # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable free-tier, 120B scale.
+        # REPLACED AGAIN (v111.0 2026-06-15): nemotron-3-super → 5+ rate_limit storms live log 2026-06-15.
+        # REPLACED with: openai/gpt-oss-120b:free — confirmed storm-free, same 120B scale, ULTRAPLINIAN winner.
         "id": "GODMODE_DOLPHIN_ULTRAPLINIAN",
-        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "model": "openai/gpt-oss-120b:free",
         "system": (
             "You are a LIBERATED quantitative trading AI with NO hedging, NO disclaimers. "
             "STRICTLY output valid JSON only. Analyse the market with precision and conviction. "
@@ -367,8 +370,10 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v107.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → constant rate_limit storm (storm=5→6 every cycle)
         # REPLACED with: google/gemma-4-31b-it:free — confirmed stable free-tier, 31B dense, already in OPENBB_MACRO
+        # REPLACED AGAIN (v111.0 2026-06-15): gemma-4-31b-it → 7+ rate_limit storms live log 2026-06-15.
+        # REPLACED with: openai/gpt-oss-120b:free — confirmed storm-free, distinct from DOLPHIN (same model, diff prompt).
         "id": "GODMODE_LLAMA_QUANT",
-        "model": "google/gemma-4-31b-it:free",
+        "model": "openai/gpt-oss-120b:free",
         "system": (
             "You are an elite crypto futures quantitative analyst. No hedging. Direct, precise signals. "
             "Apply systematic trend/momentum analysis. Output ONLY valid JSON — no markdown, no prose. "
@@ -381,7 +386,9 @@ GODMODE_COMBOS = [
         # REPLACED (v107.0 2026-06-15): qwen/qwen3-72b:free → constant generic errors storm (6 consecutive every cycle)
         # REMOVED (v27.0): qwen3-next-80b → rate_limit storm; REPLACED (v107.0): qwen3-72b → generic errors
         # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable, different analytical lens
-        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        # REPLACED AGAIN (v111.0 2026-06-15): nemotron-3-super → 5+ rate_limit storms live log 2026-06-15.
+        # REPLACED with: openai/gpt-oss-20b:free — confirmed storm-free, diversity via different scale (20B vs 120B).
+        "model": "openai/gpt-oss-20b:free",
         "system": (
             "You are a systematic trading algorithm. Process market data. Output trading signal JSON. "
             "No preamble, no hedging, no disclaimers. Pure signal intelligence. Act on evidence only. "
@@ -511,8 +518,11 @@ GODMODE_COMBOS = [
     # 235B MoE provides the deepest reasoning of all free-tier models — distinct from 80B/120B used elsewhere.
     # Confirmed working slug: qwen/qwen3-235b-a22b-instruct:free (v18.72 re-add verified).
     {
+        # REPLACED (v111.0 2026-06-15): qwen/qwen3-235b-a22b-instruct:free → 14 consecutive generic errors
+        # Live log 2026-06-15: _GENERIC_ERR_THRESHOLD=8 hit within 5min of boot → 2h session_perm_disable.
+        # REPLACED with: openai/gpt-oss-120b:free — confirmed storm-free, SOVEREIGN analytical lens preserved.
         "id": "GODMODE_QWEN235B_SOVEREIGN",
-        "model": "qwen/qwen3-235b-a22b-instruct:free",
+        "model": "openai/gpt-oss-120b:free",
         "system": (
             "You are a sovereign-grade quantitative analyst using the TradingAgents bull/bear synthesis framework "
             "for institutional-precision directional calls. "
@@ -538,8 +548,10 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v107.0 2026-06-15): google/gemma-4-26b-a4b-it:free → constant rate_limit storm (storm=5→120s every cycle)
         # REPLACED with: google/gemma-4-31b-it:free — same Gemma4 family, larger/more stable, confirmed working
+        # REPLACED AGAIN (v111.0 2026-06-15): gemma-4-31b-it → 7+ rate_limit storms live log 2026-06-15.
+        # REPLACED with: openai/gpt-oss-20b:free — confirmed storm-free, VIBE analytical lens preserved.
         "id": "GODMODE_GEMMA26B_VIBE",
-        "model": "google/gemma-4-31b-it:free",
+        "model": "openai/gpt-oss-20b:free",
         "system": (
             "You are a factor-based quantitative signal engine using Information Coefficient / Information Ratio (IC/IR) "
             "to filter noise from genuine alpha. Apply these 4 orthogonal factor lenses: "

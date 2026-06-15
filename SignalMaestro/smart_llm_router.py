@@ -190,11 +190,12 @@ _FREE_SIMPLE = [
     # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot
     # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed v21.2 boot 2026-05-31 (provider revoked free access)
-    "openai/gpt-oss-20b:free",                                        # PRIMARY — score=93.5/100, confirmed stable
-    "openai/gpt-oss-120b:free",                                       # Large — confirmed stable, consistent CONSORTIUM winner
-    "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B — stable in GODMODE v107.0+
-    "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — stable in GODMODE v107.0+ (no storm warnings)
-    "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — flagship reasoning (monitor for session_perm_disable)
+    # v111.0 REMOVALS (live logs 2026-06-15):
+    # nvidia/nemotron-3-super-120b-a12b:free → 5+ consecutive rate_limit storms → removed
+    # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → removed
+    # qwen/qwen3-235b-a22b-instruct:free → 14 generic errors → session_perm_disabled → removed
+    "openai/gpt-oss-20b:free",                                        # PRIMARY — score=93.5/100, confirmed storm-free
+    "openai/gpt-oss-120b:free",                                       # Large — confirmed storm-free, consistent CONSORTIUM winner
 ]
 _FREE_REASONING = [
     # v21.0: Dead model purge — confirmed-404 slugs removed, new reasoning heavyweights added.
@@ -218,11 +219,12 @@ _FREE_REASONING = [
     # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot
     # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed v21.2 boot 2026-05-31 (provider revoked free access)
-    "openai/gpt-oss-120b:free",                                       # Large — confirmed stable, primary reasoning
-    "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B — stable in GODMODE v107.0+
-    "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — flagship reasoning (monitor)
-    "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — stable in GODMODE v107.0+
-    "openai/gpt-oss-20b:free",                                        # Fast — PRIMARY winner score=93.5/100
+    # v111.0 REMOVALS (live logs 2026-06-15):
+    # nvidia/nemotron-3-super-120b-a12b:free → 5+ consecutive rate_limit storms → removed
+    # qwen/qwen3-235b-a22b-instruct:free → 14 generic errors → session_perm_disabled → removed
+    # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → removed
+    "openai/gpt-oss-120b:free",                                       # Large — confirmed storm-free, primary reasoning
+    "openai/gpt-oss-20b:free",                                        # Fast — PRIMARY winner score=93.5/100, confirmed storm-free
 ]
 
 TIER_MODELS = {
