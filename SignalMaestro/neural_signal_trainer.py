@@ -79,8 +79,8 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 205 features → 41 tokens × 5 dims (205 = 41 × 5) [v106.0: was 40×5=200]
-_TORCH_N_TOKENS  = 42
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5)
+_TORCH_N_TOKENS  = 43
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 210  # v39 (v107.0): 205 + 5 multi-source sentiment-regime features (fmp_ofi_wrc, rsc_wrev_efo, p3_fos, q3_rke, meta_triple_consensus) (ofi_vel_gate_norm, hmm_vpin_coh_norm, irc_triple_gate, wnq_coherence_gate, quality_persistence_score) = 205
+INPUT_DIM          = 215  # v40 (v108.0): 210 + 5 BWO/QSC momentum-quality health features (bwo_triple_norm, qsc_composite_norm, r3_s3_consensus, meta_quality_health, momentum_stack_norm) = 215
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1456,6 +1456,22 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F210: multi_triple_sync — composite triple-gate meta-score (P3+Q3+N3)/3 [-1,+1]
     _v39_f210 = _safe_float(trade.get("multi_triple_sync", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v39_f210)))                                  # 210 multi_triple_sync
+    # ── v40 (v108.0): F211-F215 — BWO/QSC momentum-quality health features ──────────────
+    # F211: bwo_triple_norm — G8.5R3 BTC-WRTraj-OFI TripleMomentum output ±1
+    _v40_f211 = _safe_float(trade.get("bwo_triple_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v40_f211)))                                  # 211 bwo_triple_norm
+    # F212: qsc_composite_norm — G8.5S3 Quality-Sharpe-Coherence CompositeHealth output ±1
+    _v40_f212 = _safe_float(trade.get("qsc_composite_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v40_f212)))                                  # 212 qsc_composite_norm
+    # F213: r3_s3_consensus — combined BWO+QSC consensus score [-1,+1]
+    _v40_f213 = _safe_float(trade.get("r3_s3_consensus", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v40_f213)))                                  # 213 r3_s3_consensus
+    # F214: meta_quality_health — composite (WNQ+MLC+QSC)/3 overall quality health [-1,+1]
+    _v40_f214 = _safe_float(trade.get("meta_quality_health", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v40_f214)))                                  # 214 meta_quality_health
+    # F215: momentum_stack_norm — composite (BWO+FOS+RKE)/3 momentum-regime stack [-1,+1]
+    _v40_f215 = _safe_float(trade.get("momentum_stack_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v40_f215)))                                  # 215 momentum_stack_norm
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
