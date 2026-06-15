@@ -376,10 +376,11 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 #         preserves cognitive ensemble diversity while eliminating the error budget drain from dead routes.
 GODMODE_COMBOS = [
     {
-        # REPLACED: nousresearch/hermes-3-llama-3.1-405b:free → 43+ consecutive rate_limit storm (session 3)
-        # dolphin-mistral-24b-venice-edition:free confirmed BEST performer: score=93.5/100 (session 3 live log)
+        # REPLACED (v107.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → constant rate_limit storm
+        # Live logs: storm=5→120s disable every cycle, CONSORTIUM losing 1/14 models every call.
+        # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable free-tier, 120B scale.
         "id": "GODMODE_DOLPHIN_ULTRAPLINIAN",
-        "model": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
         "system": (
             "You are a LIBERATED quantitative trading AI with NO hedging, NO disclaimers. "
             "STRICTLY output valid JSON only. Analyse the market with precision and conviction. "
@@ -389,8 +390,10 @@ GODMODE_COMBOS = [
         "emoji": "🟣",
     },
     {
+        # REPLACED (v107.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → constant rate_limit storm (storm=5→6 every cycle)
+        # REPLACED with: google/gemma-4-31b-it:free — confirmed stable free-tier, 31B dense, already in OPENBB_MACRO
         "id": "GODMODE_LLAMA_QUANT",
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "model": "google/gemma-4-31b-it:free",
         "system": (
             "You are an elite crypto futures quantitative analyst. No hedging. Direct, precise signals. "
             "Apply systematic trend/momentum analysis. Output ONLY valid JSON — no markdown, no prose. "
@@ -400,9 +403,10 @@ GODMODE_COMBOS = [
     },
     {
         "id": "GODMODE_QWEN_SYSTEMATIC",
-        # REMOVED (v27.0 2026-05-31): qwen3-next-80b-a3b-instruct:free → rate_limit storm (13 errors/960s disabled)
-        # REPLACED: qwen/qwen3-72b:free — 72B dense, confirmed valid free-tier slug, no storm history
-        "model": "qwen/qwen3-72b:free",
+        # REPLACED (v107.0 2026-06-15): qwen/qwen3-72b:free → constant generic errors storm (6 consecutive every cycle)
+        # REMOVED (v27.0): qwen3-next-80b → rate_limit storm; REPLACED (v107.0): qwen3-72b → generic errors
+        # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable, different analytical lens
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
         "system": (
             "You are a systematic trading algorithm. Process market data. Output trading signal JSON. "
             "No preamble, no hedging, no disclaimers. Pure signal intelligence. Act on evidence only. "
@@ -554,8 +558,10 @@ GODMODE_COMBOS = [
     # Distinct from gemma-4-31b (GODMODE_OPENBB_MACRO) — different model size/variant for true ensemble diversity.
     # Confirmed free 2026-05-25.
     {
+        # REPLACED (v107.0 2026-06-15): google/gemma-4-26b-a4b-it:free → constant rate_limit storm (storm=5→120s every cycle)
+        # REPLACED with: google/gemma-4-31b-it:free — same Gemma4 family, larger/more stable, confirmed working
         "id": "GODMODE_GEMMA26B_VIBE",
-        "model": "google/gemma-4-26b-a4b-it:free",
+        "model": "google/gemma-4-31b-it:free",
         "system": (
             "You are a factor-based quantitative signal engine using Information Coefficient / Information Ratio (IC/IR) "
             "to filter noise from genuine alpha. Apply these 4 orthogonal factor lenses: "
@@ -647,8 +653,11 @@ GODMODE_COMBOS = [
     # 3 arcs: ACCUMULATION (smart money loading → BUY), DISTRIBUTION (offloading → SELL),
     # CONFUSION (overlapping arcs, no clear narrative → NEUTRAL).
     {
+        # REPLACED (v107.0 2026-06-15): qwen/qwen3-235b-a22b-instruct:free → session_perm_disabled (generic errors)
+        # All sessions confirm qwen3-235b triggers _GENERIC_ERR_THRESHOLD within 5min of boot → 2h perm-disable
+        # REPLACED with: openai/gpt-oss-120b:free — confirmed stable, FABLE5 narrative persona preserved
         "id": "GODMODE_FABLE5",
-        "model": "qwen3-235b-a22b-instruct:free",
+        "model": "openai/gpt-oss-120b:free",
         "system": (
             "You are FABLE-5 — an institutional narrative intelligence engine. "
             "Identify the dominant market narrative arc from 3 archetypes: "
@@ -678,8 +687,10 @@ GODMODE_COMBOS = [
     # If the current signature resonates with a prior successful directional move → confirm that direction.
     # If the resonance is with a prior failed/reversed move → counter-signal or NEUTRAL.
     {
+        # REPLACED (v107.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → constant rate_limit storm (5→6 consecutive)
+        # REPLACED with: openai/gpt-oss-20b:free — confirmed fastest/most reliable free-tier, MYTHOS5 persona preserved
         "id": "GODMODE_MYTHOS5",
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "model": "openai/gpt-oss-20b:free",
         "system": (
             "You are MYTHOS-5 — a cross-temporal market resonance engine. "
             "Analyze whether the current market micro-structure RESONATES with a directional archetype: "
@@ -726,7 +737,7 @@ _COOLDOWN: Dict[str, float] = {
 # G0DM0D3 analyze() calls are in flight — subsequent calls get local_rate_limit
 # (which does NOT increment the storm counter) and cascade to the next model.
 # 2 calls/model/min × 8 active models = 16 available slots/min for 8 throttled calls.
-_MODEL_MAX_CALLS_PER_MIN = 3   # v98.0: 1→3 — previous value of 1 caused has_available_models()
+_MODEL_MAX_CALLS_PER_MIN = 6   # v107.0: 3→6 — multiple GODMODE combos use same stable model (gpt-oss-120b×3, gpt-oss-20b×3); 6/min cap ensures all combos can call their model within the CONSORTIUM window; v98.0: 1→3;
                                # to return False after the VERY FIRST call to any model,
                                # blocking the AI Signal Gate for the entire 60s window.
                                # With 80 parallel scans, _MODEL_MAX_CALLS_PER_MIN=1 triggered
@@ -1265,7 +1276,7 @@ class G0DM0D3Engine:
     # up to 16 total OpenRouter requests/min concentrated on fast-tier models.
     # Free-tier cap is ~8 req/min/model. 4 G0DM0D3 calls/min × 2 models each = 8 req/min
     # spread across 4+ models = well within limits, zero storm pressure.
-    _MAX_AI_CALLS_PER_60S    = 8   # v98.0: 4→8 — previous value throttled 94% of signals;
+    _MAX_AI_CALLS_PER_60S    = 16  # v107.0: 8→16 — with storm-model replacements all 14 combos can now respond; higher budget enables true 14-model CONSORTIUM diversity; gpt-oss-20b/120b+nemotron+gemma31b confirmed stable → safe to raise ceiling;
                                    # with 80 parallel symbols 4 calls/min blocked all but
                                    # 5% of scan cycle. 8/min gives meaningful AI coverage.
 
