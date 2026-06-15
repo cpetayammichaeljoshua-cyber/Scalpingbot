@@ -2307,8 +2307,10 @@ class NeuralSignalTrainer:
                         if _tree_sum > 0.0
                         else (_hg_prob + _et_prob) / 2.0
                     )
-                    # Total tree weight capped at 40% to preserve neural dominance
-                    _total_tree_w = min(_tree_sum, 0.40)
+                    # v101.0: Total tree weight cap raised 40%→55% — when GBT+ET both
+                    # outperform the MLP by a material margin, they should dominate the blend.
+                    # At GBT=55%+ET=30%: sum=85% → capped at 55%, neural still gets 45%.
+                    _total_tree_w = min(_tree_sum, 0.55)
                     base_prob = float(np.clip(
                         (1.0 - _total_tree_w) * base_prob + _total_tree_w * _tree_consensus,
                         0.05, 1.0
@@ -3306,12 +3308,15 @@ class NeuralSignalTrainer:
                     except Exception:
                         _mlp_va_acc = 0.50
                     _combined_acc  = max(0.01, _hgbt_va_acc + _mlp_va_acc)
-                    _hgbt_w        = float(np.clip(_hgbt_va_acc / _combined_acc, 0.20, 0.40))
+                    # v101.0: raise cap 0.40→0.55 — when GBT outperforms MLP by >10pp it should
+                    # earn proportionally more weight; GBT=79.2% vs MLP=62.5% → w=55.9% was
+                    # capped at 40%, now correctly gets 55% weight (GBT dominance regime)
+                    _hgbt_w        = float(np.clip(_hgbt_va_acc / _combined_acc, 0.20, 0.55))
                     self._hgbt_weight = _hgbt_w
                     self.logger.info(
-                        f"🌲 [v61.0 HistGBT] Fitted+calibrated: train={len(X_tr)} "
+                        f"🌲 [v101.0 HistGBT] Fitted+calibrated: train={len(X_tr)} "
                         f"gbt_va={_hgbt_va_acc:.1%} mlp_va={_mlp_va_acc:.1%} "
-                        f"blend=({1.0-_hgbt_w:.0%}MLP+{_hgbt_w:.0%}GBT)"
+                        f"blend=({1.0-_hgbt_w:.0%}MLP+{_hgbt_w:.0%}GBT) cap=55%"
                     )
                 else:
                     self._hgbt = None
@@ -3356,12 +3361,13 @@ class NeuralSignalTrainer:
                             == y_va.flatten().astype(int)
                         ))
                         _et_comb      = max(0.01, _et_va_acc + _mlp_et_acc)
-                        _et_w         = float(np.clip(_et_va_acc / _et_comb, 0.10, 0.25))
+                        # v101.0: raise ET cap 0.25→0.30 consistent with GBT cap raise
+                        _et_w         = float(np.clip(_et_va_acc / _et_comb, 0.10, 0.30))
                         self._et_weight = _et_w
                         self.logger.info(
-                            f"🌳 [v63.0 ExtraTrees] Fitted+calibrated: train={len(X_tr)} "
+                            f"🌳 [v101.0 ExtraTrees] Fitted+calibrated: train={len(X_tr)} "
                             f"et_va={_et_va_acc:.1%} mlp_va={_mlp_et_acc:.1%} "
-                            f"et_w={_et_w:.0%}"
+                            f"et_w={_et_w:.0%} cap=30%"
                         )
                     except Exception:
                         self._et_weight = 0.15
