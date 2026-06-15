@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 185 features → 37 tokens × 5 dims (185 = 37 × 5) [v102.0: was 36×5=180]
-_TORCH_N_TOKENS  = 37
+# Transformer tokenisation: reshape 190 features → 38 tokens × 5 dims (190 = 38 × 5) [v103.0: was 37×5=185]
+_TORCH_N_TOKENS  = 38
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 185  # v34 (v102.0): 180 + 5 SharpeVelocity-QualityMomentum features (sharpe_velocity_norm, wrt_sharpe_sync, kelly_health_tier, g85g3_svq_gate, quality_momentum_composite) = 185
+INPUT_DIM          = 190  # v35 (v103.0): 185 + 5 EmergencyBrake/IRFlorSharpe features (recent10_wr_norm, bayes_wr_norm, h3_ewb_gate, i3_ifm_gate, crisis_depth_score) = 190
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1373,9 +1373,26 @@ def build_features(trade: Dict) -> "np.ndarray":
     _v34_f185 = _safe_float(trade.get("quality_momentum_composite", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v34_f185)))                                  # 185 quality_momentum_composite
 
+    # ── v35 (v103.0): F186-F190 — EmergencyBrake/IRFlorSharpe crisis-detection features ───
+    # F186: recent10_wr_norm — recent-10 WR deviation from 30% baseline (clamp [-2,+2])
+    _v35_f186 = _safe_float(trade.get("recent10_wr_norm", 0.0), 0.0)
+    f.append(max(-2.0, min(2.0, _v35_f186)))                                  # 186 recent10_wr_norm
+    # F187: bayes_wr_norm — all-time Bayes WR deviation from 30% baseline (clamp [-2,+2])
+    _v35_f187 = _safe_float(trade.get("bayes_wr_norm", 0.0), 0.0)
+    f.append(max(-2.0, min(2.0, _v35_f187)))                                  # 187 bayes_wr_norm
+    # F188: h3_ewb_gate — G8.5H3 RecentWR-EmergencyBrake gate output (-2/-1/0/+1)
+    _v35_f188 = _safe_float(trade.get("h3_ewb_gate", 0.0), 0.0)
+    f.append(max(-2.0, min(2.0, _v35_f188)))                                  # 188 h3_ewb_gate
+    # F189: i3_ifm_gate — G8.5I3 IRONSFloor-Sharpe Compound gate output (-2/-1/0/+1/+2)
+    _v35_f189 = _safe_float(trade.get("i3_ifm_gate", 0.0), 0.0)
+    f.append(max(-2.0, min(2.0, _v35_f189)))                                  # 189 i3_ifm_gate
+    # F190: crisis_depth_score — IRONS-floor excess + Sharpe compound depth [-1,+1]
+    _v35_f190 = _safe_float(trade.get("crisis_depth_score", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v35_f190)))                                  # 190 crisis_depth_score
+
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
-        # Pad with zeros for backward-compat with trades stored before INPUT_DIM upgrade [v102.0]
+        # Pad with zeros for backward-compat with trades stored before INPUT_DIM upgrade [v103.0]
         arr = np.concatenate([arr, np.zeros(INPUT_DIM - arr.shape[0], dtype=np.float32)])
     elif arr.shape[0] > INPUT_DIM:
         raise ValueError(f"Feature shape {arr.shape[0]} > {INPUT_DIM} (too many features)")
