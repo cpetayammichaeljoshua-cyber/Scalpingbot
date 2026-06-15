@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v110.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v112.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 82-gate filter · 5-bucket RL · Kelly 74-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 84-gate filter · 5-bucket RL · Kelly 76-steps · GEX · SRM):
  v106.0 improvements [2026-06-15]:
    1. G8.5N3 OFI-HMM-MICROTREND TRIPLE-SYNC GATE (74th gate, -2.0/-1.5/+2.0/+1.5pts):
       Zero-API cross-validation gate combining OFI-Velocity direction (_last_g85d_ofi_vel,
@@ -1975,7 +1975,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 138      # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6%; v106.0: 126→128 +1.6%; v107.0: 128→130 +1.5%; v108.0: 130→132 +1.5%; v109.0: 132→134 +1.5%; v110.0: 134→136 +1.5%; v111.0: 136→138 +1.5%)
+SCAN_PARALLEL_LIMIT   = 140      # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6%; v106.0: 126→128 +1.6%; v107.0: 128→130 +1.5%; v108.0: 130→132 +1.5%; v109.0: 132→134 +1.5%; v110.0: 134→136 +1.5%; v111.0: 136→138 +1.5%; v112.0: 138→140 +1.4%)
 CYCLE_SLEEP_MIN       = 10       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster; v18.69: 12→10 — 20% faster cycling at 80-symbol universe; combined with SCAN_PARALLEL_LIMIT=72 yields ~+25% total scan throughput vs v18.68)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -2462,7 +2462,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "111.0"
+UNITY_VERSION                = "112.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
