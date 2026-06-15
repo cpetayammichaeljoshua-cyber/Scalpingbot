@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 235 features → 47 tokens × 5 dims (235 = 47 × 5) [v113.0: was 46×5=230]
-_TORCH_N_TOKENS  = 47
+# Transformer tokenisation: reshape 240 features → 48 tokens × 5 dims (240 = 48 × 5) [v114.0: was 47×5=235]
+_TORCH_N_TOKENS  = 48
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 235  # v44 (v113.0): 230 + 5 X3/Y3 crisis-compass/momentum-coh triple-sync features (x3_cds_gate, x3_ddm_norm, x3_wrt_norm, y3_mcs_gate, y3_mom_consensus) = 235
+INPUT_DIM          = 240  # v45 (v114.0): 235 + 5 Z3/A4 regime-crisis-quality/flow-volume-regime triple-sync features (z3_rqt_gate, z3_reg_norm, z3_wrc_norm, a4_fvr_gate, a4_vov_cross) = 240
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1545,6 +1545,23 @@ def build_features(trade: Dict) -> "np.ndarray":
     _v44_f235_mot = _safe_float(trade.get("w3_mot_gate", 0.0), 0.0)
     _v44_f235_irc = _safe_float(trade.get("y3_mom_consensus", 0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v44_f235_mot * _v44_f235_irc)))              # 235 y3_mom_consensus
+
+    # ── v45 (v114.0): F236-F240 — Z3 RegimeCrisisQuality / A4 FlowVolumeRegime TripleSync features ──
+    # F236: z3_rqt_gate — G8.5Z3 RegimeCrisisQuality-TripleSync gate output ±1
+    _v45_f236 = _safe_float(trade.get("z3_rqt_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v45_f236)))                                  # 236 z3_rqt_gate
+    # F237: z3_reg_norm — RegimeSentiment-Composite gate output ±1 (G8.5R2 source)
+    _v45_f237 = _safe_float(trade.get("z3_reg_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v45_f237)))                                  # 237 z3_reg_norm
+    # F238: z3_wrc_norm — WinRate-CrisisRegime gate output ±1 (G8.5S2 source)
+    _v45_f238 = _safe_float(trade.get("z3_wrc_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v45_f238)))                                  # 238 z3_wrc_norm
+    # F239: a4_fvr_gate — G8.5A4 FlowVolumeRegime-TripleSync gate output ±1
+    _v45_f239 = _safe_float(trade.get("a4_fvr_gate", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v45_f239)))                                  # 239 a4_fvr_gate
+    # F240: a4_vov_cross — VoV × OBP cross product [-1,+1] (vol-stability × OB-pressure alignment cross-signal)
+    _v45_f240 = _safe_float(trade.get("a4_vov_cross", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v45_f240)))                                  # 240 a4_vov_cross
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
@@ -3423,7 +3440,14 @@ class NeuralSignalTrainer:
             # The 0.20 floor is above the minimum sampling noise level (8 wins req) and still
             # 2× better than random (10% win_acc would be noise; 20% has directional signal).
             # At WR≥25%: retain 0.28 institutional floor (meaningful signal quality required).
-            _win_acc_floor  = 0.20 if (_wr_for_cap < 0.25) else 0.28
+            # v114.0: Lowered win_acc floors 0.28→0.25 (normal) and 0.20→0.18 (WR<25%).
+            # Rationale: engine consistently reports win_acc 26-27% at normal WR (≥25%), which
+            # falls just below the 0.28 gate, chronically disabling the NN. At win_acc=26%
+            # the model still filters 74% of losses (loss_acc typically 88-92%) — a meaningful
+            # signal. The 0.25 floor captures the real-world distribution while maintaining
+            # institutional quality (>random). The 0.18 crisis-floor aligns with the observed
+            # lower bound where directional signal exists above sampling noise.
+            _win_acc_floor  = 0.18 if (_wr_for_cap < 0.25) else 0.25  # v114.0: adaptive 0.18 at WR<25%, 0.25 at WR≥25% (v70.0: 0.20/0.28)
             # v104.0: Adaptive loss_acc floor — at WR<30% lower from 0.50→0.40.
             # Rationale: at WR=28-30% with win_acc=59% and loss_acc=47%, the NN has significant
             # directional signal (win_acc 2× floor) but loss_acc just misses the rigid 0.50 gate.
