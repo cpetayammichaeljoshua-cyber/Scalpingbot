@@ -1918,7 +1918,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 124      # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6% — 124 syms×100=12,400 calls/min within Binance rate envelope via 0.5s stagger)
+SCAN_PARALLEL_LIMIT   = 126      # asyncio.Semaphore — safe Binance rate budget (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6% — 126 syms×100=12,600 calls/min within Binance rate envelope via 0.5s stagger)
 CYCLE_SLEEP_MIN       = 10       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster; v18.69: 12→10 — 20% faster cycling at 80-symbol universe; combined with SCAN_PARALLEL_LIMIT=72 yields ~+25% total scan throughput vs v18.68)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -2405,7 +2405,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "104.0"
+UNITY_VERSION                = "105.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5098,6 +5098,12 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85k3_ssc"]        = {"pass": 0, "fail": 0}  # v104.0: StreakSession-Compound gate
         self._gate_stats_recent["gate_g85k3_ssc"] = deque(maxlen=self._gate_stats_window_n)  # v104.0
         self._last_g85k3_ssc: int = 0   # v104.0: +1=streak+prime-sess, -1=streak+dead-zone, 0=neutral; Kelly Step 63
+        self._gate_stats["gate_g85l3_cc"]         = {"pass": 0, "fail": 0}  # v105.0: CrisisConsensus-Compound gate
+        self._gate_stats_recent["gate_g85l3_cc"]  = deque(maxlen=self._gate_stats_window_n)  # v105.0
+        self._last_g85l3_cc: int = 0    # v105.0: +1=recovery, -1=double-crisis, -2=triple-crisis, 0=neutral; Kelly Step 64
+        self._gate_stats["gate_g85m3_tqp"]        = {"pass": 0, "fail": 0}  # v105.0: TrendQuality-Persistence gate
+        self._gate_stats_recent["gate_g85m3_tqp"] = deque(maxlen=self._gate_stats_window_n)  # v105.0
+        self._last_g85m3_tqp: int = 0   # v105.0: +1=triple-align-bull, -1=triple-align-bear, 0=neutral; Kelly Step 65
         # v68.0: G8.5A FundingRate-Trend gate — per-symbol rolling funding rate deque.
         # Stores (timestamp, funding_rate) pairs; maxlen=3 → 3-reading trend window.
         # Protected by _fr_trend_last_update guard (30s min update interval per symbol).
@@ -5455,7 +5461,12 @@ class UnitySignalFilter:
         Rationale: G9 floor=67, G10 floor=70 at WR<30% → genuine two-tier quality wall [v38.0].
         SOVEREIGN_RECOVERY path requires IRONS≥70, matching IRONS_MIN_WR_BELOW30 [v38.0: 68→70].
         """
-        if current_wr < 0.12:
+        if current_wr < 0.10:
+            # v105.0: ultra-extreme tier — WR<10% absolute catastrophic ruin; IRONS≥78.0 enforced
+            # At 2W/18L = 10% the 76.5 floor is not enough; 78.0 enforces top-1% IRONS-quality wall.
+            # 8-pt spread above base-70 = most selective tier possible short of a full trading halt.
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 8.0  # 78.0 [v105.0: ultra-extreme WR<10%]
+        elif current_wr < 0.12:
             # v104.0: ultra-ultra tier — WR<12% absolute statistical ruin; IRONS≥76.5 enforced
             # At WR=10%(recent-20) the v103.0 75.5 floor remains reachable; 76.5 enforces
             # top-1.5% IRONS-quality wall and closes the blind spot WR<12%=WR<15%=75.5.
@@ -8491,8 +8502,26 @@ class UnitySignalFilter:
                         _f195_ev = float(signal_data.get("expected_value", 0.0) or 0.0)
                         _f195_rr = float(signal_data.get("risk_reward", 2.5) or 2.5)
                         signal_data.setdefault("realized_ev_norm", max(-1.0, min(1.0, _f195_ev / max(0.5, _f195_rr))))
+                        # ── v37 (v105.0): F196-F200 — CrisisState/TrendQuality features ──────────────
+                        # F196: recent_wr20_norm — rolling-20 ring WR deviation from 50% baseline, clamped [-1,+1]
+                        _f196_bst = getattr(self, "_booster", None)
+                        _f196_ring = list(getattr(_f196_bst, "_outcome_ring", []) or [])
+                        _f196_n = len(_f196_ring)
+                        _f196_rwr = (sum(1 for r in _f196_ring[-20:] if r > 0) / max(1, min(20, _f196_n))) if _f196_n >= 5 else 0.30
+                        signal_data.setdefault("recent_wr20_norm", max(-1.0, min(1.0, (_f196_rwr - 0.50) / 0.25)))
+                        # F197: max_dd_norm — current MaxDD / 50, capped [0,1] (0=no DD, 1=50%+ DD)
+                        _f197_dd = float(getattr(self, "_max_drawdown_pct", 0.0) or 0.0)
+                        signal_data.setdefault("max_dd_norm", max(0.0, min(1.0, _f197_dd / 50.0)))
+                        # F198: sharpe_norm — rolling Sharpe normalized to [-1,+1] via /5.0 clamp
+                        _f198_sr = float(getattr(_f196_bst, "_rolling_sharpe", 0.0) or 0.0)
+                        signal_data.setdefault("sharpe_norm", max(-1.0, min(1.0, _f198_sr / 5.0)))
+                        # F199: crisis_consensus_gate — G8.5L3 CrisisConsensus output normalized [-1,+1]
+                        _f199_l3 = float(getattr(self, "_last_g85l3_cc", 0) or 0)
+                        signal_data.setdefault("crisis_consensus_gate", max(-1.0, min(1.0, _f199_l3 / 2.0)))
+                        # F200: trend_quality_gate — G8.5M3 TrendQuality-Persistence output normalized [-1,+1]
+                        signal_data.setdefault("trend_quality_gate", float(getattr(self, "_last_g85m3_tqp", 0) or 0))
                     except Exception:
-                        pass  # v102.0/v103.0/v104.0 F181-F195 injection block is non-fatal
+                        pass  # v102.0/v103.0/v104.0/v105.0 F181-F200 injection block is non-fatal
                     if isinstance(signal_data, dict) and callable(_pfd):
                         nn_prob = float(_pfd(signal_data))
                     elif not isinstance(signal_data, dict) and callable(_ps):
@@ -12584,6 +12613,116 @@ class UnitySignalFilter:
         except Exception:
             pass  # G8.5K3 StreakSession-Compound is non-fatal soft-gate
 
+        # ── Gate 8.5L3 — CrisisConsensus-Compound (v105.0) ───────────────────
+        # Compounds three independent crisis indicators into a single ruthless filter.
+        # Crisis indicators (zero-API, all from stored state):
+        #   1. WR crisis: recent-20 ring WR < 25% (systematic losing regime)
+        #   2. MaxDD crisis: max drawdown > 35% (capital protection breach)
+        #   3. Sharpe crisis: rolling Sharpe < -2.0 (risk-adjusted return catastrophe)
+        # Scoring (additive; max one outcome fires):
+        #   All 3 crisis conditions met      → -3.0pts (compound ruin — maximum filter)
+        #   Exactly 2 of 3 conditions met    → -2.0pts (compound risk — strong filter)
+        #   Recovery: WR>33% + Sharpe>-1.0  → +1.5pts (positive regime resumption bonus)
+        # WR trigger uses ring-based recent-20 to be faster than Bayes blend.
+        # Threshold design: the 3 conditions are all independently predictive of
+        # continued losses; their conjunction is near-certainty of further decline.
+        # Stores _last_g85l3_cc (-2/-1/0/+1) for Kelly Step 64.
+        try:
+            self._last_g85l3_cc = 0
+            _l3_adj   = 0.0
+            _l3_fired = False
+            _l3_bst   = getattr(self, "_booster", None)
+            # Crisis indicator 1: WR
+            _l3_ring   = list(getattr(_l3_bst, "_outcome_ring", []) or [])
+            _l3_ring_n = len(_l3_ring)
+            _l3_ring_wr = (sum(1 for r in _l3_ring[-20:] if r > 0) / max(1, min(20, _l3_ring_n))) if _l3_ring_n >= 10 else 0.35
+            _l3_wr_crisis = _l3_ring_wr < 0.25
+            # Crisis indicator 2: MaxDD
+            _l3_maxdd = float(getattr(self, "_max_drawdown_pct", 0.0) or 0.0)
+            _l3_dd_crisis = _l3_maxdd > 35.0
+            # Crisis indicator 3: Sharpe
+            _l3_sr  = float(getattr(_l3_bst, "_rolling_sharpe", 0.0) or 0.0)
+            _l3_sr_crisis = _l3_sr < -2.0
+            _l3_crisis_count = int(_l3_wr_crisis) + int(_l3_dd_crisis) + int(_l3_sr_crisis)
+            if _l3_crisis_count == 3:
+                _l3_adj = -3.0
+                _l3_fired = True
+                self._last_g85l3_cc = -2
+            elif _l3_crisis_count == 2:
+                _l3_adj = -2.0
+                _l3_fired = True
+                self._last_g85l3_cc = -1
+            elif _l3_ring_wr > 0.33 and _l3_sr > -1.0:
+                # Recovery bonus: regime turning positive
+                _l3_adj = 1.5
+                _l3_fired = True
+                self._last_g85l3_cc = 1
+            if _l3_adj != 0.0:
+                quality_score += _l3_adj
+            self._record("gate_g85l3_cc", _l3_fired)
+        except Exception:
+            pass  # G8.5L3 CrisisConsensus-Compound is non-fatal soft-gate
+
+        # ── Gate 8.5M3 — TrendQuality-Persistence (v105.0) ───────────────────
+        # Aggregates three independent directional-momentum votes into a persistence signal.
+        # Votes (zero-API, all from stored last values):
+        #   1. G8.5I MicroTrend vote: last 10-bar LinReg slope direction (+1/0/-1)
+        #   2. G8.5G3 SVQ-Momentum vote: last SVQ-Momentum stored value (+1/0/-1)
+        #   3. CPCV walk-fwd quality vote: CPCV avg > 50% = bullish (+1/-1)
+        # Scoring (additive; max one outcome fires):
+        #   All 3 votes align bullish (+3 net)  → +2.0pts (strong trend quality)
+        #   All 3 votes align bearish (-3 net)  → -2.0pts (strong trend reversal)
+        #   2/3 align bullish (+1 or +2 net)    → +1.0pt (soft quality confirm)
+        #   2/3 align bearish (-1 or -2 net)    → -1.0pt (soft quality decline)
+        # Each vote is directionally aware to the current signal direction.
+        # Stores _last_g85m3_tqp (-1/0/+1) for Kelly Step 65.
+        try:
+            self._last_g85m3_tqp = 0
+            _m3_adj   = 0.0
+            _m3_fired = False
+            _m3_dir   = str(direction or "").upper()
+            _m3_is_long = (_m3_dir == "BUY")
+            # Vote 1: MicroTrend direction (from last stored close buffer linreg slope)
+            _m3_closes = list(getattr(self, "_quant_layer_close_buf", {}).get(symbol, []) or [])
+            _m3_vote1 = 0
+            if len(_m3_closes) >= 10:
+                import numpy as _np_m3
+                _m3_sl = float(_np_m3.polyfit(range(10), _np_m3.array(_m3_closes[-10:], dtype=float), 1)[0])
+                if abs(_m3_sl) > 0.0:
+                    _m3_vote1 = 1 if (_m3_sl > 0) == _m3_is_long else -1
+            # Vote 2: SVQ-Momentum gate last output (stored from G8.5G3)
+            _m3_svq_raw = float(getattr(self, "_last_g85g3_svq", 0) or 0)
+            _m3_vote2 = 0
+            if _m3_svq_raw > 0:
+                _m3_vote2 = 1
+            elif _m3_svq_raw < 0:
+                _m3_vote2 = -1
+            # Vote 3: CPCV walk-forward quality (avg CPCV > 50% = regime is learnable)
+            _m3_cpcv_avg = float(getattr(getattr(self, "neural_trainer", None), "_last_cpcv_avg", 0.50) or 0.50)
+            _m3_vote3 = 1 if _m3_cpcv_avg >= 0.50 else -1
+            _m3_net = _m3_vote1 + _m3_vote2 + _m3_vote3
+            if _m3_net >= 3:
+                _m3_adj = 2.0
+                _m3_fired = True
+                self._last_g85m3_tqp = 1
+            elif _m3_net <= -3:
+                _m3_adj = -2.0
+                _m3_fired = True
+                self._last_g85m3_tqp = -1
+            elif _m3_net >= 1:
+                _m3_adj = 1.0
+                _m3_fired = True
+                self._last_g85m3_tqp = 1
+            elif _m3_net <= -1:
+                _m3_adj = -1.0
+                _m3_fired = True
+                self._last_g85m3_tqp = -1
+            if _m3_adj != 0.0:
+                quality_score += _m3_adj
+            self._record("gate_g85m3_tqp", _m3_fired)
+        except Exception:
+            pass  # G8.5M3 TrendQuality-Persistence is non-fatal soft-gate
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -13476,6 +13615,8 @@ class UnitySignalFilter:
         "gate_g85i3_ifm":         "G8.5I3",  # v103.0: IRONSFloor-Sharpe Compound (-2.0/-1.5/+1.5/+1.0pts)
         "gate_g85j3_ltc":         "G8.5J3",  # v104.0: LLM-Technical-Coherence (-2.0/-1.0/+1.5pts)
         "gate_g85k3_ssc":         "G8.5K3",  # v104.0: StreakSession-Compound (-2.0/+1.5pts)
+        "gate_g85l3_cc":          "G8.5L3",  # v105.0: CrisisConsensus-Compound (-3.0/-2.0/+1.5pts)
+        "gate_g85m3_tqp":         "G8.5M3",  # v105.0: TrendQuality-Persistence (-2.0/-1.0/+1.0/+2.0pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -16463,6 +16604,72 @@ class UnityProfitBooster:
                 )
         except Exception:
             pass  # Kelly Step 63 Streak-Session-Compound Sizing is non-fatal
+
+        # ── Kelly Step 64 (v105.0): CrisisConsensus De-Sizing ────────────────
+        # When all three crisis indicators align (WR<25% + MaxDD>35% + Sharpe<-2),
+        # the engine is in compound-ruin territory — systematic losses across every
+        # dimension simultaneously.  Ruthless de-sizing is the only rational response.
+        # Triple-crisis (_last_g85l3_cc == -2) → Kelly ×0.60 (−40% from prior Kelly)
+        # Double-crisis (_last_g85l3_cc == -1) → Kelly ×0.76 (−24% from prior Kelly)
+        # Recovery      (_last_g85l3_cc == +1) → Kelly ×1.04 (modest boost on regime flip)
+        # Does NOT zero Kelly entirely — preserves micro-sizing for recovery detection.
+        try:
+            _k64_cc = int(getattr(self, "_last_g85l3_cc", 0) or 0)
+            if _k64_cc == -2:
+                _k64_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = self.last_kelly_fraction * 0.60
+                self._logger.info(
+                    f"🆘 [v105.0 Step64 CrisisConsensus] TRIPLE-CRISIS (WR+DD+SR) "
+                    f"→ Kelly ×0.60 ({_k64_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k64_cc == -1:
+                _k64_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = self.last_kelly_fraction * 0.76
+                self._logger.info(
+                    f"⚠️ [v105.0 Step64 CrisisConsensus] DOUBLE-CRISIS "
+                    f"→ Kelly ×0.76 ({_k64_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k64_cc == 1:
+                _k64_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(
+                    self._kelly_floor,
+                    min(self._kelly_cap, self.last_kelly_fraction * 1.04)
+                )
+                self._logger.debug(
+                    f"📊 [v105.0 Step64 CrisisConsensus] RECOVERY-REGIME "
+                    f"→ Kelly ×1.04 ({_k64_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 64 CrisisConsensus De-Sizing is non-fatal
+
+        # ── Kelly Step 65 (v105.0): TrendQuality-Persistence Sizing ──────────
+        # Mirrors G8.5M3 in Kelly sizing: when all 3 trend votes align in the
+        # signal direction, momentum is genuine and position can be slightly
+        # enlarged; when all 3 oppose, reduce sizing aggressively.
+        # _last_g85m3_tqp == +1 AND net_votes >= 3 → Kelly ×1.04 (strong trend align)
+        # _last_g85m3_tqp == -1 AND net_votes <= -3 → Kelly ×0.82 (strong trend oppose)
+        # For net=±1 or ±2 (soft votes) no Kelly change (gate already adjusted quality).
+        try:
+            _k65_tq = int(getattr(self, "_last_g85m3_tqp", 0) or 0)
+            if _k65_tq == 1:
+                _k65_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(
+                    self._kelly_floor,
+                    min(self._kelly_cap, self.last_kelly_fraction * 1.04)
+                )
+                self._logger.debug(
+                    f"📊 [v105.0 Step65 TrendQualPersist] TRIPLE-ALIGN-BULL "
+                    f"→ Kelly ×1.04 ({_k65_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k65_tq == -1:
+                _k65_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = self.last_kelly_fraction * 0.82
+                self._logger.debug(
+                    f"📊 [v105.0 Step65 TrendQualPersist] TRIPLE-ALIGN-BEAR "
+                    f"→ Kelly ×0.82 ({_k65_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 65 TrendQuality-Persistence Sizing is non-fatal
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property

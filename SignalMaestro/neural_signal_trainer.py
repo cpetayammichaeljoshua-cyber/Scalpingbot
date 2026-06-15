@@ -79,8 +79,8 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 195 features → 39 tokens × 5 dims (195 = 39 × 5) [v104.0: was 38×5=190]
-_TORCH_N_TOKENS  = 39
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5)
+_TORCH_N_TOKENS  = 40
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 195  # v36 (v104.0): 190 + 5 NNQuality/LLMTechCoh/StreakSession/ConSecLoss/RealizedEV features (nn_enabled_flag, llm_tech_coh, streak_session_compound, consec_loss_norm, realized_ev_norm) = 195
+INPUT_DIM          = 200  # v37 (v105.0): 195 + 5 CrisisState/TrendQuality features (recent_wr20_norm, max_dd_norm, sharpe_norm, crisis_consensus_gate, trend_quality_gate) = 200
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
