@@ -173,25 +173,28 @@ _FREE_SIMPLE = [
     # REMOVED: meta-llama/llama-3.1-8b-instruct:free → 404
     # REMOVED: qwen/qwen3-14b:free → unconfirmed, cleaned v21.0
     # REMOVED: aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free → unconfirmed slug [v20.0]
-    # ALL entries below confirmed working free tier as of 2026-05-31
-    "openai/gpt-oss-20b:free",                                        # OpenAI OSS 20B — fast winner, confirmed free 2026-05-25
-    "openai/gpt-oss-120b:free",                                       # OpenAI OSS 120B — large, confirmed free 2026-05-25
+    # ALL entries below confirmed stable as of v109.0 2026-06-15
+    # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
+    #   Live log 2026-06-15: 10 consecutive rate_limit errors → 240s disable every scan cycle.
+    # REMOVED (v109.0 2026-06-15): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors (v86.0), still absent from v107.0+ GODMODE stable roster
+    # REMOVED (v109.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → storm=5→6 consecutive rate_limit
+    #   Live log 2026-06-15: disabled 120s after 5 consecutive rate_limit errors every cycle.
+    # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors every cycle
+    #   Live log 2026-06-15: disabled 90s after 6 consecutive generic errors in cycle 1.
+    # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
+    #   Live log 2026-06-15: disabled 120s after 5 consecutive rate_limit errors every cycle.
     # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
-    "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B 1M ctx — confirmed free 2026-05-25
-    "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — flagship reasoning
-    "qwen/qwen3-72b:free",                                            # 72B dense — strong fast reasoning
     # REMOVED (v27.0 2026-05-31): qwen/qwen3-next-80b-a3b-instruct:free → rate_limit storm (13 errors, 960s disabled)
-    # qwen/qwen3-72b:free already in list above; slot removed to eliminate duplicate
     # REMOVED (2026-05-31) [v21.5]: deepseek/deepseek-r1-0528:free → 404 confirmed live log
     # REMOVED (2026-05-31) [v21.5]: tngtech/deepseek-r1t-chimera:free → 404 confirmed in comments
-    "meta-llama/llama-3.3-70b-instruct:free",                         # confirmed workhorse
     # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot
     # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
-    "google/gemma-4-26b-a4b-it:free",                                 # Gemma 4 26B — confirmed free 2026-05-25
-    "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — confirmed free 2026-05-25
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed v21.2 boot 2026-05-31 (provider revoked free access)
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B — confirmed workhorse
-    "z-ai/glm-4.5-air:free",                                         # GLM-4.5 Air 131K ctx — confirmed working
+    "openai/gpt-oss-20b:free",                                        # PRIMARY — score=93.5/100, confirmed stable
+    "openai/gpt-oss-120b:free",                                       # Large — confirmed stable, consistent CONSORTIUM winner
+    "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B — stable in GODMODE v107.0+
+    "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — stable in GODMODE v107.0+ (no storm warnings)
+    "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — flagship reasoning (monitor for session_perm_disable)
 ]
 _FREE_REASONING = [
     # v21.0: Dead model purge — confirmed-404 slugs removed, new reasoning heavyweights added.
@@ -202,25 +205,24 @@ _FREE_REASONING = [
     # REMOVED: qwen/qwen3-coder:free → 404 confirmed v20.5 boot
     # REMOVED: qwen/qwen3-14b:free → unconfirmed, cleaned v21.0
     # REMOVED: aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free → unconfirmed slug [v20.0]
-    # ALL entries below confirmed working free tier as of 2026-05-31
-    "openai/gpt-oss-120b:free",                                       # OpenAI OSS 120B — large reasoning, confirmed free 2026-05-25
-    "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B 1M ctx — confirmed free 2026-05-25
-    "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — top reasoning
-    "qwen/qwen3-72b:free",                                            # 72B dense reasoning
+    # ALL entries below confirmed stable as of v109.0 2026-06-15
+    # REMOVED (v109.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → storm=5→6 rate_limit every cycle
+    # REMOVED (v109.0 2026-06-15): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors (v86.0+)
+    # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
+    # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors every cycle
+    # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit every cycle
     # REMOVED (v27.0 2026-05-31): qwen/qwen3-next-80b-a3b-instruct:free → rate_limit storm (13 errors, 960s disabled)
-    # qwen/qwen3-72b:free already in list above; slot removed to eliminate duplicate
     # REMOVED (2026-05-31) [v21.5]: deepseek/deepseek-r1-0528:free → 404 confirmed live log
     # REMOVED (2026-05-31) [v21.5]: tngtech/deepseek-r1t-chimera:free → 404 confirmed
     # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
     # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot
-    "meta-llama/llama-3.3-70b-instruct:free",                         # confirmed 70B
-    "z-ai/glm-4.5-air:free",                                         # GLM-4.5 Air 131K ctx
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",  # Dolphin 24B — confirmed workhorse
     # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
-    "google/gemma-4-26b-a4b-it:free",                                 # Gemma 4 26B — confirmed free 2026-05-25
-    "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — confirmed free 2026-05-25
     # REMOVED: moonshotai/kimi-k2:free → 404 confirmed v21.2 boot 2026-05-31 (provider revoked free access)
-    "openai/gpt-oss-20b:free",                                        # OpenAI OSS 20B — fast, confirmed free 2026-05-25
+    "openai/gpt-oss-120b:free",                                       # Large — confirmed stable, primary reasoning
+    "nvidia/nemotron-3-super-120b-a12b:free",                         # Nvidia Nemotron 120B — stable in GODMODE v107.0+
+    "qwen/qwen3-235b-a22b-instruct:free",                             # 235B MoE — flagship reasoning (monitor)
+    "google/gemma-4-31b-it:free",                                     # Gemma 4 31B — stable in GODMODE v107.0+
+    "openai/gpt-oss-20b:free",                                        # Fast — PRIMARY winner score=93.5/100
 ]
 
 TIER_MODELS = {
