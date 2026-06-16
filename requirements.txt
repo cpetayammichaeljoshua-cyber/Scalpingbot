@@ -2,7 +2,7 @@
 # I6.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-16 (v117.0 — G8.5D4-TimesFM-ForecastConfluence | G8.5E4-TimesFM-RegimeSync | Kelly82-83 | NN-v48-255feat | IRONS-WR0.5%-88.5 | 91-gate | ScanParallel148)
+# Last verified: 2026-06-16 (v118.0 — G8.5F4-TimesFM-PatchMomentum | G8.5G4-SVTFCComposite | Kelly84-85 | NN-v49-260feat | IRONS-WR0.1%-90.5/WR0.2%-90.0 | EV43bps | 93-gate | ScanParallel150)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 125-feature NN v22 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
