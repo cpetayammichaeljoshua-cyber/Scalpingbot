@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 260 features → 52 tokens × 5 dims (260 = 52 × 5) [v118.0: was 51×5=255]
-_TORCH_N_TOKENS  = 52
+_TORCH_N_TOKENS  = 53
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 260  # v49 (v118.0): 255 + 5 TimesFM-PatchMomentum+SharpeVelocity features (timesfm_pm_dir, timesfm_pm_strength, timesfm_pm_votes, sharpe_velocity_norm, svtfc_composite) = 260
+INPUT_DIM          = 265  # v50 (v119.0): 260 + 5 TimesFM-PatchEnsemble+DrawdownGuard features (timesfm_pe_dir, timesfm_pe_conf, timesfm_pe_votes_norm, maxdd_regime_score, dgc_composite) = 265
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1622,7 +1622,9 @@ def build_features(trade: Dict) -> "np.ndarray":
     # F256: timesfm_pm_dir       — G8.5F4 multi-scale direction {-1,0,+1}
     # F257: timesfm_pm_strength  — multi-scale patch agreement [0,1]
     # F258: timesfm_pm_votes     — agreeing-scale count 0-3 normalized to [0,1]
-    # F259: sharpe_velocity_norm — recent5 vs prior5 Sharpe delta, clipped ±1
+    # F259: sharpe_vel_tf_norm — recent5 vs prior5 Sharpe velocity delta, clipped ±1
+    # BUG FIX v119.0: renamed from "sharpe_velocity_norm" which collided with F181;
+    # backward-compat: old trades missing "sharpe_vel_tf_norm" return 0.0 (safe).
     # F260: svtfc_composite      — G8.5G4 composite gate output {-1,0,+1}
     _v49_f256 = _safe_float(trade.get("timesfm_pm_dir",           0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v49_f256)))                                      # 256 timesfm_pm_dir
@@ -1630,10 +1632,29 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0,  min(1.0, _v49_f257)))                                      # 257 timesfm_pm_strength
     _v49_f258 = _safe_float(trade.get("timesfm_pm_votes",         0.0), 0.0)
     f.append(max(0.0,  min(1.0, _v49_f258)))                                      # 258 timesfm_pm_votes
-    _v49_f259 = _safe_float(trade.get("sharpe_velocity_norm",     0.0), 0.0)
-    f.append(max(-1.0, min(1.0, _v49_f259)))                                      # 259 sharpe_velocity_norm
+    _v49_f259 = _safe_float(trade.get("sharpe_vel_tf_norm",       0.0), 0.0)  # v119.0: renamed key (was sharpe_velocity_norm → F181 collision)
+    f.append(max(-1.0, min(1.0, _v49_f259)))                                      # 259 sharpe_vel_tf_norm
     _v49_f260 = _safe_float(trade.get("svtfc_composite",          0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v49_f260)))                                      # 260 svtfc_composite
+
+    # ── v50 (v119.0): F261-F265 — TimesFM-PatchEnsemble + DrawdownGuard-TimesFM ──
+    # G8.5H4 5-scale TimesFM patch ensemble gate outputs and G8.5I4
+    # DrawdownGuard-TimesFM Composite gate output.
+    # F261: timesfm_pe_dir       — G8.5H4 5-scale direction {-1,0,+1} normalized
+    # F262: timesfm_pe_conf      — G8.5H4 5-scale consensus confidence [0,1]
+    # F263: timesfm_pe_votes_norm — aligned-scale count 0-5, normalized to [0,1]
+    # F264: maxdd_regime_score   — 1 - max_drawdown_pct (equity health proxy [0,1])
+    # F265: dgc_composite        — G8.5I4 DrawdownGuard output {-1,0,+1}
+    _v50_f261 = _safe_float(trade.get("timesfm_pe_dir",           0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v50_f261)))                                      # 261 timesfm_pe_dir
+    _v50_f262 = _safe_float(trade.get("timesfm_pe_conf",          0.0), 0.0)
+    f.append(max(0.0,  min(1.0, _v50_f262)))                                      # 262 timesfm_pe_conf
+    _v50_f263 = _safe_float(trade.get("timesfm_pe_votes_norm",    0.0), 0.0)
+    f.append(max(0.0,  min(1.0, _v50_f263)))                                      # 263 timesfm_pe_votes_norm
+    _v50_f264 = _safe_float(trade.get("maxdd_regime_score",       0.5), 0.5)
+    f.append(max(0.0,  min(1.0, _v50_f264)))                                      # 264 maxdd_regime_score
+    _v50_f265 = _safe_float(trade.get("dgc_composite",            0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v50_f265)))                                      # 265 dgc_composite
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
