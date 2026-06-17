@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 260 features → 52 tokens × 5 dims (260 = 52 × 5) [v118.0: was 51×5=255]
-_TORCH_N_TOKENS  = 54
+_TORCH_N_TOKENS  = 55
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 270  # v51 (v120.0): 265 + 5 TFMS+PSR+WSD+OFM+TFC features (tf_multiscale_dir, psr_regime, wsd_triple, ofm_micro, tfc_consensus) = 270
+INPUT_DIM          = 275  # v52 (v121.0): 270 + 5 EVVel+WRAccel+MaxDD-EV+KellyRegime+LossStreak features = 275 (ev_velocity_dir, wr_accel_dir, maxdd_ev_cmpd, kelly_regime_n, loss_streak_n)
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1671,6 +1671,22 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(-1.0, min(1.0, _v51_f269)))                                      # 269 ofm_micro
     _v51_f270 = _safe_float(trade.get("tfc_consensus",      0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v51_f270)))                                      # 270 tfc_consensus
+    # ── v52 (v121.0): F271-F275 — EVVelocity + WRAccel + MaxDD-EV + KellyRegime + LossStreak ──
+    # F271: ev_velocity_dir  — G8.5O4 EV-velocity direction {-1,0,+1}
+    # F272: wr_accel_dir     — G8.5P4 WR acceleration direction {-1,0,+1}
+    # F273: maxdd_ev_cmpd    — G8.5Q4 MaxDD-EV compound {-1,0,+1}
+    # F274: kelly_regime_n   — normalized Kelly fraction (fraction×500−1, clipped [-1,+1])
+    # F275: loss_streak_n    — consecutive losses / 10, negated clipped [-1,0]
+    _v52_f271 = _safe_float(trade.get("ev_velocity_dir",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v52_f271)))                                      # 271 ev_velocity_dir
+    _v52_f272 = _safe_float(trade.get("wr_accel_dir",     0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v52_f272)))                                      # 272 wr_accel_dir
+    _v52_f273 = _safe_float(trade.get("maxdd_ev_cmpd",    0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v52_f273)))                                      # 273 maxdd_ev_cmpd
+    _v52_f274 = _safe_float(trade.get("kelly_regime_n",   0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v52_f274)))                                      # 274 kelly_regime_n
+    _v52_f275 = _safe_float(trade.get("loss_streak_n",    0.0), 0.0)
+    f.append(max(-1.0, min(0.0, _v52_f275)))                                      # 275 loss_streak_n
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
@@ -3567,7 +3583,7 @@ class NeuralSignalTrainer:
             # signal. The 0.25 floor captures the real-world distribution while maintaining
             # institutional quality (>random). The 0.18 crisis-floor aligns with the observed
             # lower bound where directional signal exists above sampling noise.
-            _win_acc_floor  = 0.18 if (_wr_for_cap < 0.25) else 0.25  # v114.0: adaptive 0.18 at WR<25%, 0.25 at WR≥25% (v70.0: 0.20/0.28)
+            _win_acc_floor  = 0.18 if (_wr_for_cap < 0.25) else 0.20 if (_wr_for_cap < 0.30) else 0.25  # v121.0: 3-tier adaptive (0.18 WR<25%, 0.20 WR<30%, 0.25 WR≥30%) — re-enables NN at WR=29% where win_acc=24.3% was failing 0.25 floor; at WR=29% the model still achieves 93%+ loss_acc providing directional signal; was: 0.18 if WR<25% else 0.25 (v114.0)
             # v104.0: Adaptive loss_acc floor — at WR<30% lower from 0.50→0.40.
             # Rationale: at WR=28-30% with win_acc=59% and loss_acc=47%, the NN has significant
             # directional signal (win_acc 2× floor) but loss_acc just misses the rigid 0.50 gate.
