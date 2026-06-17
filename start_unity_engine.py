@@ -2749,9 +2749,11 @@ IRONS_MIN_WR_BELOW30  = 73.0    # v115.0: 70→73 — CRISIS FLOOR TIGHTEN: at W
 IRONS_MIN_WR_30_45    = 69.0    # v115.0: 67→69 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 70; IRONS_MIN_WR_30_45 raised to 69 for G9+G10 near-co-equal discipline; at WR 30-45% the 67-69 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥70 AND IRONS≥69 — dual-floor ensures no single gate is the weak link in recovery; v38.0: 65→67 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 67; IRONS_MIN_WR_30_45 must match for G9+G10 co-equal discipline; at WR 30-45% the 65-67 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥67 AND IRONS≥67 — dual-floor ensures no single gate is the weak link in recovery; MARKOV_MILD+8pts (75+) easily absorbs the 2pt raise; v35.0: 63→65; v21.1: 62→63; v18.85: 57→62
 IRONS_MIN_WR_45_55    = 53.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57; v11.2: 57→51; v15.5: 51→52; v16.5: 52→53)
 IRONS_MIN_WR_ABOVE55  = 48.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52; v11.2: 52→47; v15.5: 47→48)
-# Quality-override: if composite quality >= this AND consensus=100%, relax IRONS floor by 5 pts
-IRONS_QUALITY_OVERRIDE_THRESHOLD = 78.0   # quality score that unlocks the bypass [v11.2: 88→78 — with quality gate at 55, a score of 88 was almost never reached; 78 fires on top-third quality signals]
-IRONS_QUALITY_OVERRIDE_RELAX     = 5.0    # points to subtract from effective IRONS min
+# v128.1 STRICT [ZERO-BYPASS]: IRONS quality-override REMOVED.
+# These constants once defined an IRONS-floor relaxation (subtract 5 pts when composite
+# quality >= 78 AND consensus == 100%) but have NOT been applied since v37.0 — Gate 10
+# is strict: passed_g10 = irons_score >= adaptive floor, with no quality-bypass path.
+# Constants deleted so no future code path can silently re-introduce the bypass.
 # ── ThreadPoolExecutor workers ─────────────────────────────────────────────────
 # v10.1: CPU-count-aware sizing.  os.cpu_count() returns None in restricted
 # containers so we clamp to 2 minimum and 8 maximum to avoid thread explosion
@@ -2763,7 +2765,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "128.0"
+UNITY_VERSION                = "128.1"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6200,10 +6202,11 @@ class UnitySignalFilter:
         confidence = float(signal_data.get("confidence", signal_data.get("ai_confidence", 0)) or 0)
         consensus  = float(signal_data.get("consensus",  signal_data.get("swarm_consensus", 0)) or 0)
 
-        # v18.8: Bypass flags — track when G3/G4 pass via soft-pass/bypass rather
-        # than genuine AI score. Applied as compensatory quality penalty at Gate 9.
-        _g3_softpass_flag: bool = False   # G3 AI confidence gate: consensus soft-pass
-        _g4_bypass_flag:   bool = False   # G4 NN gate: consensus bypass OR UNC soft-pass
+        # v128.1 STRICT [ZERO-BYPASS]: G3/G4 soft-pass + bypass flags REMOVED.
+        # G3 (AI confidence) and G4 (NN win-probability) are hard gates — the consensus
+        # soft-pass / UNC-bypass paths that could set these True were removed in v37.0,
+        # leaving only dead write-only declarations (never read). A signal must now pass
+        # G3 and G4 on genuine score alone; no compensatory-penalty bypass remains.
 
         # ── v8.5 Pre-Gate A — Symbol auto-blacklist (O(1) frozenset lookup) ──
         # Hard-block symbols with WR < 30% over ≥10 historical trades.
@@ -16662,11 +16665,19 @@ class UnitySignalFilter:
         # WR<30%). At 38, the requirement is still above random (IRONS random baseline ≈ 30-35)
         # and guarantees some directional signal before accepting. Non-fatal: after ring fills,
         # this branch no longer executes. v11.2: initial cold-start bypass at 45.
-        if _ring_size < 5 and _irons_min > 38.0:
+        # v128.1 STRICT [ZERO-BYPASS]: cold-start floor relaxation REMOVED.
+        # Previously (v11.2/v55.0) the IRONS floor was forced down to 38.0 while the
+        # score ring held <5 entries — the LAST remaining active gate relaxation.
+        # It is no longer needed: the IRONS ring now appends UNCONDITIONALLY on every
+        # Gate 10 evaluation (both pass AND fail — see _irons_score_ring.append above),
+        # so warm-up no longer depends on letting weak signals through; failed
+        # evaluations fill the ring on their own. Gate 10 is now strict-adaptive from
+        # the very first signal: no signal passes unless irons_score >= adaptive floor.
+        if _ring_size < 5:
             self._logger.debug(
-                f"[Gate10] Cold-start: ring={_ring_size} < 5 → floor {_irons_min:.0f}→38 [v55.0]"
+                f"[Gate10] Cold-start observation: ring={_ring_size} < 5 — "
+                f"strict floor={_irons_min:.0f} retained, NO relaxation [v128.1-STRICT]"
             )
-            _irons_min = 38.0
 
         if self._irons_scorer is not None and _irons_min > 0:
             try:

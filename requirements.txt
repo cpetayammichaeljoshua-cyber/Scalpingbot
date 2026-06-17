@@ -66,5 +66,7 @@ psutil==7.2.2
 # ── Async rate-limiting ────────────────────────────────────────────────────────
 asyncio-throttle==1.0.2
 
-# ── TimesFM — patch-ensemble forecast (G8.5D4/E4/F4/G4/H4/I4/J4 gates) ───────
-timesfm==2.0.1
+# NOTE: timesfm package removed (v128.1) — it was never imported; the TimesFM-named
+#       gates (G8.5D4/E4/F4/G4/H4/I4/J4) are computed with pure-numpy polyfit.
+#       Pinning it pulled unlisted transitive deps (huggingface_hub[cli], safetensors)
+#       that risk colliding with transformers==4.44.2 on a fresh Railway build.

@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v127.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v128.1 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="120.0"              \
-      description="Unity Engine v127.0 — G8.5Z4-ARCAdaptRegimeComposite[v127.0] | G8.5A5-SVCSharpeVelConfluence[v127.0] | Kelly104-105[v127.0] | NN-v57-300feat[v127.0] | F296-F300-Injected[v127.0] | 113-gate[v127.0] | ScanParallel166[v127.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="128.1"              \
+      description="Unity Engine v128.1 — G8.5Z4-ARCAdaptRegimeComposite[v127.0] | G8.5A5-SVCSharpeVelConfluence[v127.0] | Kelly104-105[v127.0] | NN-v57-300feat[v127.0] | F296-F300-Injected[v127.0] | 113-gate[v127.0] | ScanParallel166[v127.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

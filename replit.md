@@ -15,7 +15,7 @@ python3 start_unity_engine.py   # main launcher (auto-restarts up to 100×)
 ## Stack
 
 - **Runtime:** Python 3.11.14 · uvloop (2-4× faster event loop)
-- **ML/AI:** torch 2.4.0+cpu ✅SOVEREIGN(1.00) · transformers 5.8.0 · scikit-learn 1.8.0 ✅SOVEREIGN(1.00) · numpy 2.4.4 · pandas 3.0.2
+- **ML/AI:** torch 2.3.1+cpu ✅SOVEREIGN(1.00) · transformers 4.44.2 · scikit-learn 1.8.0 ✅SOVEREIGN(1.00) · numpy 2.4.4 · pandas 3.0.2
 - **HMM:** hmmlearn 0.3.3 (GaussianHMM Tier-1 · Kelly Step 21 predict_proba)
 - **Network:** aiohttp 3.13.5 · python-telegram-bot 22.7 · openai 2.34.0
 - **Storage:** aiosqlite (SQLite TradeMemory) · orjson (fast JSON) · Redis (optional state cache)
