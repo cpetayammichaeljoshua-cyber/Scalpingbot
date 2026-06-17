@@ -1,3 +1,4 @@
+- [Unity Engine v125.0 upgrades](unity-engine-v125.md) — G8.5V4 ERV EV-Recovery-Velocity 108th gate (linreg slope ev_ring, +2.0/+1.0/-2.0pts); G8.5W4 WAC WinRate-Acceleration-Coherence 109th gate (recent-10 vs prior-20 WR delta, +2.0/+1.5/-2.0pts); Kelly100-101; NN v55 290feat F286-F290; ScanParallel162; clean 21/21 boot
 - [Unity Engine v124.0 upgrades](unity-engine-v124.md) — G8.5T4 CapReversal 106th gate (F&G+GEX, +2.5/+1.5/-2.0pts); G8.5U4 TUCSentinel 107th gate (-4.0/-3.0/+1.5pts); Kelly98-99; NN v54 285feat F281-F285; SCAN_PARALLEL 160; clean 21/21 boot
 - [Unity Engine v20.0 upgrades](unity-engine-v20.md) — torch CPU, 4-step strategy validation, 15s heartbeat, BACKUP_7 key pool; engine starts cleanly with no false stall restarts
 - [Unity Engine v21.2 gate calibration](unity-engine-v20-gates.md) — v21.1: IRONS_MIN 65→67(WR<30%), 62→63(WR30-45%), SIGNAL_QUALITY 62→63; v21.2: G8.5q QuantDinger MomVol gate(±3pts), 9 GODMODE combos
