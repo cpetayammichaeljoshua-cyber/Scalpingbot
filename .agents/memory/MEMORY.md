@@ -1,3 +1,4 @@
+- [Unity Engine v124.0 upgrades](unity-engine-v124.md) — G8.5T4 CapReversal 106th gate (F&G+GEX, +2.5/+1.5/-2.0pts); G8.5U4 TUCSentinel 107th gate (-4.0/-3.0/+1.5pts); Kelly98-99; NN v54 285feat F281-F285; SCAN_PARALLEL 160; clean 21/21 boot
 - [Unity Engine v20.0 upgrades](unity-engine-v20.md) — torch CPU, 4-step strategy validation, 15s heartbeat, BACKUP_7 key pool; engine starts cleanly with no false stall restarts
 - [Unity Engine v21.2 gate calibration](unity-engine-v20-gates.md) — v21.1: IRONS_MIN 65→67(WR<30%), 62→63(WR30-45%), SIGNAL_QUALITY 62→63; v21.2: G8.5q QuantDinger MomVol gate(±3pts), 9 GODMODE combos
 - [Unity Engine OpenRouter model roster](unity-engine-openrouter-models.md) — v82.0: claude-fable-5+mythos-5 → 404 confirmed, replaced with StructuralVortex(gpt-oss-120b)+MacroNexus(gpt-oss-20b); _GENERIC_ERR_THRESHOLD 12→5; _CONSORTIUM_MIN_MODELS 2→1

@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 260 features → 52 tokens × 5 dims (260 = 52 × 5) [v118.0: was 51×5=255]
-_TORCH_N_TOKENS  = 56
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5)
+# Transformer tokenisation: reshape 285 features → 57 tokens × 5 dims (285 = 57 × 5) [v124.0: was 56×5=280]
+_TORCH_N_TOKENS  = 57
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 280  # v53 (v123.0): 275 + 5 SOWResonance+SQCSentinel+SharpeNorm+OFIPersistN+DDNorm features = 280 (sow_resonance, sqc_sentinel, sharpe_norm, ofi_persist_n, dd_norm)
+INPUT_DIM          = 285  # v54 (v124.0): 280 + 5 FearGreedNorm+TUCSentinel+CapReversal+QualityVelocity+TripleCrisisN features = 285 (fg_norm, tuc_sentinel, cap_reversal, quality_velocity, triple_crisis_n)
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
