@@ -160,7 +160,7 @@ print('VERIFY sklearn=%s numpy=%s pandas=%s openai=%s scipy=%s aiosqlite=%s hmml
     sklearn.__version__, numpy.__version__, pandas.__version__,
     openai.__version__, scipy.__version__, aiosqlite.__version__, hmmlearn.__version__
 ))
-print('OK Unity Engine v119.0 — SOVEREIGN [1.00] dependency singularity verified')
+print('OK Unity Engine v120.0 — SOVEREIGN [1.00] dependency singularity verified')
 VERIFY
 
 
@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="119.0"              \
-      description="Unity Engine v119.0 — G8.5H4-TimesFM-PatchEnsemble-5scale[v119.0] | G8.5I4-DrawdownGuard-TimesFM-Composite[v119.0] | Kelly86-TPEPatchEnsemble[v119.0] | Kelly87-DGCDrawdownGuard[v119.0] | NN-v50-265feat[v119.0] | IRONS-WR0.05%-91.0[v119.0] | EV46bps[v119.0] | 95-gate | ScanParallel152[v119.0] | F259-KeyFix[v119.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="120.0"              \
+      description="Unity Engine v120.0 — G8.5J4-TFMSMultiScale[v120.0] | G8.5K4-PSRRegimeAlign[v120.0] | G8.5L4-WSDTriple[v120.0] | G8.5M4-OFMicroTriple[v120.0] | G8.5N4-TFCConsensusMeta[v120.0] | Kelly88-92[v120.0] | NN-v51-270feat[v120.0] | IRONS-WR0.02%-91.5[v120.0] | EV48bps[v120.0] | 100-gate[v120.0] | ScanParallel154[v120.0] | timesfm==2.0.1[v120.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

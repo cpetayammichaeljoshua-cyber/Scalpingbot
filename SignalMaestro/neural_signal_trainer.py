@@ -79,7 +79,7 @@ WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
 # Transformer tokenisation: reshape 260 features → 52 tokens × 5 dims (260 = 52 × 5) [v118.0: was 51×5=255]
-_TORCH_N_TOKENS  = 53
+_TORCH_N_TOKENS  = 54
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 265  # v50 (v119.0): 260 + 5 TimesFM-PatchEnsemble+DrawdownGuard features (timesfm_pe_dir, timesfm_pe_conf, timesfm_pe_votes_norm, maxdd_regime_score, dgc_composite) = 265
+INPUT_DIM          = 270  # v51 (v120.0): 265 + 5 TFMS+PSR+WSD+OFM+TFC features (tf_multiscale_dir, psr_regime, wsd_triple, ofm_micro, tfc_consensus) = 270
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1655,6 +1655,22 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0,  min(1.0, _v50_f264)))                                      # 264 maxdd_regime_score
     _v50_f265 = _safe_float(trade.get("dgc_composite",            0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v50_f265)))                                      # 265 dgc_composite
+    # ── v51 (v120.0): F266-F270 — TFMS+PSR+WSD+OFM+TFC ──────────────────────
+    # F266: tf_multiscale_dir    — G8.5J4 7-scale TimesFM vote direction {-1,0,+1}
+    # F267: psr_regime           — G8.5K4 PatchScale-Regime composite {-1,0,+1}
+    # F268: wsd_triple           — G8.5L4 WR-Sharpe-DD triple health {-1,0,+1}
+    # F269: ofm_micro            — G8.5M4 OFI-VPIN-Funding micro-triple {-1,0,+1}
+    # F270: tfc_consensus        — G8.5N4 TimesFM meta-vote / 5, normalised [-1,+1]
+    _v51_f266 = _safe_float(trade.get("tf_multiscale_dir",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v51_f266)))                                      # 266 tf_multiscale_dir
+    _v51_f267 = _safe_float(trade.get("psr_regime",         0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v51_f267)))                                      # 267 psr_regime
+    _v51_f268 = _safe_float(trade.get("wsd_triple",         0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v51_f268)))                                      # 268 wsd_triple
+    _v51_f269 = _safe_float(trade.get("ofm_micro",          0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v51_f269)))                                      # 269 ofm_micro
+    _v51_f270 = _safe_float(trade.get("tfc_consensus",      0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v51_f270)))                                      # 270 tfc_consensus
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:

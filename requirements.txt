@@ -2,7 +2,7 @@
 # I6.0 — Production requirements.txt
 # ALL versions pinned to Railway-verified stable releases (nixpacks-aligned).
 # Synced with nixpacks.toml install phase — ZERO version-conflict guarantee.
-# Last verified: 2026-06-16 (v118.0 — G8.5F4-TimesFM-PatchMomentum | G8.5G4-SVTFCComposite | Kelly84-85 | NN-v49-260feat | IRONS-WR0.1%-90.5/WR0.2%-90.0 | EV43bps | 93-gate | ScanParallel150)
+# Last verified: 2026-06-17 (v120.0 — G8.5J4-TFMSMultiScale | G8.5K4-PSRRegimeAlign | G8.5L4-WSDTriple | G8.5M4-OFMicroTriple | G8.5N4-TFCConsensusMeta | Kelly88-92 | NN-v51-270feat | IRONS-WR0.02%-91.5 | EV48bps | 100-gate | ScanParallel154)
 # pytorch_transformers → SOVEREIGN [1.00] — torch+transformers verified
 # sklearn              → SOVEREIGN [1.00] — sklearn MLP 125-feature NN v22 ensemble
 # openrouter           → ZERO cold-boot quarantine — bare slugs removed from TIER_MODELS
@@ -65,3 +65,6 @@ psutil==7.2.2
 
 # ── Async rate-limiting ────────────────────────────────────────────────────────
 asyncio-throttle==1.0.2
+
+# ── TimesFM — patch-ensemble forecast (G8.5D4/E4/F4/G4/H4/I4/J4 gates) ───────
+timesfm==2.0.1
