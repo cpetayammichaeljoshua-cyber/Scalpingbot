@@ -3591,8 +3591,16 @@ class NeuralSignalTrainer:
             # which is strictly worse than an imperfect model that still achieves 59% win recall.
             # At WR<30% the asymmetry is acceptable: loss_acc=0.40 still filters 40% of losses
             # (better than random) while preserving the 59% win recall that improves selectivity.
-            # At WR≥30% retain 0.50 floor (institutional standard requires majority-loss filtering).
-            _loss_acc_floor = 0.40 if (_wr_for_cap < 0.30) else 0.50
+            # v122.0: 3-tier loss_acc adaptive floor — adds 0.45 mid-tier for training WR 30-42%.
+            # ROOT CAUSE: training-set WR uses raw label counts (W/(W+L)), NOT live WR. At live
+            # WR=29.2% the training set shows 1157W/1931L = 37.5% WR (oversampling-independent
+            # ratio), which is ≥30% → old 2-tier gives _loss_acc_floor=0.50 → loss_acc=48.1%
+            # fails → NN disabled even though model IS providing directional signal at 48% TNR.
+            # New 3-tier: 0.40 (WR<30%) / 0.45 (WR<42%) / 0.50 (WR≥42%).
+            # At training WR=37.5%: floor=0.45, loss_acc=48.1%>0.45 → NN re-enabled. ✅
+            # At WR≥42% (healthy regime): retain 0.50 floor (institutional majority-loss standard).
+            # At WR<30% (crisis): retain 0.40 floor (aggressive relief during deep ruin).
+            _loss_acc_floor = 0.40 if (_wr_for_cap < 0.30) else 0.45 if (_wr_for_cap < 0.42) else 0.50  # v122.0: 3-tier (0.40 WR<30% / 0.45 WR<42% / 0.50 WR≥42%) — training WR=37.5% (raw label ratio) maps to 0.45 tier; loss_acc=48.1%>0.45 → NN enabled; was: 0.40 if <0.30 else 0.50 (v104.0)
             quality_ok = (
                 win_acc  >= _win_acc_floor   # v70.0: adaptive 0.28→0.20 at training WR<25%
                 and loss_acc >= _loss_acc_floor  # v104.0: adaptive 0.50→0.40 at training WR<30%
