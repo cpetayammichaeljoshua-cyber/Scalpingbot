@@ -2330,6 +2330,37 @@ assert MIN_LEVERAGE <= MAX_LEVERAGE
 KELLY_MAX_FRACTION    = 0.08     # cap Kelly at 8% of capital per trade (v18.85: 0.25→0.08 — RISK FIX: at WR=30.2% Sharpe=-4.87 MaxDD=49.37% the 25% cap was allowing catastrophic drawdowns; institutional full-Kelly at 30% WR = (0.30×2.20−0.70)/2.20 = −0.018 (negative! so raw Kelly=0); 8% is an empirical institutional maximum for live futures trading in negative-Sharpe regime — preserves capital while engine recovers)
 KELLY_HALF_KELLY      = True     # use half-Kelly for safety
 
+# ── v129.0 — Walk-forward-validated Session + Volume Kelly DE-SIZE ───────────
+# Source: SignalMaestro/walk_forward_backtest.py (6-fold purged/embargoed
+# walk-forward on the `bot` trade source).  Out-of-sample finding: the US session
+# is the ONLY positive-expectancy session; EU/ASIAN/TRANSITION are net-negative
+# and carry the bulk of drawdown (dropping them HALVES OOS maxDD, 418%→205%).
+# vol_ratio>2 spikes are also net-negative.  These DE-SIZE Kelly (never hard-block)
+# to cut drawdown while preserving signal flow — drought-safe.  All values tunable.
+# Session windows mirror get_current_market_session() in
+# SignalMaestro/mirofish_swarm_strategy.py (highest-activity tie-break):
+#   US = 13-22h, EU = 7-12h, ASIAN = 0-6h, TRANSITION = 23h (UTC).
+SESSION_KELLY_DESIZE   = {"US": 1.0, "EU": 0.55, "ASIAN": 0.55, "TRANSITION": 0.55}
+VOL_SPIKE_RATIO_THRESH = 2.0     # volume_ratio above this = validated neg-expectancy
+VOL_SPIKE_KELLY_DESIZE = 0.70    # de-size factor applied on a volume spike
+
+def _current_kelly_session() -> str:
+    """Return the current UTC market-session label, mirroring
+    get_current_market_session() in mirofish_swarm_strategy.py (highest-activity
+    tie-break).  Drives the v129.0 Session-Expectancy Kelly de-size step.
+    Uses time.gmtime() (UTC, no extra import, no deprecation)."""
+    try:
+        _h = time.gmtime().tm_hour
+    except Exception:
+        return "US"   # fail-open to full size (drought-safe)
+    if 13 <= _h <= 22:
+        return "US"
+    if 7 <= _h <= 12:
+        return "EU"
+    if 0 <= _h <= 6:
+        return "ASIAN"
+    return "TRANSITION"   # _h == 23
+
 # ── v9.4 Sharpe-Floor Position Sizing ─────────────────────────────────────────
 # Annualised Sharpe Ratio acts as a risk-adjusted-return gate on Kelly sizing.
 # When Sharpe < SHARPE_FLOOR, scale Kelly DOWN proportionally; this prevents the
@@ -7998,6 +8029,11 @@ class UnitySignalFilter:
         # Additive with IRONS vol-confirmation score (independent signal dimension).
         try:
             _vcr = float(signal_data.get("volume_ratio", 1.0) or 1.0)
+            try:
+                if self._booster is not None:
+                    self._booster._last_vol_ratio = _vcr   # v129.0: feed Kelly Step 107 vol-spike de-size
+            except Exception:
+                pass
             if _vcr > 3.5:          # 3.5×+ average: extreme institutional surge — v18.93 conviction-spike tier
                 quality_score += 5.0
             elif _vcr > 2.0:        # 2–3.5×: strong institutional flow confirmed
@@ -17145,6 +17181,9 @@ class UnityProfitBooster:
         # Kelly Step 20 reads these to apply per-direction Markov SOVEREIGN boost.
         self._last_symbol:    str = ""
         self._last_direction: str = "BUY"
+        # v129.0: most-recent signal volume_ratio (stashed by the UnitySignalFilter
+        # scoring path) — read by Kelly Step 107 Volume-Spike de-size.  1.0 = neutral.
+        self._last_vol_ratio: float = 1.0
         # v18.51: Markov gate portfolio stats cache (updated once per Kelly cycle).
         # _markov_sovereign_ratio: fraction of active Markov states at SOVEREIGN tier.
         # 0.0 = cold/no SOVEREIGN states; 1.0 = all active states SOVEREIGN.
@@ -20855,6 +20894,43 @@ class UnityProfitBooster:
                 self._logger.debug(f"[v127.0 Step105 SVC] sharpe+quality both-negative → Kelly ×0.88")
         except Exception:
             pass  # Kelly Step 105 Sharpe-Velocity-Confluence Sizing is non-fatal
+
+        # ── Kelly Step 106 — Session-Expectancy De-size [v129.0] ─────────────
+        # Walk-forward-validated (SignalMaestro/walk_forward_backtest.py): the US
+        # session is the ONLY positive-expectancy session; EU/ASIAN/TRANSITION are
+        # net-negative and carry the bulk of OOS drawdown (dropping them HALVES OOS
+        # maxDD).  DE-SIZE Kelly in those sessions — never hard-block — to cut
+        # drawdown while preserving signal flow (drought-safe).  Session label
+        # mirrors get_current_market_session() (highest-activity tie-break).
+        # NOTE: de-size only (mult<1) so no _kelly_ceil clamp is required.
+        try:
+            _k106_sess = _current_kelly_session()
+            _k106_mult = float(SESSION_KELLY_DESIZE.get(_k106_sess, 1.0))
+            if _k106_mult < 1.0 and self.last_kelly_fraction > 0.0:
+                _k106_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(0.0, self.last_kelly_fraction * _k106_mult)
+                self._logger.debug(
+                    f"[v129.0 Step106 SessionDesize] {_k106_sess} neg-expectancy session "
+                    f"→ Kelly ×{_k106_mult:.2f} ({_k106_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 106 Session-Expectancy De-size is non-fatal
+
+        # ── Kelly Step 107 — Volume-Spike De-size [v129.0] ───────────────────
+        # Walk-forward-validated: volume_ratio > VOL_SPIKE_RATIO_THRESH (2.0) is
+        # net-negative expectancy.  De-size on the most-recent signal's volume
+        # context (stashed on the booster by the scoring path).  De-size only.
+        try:
+            _k107_vr = float(getattr(self, "_last_vol_ratio", 1.0) or 1.0)
+            if _k107_vr > VOL_SPIKE_RATIO_THRESH and self.last_kelly_fraction > 0.0:
+                _k107_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(0.0, self.last_kelly_fraction * VOL_SPIKE_KELLY_DESIZE)
+                self._logger.debug(
+                    f"[v129.0 Step107 VolSpikeDesize] vol_ratio={_k107_vr:.2f}>{VOL_SPIKE_RATIO_THRESH:.1f} "
+                    f"→ Kelly ×{VOL_SPIKE_KELLY_DESIZE:.2f} ({_k107_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 107 Volume-Spike De-size is non-fatal
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
