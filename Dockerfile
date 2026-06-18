@@ -168,8 +168,8 @@ VERIFY
 FROM python:3.11-slim AS runtime
 
 LABEL maintainer="Unity Engine Bot" \
-      version="128.1"              \
-      description="Unity Engine v128.1 — G8.5Z4-ARCAdaptRegimeComposite[v127.0] | G8.5A5-SVCSharpeVelConfluence[v127.0] | Kelly104-105[v127.0] | NN-v57-300feat[v127.0] | F296-F300-Injected[v127.0] | 113-gate[v127.0] | ScanParallel166[v127.0] | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
+      version="130.0"              \
+      description="Unity Engine v130.0 — KellyCeilMirror-BUGFIX[v130.0: self._kelly_ceil was never assigned → 51 clamp sites in Kelly Steps 88-105 were silent no-ops; now published to the instance each cycle] | Session+Vol-Kelly-DE-SIZE[v129.0 Steps106-107] | 113-gate | ZERO-BYPASS-STRICT | torch==2.3.1+cpu | ZERO DEGRADED"
 
 # Non-root user for production security
 RUN groupadd -r unity && useradd -r -g unity -d /app -s /sbin/nologin unity

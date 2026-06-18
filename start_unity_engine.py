@@ -2796,7 +2796,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "128.1"
+UNITY_VERSION                = "130.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -17184,6 +17184,14 @@ class UnityProfitBooster:
         # v129.0: most-recent signal volume_ratio (stashed by the UnitySignalFilter
         # scoring path) — read by Kelly Step 107 Volume-Spike de-size.  1.0 = neutral.
         self._last_vol_ratio: float = 1.0
+        # v130.0 BUGFIX: instance Kelly-ceiling mirror.  Kelly Steps 88-105 read
+        # self._kelly_ceil inside min() clamps, but the ceiling was only ever computed
+        # as a LOCAL (_kelly_ceil) in _update_kelly() and never written to the instance
+        # — so every `self._kelly_ceil` access raised AttributeError, was swallowed by
+        # the enclosing try/except, and silently NO-OP'd those ~18 fine-tune steps
+        # (51 clamp sites).  Initialised here (cold-start default = KELLY_MAX_FRACTION)
+        # and refreshed each cycle in _update_kelly so the clamps finally take effect.
+        self._kelly_ceil: float = KELLY_MAX_FRACTION
         # v18.51: Markov gate portfolio stats cache (updated once per Kelly cycle).
         # _markov_sovereign_ratio: fraction of active Markov states at SOVEREIGN tier.
         # 0.0 = cold/no SOVEREIGN states; 1.0 = all active states SOVEREIGN.
@@ -18297,6 +18305,18 @@ class UnityProfitBooster:
                         )
             except Exception:
                 pass
+
+        # v130.0 BUGFIX: publish the fully-resolved local ceiling to the instance so
+        # the later Kelly fine-tune steps (88-105) that clamp via min(self._kelly_ceil,…)
+        # actually fire.  Before v130.0 self._kelly_ceil was never assigned, so all 51
+        # clamp sites raised AttributeError (swallowed by try/except) and were dead
+        # no-ops.  Placed after the last local _kelly_ceil mutation (Omega lift, above)
+        # and before any reader.  Every reactivated step is min(self._kelly_ceil, frac×mult):
+        # de-size branches (×<1.0) shrink frac, and the modest boost branches (×≤1.05) can
+        # raise it but only up to the resolved ceiling — so frac can NEVER exceed the Kelly
+        # ceiling.  Not purely de-sizing, but hard-capped; in the current crisis regime the
+        # de-size/sentinel branches dominate and the boosts gate on healthy-regime conditions.
+        self._kelly_ceil = _kelly_ceil
 
         # v18.8 Kelly Step 15 — Consecutive-Loss Progressive Position Scaling ─────
         # The hard-cutoff (Step 12) halts ALL trading at consec_losses=HARD_CUTOFF

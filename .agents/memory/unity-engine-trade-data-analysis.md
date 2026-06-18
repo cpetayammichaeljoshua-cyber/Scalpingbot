@@ -23,7 +23,8 @@ Analysis run on the `trades` table (3,298 rows, 3,296 resolved w/ pnl_pct). Data
 - **volume_ratio > 2 = bad**: −0.6% to −1.1% avgPnL.
 - **Confidence is miscalibrated/non-predictive**: confidence 90+ has WORSE avgPnL (−0.08%) than 70–80 (+0.84%). Higher "confidence" does not mean better outcome.
 - **`swarm_consensus` is a DEAD column**: all 3,296 rows fall in the <50 bucket → carries zero information; any gate keying off it is a no-op.
-- The RR "paradox" (RR 1.5–2 looks great) is a SOURCE CONFOUND — those wins are insidertactics, not the bot. The bot's own RR band (2.5–3.5) is weak/negative.
+- The RR "paradox" (RR 1.5–2 looks great) is a SOURCE CONFOUND — those wins are insidertactics, not the bot. The bot's own RR band (2.5–3.5) is weak/negative. (v130.0 re-check: WITHIN `bot`, RR<2.0 DID show +0.53%/trade / 48% WR vs RR≥3.0 −0.137% — BUT RR<2.0 trades exist ONLY in the earliest chronological fold; the engine stopped producing them once MinRR was raised, so it is NOT walk-forward-validatable. Do NOT lower MinRR on an in-sample-only pocket.)
+- insidertactics logs CONSTANT placeholder values for confidence/rsi/volume_ratio/session (every row lands in one bucket) — only its RR column varies. So any insidertactics univariate "edge" in a pooled query is an artifact; split by source AND ignore its non-RR features.
 
 ## Walk-forward VALIDATION (SignalMaestro/walk_forward_backtest.py)
 Purged/embargoed expanding-window walk-forward on `bot` source (1588 trades, 6 folds), filters LEARNED on train + applied to unseen test. Architect-reviewed PASS. Results are "walk-forward-supported on this May-31 snapshot", NOT production-proof.
@@ -33,7 +34,7 @@ Purged/embargoed expanding-window walk-forward on `bot` source (1588 trades, 6 f
 - `session+vol` (the validated combo): avgPnL **+0.001% (flips losing→breakeven)**, maxDD **213%**. Drops ~51% of signals.
 - `rsi_overbought` (RSI>70): no-op (bot rarely takes them, only 4 filtered). `confidence_high` (>=80) control: negligible Δ → confidence score is NOT predictive.
 - **Caveats:** maxDD is cumulative trade-PnL-points (not account DD under Kelly sizing); ~5 OOS folds; thresholds had mild exploratory selection bias; embargo is trade-count not holding-horizon. Even best case is only ~breakeven — filtering cuts losers/drawdown, it does NOT create a strong positive edge.
-- **Live rollout blocker:** the live engine does NOT compute US/ASIAN/EU/TRANSITION labels in its Kelly path (only binary UTC prime/morning windows at SESSION_BONUS_UTC_*); labels come from the SignalMaestro bot module. mirofish_swarm_strategy.py session_multipliers even BOOST EU (1.05-1.15×) — contradicts validated EU-negative. Any live de-size must use the exact live session classifier + be re-validated on fresh data first.
+- **Live rollout — SHIPPED v129.0:** the validated combo is now LIVE in `_update_kelly` — Kelly Step 106 de-sizes EU/ASIAN/TRANSITION to 0.55× (`SESSION_KELLY_DESIZE`) using `_current_kelly_session()` (mirrors `get_current_market_session()`, NOT the old binary UTC windows → resolves the prior "labels not in Kelly path" blocker); Kelly Step 107 de-sizes vol_ratio>2.0 to 0.70× (`VOL_SPIKE_RATIO_THRESH`/`VOL_SPIKE_KELLY_DESIZE`). De-size only (never hard-block) so signal flow is preserved. REMAINING CAVEATS: mirofish_swarm_strategy.py session_multipliers may still BOOST EU upstream — verify it doesn't re-inflate what Step 106 de-sizes; and thresholds came from the May-31 snapshot, so re-validate on fresh data periodically.
 
 ## Strategic lesson
 - Adding gates / cranking thresholds has never moved outcome-WR off ~24–29% across 100+ versions = overfitting churn.
