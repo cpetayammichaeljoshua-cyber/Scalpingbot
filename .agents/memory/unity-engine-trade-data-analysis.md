@@ -43,6 +43,13 @@ Three Telegram copy-trade channel exports analyzed (leverage-inclusive "Signal G
 - **PnLTactics** (1.08k rows, 1,073 resolved): 42.8% WR, positive both months — but only 2 months and the +29% lev[9-12) bucket is 25-trade outlier noise. Too small/short to walk-forward-validate.
 - **Verdict (same as all prior analyses):** every channel that looks profitable does so only in an EARLY in-sample window; all converge to ~34–43% WR / ~breakeven in recent months. There is no hidden forward edge to gate your way into. Confirms — on fresh, large data — that the strategy family is structurally breakeven-to-negative.
 
+## Direction × time-of-day (long vs short) — cross-validated Jun-2026
+Ran long/short × hour-UTC × session on BOTH the InsiderTactics CSV (15,092 resolved, upstream mirror) and the bot's OWN trades (trade_history.db `bot`, 1,596). Only trust what REPLICATES across both sources:
+- **REPLICATES — US session (~16–23 UTC) is the best, most reliable pocket for BOTH directions** (bot: Long US +0.30%/WR49%, Short US +0.18%/WR45%; insider: both US positive). Exactly what live Kelly Step 106 already does (keep US, de-size rest) → no new code needed.
+- **REPLICATES — Long ASIAN is negative** (bot −0.40%, insider −0.13%); **TRANSITION is worst for longs** (bot −1.44%).
+- **CONTRADICTS — do NOT build a direction×session rule:** EU-longs are the WORST pocket in insider (−0.22%, n=2309) but the BEST in the bot (+0.44%, n=106); Asian-shorts are insider's best (+0.13%) but negative in the bot (−0.11%). Opposite signs across sources = noise; hardcoding either overfits one dataset.
+- **The real bot problem is realized-R:R collapse, not WR.** Bot targets MinRR 2.65 but REALIZED R:R = 1.46 long / 1.19 short (avgWin≈+4.4%, avgLoss≈−3.0%). At that R:R, breakeven WR = 40.6% (long)/45.7% (short); bot sits at 40.0%/44.8% → −0.6 to −0.9pp (breakeven-negative). Losers run near full SL while winners are diluted by EXPIRED-small-positive + TP1-only partial exits. Highest-leverage lever = close the target-vs-realized R:R gap (honor/tighten SL, cut EXPIRED bleeders, or let winners run past TP1); lifting realized R:R to 2.0 drops breakeven WR to ~33%. This is a TP/SL/time-stop behavioral change that itself needs walk-forward validation — do NOT ship blind.
+
 ## Strategic lesson
 - Adding gates / cranking thresholds has never moved outcome-WR off ~24–29% across 100+ versions = overfitting churn.
 - The data says the real levers are **session/regime selection + RR-target calibration + dropping miscalibrated signals (confidence, swarm_consensus)**, NOT a 114th gate.
