@@ -2343,6 +2343,21 @@ KELLY_HALF_KELLY      = True     # use half-Kelly for safety
 SESSION_KELLY_DESIZE   = {"US": 1.0, "EU": 0.55, "ASIAN": 0.55, "TRANSITION": 0.55}
 VOL_SPIKE_RATIO_THRESH = 2.0     # volume_ratio above this = validated neg-expectancy
 VOL_SPIKE_KELLY_DESIZE = 0.70    # de-size factor applied on a volume spike
+# v131.0: Time-of-Day × Direction Kelly de-size.  These are the ONLY hour×direction
+# pockets that are net-negative across ALL THREE independent datasets analysed —
+# the bot's own executed trades (trade_history.db), the InsiderTactics 15k-trade
+# upstream CSV, and the user's 15.4k-trade analysis dashboard.  Crucially they sit
+# INSIDE the "US" session (h15,h20,h22 UTC) that SESSION_KELLY_DESIZE keeps at full
+# size (×1.0), so the coarse session-level cut (Step 106) misses them entirely.
+# Keys: (DIRECTION, utc_hour) → Kelly de-size multiplier.  De-size only (mult<1),
+# never a hard block — preserves no-bypass + drought-safety (3 of 24 US hour×dir
+# combos affected, signals keep flowing).  Trims drawdown on the bot's highest-
+# exposure session without touching any gate/threshold.
+TOD_DIR_KELLY_DESIZE   = {
+    ("SHORT", 22): 0.55,   # short@22h: user −5.20/sharpe−4.04, insider −0.41, bot −2.55 (WR24%)
+    ("LONG",  15): 0.60,   # long@15h:  user −2.59/sharpe−1.58, insider −0.36, bot −1.69 (WR31%)
+    ("LONG",  20): 0.75,   # long@20h:  user −0.63, insider −0.09, bot −0.26 (weak but unanimous)
+}
 
 def _current_kelly_session() -> str:
     """Return the current UTC market-session label, mirroring
@@ -2796,7 +2811,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "130.0"
+UNITY_VERSION                = "131.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -20951,6 +20966,43 @@ class UnityProfitBooster:
                 )
         except Exception:
             pass  # Kelly Step 107 Volume-Spike De-size is non-fatal
+
+        # ── Kelly Step 108 — Time-of-Day × Direction De-size [v131.0] ────────
+        # Cross-validated across THREE independent datasets (bot trade_history.db,
+        # InsiderTactics 15k upstream CSV, and the user's 15.4k-trade dashboard):
+        # SHORT@22h, LONG@15h, LONG@20h (UTC) are the only hour×direction pockets
+        # all three agree carry net-negative expectancy.  Critically they sit
+        # INSIDE the "US" session that Step 106 keeps at full size (×1.0), so the
+        # coarse session de-size misses them.  De-size only (mult<1), never a hard
+        # block — preserves no-bypass + drought-safety.  Direction is read from
+        # self._last_direction — the canonical DISPATCH-path field set by
+        # note_last_signal() at mark_signal_sent() (only for signals that passed
+        # all gates), the SAME source the sibling direction-aware Kelly steps
+        # 20/23/26 already use.  It therefore tracks the most-recently DISPATCHED
+        # signal's direction (not transient rejected candidates), and _update_kelly
+        # runs immediately after each dispatch/outcome so the context is current.
+        # UTC hour via time.gmtime() (no extra import).
+        try:
+            _k108_dir_raw = str(getattr(self, "_last_direction", "") or "").upper()
+            if _k108_dir_raw in ("BUY", "LONG"):
+                _k108_dir = "LONG"
+            elif _k108_dir_raw in ("SELL", "SHORT"):
+                _k108_dir = "SHORT"
+            else:
+                _k108_dir = ""
+            if _k108_dir and self.last_kelly_fraction > 0.0:
+                _k108_h    = time.gmtime().tm_hour
+                _k108_mult = float(TOD_DIR_KELLY_DESIZE.get((_k108_dir, _k108_h), 1.0))
+                if _k108_mult < 1.0:
+                    _k108_pre = self.last_kelly_fraction
+                    self.last_kelly_fraction = max(0.0, self.last_kelly_fraction * _k108_mult)
+                    self._logger.debug(
+                        f"[v131.0 Step108 TODDirDesize] {_k108_dir}@{_k108_h:02d}h UTC "
+                        f"cross-validated neg-expectancy → Kelly ×{_k108_mult:.2f} "
+                        f"({_k108_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                    )
+        except Exception:
+            pass  # Kelly Step 108 Time-of-Day × Direction De-size is non-fatal
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
