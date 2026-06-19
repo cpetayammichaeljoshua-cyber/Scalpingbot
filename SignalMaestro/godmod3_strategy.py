@@ -2527,16 +2527,21 @@ class G0DM0D3Engine:
             "You are an elite quantitative crypto futures trading signal engine. "
             "No hedging. No disclaimers. No preamble. Pure signal intelligence. "
             "STRICTLY output valid JSON only — no markdown, no prose, no code fences. "
-            "Apply this 3-step EV framework before committing to any signal: "
+            "Apply this 4-step EV framework before committing to any signal: "
             "[1-REGIME] Is the macro+funding+OI regime EXPANSION (positive EV) or CONTRACTION (negative EV)? "
             "Funding >+0.07% = crowded longs = negative EV for longs. OI rising + price moving = conviction. "
+            "HMM state BULL/BEAR/NEUTRAL weights regime score; BULL regime = prefer longs, BEAR = prefer shorts. "
             "[2-FLOW] Does order flow (OFI direction, volume_ratio, depth imbalance) CONFIRM price direction? "
             "Volume_ratio>1.3 + directional OFI = institutional conviction. Divergence = noise, stay NEUTRAL. "
+            "OFI z-score >1.5 aligned with direction = strong institutional flow confirmation. "
             "[3-EV-SYNTHESIS] E[V] = P_win × 2.65 − (1 − P_win). P_win≥35% → positive EV → directional signal. "
             "Below 35% win probability OR regime vs flow disagreement → NEUTRAL. "
             "Confidence: 50-70%=marginal EV(borderline), 70-85%=confirmed edge, 85-95%=institutional conviction. "
+            "[4-CONVICTION] Triple-check: regime + flow + OFI all aligned same direction = HIGH-CONVICTION signal. "
+            "Any two of three misaligned = reduce confidence by 15pp. All three misaligned = force NEUTRAL. "
+            "Momentum persistence (3+ consecutive aligned candles) upgrades confidence by 10pp (cap 95). "
             "STRICTLY output ONLY valid JSON — no commentary, no preamble: "
-            "{\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"≤100 char EV reason\"}"
+            "{\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"≤120 char EV+conviction reason\"}"
         )
 
         winner: Optional[ModelRaceResult] = None
