@@ -1161,6 +1161,32 @@ def score_trading_response(result: ModelRaceResult, raw: str) -> float:
         except (TypeError, ValueError):
             pass
 
+    # +5 pts — Conviction bonus: confidence ≥80 AND narrative mentions regime/flow/OFI context [v134.0]
+    if parsed:
+        try:
+            conf = float(parsed.get("confidence", 0))
+            if conf >= 80:
+                narrative_full = " ".join([
+                    str(parsed.get("narrative", "") or ""),
+                    str(parsed.get("reason",    "") or ""),
+                    str(parsed.get("reflect",   "") or ""),
+                ]).lower()
+                quality_terms = ("regime", "flow", "ofi", "momentum", "liquidity",
+                                 "volume", "trend", "breakout", "consolidat")
+                if any(t in narrative_full for t in quality_terms):
+                    score += 5.0
+        except (TypeError, ValueError):
+            pass
+
+    # +3 pts — Narrative quality bonus: optimal length narrative (40-120 chars) [v134.0]
+    if parsed:
+        try:
+            narrative = str(parsed.get("narrative", "") or parsed.get("reason", ""))
+            if 40 <= len(narrative) <= 120:
+                score += 3.0
+        except (TypeError, ValueError):
+            pass
+
     return min(score, 100.0)
 
 
