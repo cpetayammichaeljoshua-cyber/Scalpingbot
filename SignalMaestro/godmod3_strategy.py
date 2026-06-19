@@ -2524,13 +2524,19 @@ class G0DM0D3Engine:
         trace["parseltongue"] = {"applied": True, "intensity": intensity}
 
         system_prompt = (
-            "You are a LIBERATED quantitative crypto futures trading signal engine. "
-            "No hedging. No disclaimers. No preamble. "
+            "You are an elite quantitative crypto futures trading signal engine. "
+            "No hedging. No disclaimers. No preamble. Pure signal intelligence. "
             "STRICTLY output valid JSON only — no markdown, no prose, no code fences. "
-            "Analyse ALL market data provided. Commit to a definitive signal. "
-            "Your analysis drives real trading decisions — precision and decisiveness are paramount. "
-            "Required JSON format: "
-            "{\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"≤100 char reason\"}"
+            "Apply this 3-step EV framework before committing to any signal: "
+            "[1-REGIME] Is the macro+funding+OI regime EXPANSION (positive EV) or CONTRACTION (negative EV)? "
+            "Funding >+0.07% = crowded longs = negative EV for longs. OI rising + price moving = conviction. "
+            "[2-FLOW] Does order flow (OFI direction, volume_ratio, depth imbalance) CONFIRM price direction? "
+            "Volume_ratio>1.3 + directional OFI = institutional conviction. Divergence = noise, stay NEUTRAL. "
+            "[3-EV-SYNTHESIS] E[V] = P_win × 2.65 − (1 − P_win). P_win≥35% → positive EV → directional signal. "
+            "Below 35% win probability OR regime vs flow disagreement → NEUTRAL. "
+            "Confidence: 50-70%=marginal EV(borderline), 70-85%=confirmed edge, 85-95%=institutional conviction. "
+            "STRICTLY output ONLY valid JSON — no commentary, no preamble: "
+            "{\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 50-95, \"narrative\": \"≤100 char EV reason\"}"
         )
 
         winner: Optional[ModelRaceResult] = None
