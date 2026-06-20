@@ -2604,6 +2604,13 @@ class G0DM0D3Engine:
             "Funding cascade risk: |funding_rate| > 0.05% = imminent cascade → reduce confidence 18pp regardless of direction. "
             "Sharpe recovery signal: if Sharpe was <-1.0 last cycle but is now >0.0, regime is healing — +4pp bonus. "
             "Regime persistence: if HMM state unchanged for 3+ cycles, trend is structural not noise — +4pp conviction. "
+            "FLOAM MULTI-ALPHA (IR=IC×√BR): Each independent confirming source (OFI+HMM+VPIN+quality+OU-process) adds signal breadth. "
+            "3+ independent sources confirming same direction = high IR → +5pp confidence boost. "
+            "Fewer than 2 breadth sources = low-breadth setup → insufficient IR → cap confidence at 65 regardless. "
+            "ORNSTEIN-UHLENBECK PROCESS: Quality/EV z-score >2.0σ above rolling mean = statistical peak edge (IR at maximum). "
+            "Scale conviction when OU z-score confirms alignment (+4pp). "
+            "OU z-score <-2.0σ = system below edge threshold → reduce confidence 12pp (below-average environment). "
+            "|Z|>3.5σ = O-U structural break (cointegration breakdown, regime instability) → EMERGENCY NEUTRAL immediately. "
             "STRICTLY output ONLY valid JSON — no commentary, no preamble: "
             "{\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 55-90, \"narrative\": \"≤120 char EV+regime+flow reason\"}"
         )
