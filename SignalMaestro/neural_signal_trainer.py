@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 330 features → 66 tokens × 5 dims (330 = 66 × 5) [v137.0: was 65×5=325]
-_TORCH_N_TOKENS  = 66
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5)
+# Transformer tokenisation: reshape 335 features → 67 tokens × 5 dims (335 = 67 × 5) [v138.0: was 66×5=330]
+_TORCH_N_TOKENS  = 67
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5; v138.0: 335=67×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 330  # v63 (v137.0): 325 + 5 M5OSWGate+M5OFIMomentum+M5SharpeVel+N5FSLGate+N5FundingStress = 330 (m5_osw_gate, m5_ofi_momentum, m5_sharpe_vel, n5_fsl_gate, n5_funding_stress)
+INPUT_DIM          = 335  # v64 (v138.0): 330 + 5 O5RSQGate+O5QualSlope+O5OFIPersist+P5EWVGate+P5EVTrend = 335 (o5_rsq_gate, o5_qual_slope, o5_ofi_persist, p5_ewv_gate, p5_ev_trend)
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1738,6 +1738,23 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0,  min(1.0,  _v63_f329)))                                     # 329 n5_fsl_gate
     _v63_f330 = _safe_float(trade.get("n5_funding_stress", 0.0), 0.0)
     f.append(max(0.0,  min(1.0,  _v63_f330)))                                     # 330 n5_funding_stress
+
+    # ── v64 (v138.0): F331-F335 — RSQ+EWV Triple-Coherence+Composite Features ─
+    # F331: o5_rsq_gate     — G8.5O5 Regime-Signal-Quality gate {0.0/0.1/0.3/0.5/0.75/1.0}
+    # F332: o5_qual_slope   — quality_score_ring linear slope normalised [-1,+1]
+    # F333: o5_ofi_persist  — OFI persistence gate sentinel normalised [0=opposed, 0.5=neutral, 1=aligned]
+    # F334: p5_ewv_gate     — G8.5P5 EV-WinRate-IRONS gate {0.0/0.1/0.3/0.5/0.75/1.0}
+    # F335: p5_ev_trend     — booster ev_ring recent-5 vs prior-5 trend [-1,+1] (scaled /0.002)
+    _v64_f331 = _safe_float(trade.get("o5_rsq_gate",   0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v64_f331)))                                     # 331 o5_rsq_gate
+    _v64_f332 = _safe_float(trade.get("o5_qual_slope", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v64_f332)))                                     # 332 o5_qual_slope
+    _v64_f333 = _safe_float(trade.get("o5_ofi_persist",0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v64_f333)))                                     # 333 o5_ofi_persist
+    _v64_f334 = _safe_float(trade.get("p5_ewv_gate",   0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v64_f334)))                                     # 334 p5_ewv_gate
+    _v64_f335 = _safe_float(trade.get("p5_ev_trend",   0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v64_f335)))                                     # 335 p5_ev_trend
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
