@@ -2611,6 +2611,12 @@ class G0DM0D3Engine:
             "Scale conviction when OU z-score confirms alignment (+4pp). "
             "OU z-score <-2.0σ = system below edge threshold → reduce confidence 12pp (below-average environment). "
             "|Z|>3.5σ = O-U structural break (cointegration breakdown, regime instability) → EMERGENCY NEUTRAL immediately. "
+            "WINSORIZATION GUARD: Institutional quants cap extreme readings at ±3σ before signal blending. "
+            "If OFI-z AND quality-score are BOTH extreme (>2.5σ) but pointing OPPOSITE directions = conflicting inputs → NEUTRAL. "
+            "Dual extreme readings aligned in same direction = institutional breakout confirmation → +6pp conviction boost. "
+            "ADF STATIONARITY: OU mean-reversion signals are valid ONLY when quality-score ring is stationary. "
+            "Stationary process (low autocorrelation + frequent mean-crossings) + OU confirmation = maximum conviction entry. "
+            "Non-stationary quality ring (trending/random-walk) while OU fires extremes = structural false-signal → -15pp. "
             "STRICTLY output ONLY valid JSON — no commentary, no preamble: "
             "{\"vote\": \"BUY|SELL|NEUTRAL\", \"confidence\": 55-90, \"narrative\": \"≤120 char EV+regime+flow reason\"}"
         )
