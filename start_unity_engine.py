@@ -2506,6 +2506,21 @@ TOD_DIR_KELLY_DESIZE   = {
     ("LONG",  20): 0.75,   # long@20h:  user −0.63, insider −0.09, bot −0.26 (weak but unanimous)
 }
 
+# ── v144.0 — Asian-session HARD-BLOCK (walk-forward-validated) ───────────────
+# The Asian session (0-6h UTC) is the single strongest walk-forward-validated
+# negative-expectancy pocket on the `bot` source.  A FRESH 6-fold purged/embargoed
+# walk-forward (1,633 resolved bot trades, Jun-2026) shows the 0-7h bucket at
+# −0.279% avgPnL, the rule LEARNED in 4 of 5 OOS folds, and REMOVING those trades
+# (not merely de-sizing them) lifts OOS avgPnL +0.120% and HALVES OOS maxDD
+# (−127.8pts).  The v129.0 Kelly Step 106 de-size (×0.55) only captured ~half this
+# benefit and still let losing Asian trades through; this deterministic gate-level
+# block realises the FULL validated drawdown-halving and — unlike the soft LLM
+# "force NEUTRAL" prompt — cannot be overridden by the model.  The US session (the
+# ONLY positive-expectancy pocket) is left fully untouched, so good-regime signal
+# flow is preserved.  Set UNITY_ASIAN_HARDBLOCK=0 to disable (revert to v129.0
+# de-size-only behaviour).
+ASIAN_HARDBLOCK_ENABLED = os.getenv("UNITY_ASIAN_HARDBLOCK", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
 def _current_kelly_session() -> str:
     """Return the current UTC market-session label, mirroring
     get_current_market_session() in mirofish_swarm_strategy.py (highest-activity
@@ -5411,6 +5426,7 @@ class UnitySignalFilter:
             "gate_session":    {"pass": 0, "fail": 0},  # v6.1: session quality modifier
             "gate_min_tp1":    {"pass": 0, "fail": 0},  # v6.2: Min TP1 distance gate
             "gate_blacklist":  {"pass": 0, "fail": 0},  # v9.0 FIX: whitelist/blacklist gate
+            "gate_session_asian": {"pass": 0, "fail": 0},  # v144.0: Asian-session WF-validated hard-block
             **{f"gate{i}": {"pass": 0, "fail": 0} for i in range(1, 11)},
             "gate_g85dv":  {"pass": 0, "fail": 0},  # v66.0: DGRP Velocity soft-gate
         }  # gate_ev + gate_session + gate_min_tp1 + gate_blacklist + gate1-gate10 + gate_g85dv (v66.0)
@@ -6498,6 +6514,26 @@ class UnitySignalFilter:
         # above) was recorded; the pass-through path had no _record() call at all.
         # Fix: record True here after both whitelist + blacklist checks succeed.
         self._record("gate_blacklist", True)
+
+        # ── v144.0 Pre-Gate A2 — Asian-session HARD-BLOCK (walk-forward-validated) ──
+        # The 0-6h UTC Asian session is the strongest walk-forward-validated
+        # negative-expectancy pocket on the `bot` source (fresh 6-fold purged/
+        # embargoed walk-forward: −0.279%/trade avgPnL, learned in 4/5 OOS folds;
+        # REMOVING those trades lifts OOS avgPnL +0.120% and HALVES OOS maxDD).
+        # The v129.0 Kelly Step 106 de-size (×0.55) only trimmed Asian exposure;
+        # this deterministic gate realises the full validated drawdown-halving and
+        # — unlike the soft LLM "force NEUTRAL" prompt — cannot be overridden by the
+        # model. US (the only positive pocket) is untouched. UNITY_ASIAN_HARDBLOCK=0
+        # reverts to v129.0 de-size-only behaviour.
+        if ASIAN_HARDBLOCK_ENABLED and _current_kelly_session() == "ASIAN":
+            self._record("gate_session_asian", False)
+            return (
+                False,
+                "ASIAN_SESSION: 0-6h UTC walk-forward-validated neg-expectancy "
+                "(−0.279%/trade, halves OOS maxDD) — hard-blocked [v144.0]",
+                0.0,
+            )
+        self._record("gate_session_asian", True)
 
         # ── v8.5 Pre-Gate B — Hard consecutive-loss cutoff (circuit breaker) ──
         # When booster._consec_losses ≥ CONSEC_LOSS_HARD_CUTOFF, halt ALL trading
@@ -18746,6 +18782,7 @@ class UnitySignalFilter:
         "gate_session":    "G0.5",
         "gate_min_tp1":    "G0.8",    # v6.2: Min TP1 distance gate
         "gate_blacklist":  "GBLK",    # v9.0 FIX: whitelist/blacklist pre-gate
+        "gate_session_asian": "GASN",  # v144.0: Asian-session hard-block (WF-validated)
         "gate_funding":    "GFND",    # v9.7: Binance USDM funding-window guard
         "gate_cusum":      "GCUS",    # v9.7: de Prado symmetric CUSUM event filter
         "gate_ofi":        "GOFI",    # v9.7: Order-Flow Imbalance Z-score (Cont 2014)
@@ -19028,6 +19065,12 @@ class UnitySignalFilter:
             "gate_g85z5_ics",          # Information-Coefficient-Sharpe FLOAM-IR Gate +2.0/+1.0/-1.0/-2.0/-3.5pts emergency [v143.0]
             "gate_vibe",        # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
+            # v144.0: NOT a soft adjuster — a deterministic time-of-day HARD block.
+            # Excluded from the bottleneck HUD for the same NET reason: its 0% pass
+            # rate during the Asian session (0-6h UTC) is INTENDED structural gating,
+            # not a fixable signal-quality bottleneck.  Surfacing it as #1 every
+            # Asian hour would mask the real tunable bottlenecks (G0/G4/G0.5).
+            "gate_session_asian",
         })
         rates: list = []
         for gate, stats in self._gate_stats.items():
