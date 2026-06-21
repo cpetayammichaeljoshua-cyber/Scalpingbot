@@ -1798,7 +1798,8 @@ class AIOrchestrationAgent:
                       graph_context: str,
                       rsi: float = 50.0, macd_line: float = 0.0,
                       macd_signal: float = 0.0, bb_pct: float = 50.0,
-                      stoch_k: float = 50.0, atr_pct: float = 0.3) -> str:
+                      stoch_k: float = 50.0, atr_pct: float = 0.3,
+                      hour_utc: int = -1) -> str:
         """
         Build the ReACT trading prompt enriched with full technical indicator data.
         The additional indicators (RSI, MACD, BB%, Stoch, ATR%) give Claude/GPT
@@ -1835,9 +1836,15 @@ class AIOrchestrationAgent:
         elif bb_pct <= 35:
             _bb_zone = "lower half (bearish bias)"
 
+        # hour_utc context: Asian low-liquidity window (1-7 UTC) is a confirmed
+        # negative-EV pocket (historical WR<24%) — surface it so the model can
+        # apply the hard NEUTRAL override the system prompt requires.
+        _hr = f"{hour_utc:02d}" if 0 <= hour_utc <= 23 else "n/a"
+        _hr_flag = " ⚠️ ASIAN low-liquidity window (1-7 UTC, WR<24% — force NEUTRAL)" \
+            if 1 <= hour_utc <= 7 else ""
         return (
             f"You are a professional quantitative crypto futures trader using ReACT reasoning.\n"
-            f"Symbol: {symbol} | Timeframe: {timeframe} | Session: {session}\n"
+            f"Symbol: {symbol} | Timeframe: {timeframe} | Session: {session} | hour_utc: {_hr}{_hr_flag}\n"
             f"Current price: ${cur_price:,.4g} | 1h change: {chg_1h:+.2f}%\n\n"
             f"Technical indicators:\n"
             f"  RSI(14)={rsi:.1f} [{_rsi_zone}]\n"
@@ -2312,11 +2319,13 @@ class AIOrchestrationAgent:
         _atr_pct   = (_atr_val / closes[-1] * 100.0) if closes[-1] > 0 else 0.3
 
         # Build the shared prompt once — used by both AI providers
+        _hour_utc = datetime.now(timezone.utc).hour
         prompt = self._build_prompt(
             symbol, timeframe, session, cur_price, chg_1h,
             votes_summary, buy_votes, sell_votes, graph_context,
             rsi=_rsi_val, macd_line=_macd_l, macd_signal=_macd_s,
-            bb_pct=_bb_pct, stoch_k=_stoch_k, atr_pct=_atr_pct
+            bb_pct=_bb_pct, stoch_k=_stoch_k, atr_pct=_atr_pct,
+            hour_utc=_hour_utc
         )
 
         # ── ACT: G0DM0D3 PRIMARY (ULTRAPLINIAN + GODMODE CLASSIC via OpenRouter) ──

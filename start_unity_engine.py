@@ -13094,7 +13094,8 @@ class UnitySignalFilter:
                         elif _q_slope * _q_dir_sign < -0.0001:
                             _q_votes_opposed += 1
                 # Vote 2: OFI persistence ring majority direction
-                _q_ofi_ring = _ofi_persist_ring.get(symbol, None)
+                _q_opr = getattr(self, "_ofi_persist_ring", None)
+                _q_ofi_ring = _q_opr.get(symbol, None) if isinstance(_q_opr, dict) else None
                 if _q_ofi_ring is not None and len(_q_ofi_ring) >= 2:
                     _q_ofi_majority = sum(_q_ofi_ring)
                     _q_votes_total += 1
@@ -13130,7 +13131,7 @@ class UnitySignalFilter:
                         )
             self._record("gate_g85q_trendmom", _q_fired)
         except Exception:
-            pass  # G8.5Q TrendMomentum-Persistence is non-fatal soft-gate
+            pass  # G8.5Q is a non-fatal soft-gate
 
         # ── G8.5R2 — RegimeSentiment-Composite Gate (v84.0) ──────────────────
         # Zero-API-call soft-gate synthesising 3 existing regime sentiment signals:
@@ -13512,15 +13513,26 @@ class UnitySignalFilter:
         # Requires >=20 total trades + booster ring >=10. Stores _last_g85x2_wrt
         # (+1=recovering, -1=deteriorating, 0=neutral) for Kelly Step 50 [v90.0].
         try:
-            _x2_total = int(
-                getattr(self._metrics, "win_count", 0) +
-                getattr(self._metrics, "loss_count", 0)
-            ) if self._metrics else 0
+            # v143.1 FIX: UnitySignalFilter has no self._metrics (only UnityConsole
+            # does) — the old direct attribute access raised AttributeError every
+            # cycle, killing this gate (zero-call). Resolve safely and fall back to
+            # the booster's all-time win-rate ring when no metrics object is wired.
+            _x2_metrics = getattr(self, "_metrics", None)
+            _x2_bst0    = getattr(self, "_booster", None)
+            if _x2_metrics is not None:
+                _x2_wc    = float(getattr(_x2_metrics, "win_count", 0) or 0)
+                _x2_total = int(_x2_wc + float(getattr(_x2_metrics, "loss_count", 0) or 0))
+            elif _x2_bst0 is not None and len(getattr(_x2_bst0, "_win_ring", []) or []) >= 20:
+                _x2_wr_ring = list(getattr(_x2_bst0, "_win_ring", []) or [])
+                _x2_total   = len(_x2_wr_ring)
+                _x2_wc      = float(sum(1 for _w in _x2_wr_ring if _w))
+            else:
+                _x2_wc    = 0.0
+                _x2_total = 0
             _x2_fired = False
             self._last_g85x2_wrt = 0  # reset each cycle
             if _x2_total >= 20:
                 # All-time WR (session baseline)
-                _x2_wc = float(getattr(self._metrics, "win_count", 0))
                 _x2_at_wr = _x2_wc / max(1.0, float(_x2_total))
                 # Recent WR from booster RL ring
                 _x2_bst = self._booster if self._booster else None
@@ -13565,7 +13577,7 @@ class UnitySignalFilter:
                         )
             self._record("gate_g85x2_wrt", _x2_fired)
         except Exception:
-            pass  # G8.5X2 WinRateTrajectory is non-fatal soft-gate
+            pass  # G8.5X2 is a non-fatal soft-gate
 
         # ── G8.5Y2 — HMM-VPIN-Coherence Gate (v91.0) ────────────────────────
         # Dual-source institutional-flow coherence gate: HMM regime state + VPIN toxicity.
@@ -15267,11 +15279,17 @@ class UnitySignalFilter:
                 else:
                     self._last_g85d4_tfc = 0
                     self._last_g85d4_conf = 0.0
+                    self._gate_stats["gate_g85d4_tfc"]["pass"] += 1
+                    self._gate_stats_recent["gate_g85d4_tfc"].append(True)
             else:
+                # v143.1 FIX: cold-start (buffer < 32 closes) previously did NOT
+                # record → gate was invisible (zero-call) for non-buffered symbols.
                 self._last_g85d4_tfc = 0
                 self._last_g85d4_conf = 0.0
+                self._gate_stats["gate_g85d4_tfc"]["pass"] += 1
+                self._gate_stats_recent["gate_g85d4_tfc"].append(True)
         except Exception:
-            pass  # G8.5D4 TimesFM-ForecastConfluence is non-fatal soft-gate
+            pass  # G8.5D4 is a non-fatal soft-gate
 
         # ── Gate G8.5E4 — TimesFM-RegimeSync (v117.0) ───────────────────────────────
         # Cross-validates the TimesFM patch-forecast direction with HMM regime and OFI
@@ -15353,9 +15371,12 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85e4_trs"]["pass" if _e4_pass else "fail"] += 1
                 self._gate_stats_recent["gate_g85e4_trs"].append(_e4_pass)
             else:
+                # v143.1 FIX: <2 votes previously did NOT record → zero-call gate.
                 self._last_g85e4_trs = 0
+                self._gate_stats["gate_g85e4_trs"]["pass"] += 1
+                self._gate_stats_recent["gate_g85e4_trs"].append(True)
         except Exception:
-            pass  # G8.5E4 TimesFM-RegimeSync is non-fatal soft-gate
+            pass  # G8.5E4 is a non-fatal soft-gate
 
         # ── Gate G8.5F4 — TimesFM-PatchMomentum (v118.0) ────────────────────────────
         # Multi-resolution TimesFM-inspired patch gate. Implements the TimesFM concept
@@ -15378,21 +15399,29 @@ class UnitySignalFilter:
         # Stores _last_g85f4_tpm (+1/-1/0) and _last_g85f4_strength ([0,1]) for Kelly Step 84.
         # Requires ≥64 bars in buffer (64-bar window needs 64 close prices).
         try:
-            _f4_buf_raw = getattr(self, "_quant_layer_close_buf", {}) or {}
+            # v143.1 FIX: _quant_layer_close_buf is a MODULE-LEVEL global dict
+            # (line ~2806) — getattr(self, ...) always returned {} (no such instance
+            # attr), so f4 never saw any closes. Read the module global directly.
+            _f4_buf_raw = _quant_layer_close_buf if isinstance(_quant_layer_close_buf, dict) else {}
             _f4_sym_buf = _f4_buf_raw.get(symbol)
-            if _f4_sym_buf is not None and len(_f4_sym_buf) >= 64:
+            if _f4_sym_buf is None:
+                _f4_sym_buf = _f4_buf_raw.get((symbol or "").upper())
+            # v143.1 FIX: buffer is capped at 60 closes (write site), so the old
+            # >=64 guard could NEVER be satisfied → zero-call. Use >=48 to fit.
+            if _f4_sym_buf is not None and len(_f4_sym_buf) >= 48:
                 import numpy as _np_f4
                 _f4_closes = _np_f4.array(list(_f4_sym_buf), dtype=_np_f4.float64)
-                _f4_direction_int = 1 if (action or "").upper() == "BUY" else -1
+                # v143.1 FIX: bare `action` was undefined (NameError) → use `direction`.
+                _f4_direction_int = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1
                 # Compute 20-bar ATR for slope normalisation
                 _f4_atr_n = min(20, len(_f4_closes) - 1)
                 _f4_diffs = _np_f4.abs(_np_f4.diff(_f4_closes[-(_f4_atr_n + 1):]))
                 _f4_atr = float(_np_f4.mean(_f4_diffs)) if len(_f4_diffs) > 0 else 0.0
                 _f4_atr_safe = _f4_atr if _f4_atr > 1e-10 else 1.0
-                # Three patch scales: 16-bar, 32-bar, 64-bar
+                # Three patch scales: 16-bar, 32-bar, 48-bar (capped to 60-bar buffer)
                 _f4_votes_aligned: int = 0
                 _f4_votes_opposed: int = 0
-                for _f4_window in (16, 32, 64):
+                for _f4_window in (16, 32, 48):
                     try:
                         if len(_f4_closes) < _f4_window:
                             continue
@@ -15451,10 +15480,13 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85f4_tpm"]["pass" if _f4_pass else "fail"] += 1
                 self._gate_stats_recent["gate_g85f4_tpm"].append(_f4_pass)
             else:
+                # v143.1 FIX: insufficient buffer previously did NOT record → zero-call.
                 self._last_g85f4_tpm = 0
                 self._last_g85f4_strength = 0.0
+                self._gate_stats["gate_g85f4_tpm"]["pass"] += 1
+                self._gate_stats_recent["gate_g85f4_tpm"].append(True)
         except Exception:
-            pass  # G8.5F4 TimesFM-PatchMomentum is non-fatal soft-gate
+            pass  # G8.5F4 is a non-fatal soft-gate
 
         # ── Gate G8.5G4 — SharpeVelocity-TimesFM Composite (v118.0) ─────────────────
         # Compound gate combining Sharpe acceleration with TimesFM confluence.
@@ -15534,9 +15566,14 @@ class UnitySignalFilter:
         # Requires _quant_layer_close_buf global (≥48 bars); reads "action" key.
         # Stores _last_g85h4_tpe (+1/-1/0) and _last_g85h4_conf ([0,1]) for Kelly Step 86.
         try:
-            _h4_closes = list(_quant_layer_close_buf) if _quant_layer_close_buf is not None else []
+            # v143.1 FIX: list(_quant_layer_close_buf) returned the dict KEYS
+            # (symbol-name strings), not closes → np.array(...,float) raised
+            # ValueError every cycle → zero-call. Read the per-symbol close list.
+            _h4_cb     = _quant_layer_close_buf if isinstance(_quant_layer_close_buf, dict) else {}
+            _h4_closes = list(_h4_cb.get((symbol or "").upper(), _h4_cb.get(symbol, [])))
             _h4_n      = len(_h4_closes)
-            _h4_dir    = 1 if direction_int >= 1 else -1
+            # v143.1 FIX: bare `direction_int` was undefined (NameError) → derive.
+            _h4_dir    = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1
             if _h4_n >= 48:
                 import numpy as _np_h4
                 _h4_arr   = _np_h4.array(_h4_closes, dtype=float)
@@ -15597,7 +15634,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85h4_tpe"]["pass"] += 1
                 self._gate_stats_recent["gate_g85h4_tpe"].append(True)
         except Exception:
-            pass  # G8.5H4 TimesFM-PatchEnsemble is non-fatal soft-gate
+            pass  # G8.5H4 is a non-fatal soft-gate
 
         # ── Gate 8.5I4 — DrawdownGuard-TimesFM Composite (v119.0) ────────────
         # Compound gate combining MaxDD regime level with TimesFM cross-gate
@@ -15652,13 +15689,17 @@ class UnitySignalFilter:
         # Uses _quant_layer_close_buf (≥96 bars required). Zero-API.
         # Stores _last_g85j4_tfms (+1/-1/0) and _last_g85j4_tfms_conf ([0,1]).
         try:
-            _j4_closes = list(_quant_layer_close_buf) if _quant_layer_close_buf is not None else []
+            # v143.1 FIX: list(_quant_layer_close_buf) returned dict KEYS (symbol
+            # strings) → ValueError; bare direction_int undefined → NameError; and
+            # the >=96 guard exceeded the 60-close buffer cap → zero-call. All fixed.
+            _j4_cb     = _quant_layer_close_buf if isinstance(_quant_layer_close_buf, dict) else {}
+            _j4_closes = list(_j4_cb.get((symbol or "").upper(), _j4_cb.get(symbol, [])))
             _j4_n      = len(_j4_closes)
-            _j4_dir    = 1 if direction_int >= 1 else -1
-            if _j4_n >= 96:
+            _j4_dir    = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1
+            if _j4_n >= 48:
                 import numpy as _np_j4
                 _j4_arr     = _np_j4.array(_j4_closes, dtype=float)
-                _J4_SCALES  = (12, 16, 24, 32, 48, 64, 96)
+                _J4_SCALES  = (8, 12, 16, 24, 32, 40, 48)
                 _J4_THRESH  = 0.05   # |slope/ATR| threshold for a directional vote
                 _j4_aligned = 0
                 _j4_opposed = 0
@@ -15703,7 +15744,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85j4_tfms"]["pass"] += 1
                 self._gate_stats_recent["gate_g85j4_tfms"].append(True)
         except Exception:
-            pass  # G8.5J4 TimesFM-MultiScale-ForecastVote is non-fatal soft-gate
+            pass  # G8.5J4 is a non-fatal soft-gate
 
         # ── Gate 8.5K4 — PatchScale-RegimeAlignment (v120.0) ─────────────────
         # Macro/mid/micro regime alignment gate. Computes linear regression slopes
@@ -15720,13 +15761,16 @@ class UnitySignalFilter:
         #   else 0pts
         # Stores _last_g85k4_psr (+1/-1/0). Zero-API. [v120.0]
         try:
-            _k4_closes = list(_quant_layer_close_buf) if _quant_layer_close_buf is not None else []
+            # v143.1 FIX: dict-KEYS ValueError + bare direction_int NameError + >=64
+            # guard above 60-close buffer cap → zero-call. All corrected below.
+            _k4_cb     = _quant_layer_close_buf if isinstance(_quant_layer_close_buf, dict) else {}
+            _k4_closes = list(_k4_cb.get((symbol or "").upper(), _k4_cb.get(symbol, [])))
             _k4_n      = len(_k4_closes)
-            _k4_dir    = 1 if direction_int >= 1 else -1
-            if _k4_n >= 64:
+            _k4_dir    = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1
+            if _k4_n >= 48:
                 import numpy as _np_k4
                 _k4_arr   = _np_k4.array(_k4_closes, dtype=float)
-                _K4_WINS  = (16, 32, 64)   # micro, mid, macro
+                _K4_WINS  = (16, 32, 48)   # micro, mid, macro
                 _K4_THRESH = 0.04
                 _k4_votes  = []  # +1, -1, or 0 per scale
                 for _k4_win in _K4_WINS:
@@ -15743,7 +15787,7 @@ class UnitySignalFilter:
                         _k4_votes.append(0)
                 # OFI cross-validation — use last OFI z-score if available
                 try:
-                    _k4_ofi_z = float(timing_state.get("ofi_z", 0.0) or 0.0) if isinstance(timing_state, dict) else 0.0
+                    _k4_ofi_z = float(signal_data.get("ofi_z", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
                     _k4_ofi_vote = +1 if _k4_ofi_z * _k4_dir > 0.2 else (-1 if _k4_ofi_z * _k4_dir < -0.2 else 0)
                 except Exception:
                     _k4_ofi_vote = 0
@@ -15778,7 +15822,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85k4_psr"]["pass"] += 1
                 self._gate_stats_recent["gate_g85k4_psr"].append(True)
         except Exception:
-            pass  # G8.5K4 PatchScale-RegimeAlignment is non-fatal soft-gate
+            pass  # G8.5K4 is a non-fatal soft-gate
 
         # ── Gate 8.5L4 — WinRate-Sharpe-DrawdownTriple (v120.0) ─────────────
         # Triple compound gate combining three independent crisis/health signals:
@@ -15836,13 +15880,13 @@ class UnitySignalFilter:
         try:
             _m4_ofi     = int(getattr(self, "_last_g85n2_fmp_signal", 0) or 0)
             # VPIN toxicity: True = toxic (bad) = -1 vote; False = clean = +1 vote
-            _m4_vpin_raw = timing_state.get("vpin_toxic_regime", False) if isinstance(timing_state, dict) else False
+            _m4_vpin_raw = signal_data.get("vpin_toxic_regime", False) if isinstance(signal_data, dict) else False
             _m4_vpin     = -1 if bool(_m4_vpin_raw) else +1
             # Funding rate trend: use the rolling fr_trend from _last_g85n2 cross-check
             # fr_trend stored in timing_state["fr_trend"] or use fmp_signal as proxy
             try:
-                _m4_fr_raw = float(timing_state.get("fr_trend", 0.0) or 0.0) if isinstance(timing_state, dict) else 0.0
-                _m4_fr_dir = 1 if direction_int >= 1 else -1
+                _m4_fr_raw = float(signal_data.get("fr_trend", 0.0) or 0.0) if isinstance(signal_data, dict) else 0.0
+                _m4_fr_dir = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1
                 _m4_fr     = +1 if _m4_fr_raw * _m4_fr_dir > 0.00005 else (-1 if _m4_fr_raw * _m4_fr_dir < -0.00005 else 0)
             except Exception:
                 _m4_fr = int(getattr(self, "_last_g85n2_fmp_signal", 0) or 0)  # fallback = OFI proxy
@@ -15870,7 +15914,7 @@ class UnitySignalFilter:
                     f"fr={_m4_fr:+d} pos={_m4_pos} neg={_m4_neg} adj={_m4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5M4 OFI-VPIN-Funding MicroTriple is non-fatal soft-gate
+            pass  # G8.5M4 is a non-fatal soft-gate
 
         # ── Gate 8.5N4 — TimesFM-ConsensusCap Meta-Gate (v120.0) ────────────
         # Meta-gate aggregating all TimesFM-family gate votes:
@@ -16364,7 +16408,7 @@ class UnitySignalFilter:
                 _y4_ofi_last = sum(list(_y4_ring)[-3:]) / min(3, len(_y4_ring))
                 _y4_ofi_dir  = 1 if _y4_ofi_last > 0.0 else (-1 if _y4_ofi_last < 0.0 else 0)
             _y4_wac  = int(getattr(self, "_last_g85w4_wac", 0) or 0)
-            _y4_dir  = _direction_int  # +1=BUY, -1=SELL (set earlier in pipeline)
+            _y4_dir  = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1  # v143.1 FIX: bare _direction_int undefined
             _y4_adj, _y4_ows = 0.0, 0
             if _y4_ofi_dir != 0:
                 _y4_ofi_aligned = (_y4_ofi_dir == _y4_dir)
@@ -16388,7 +16432,7 @@ class UnitySignalFilter:
                     f"adj={_y4_adj:+.1f}pts ows={_y4_ows:+d}"
                 )
         except Exception:
-            pass  # G8.5Y4 OFI-WR-Trajectory-Sync is non-fatal soft-gate
+            pass  # G8.5Y4 is a non-fatal soft-gate
 
         # ── Gate 8.5Z4 — ARC: Adaptive-Regime-Composite Sentinel [v127.0] ───
         # 3-source zero-API composite: RegimeMomentumSync verdict (_last_g85z2_rms)
@@ -16406,7 +16450,7 @@ class UnitySignalFilter:
                 _z4_ofi_dir  = 1 if _z4_ofi_mean > 0.05 else (-1 if _z4_ofi_mean < -0.05 else 0)
             _z4_wac     = int(getattr(self, "_last_g85w4_wac", 0) or 0)   # +2/+1/-1/0
             _z4_wac_dir = 1 if _z4_wac >= 1 else (-1 if _z4_wac <= -1 else 0)
-            _z4_dir     = _direction_int  # +1=BUY, -1=SELL
+            _z4_dir     = 1 if str(direction or "").upper() in ("BUY", "LONG") else -1  # v143.1 FIX: bare _direction_int undefined
             _z4_adj, _z4_arc = 0.0, 0
             if _z4_dir != 0:
                 _z4_votes = [
@@ -16436,7 +16480,7 @@ class UnitySignalFilter:
                     f"votes=+{_z4_pos}/-{_z4_neg} adj={_z4_adj:+.1f}pts arc={_z4_arc:+d}"
                 )
         except Exception:
-            pass  # G8.5Z4 Adaptive-Regime-Composite is non-fatal soft-gate
+            pass  # G8.5Z4 is a non-fatal soft-gate
 
         # ── Gate 8.5A5 — SVC: Sharpe-Velocity-Confluence Sentinel [v127.0] ──
         # Cross-validates Sharpe velocity trend (signal_data sharpe_velocity_norm)
