@@ -1259,7 +1259,7 @@ class FXSUSDTTelegramBot:
 
         return (
             f"{d_emoji} {sym_tag} {direction}\n"
-            f"Exchange: Binance Futures\n"
+            f"Exchange: Binance & MEXC USDM Futures\n"
             f"Leverage: Cross {lev}x\n\n"
             f"Entry Targets:\n1) {_fmt(entry)}\n\n"
             f"Take-Profit Targets:\n"
@@ -2446,6 +2446,109 @@ class FXSUSDTTelegramBot:
                         object.__setattr__(signal, "sq_entry_quality", float(_sq_result.entry_quality))
             except Exception:
                 pass
+
+        # ── Phase 1.95: MEXC Cross-Exchange Confluence Gate [v146.0] ─────────────
+        # Independent second-exchange validation using MEXC USDM perpetual futures.
+        # Fetches MEXC 15m klines for the same symbol, computes EMA(8) vs EMA(21)
+        # trend, and HARD-BLOCKS signals where MEXC shows strong directional divergence.
+        #
+        # Rationale (HARD-BLOCK not penalty): Memory lesson: "for a SIGNAL bot only
+        # HARD-BLOCK moves WR/Sharpe/maxDD because de-sized bad signals still fire."
+        # Cross-exchange divergence = directional setup is fragile / not confirmed
+        # by a second major independent venue (separate matching engine, liquidity pool,
+        # order book).  Cross-exchange ALIGNMENT → +2.5pt quality bonus.
+        #
+        # Fail-open: any MEXC data fetch error → do not block (gate skipped silently).
+        # Env gate: UNITY_MEXC_GATE=0 to disable (default: enabled).
+        # ─────────────────────────────────────────────────────────────────────────────
+        _MEXC_GATE_ENABLED = os.getenv("UNITY_MEXC_GATE", "1").strip().lower() not in ("0", "false", "no", "off")
+        if _MEXC_GATE_ENABLED:
+            try:
+                # Convert Binance symbol format to MEXC format: BTCUSDT → BTC_USDT
+                _mexc_base = str(symbol).upper()
+                if _mexc_base.endswith("USDT"):
+                    _mexc_base = _mexc_base[:-4]
+                _mexc_sym = f"{_mexc_base}_USDT"
+
+                # Fetch MEXC 15m klines using the existing trader session
+                # (aiohttp connector manages per-host connection pools independently)
+                _mexc_closes = []
+                try:
+                    _mexc_session = await self.trader._get_session()
+                    _mexc_url = f"https://contract.mexc.com/api/v1/contract/kline/{_mexc_sym}"
+                    async with _mexc_session.get(
+                        _mexc_url,
+                        params={"interval": "Min15", "limit": "25"},
+                        timeout=__import__("aiohttp").ClientTimeout(total=5.0),
+                    ) as _resp:
+                        if _resp.status == 200:
+                            _mxc = await _resp.json()
+                            if (isinstance(_mxc, dict) and
+                                    (_mxc.get("success") or _mxc.get("code") == 0) and
+                                    isinstance(_mxc.get("data"), dict) and
+                                    "close" in _mxc["data"]):
+                                _mexc_closes = [float(c) for c in _mxc["data"]["close"] if c]
+                except Exception as _mxc_fetch_err:
+                    self.logger.debug(f"[MEXC-GATE] fetch skipped: {_mxc_fetch_err}")
+
+                if len(_mexc_closes) >= 10:
+                    # EMA calculation helper (standard smoothing factor k=2/(N+1))
+                    def _calc_ema(prices: list, period: int) -> float:
+                        k = 2.0 / (period + 1)
+                        ema = prices[0]
+                        for p in prices[1:]:
+                            ema = p * k + ema * (1.0 - k)
+                        return ema
+
+                    _mexc_ema8  = _calc_ema(_mexc_closes, 8)
+                    _mexc_ema21 = _calc_ema(_mexc_closes, 21) if len(_mexc_closes) >= 21 else _mexc_ema8
+
+                    # Require >0.15% EMA separation to call a trend (avoids noise in chop)
+                    _sep_thresh = 0.0015
+                    if _mexc_ema8 > _mexc_ema21 * (1.0 + _sep_thresh):
+                        _mexc_trend = "BULL"
+                    elif _mexc_ema8 < _mexc_ema21 * (1.0 - _sep_thresh):
+                        _mexc_trend = "BEAR"
+                    else:
+                        _mexc_trend = "NEUTRAL"
+
+                    _is_long_sig  = (signal.action == "BUY")
+                    _mexc_diverges = (
+                        (_is_long_sig  and _mexc_trend == "BEAR") or
+                        (not _is_long_sig and _mexc_trend == "BULL")
+                    )
+                    _mexc_confirms = (
+                        (_is_long_sig  and _mexc_trend == "BULL") or
+                        (not _is_long_sig and _mexc_trend == "BEAR")
+                    )
+
+                    if _mexc_diverges:
+                        self.logger.info(
+                            f"🚫 [MEXC-GATE v146.0] [{symbol}] {signal.action} HARD-BLOCKED: "
+                            f"MEXC {_mexc_sym} trend={_mexc_trend} DIVERGES from signal "
+                            f"(EMA8={_mexc_ema8:.4g} vs EMA21={_mexc_ema21:.4g}) "
+                            f"— cross-exchange divergence = fragile setup [v146.0]"
+                        )
+                        return False
+                    elif _mexc_confirms:
+                        _mexc_bonus = 2.5
+                        object.__setattr__(
+                            signal, "confidence",
+                            min(100.0, signal.confidence + _mexc_bonus)
+                        )
+                        self.logger.info(
+                            f"✅ [MEXC-GATE v146.0] [{symbol}] {signal.action} CONFIRMED: "
+                            f"MEXC {_mexc_sym} trend={_mexc_trend} ALIGNED → "
+                            f"+{_mexc_bonus:.1f}pt conf={signal.confidence:.1f}% [v146.0]"
+                        )
+                    else:
+                        self.logger.debug(
+                            f"⚪ [MEXC-GATE v146.0] [{symbol}] {signal.action}: "
+                            f"MEXC trend=NEUTRAL (EMA8={_mexc_ema8:.4g}≈EMA21={_mexc_ema21:.4g})"
+                            f" → no block, no bonus"
+                        )
+            except Exception as _mexc_gate_err:
+                self.logger.debug(f"[MEXC-GATE v146.0] gate skipped: {_mexc_gate_err}")
 
         # ── Phase 2 pre-gate: NN inference + BM25 (OUTSIDE lock — parallelism-safe) ──
         # Bug Fix: predict_signal_with_uncertainty (20 MC-Dropout passes, 50-200ms)
@@ -4165,7 +4268,7 @@ class FXSUSDTTelegramBot:
         chat_id = str(update.effective_chat.id)
         msg = """🐟 **BTCUSDT MiroFish Swarm Bot**
 
-Welcome! This bot delivers high-confidence USDM Futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy scanning ALL active Binance USDM Perpetual markets.
+Welcome! This bot delivers high-confidence USDM Futures signals powered by the **MiroFish multi-agent swarm intelligence** strategy scanning ALL active Binance USDM Perpetual markets with cross-validation on MEXC USDM Perpetual Futures.
 
 **🚀 How It Works:**
 • 10 specialized AI agents analyze markets independently
@@ -4404,7 +4507,7 @@ Strategy: github.com/666ghj/MiroFish
 • **24h Volume (BTC):** `{volume:,.3f}`
 • **24h Volume (USDT):** `${quote_vol:,.0f}`
 
-**📊 Market:** Binance USDM Futures
+**📊 Market:** Binance & MEXC USDM Futures
 **📈 Contract:** BTCUSDT Perpetual
 **⏰ Updated:** `{datetime.now().strftime('%H:%M:%S UTC')}`"""
             elif price:
@@ -5190,7 +5293,7 @@ Graph trend state: {self.strategy.get_market_memory_summary().get('trend_state')
 
     async def cmd_watchlist(self, update, context):
         chat_id = str(update.effective_chat.id)
-        await self.send_message(chat_id, "🗒️ Watchlist: This bot exclusively trades **BTCUSDT.PERP** (Binance USDM Futures).\n\nUse `/price` or `/market` for real-time data.")
+        await self.send_message(chat_id, "🗒️ Watchlist: This bot scans ALL USDM Perpetual pairs on **Binance & MEXC Futures** with cross-exchange confluence validation.\n\nUse `/price` or `/market` for real-time data.")
         self.commands_used[chat_id] = self.commands_used.get(chat_id, 0) + 1
 
     async def cmd_backtest(self, update, context):

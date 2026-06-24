@@ -939,7 +939,7 @@ def format_irons_panel(
 
     unity_block = (
         f"{d_emoji} {sym_tag} {direction}\n"
-        f"Exchange: Binance Futures\n"
+        f"Exchange: Binance & MEXC USDM Futures\n"
         f"Leverage: Cross {signal_leverage}x\n"
         f"\n"
         f"Entry Targets:\n"

@@ -551,3 +551,131 @@ class FXSUSDTTrader:
         except Exception as e:
             self.logger.error(f"Connection test failed: {e}")
             return False
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MEXC USDM Perpetual Futures — public market data helpers [v146.0]
+    # Base URL: https://contract.mexc.com (public endpoints, no auth required)
+    # Symbol format: BTC_USDT (underscore separator, vs Binance's BTCUSDT)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    MEXC_FUTURES_URL = "https://contract.mexc.com"
+
+    @staticmethod
+    def binance_to_mexc_symbol(binance_symbol: str) -> str:
+        """Convert Binance USDM symbol to MEXC perpetual format.
+
+        Examples:
+            BTCUSDT  → BTC_USDT
+            ETHUSDT  → ETH_USDT
+            SOLUSDT  → SOL_USDT
+        """
+        sym = binance_symbol.upper().strip()
+        if sym.endswith("USDT"):
+            base = sym[:-4]
+            return f"{base}_USDT"
+        return sym  # fallback: return unchanged if unexpected format
+
+    async def get_mexc_klines(
+        self,
+        symbol: str,
+        interval: str = "Min15",
+        limit: int = 25,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch MEXC USDM perpetual klines (candlestick data).
+
+        Args:
+            symbol:   MEXC symbol format, e.g. ``BTC_USDT``.
+            interval: Candle interval. Supported values:
+                      Min1, Min5, Min15, Min30, Min60,
+                      Hour4, Hour8, Day1, Week1, Month1.
+            limit:    Number of candles to fetch (max 2000).
+
+        Returns:
+            Raw MEXC kline data dict with keys:
+                ``time``, ``open``, ``close``, ``high``, ``low``,
+                ``vol``, ``amount`` — all as lists of floats.
+            Returns ``None`` on network error or non-200 response.
+        """
+        try:
+            session = await self._get_session()
+            url = f"{self.MEXC_FUTURES_URL}/api/v1/contract/kline/{symbol}"
+            async with session.get(
+                url,
+                params={"interval": interval, "limit": str(limit)},
+                timeout=aiohttp.ClientTimeout(total=8.0),
+            ) as resp:
+                if resp.status != 200:
+                    self.logger.debug(f"MEXC klines {symbol}: HTTP {resp.status}")
+                    return None
+                data = await resp.json()
+                if (isinstance(data, dict) and
+                        (data.get("success") or data.get("code") == 0) and
+                        isinstance(data.get("data"), dict)):
+                    return data["data"]
+                return None
+        except Exception as e:
+            self.logger.debug(f"MEXC klines {symbol} error: {e}")
+            return None
+
+    async def get_mexc_ticker(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetch MEXC USDM perpetual ticker for a single symbol.
+
+        Args:
+            symbol: MEXC symbol format, e.g. ``BTC_USDT``.
+
+        Returns:
+            Ticker dict with keys including ``lastPrice``, ``bid1``,
+            ``ask1``, ``volume24``, ``amount24``, ``riseFallRate``,
+            ``indexPrice``, ``fairPrice``.  Returns ``None`` on error.
+        """
+        try:
+            session = await self._get_session()
+            url = f"{self.MEXC_FUTURES_URL}/api/v1/contract/ticker"
+            async with session.get(
+                url,
+                params={"symbol": symbol},
+                timeout=aiohttp.ClientTimeout(total=8.0),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                if (isinstance(data, dict) and
+                        (data.get("success") or data.get("code") == 0)):
+                    raw = data.get("data", {})
+                    if isinstance(raw, list) and raw:
+                        return raw[0]
+                    if isinstance(raw, dict):
+                        return raw
+                return None
+        except Exception as e:
+            self.logger.debug(f"MEXC ticker {symbol} error: {e}")
+            return None
+
+    async def get_mexc_symbols(self) -> List[str]:
+        """Fetch all active MEXC USDM perpetual contract symbols.
+
+        Returns:
+            List of MEXC-format symbols (e.g. ``['BTC_USDT', 'ETH_USDT', ...]``).
+            Empty list on error.
+        """
+        try:
+            session = await self._get_session()
+            url = f"{self.MEXC_FUTURES_URL}/api/v1/contract/detail"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10.0)) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                if (isinstance(data, dict) and
+                        (data.get("success") or data.get("code") == 0) and
+                        isinstance(data.get("data"), list)):
+                    return [
+                        c["symbol"]
+                        for c in data["data"]
+                        if isinstance(c, dict)
+                        and c.get("symbol", "").endswith("_USDT")
+                        and c.get("state") in (0, 1, "0", "1", None)
+                    ]
+                return []
+        except Exception as e:
+            self.logger.debug(f"MEXC symbols error: {e}")
+            return []
