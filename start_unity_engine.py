@@ -2521,6 +2521,26 @@ TOD_DIR_KELLY_DESIZE   = {
 # de-size-only behaviour).
 ASIAN_HARDBLOCK_ENABLED = os.getenv("UNITY_ASIAN_HARDBLOCK", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
+# ── v145.0 — Non-US session + Volume-spike HARD-BLOCKS (walk-forward-validated) ─
+# A fresh purged/embargoed walk-forward (SignalMaestro/walk_forward_backtest.py,
+# `bot` source, 1638 resolved trades, STABLE across 5/6/8 folds) confirms the US
+# session is the ONLY positive-expectancy session and that volume_ratio>2.0 spikes
+# are net-negative.  REMOVING (not de-sizing) these pockets is what lifts the
+# headline metrics the user asked for: signal WR / Sharpe / maxDD are computed over
+# the signals that FIRE, so the v129.0 Kelly de-size (Steps 106/107) cannot move
+# them — only a hard block does.  Out-of-sample the combined session+vol cut FLIPS
+# avgPnL from negative to slightly positive and roughly HALVES maxDD (≈50% fewer
+# signals).  HONEST: best case is ~breakeven with much lower drawdown, NOT richly
+# profitable.
+#   UNITY_NONUS_HARDBLOCK=1    → block EU + TRANSITION sessions (Asian already
+#                                blocked by the v144.0 GASN gate; kept independent
+#                                for stats).  Completes the US-session-only filter.
+#   UNITY_VOLSPIKE_HARDBLOCK=1 → block volume_ratio > VOL_SPIKE_RATIO_THRESH (2.0).
+# Set either to 0 to revert that cut to v129.0 Kelly de-size-only behaviour.  The US
+# session and non-spike volume are left fully untouched.
+NONUS_HARDBLOCK_ENABLED    = os.getenv("UNITY_NONUS_HARDBLOCK", "1").strip().lower() not in ("0", "false", "no", "off", "")
+VOLSPIKE_HARDBLOCK_ENABLED = os.getenv("UNITY_VOLSPIKE_HARDBLOCK", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
 def _current_kelly_session() -> str:
     """Return the current UTC market-session label, mirroring
     get_current_market_session() in mirofish_swarm_strategy.py (highest-activity
@@ -2537,6 +2557,21 @@ def _current_kelly_session() -> str:
     if 0 <= _h <= 6:
         return "ASIAN"
     return "TRANSITION"   # _h == 23
+
+def _in_structural_block_session() -> bool:
+    """v145.0: True when the current UTC session is INTENTIONALLY hard-blocked
+    (Asian via GASN, or EU/TRANSITION via GEUT) and that block is enabled.  Drives
+    the structural-drought guard in _update_threshold_rl so that time spent outside
+    tradable sessions does not accumulate into threshold-loosening relief."""
+    try:
+        _s = _current_kelly_session()
+    except Exception:
+        return False
+    if ASIAN_HARDBLOCK_ENABLED and _s == "ASIAN":
+        return True
+    if NONUS_HARDBLOCK_ENABLED and _s in ("EU", "TRANSITION"):
+        return True
+    return False
 
 # ── v9.4 Sharpe-Floor Position Sizing ─────────────────────────────────────────
 # Annualised Sharpe Ratio acts as a risk-adjusted-return gate on Kelly sizing.
@@ -2973,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "143.0"
+UNITY_VERSION                = "145.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5427,6 +5462,8 @@ class UnitySignalFilter:
             "gate_min_tp1":    {"pass": 0, "fail": 0},  # v6.2: Min TP1 distance gate
             "gate_blacklist":  {"pass": 0, "fail": 0},  # v9.0 FIX: whitelist/blacklist gate
             "gate_session_asian": {"pass": 0, "fail": 0},  # v144.0: Asian-session WF-validated hard-block
+            "gate_session_nonus": {"pass": 0, "fail": 0},  # v145.0: EU/TRANSITION WF-validated hard-block
+            "gate_vol_spike":     {"pass": 0, "fail": 0},  # v145.0: volume_ratio>2 WF-validated hard-block
             **{f"gate{i}": {"pass": 0, "fail": 0} for i in range(1, 11)},
             "gate_g85dv":  {"pass": 0, "fail": 0},  # v66.0: DGRP Velocity soft-gate
         }  # gate_ev + gate_session + gate_min_tp1 + gate_blacklist + gate1-gate10 + gate_g85dv (v66.0)
@@ -6534,6 +6571,46 @@ class UnitySignalFilter:
                 0.0,
             )
         self._record("gate_session_asian", True)
+
+        # ── v145.0 Pre-Gate A3 — Non-US session HARD-BLOCK (walk-forward-validated) ─
+        # EU (7-12h) + TRANSITION (23h) UTC are net-negative-expectancy sessions on
+        # the `bot` source (fresh 5/6/8-fold purged/embargoed walk-forward — learned
+        # in every fold).  The US session (13-22h) is the ONLY positive pocket and is
+        # left untouched.  This completes the validated "US-session-only" filter:
+        # GASN already blocks the Asian session, this gate blocks the remaining non-US
+        # hours.  REMOVING these trades (vs the v129.0 Step106 ×0.55 de-size) is what
+        # actually lifts signal WR/Sharpe and halves OOS maxDD — de-sizing leaves the
+        # signals (and their losing outcomes) in the WR/Sharpe stats unchanged.
+        # UNITY_NONUS_HARDBLOCK=0 reverts to v129.0 de-size-only behaviour.
+        if NONUS_HARDBLOCK_ENABLED and _current_kelly_session() in ("EU", "TRANSITION"):
+            self._record("gate_session_nonus", False)
+            return (
+                False,
+                "NON_US_SESSION: EU/TRANSITION (7-12h,23h UTC) walk-forward-validated "
+                "neg-expectancy — hard-blocked, US-only (halves OOS maxDD) [v145.0]",
+                0.0,
+            )
+        self._record("gate_session_nonus", True)
+
+        # ── v145.0 Pre-Gate A4 — Volume-spike HARD-BLOCK (walk-forward-validated) ──
+        # volume_ratio > VOL_SPIKE_RATIO_THRESH (2.0) is a net-negative-expectancy
+        # pocket (fresh walk-forward: OOS Δ avgPnL +0.09..+0.13, Δ maxDD −35..−45 when
+        # REMOVED, learned folds 2+).  Same source as the v129.0 Step107 de-size
+        # (signal_data["volume_ratio"]); hard-blocking — not de-sizing — is what moves
+        # signal WR/Sharpe/maxDD.  UNITY_VOLSPIKE_HARDBLOCK=0 reverts to de-size.
+        try:
+            _vsp_ratio = float(signal_data.get("volume_ratio", 1.0) or 1.0)
+        except Exception:
+            _vsp_ratio = 1.0
+        if VOLSPIKE_HARDBLOCK_ENABLED and _vsp_ratio > VOL_SPIKE_RATIO_THRESH:
+            self._record("gate_vol_spike", False)
+            return (
+                False,
+                f"VOL_SPIKE: volume_ratio={_vsp_ratio:.2f}>{VOL_SPIKE_RATIO_THRESH:.1f} "
+                "walk-forward-validated neg-expectancy — hard-blocked [v145.0]",
+                0.0,
+            )
+        self._record("gate_vol_spike", True)
 
         # ── v8.5 Pre-Gate B — Hard consecutive-loss cutoff (circuit breaker) ──
         # When booster._consec_losses ≥ CONSEC_LOSS_HARD_CUTOFF, halt ALL trading
@@ -18783,6 +18860,8 @@ class UnitySignalFilter:
         "gate_min_tp1":    "G0.8",    # v6.2: Min TP1 distance gate
         "gate_blacklist":  "GBLK",    # v9.0 FIX: whitelist/blacklist pre-gate
         "gate_session_asian": "GASN",  # v144.0: Asian-session hard-block (WF-validated)
+        "gate_session_nonus": "GEUT",  # v145.0: EU/TRANSITION hard-block (WF-validated)
+        "gate_vol_spike":     "GVSP",  # v145.0: volume_ratio>2 hard-block (WF-validated)
         "gate_funding":    "GFND",    # v9.7: Binance USDM funding-window guard
         "gate_cusum":      "GCUS",    # v9.7: de Prado symmetric CUSUM event filter
         "gate_ofi":        "GOFI",    # v9.7: Order-Flow Imbalance Z-score (Cont 2014)
@@ -19071,6 +19150,11 @@ class UnitySignalFilter:
             # not a fixable signal-quality bottleneck.  Surfacing it as #1 every
             # Asian hour would mask the real tunable bottlenecks (G0/G4/G0.5).
             "gate_session_asian",
+            # v145.0: same structural-gating rationale — GEUT is 0% pass during
+            # EU/TRANSITION (14h/day) and GVSP is a deterministic vol-spike filter;
+            # both are INTENDED structural cuts, not tunable signal-quality bottlenecks.
+            "gate_session_nonus",
+            "gate_vol_spike",
         })
         rates: list = []
         for gate, stats in self._gate_stats.items():
@@ -19160,6 +19244,7 @@ class UnityProfitBooster:
         # arrive (signal-starved state → ring buffer never updates → threshold
         # never relaxes → no signals can pass → no fresh outcomes …).
         self._last_outcome_ts: float = time.time()
+        self._struct_block_exit_ts: float = 0.0  # v145.0: structural-drought guard — last ts we were in a hard-blocked session (Asian/EU/TRANSITION)
         # v5.7: Session start time — CB suppressed during first 5 min (warmup).
         # OutcomeTracker resolves ALL open trades from previous sessions on startup,
         # calling record_outcome(False) potentially dozens of times in seconds and
@@ -19592,6 +19677,36 @@ class UnityProfitBooster:
             self._consec_losses = 0
             self._logger.info("✅ Consec-Loss CB expired — threshold normalising")
 
+        # ── v145.0 Structural-drought guard ─────────────────────────────────
+        # Track whether we are currently inside an INTENTIONALLY hard-blocked
+        # session (Asian via GASN / EU+TRANSITION via GEUT).  While blocked the bot
+        # emits no signals, so outcome-staleness accrued here must NOT later be spent
+        # as starvation/drought relief that loosens US-session thresholds (a ~14h
+        # non-US block would otherwise make staleness huge by the US open and admit
+        # the very low-quality US signals the cut is meant to filter).  We stamp the
+        # block-exit ts every blocked cycle so that, once US opens, relief staleness
+        # is measured from US entry — not from an outcome that resolved hours earlier.
+        # Outcome rings are untouched; only the relief calc's effective staleness moves.
+        _now_rl = time.time()
+        try:
+            _struct_blocked = _in_structural_block_session()
+        except Exception:
+            _struct_blocked = False
+        if _struct_blocked:
+            self._struct_block_exit_ts = _now_rl
+        elif getattr(self, "_struct_block_exit_ts", 0.0) == 0.0:
+            # v145.0 restart hardening: process started/restarted already in an
+            # ALLOWED (US 13-22h UTC) session, so there was no prior blocked tick to
+            # stamp the exit.  Without this, _struct_block_exit_ts stays 0 → the clamp
+            # below degrades to raw staleness and the warm-start pre-aged
+            # _last_outcome_ts (now-1800s) immediately fires starvation decay at US
+            # open.  Bound relief staleness to time-since-US-open (13:00 UTC today).
+            _tm_us = time.gmtime(_now_rl)
+            if 13 <= _tm_us.tm_hour <= 22:
+                self._struct_block_exit_ts = _now_rl - (
+                    (_tm_us.tm_hour - 13) * 3600 + _tm_us.tm_min * 60 + _tm_us.tm_sec
+                )
+
         if len(self._win_ring) < 10:
             return
 
@@ -19625,6 +19740,11 @@ class UnityProfitBooster:
             try:
                 _floor_sr    = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
                 _floor_stale = time.time() - self._last_outcome_ts
+                # v145.0 structural-drought clamp: don't count hard-blocked-session time
+                if _struct_blocked:
+                    _floor_stale = 0.0
+                else:
+                    _floor_stale = min(_floor_stale, time.time() - getattr(self, "_struct_block_exit_ts", 0.0))
                 if _floor_sr < -5.0 and _floor_stale > 3600.0 and delta < 0.5:
                     delta = 0.5   # 60min ultra-ruin deadlock breaker [v32.0]
                     self._logger.info(
@@ -19649,6 +19769,21 @@ class UnityProfitBooster:
         # fast enough to break the deadlock before the next watchdog restart.
         try:
             _staleness = time.time() - self._last_outcome_ts
+            # v145.0 structural-drought clamp: time spent in an INTENTIONALLY
+            # hard-blocked session (Asian/EU/TRANSITION) must NOT accumulate into
+            # starvation/drought relief that loosens US-session thresholds.  Measure
+            # effective staleness from block-exit (US open), never from an outcome
+            # that resolved before the block began.  Outcome rings are untouched.
+            if _struct_blocked:
+                _staleness = 0.0
+            else:
+                _raw_stale = _staleness
+                _staleness = min(_staleness, time.time() - getattr(self, "_struct_block_exit_ts", 0.0))
+                if (_raw_stale - _staleness) > 60.0:
+                    self._logger.debug(
+                        f"🕒 [v145.0] Structural-drought clamp: raw_stale={_raw_stale/60:.1f}min "
+                        f"→ effective={_staleness/60:.1f}min (bounded by time-since-block-exit) [v145.0]"
+                    )
             # v11.5: Faster starvation decay — 5min start (was 10min), full decay at
             # 25min total (was 40min).  At WR<25% the 10min window was too slow to
             # break deadlocks before the watchdog restarted the engine.
