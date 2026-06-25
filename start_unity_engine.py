@@ -1171,7 +1171,7 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v148.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% |
+KEY GATES (v149.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% |
   IRONS_MIN=75(WR<30%)+76.5(WR<25%)+78(WR<20%,WR<18%)+76.5(WR<17%)+77.5(WR<15%)[v103.0]+78.5(WR<12%)[v104.0]+80.0(WR<10%)[v105.0]+81.0(WR<8%)[v106.0]+82.5(WR<6%)[v107.0]+84.0(WR<5%)[v108.0]+85.5(WR<4%)[v109.0]+87.0(WR<3%)[v110.0]+88.5(WR<2%)[v113.0]+89.5(WR<1%)[v114.0]+90.5(WR<0.5%)[v117.0]+92.0(WR<0.2%)[v118.0]+92.5(WR<0.1%)[v118.0]+93.0(WR<0.05%)[v119.0]+93.5(WR<0.02%)[v120.0]+94.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=72 | SOVEREIGN_RECOVERY=75 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts)[v124.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/healthy→+1.5pts)[v124.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "148.0"
+UNITY_VERSION                = "149.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -6010,11 +6010,17 @@ class UnitySignalFilter:
                 FROM trades
                 WHERE outcome IS NOT NULL AND outcome NOT IN ('','PENDING')
                 GROUP BY symbol
-                HAVING (total >= 20 AND (1.0 * wins / total) < 0.25)
+                HAVING (total >= 15 AND (1.0 * wins / total) < 0.28)
+                    OR (total >= 20 AND (1.0 * wins / total) < 0.25)
                     OR (total >= 7  AND wins = 0)
                     OR (total >= 5  AND wins = 0)
                     OR (total >= 8  AND (1.0 * wins / total) < 0.15)
             """).fetchall()
+            # v149.0: added fast-path tier ≥15 trades AND WR<28% (above the ≥20/WR<25% base).
+            # Rationale: at engine WR=29%, symbols with WR<28% are already underperforming the
+            # engine average. Previously they needed 20 trades of evidence. Now 15 trades of
+            # WR<28% evidence is sufficient to auto-block. The ≥20/WR<25% base tier is kept as
+            # the primary institutional threshold. Zero-win safety nets unchanged.
             # v101.0 regime-adaptive blacklist: raised min_trades 10→20, WR threshold 30%→25%.
             # Root cause: at engine WR=29.3% almost every traded symbol hits WR<30%/≥10 → 80%
             # of signals auto-blocked (GBLK was #1 bottleneck at 20% pass rate).
@@ -6287,14 +6293,17 @@ class UnitySignalFilter:
         """v6.3/v8.1: Adjust IRONS minimum threshold based on running win rate.
 
         Schedule: called by the engine each time an outcome is recorded.
-        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (76) — ultra-critical crisis tier [v115.0: 73+3=76]
-        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (74.5) — deep-crisis tier [v115.0: 73+1.5=74.5]
-        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (73) — elevated floor [v115.0: 70→73]
-        WR 30-45% → raise to IRONS_MIN_WR_30_45      (69) — near-co-equal with SIGNAL_MIN_QUALITY_GATE=70 [v115.0: 67→69]
+        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (78) — ultra-critical crisis tier [v147.0: 75+3=78]
+        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (76.5) — deep-crisis tier [v147.0: 75+1.5=76.5]
+        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (75) — elevated floor [v147.0: 73→75]
+        WR 30-45% → raise to IRONS_MIN_WR_30_45      (71) — near-co-equal with SIGNAL_MIN_QUALITY_GATE=72 [v147.0: 69→71]
         WR 45-55% → base   IRONS_MIN_WR_45_55        (53) — neutral
         WR > 55%  → relax  IRONS_MIN_WR_ABOVE55      (48) — capitalise good form
-        Rationale: G9 floor=70, G10 floor=73 at WR<30% → genuine two-tier quality wall [v115.0].
-        SOVEREIGN_RECOVERY path requires IRONS≥73, matching IRONS_MIN_WR_BELOW30 [v115.0: 70→73].
+        Rationale: G9 floor=72, G10 floor=75 at WR<30% → genuine two-tier quality wall [v147.0].
+        SOVEREIGN_RECOVERY path requires IRONS≥75, matching IRONS_MIN_WR_BELOW30 [v147.0: 73→75].
+        NOTE v149.0: persistence load sites now enforce max(loaded, IRONS_MIN_WR_BELOW30) so
+        parameter raises take effect immediately on restart (previously stale saved values
+        could silently bypass raises by overwriting the freshly-computed floor at boot).
         """
         if current_wr < 0.0001:
             # v121.0: absolute-maximum-ceiling tier — WR<0.01% (e.g. 0W/10000L or 1W/9999L) closes
@@ -6412,7 +6421,7 @@ class UnitySignalFilter:
             # Bridges the gap between ultra-critical (73) and crisis (70). [v39.0 comment fix: 70+1.5=71.5]
             self._adaptive_irons_min = IRONS_MIN_WR_BELOW30 + 1.5  # 71.5
         elif current_wr < 0.30:
-            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 70 [v39.0 comment fix: base=70 since v38.0]
+            self._adaptive_irons_min = IRONS_MIN_WR_BELOW30  # 75 [v147.0: 73→75; v149.0 stale comment fixed from "70"]
         elif current_wr < 0.45:
             self._adaptive_irons_min = IRONS_MIN_WR_30_45
         elif current_wr < 0.55:
@@ -26503,7 +26512,13 @@ class UnityEngine:
                         self.metrics.total_signals_evaluated, int(_eval)
                     )
                 if self.signal_filter and "adaptive_irons_min" in state:
-                    self.signal_filter._adaptive_irons_min = float(state["adaptive_irons_min"])
+                    _loaded_aim_redis = float(state["adaptive_irons_min"])
+                    # v149.0 FIX: persistence may carry a stale floor from before an
+                    # IRONS_MIN_WR_BELOW30 raise (e.g. 71 saved pre-v147, overwriting
+                    # the freshly-computed 75). max() enforces the current parameter
+                    # floor immediately on restart without waiting for the first new
+                    # outcome to trigger update_adaptive_irons().
+                    self.signal_filter._adaptive_irons_min = max(_loaded_aim_redis, IRONS_MIN_WR_BELOW30)
                 # v8.2 FIX: gate_stats stored as a JSON string — parse it back.
                 # Previously gate_stats was serialized with _fast_dumps() but never
                 # deserialized, so Redis restore never updated gate pass/fail counters.
@@ -28624,7 +28639,10 @@ class UnityEngine:
                         if float(ts) > _cutoff:
                             self.signal_filter._symbol_last_sent[sym] = float(ts)
                 if "adaptive_irons_min" in _fs:
-                    self.signal_filter._adaptive_irons_min = float(_fs["adaptive_irons_min"])
+                    _loaded_aim_fs = float(_fs["adaptive_irons_min"])
+                    # v149.0 FIX: same as Redis restore — enforce current-parameter
+                    # floor so IRONS_MIN_WR_BELOW30 raises take effect immediately.
+                    self.signal_filter._adaptive_irons_min = max(_loaded_aim_fs, IRONS_MIN_WR_BELOW30)
                 # v9.1: restore Sharpe/Sortino pnl_ring for warm Sharpe from previous session
                 # v9.7 BUG FIX: skip restore when state is older than PNL_RING_MAX_AGE_SEC
                 # (default 24h).  Sharpe computed from days-old returns reflects a
