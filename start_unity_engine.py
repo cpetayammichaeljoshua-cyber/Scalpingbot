@@ -1171,7 +1171,7 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v147.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) |
+KEY GATES (v148.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% |
   IRONS_MIN=75(WR<30%)+76.5(WR<25%)+78(WR<20%,WR<18%)+76.5(WR<17%)+77.5(WR<15%)[v103.0]+78.5(WR<12%)[v104.0]+80.0(WR<10%)[v105.0]+81.0(WR<8%)[v106.0]+82.5(WR<6%)[v107.0]+84.0(WR<5%)[v108.0]+85.5(WR<4%)[v109.0]+87.0(WR<3%)[v110.0]+88.5(WR<2%)[v113.0]+89.5(WR<1%)[v114.0]+90.5(WR<0.5%)[v117.0]+92.0(WR<0.2%)[v118.0]+92.5(WR<0.1%)[v118.0]+93.0(WR<0.05%)[v119.0]+93.5(WR<0.02%)[v120.0]+94.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=72 | SOVEREIGN_RECOVERY=75 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts)[v124.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/healthy→+1.5pts)[v124.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
@@ -2688,7 +2688,7 @@ IT_DOW_WEAK_PENALTY  = 0.5   # −0.5pt on Mon/Tue (WR=22.7% vs 24.8% baseline, 
 # TP1 must be at least this far from entry (as % of entry price) to be worth
 # taking after slippage eats part of the profit on the first target.
 # Example: for entry=$100 and MIN_TP1_DISTANCE_PCT=0.40%, TP1 must be ≥$100.40
-MIN_TP1_DISTANCE_PCT  = 0.0050   # 0.50% minimum TP1 distance from entry (v9.8: 0.40→0.50% — wider TP1 keeps more profit headroom net of slippage and exchange fees)
+MIN_TP1_DISTANCE_PCT  = 0.0065   # v148.0: 0.50%→0.65% — REALIZED R:R ATTACK: trade-data shows 855/3298 trades (26%) EXPIRE without hitting TP1, diluting realized R:R to 1.46/1.19 vs target 2.75; EXPIRED trades are the primary realized-R:R diluter (small-positive-or-zero exits that drag avgWin down); requiring ≥0.65% TP1 distance filters "tight TP1" setups where slippage (5-10bps) + spread eat the target room and the trade times out; math: at 0.65% TP1 + RR=2.75 the implied SL=0.24% — enough buffer above round-trip costs; v9.8: 0.40→0.50% — wider TP1 keeps more profit headroom net of slippage and exchange fees
 # Per-symbol signal cooldown — prevents hammering the same symbol every cycle
 SIGNAL_COOLDOWN_MINUTES = 10     # minimum minutes between same-symbol signals [v18.69: 20→15; v18.78: 15→12; v18.81: 12→10 — at signals/hr=1 (target 5-15) further reducing cooldown allows 6 re-entries/hr per symbol vs 5/hr; 10min prevents same-candle spam while recovering valid re-setups; EV+NN+IRONS gates enforce quality on all re-entries]
 
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "147.0"
+UNITY_VERSION                = "148.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5465,6 +5465,7 @@ class UnitySignalFilter:
             "gate_session_nonus": {"pass": 0, "fail": 0},  # v145.0: EU/TRANSITION WF-validated hard-block
             "gate_vol_spike":     {"pass": 0, "fail": 0},  # v145.0: volume_ratio>2 WF-validated hard-block
             "gate_gclh":          {"pass": 0, "fail": 0},  # v147.0: GCLH WR-crisis consec-loss pre-gate
+            "gate_gslk":          {"pass": 0, "fail": 0},  # v148.0: GSLK per-symbol streak-loss kill pre-gate
             **{f"gate{i}": {"pass": 0, "fail": 0} for i in range(1, 11)},
             "gate_g85dv":  {"pass": 0, "fail": 0},  # v66.0: DGRP Velocity soft-gate
         }  # gate_ev + gate_session + gate_min_tp1 + gate_blacklist + gate1-gate10 + gate_g85dv (v66.0)
@@ -5510,6 +5511,13 @@ class UnitySignalFilter:
         # before the full hard-cutoff (now 4 losses, 3h). Stops 1 additional losing
         # trade per crisis cluster without the 3h full-halt of the hard cutoff.
         self._gclh_until: float = 0.0
+        # v148.0: GSLK — Per-Symbol Streak-Loss Kill (Phase 2.0)
+        # Uses existing SymbolPerformanceTracker._consec_loss dict (per-symbol consecutive
+        # loss counter, already maintained by record_outcome()). When any individual symbol
+        # has ≥3 consecutive losses, suppress that symbol for 5400s (90min). This is the
+        # per-symbol analog of GCLH (which operates at engine-global level). Dict maps
+        # symbol → unblock_timestamp (0.0 = not blocked). Cleared on boot.
+        self._slk_until: dict = {}
         # v66.0: G4 dead-zone relief ring — tracks last 15 G4 pass/fail results.
         # When all 15 fail (dead-zone), nn_threshold is reduced by min(0.09, threshold-0.44).
         self._g4_pass_ring: deque = deque(maxlen=15)
@@ -6557,6 +6565,70 @@ class UnitySignalFilter:
         # above) was recorded; the pass-through path had no _record() call at all.
         # Fix: record True here after both whitelist + blacklist checks succeed.
         self._record("gate_blacklist", True)
+
+        # ── v148.0 Pre-Gate A1.5 — GSLK: Per-Symbol Streak-Loss Kill ─────────────
+        # Phase 2.0: Per-symbol behavioral circuit-breaker. Complements the global
+        # GCLH (Phase 1.97) which operates at engine level. GSLK operates at the
+        # individual symbol level: when a specific symbol has accumulated ≥3
+        # consecutive losses, suppress that symbol for 5400s (90 minutes).
+        #
+        # Rationale from trade data analysis (Jun-2026, 1,588 bot trades):
+        #   - The realized R:R gap (target 2.75, realized 1.46 long / 1.19 short)
+        #     is partially driven by repeated entries on the SAME symbol when it's
+        #     in an adverse microstructure regime (e.g. SOLUSDT n=70 WR=25.7%).
+        #   - GBLK blocks symbols with ≥20 trades + WR<25% (long-run statistical
+        #     block), but has no fast-path for CURRENT streak on any symbol.
+        #   - GSLK is the fast-path: after 3 consecutive SL/EXPIRED losses on one
+        #     symbol, that symbol's microstructure has demonstrably flipped against
+        #     the signal model. 90min = ~9 scan cycles — enough for the regime to
+        #     mean-revert without the full-session block of GBLK.
+        # Uses existing SymbolPerformanceTracker.consecutive_losses(symbol) which
+        # is already maintained by record_outcome() — zero additional overhead.
+        # env UNITY_GSLK=0 to disable.
+        _gslk_enabled = os.getenv("UNITY_GSLK", "1").strip().lower() not in ("0","false","no","off","")
+        _now_gslk = time.time()
+        if _gslk_enabled and symbol:
+            _gslk_sym = symbol.upper()
+            # Check if symbol is currently in GSLK cooldown
+            _gslk_unblock = self._slk_until.get(_gslk_sym, 0.0)
+            if _gslk_unblock > _now_gslk:
+                # Check for early exit: if sym_tracker shows 0 consec losses (a win
+                # occurred after the block was set), cancel the block early
+                _gslk_cur_consec = 0
+                try:
+                    if self._sym_tracker is not None:
+                        _gslk_cur_consec = self._sym_tracker.consecutive_losses(_gslk_sym)
+                except Exception:
+                    _gslk_cur_consec = 1  # safe: assume still losing
+                if _gslk_cur_consec == 0:
+                    # Symbol has won — cancel GSLK early
+                    self._slk_until[_gslk_sym] = 0.0
+                else:
+                    _gslk_remain = int(_gslk_unblock - _now_gslk)
+                    self._record("gate_gslk", False)
+                    return (
+                        False,
+                        f"GSLK: {_gslk_sym} per-symbol streak-loss block — "
+                        f"{_gslk_remain}s remaining ({_gslk_cur_consec} consec losses; Phase 2.0) [v148.0]",
+                        0.0,
+                    )
+            # Check trigger: ≥3 consecutive losses on this symbol
+            _gslk_consec = 0
+            try:
+                if self._sym_tracker is not None:
+                    _gslk_consec = self._sym_tracker.consecutive_losses(_gslk_sym)
+            except Exception:
+                _gslk_consec = 0
+            if _gslk_consec >= 3:
+                self._slk_until[_gslk_sym] = _now_gslk + 5400.0  # 90min block
+                self._record("gate_gslk", False)
+                return (
+                    False,
+                    f"GSLK: Phase 2.0 {_gslk_sym} streak-loss — "
+                    f"{_gslk_consec} consecutive losses → 90min hard-block [v148.0]",
+                    0.0,
+                )
+        self._record("gate_gslk", True)
 
         # ── v144.0 Pre-Gate A2 — Asian-session HARD-BLOCK (walk-forward-validated) ──
         # The 0-6h UTC Asian session is the strongest walk-forward-validated
@@ -10631,6 +10703,8 @@ class UnitySignalFilter:
                         _g4_hard_cap = 0.44  # ultra-crisis: NN max ≈ 0.35-0.40, cap=dead-zone floor
                     elif _g4_session_wr < 0.28:
                         _g4_hard_cap = 0.46  # deep-crisis: NN max ≈ 0.40-0.44, allows genuine winners
+                    elif _g4_session_wr < 0.30:
+                        _g4_hard_cap = 0.50  # v148.0: crisis regime (WR<30%=29%) — tighter than standard 0.52; coherent with NN_WIN_PROB_GATE=0.58; filters G4-compound-path signals in 0.50-0.52 band at crisis WR
                     else:
                         _g4_hard_cap = 0.52  # standard institutional cap [v67.0]
                 else:
