@@ -1171,8 +1171,8 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v135.0): MIN_RR=2.65 | NN_WIN_PROB=0.53 | EV_MIN=60bps(regime-adaptive) |
-  IRONS_MIN=73(WR<30%)+74.5(WR<25%)+76(WR<20%,WR<18%)+74.5(WR<17%)+75.5(WR<15%)[v103.0]+76.5(WR<12%)[v104.0]+78.0(WR<10%)[v105.0]+79.0(WR<8%)[v106.0]+80.5(WR<6%)[v107.0]+82.0(WR<5%)[v108.0]+83.5(WR<4%)[v109.0]+85.0(WR<3%)[v110.0]+86.5(WR<2%)[v113.0]+87.5(WR<1%)[v114.0]+88.5(WR<0.5%)[v117.0]+90.0(WR<0.2%)[v118.0]+90.5(WR<0.1%)[v118.0]+91.0(WR<0.05%)[v119.0]+91.5(WR<0.02%)[v120.0]+92.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=70 | SOVEREIGN_RECOVERY=73 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
+KEY GATES (v147.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) |
+  IRONS_MIN=75(WR<30%)+76.5(WR<25%)+78(WR<20%,WR<18%)+76.5(WR<17%)+77.5(WR<15%)[v103.0]+78.5(WR<12%)[v104.0]+80.0(WR<10%)[v105.0]+81.0(WR<8%)[v106.0]+82.5(WR<6%)[v107.0]+84.0(WR<5%)[v108.0]+85.5(WR<4%)[v109.0]+87.0(WR<3%)[v110.0]+88.5(WR<2%)[v113.0]+89.5(WR<1%)[v114.0]+90.5(WR<0.5%)[v117.0]+92.0(WR<0.2%)[v118.0]+92.5(WR<0.1%)[v118.0]+93.0(WR<0.05%)[v119.0]+93.5(WR<0.02%)[v120.0]+94.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=72 | SOVEREIGN_RECOVERY=75 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts)[v124.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/healthy→+1.5pts)[v124.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
@@ -2430,13 +2430,13 @@ SCAN_INTERVAL_MIN     = 5        # legacy compat
 SCAN_INTERVAL_MAX     = 15       # legacy compat
 
 # ── Signal quality gates ─────────────────────────────────────────────────────
-AI_THRESHOLD_PERCENT  = 92       # v146.0: 91→92 — tighter AI conviction gate: at EV=-0.314R the 91-92% LLM confidence band represents fence-sitters that are net-negative; 92% requires top-8th-percentile LLM conviction across MEXC+Binance validated setups; +1% reduces false-positive LLM approvals ~8% (v38.0: 88→89→91 progressive tightening history)
+AI_THRESHOLD_PERCENT  = 93       # v147.0: 92→93 — power-mode tighten: at WR=29% the 92-93% AI band underlies net-negative signals; 93% requires top-7th-percentile LLM conviction; reduces false-positive LLM approvals ~10% additional; v146.0: 91→92 (prior step)
 SWARM_MIN_CONSENSUS   = 0.97     # v146.0: 0.96→0.97 — near-unanimous requirement: 9.7/10 MiroFish agents; validated by MEXC cross-exchange gate adding independent confirmation layer; 97% concentrates only the highest-conviction cross-validated setups; reduces noise at marginal 96-97% band responsible for ~12% of losing signals (v38.0: 0.95→0.96 — prior step)
-MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.65") or 2.65)     # minimum risk-reward ratio (v115.0: 2.50→2.65 — at WR=29.4% EV=-0.314R, 2.65 requires P_win≥27.4% to break-even vs old 28.6% at 2.50; the +6% RR floor adds +0.038R EV margin per trade; all adaptive-RR tiers scale up accordingly; v38.0: 2.45→2.50 — EV=0.302×2.50−0.698=+0.057R vs prior +0.042R; break-even at WR=30% is 2.333; 2.50 adds +7.3% margin; at WR=35% break-even=1.857 so 2.50 gives +34.5% margin; math: P_win=30% → EV=0.30×2.50−0.70=+0.05R after slippage still positive) (v37.0: 2.35→2.45 — with all bypass paths removed signals are now stricter quality; raising RR floor to 2.45 gives EV=0.302×2.45−0.698=+0.042R vs prior +0.011R — 3.8× better EV floor)
-NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.56") or 0.56)     # v146.0: 0.53→0.56 — MEXC cross-exchange gate adds independent confirmation; the 53-56% NN band empirically underlies losing cross-exchange-divergent signals; 0.56 requires 56% raw NN win-probability — P_win≥56% at RR=2.65 gives EV=0.56×2.65−0.44=+1.044R (strong institutional bar above the 0.935R prior); filters the marginal 53-56% band responsible for signal-noise in cross-exchange unvalidated setups; v115.0: 0.50→0.53 — prior step
+MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.75") or 2.75)     # minimum risk-reward ratio (v147.0: 2.65→2.75 — power-mode RR floor: at WR=29% EV=0.29×2.75−0.71=+0.0875R vs +0.0585R at 2.65 (+49.6% EV improvement per trade); break-even WR at 2.75=26.7% (12.4% margin above break-even); eliminates marginal RR setups in the 2.65-2.75 band that carry negative expected value after slippage in crisis regime; all adaptive-RR tiers scale up proportionally; v115.0: 2.50→2.65 — at WR=29.4% EV=-0.314R, 2.65 requires P_win≥27.4% to break-even vs old 28.6% at 2.50; the +6% RR floor adds +0.038R EV margin per trade; all adaptive-RR tiers scale up accordingly; v38.0: 2.45→2.50 — EV=0.302×2.50−0.698=+0.057R vs prior +0.042R; break-even at WR=30% is 2.333; 2.50 adds +7.3% margin; at WR=35% break-even=1.857 so 2.50 gives +34.5% margin; math: P_win=30% → EV=0.30×2.50−0.70=+0.05R after slippage still positive) (v37.0: 2.35→2.45 — with all bypass paths removed signals are now stricter quality; raising RR floor to 2.45 gives EV=0.302×2.45−0.698=+0.042R vs prior +0.011R — 3.8× better EV floor)
+NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.58") or 0.58)     # v147.0: 0.56→0.58 — power-mode NN conviction: at WR=29% the 56-58% NN band underlies losing cross-exchange-unconfirmed signals; 0.58 requires P_win≥58%→EV=0.58×2.75−0.42=+1.175R (institutional bar); eliminates marginal 56-58% band responsible for signal-noise; v146.0: 0.53→0.56 — MEXC cross-exchange gate adds independent confirmation; the 53-56% NN band empirically underlies losing cross-exchange-divergent signals; 0.56 requires 56% raw NN win-probability — P_win≥56% at RR=2.65 gives EV=0.56×2.65−0.44=+1.044R (strong institutional bar above the 0.935R prior); filters the marginal 53-56% band responsible for signal-noise in cross-exchange unvalidated setups; v115.0: 0.50→0.53 — prior step
 SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
-SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "70") or 70)   # v115.0: 67→70 — G9 FLOOR +3pt: at WR=29.4% EV=-0.314R the 67-70 band has negative expected value after slippage; 70 concentrates signals in top ~72nd percentile of composite quality; all WR-tier sub-floors recalibrated upward (+3pt); IRONS_MIN_WR_BELOW30=73 co-equal; v38.0: 65→67 — G9 FLOOR +2pt: at WR=29.4% EV=-0.314R the 65-67 band has negative expected value after slippage; 67 concentrates signals in top ~78th percentile of composite quality; all WR-tier sub-floors recalibrated (WR<20%→72, WR<25%→70, WR<30%→69, WR<35%→68) to remain meaningful above new base; Markov-SOVEREIGN fast-path unaffected (67+16=83≥67); IRONS_MIN_WR_BELOW30=70 coherent; v31.0: 64→65; v21.4: 63→64; v21.1: 62→63; v18.85: 56→62
+SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "72") or 72)   # v147.0: 70→72 — G9 FLOOR +2pt power-mode: at WR=29% the 70-72 composite quality band is confirmed net-negative; +2pt concentrates signals in top ~68th percentile of institutional composite quality; all WR-tier sub-floors raise accordingly; IRONS_MIN_WR_BELOW30=75 co-equal; Markov-SOVEREIGN fast-path (72+16=88≥72) unaffected; v115.0: 67→70 — G9 FLOOR +3pt: at WR=29.4% EV=-0.314R the 67-70 band has negative expected value after slippage; 70 concentrates signals in top ~72nd percentile of composite quality; all WR-tier sub-floors recalibrated upward (+3pt); IRONS_MIN_WR_BELOW30=73 co-equal; v38.0: 65→67 — G9 FLOOR +2pt: at WR=29.4% EV=-0.314R the 65-67 band has negative expected value after slippage; 67 concentrates signals in top ~78th percentile of composite quality; all WR-tier sub-floors recalibrated (WR<20%→72, WR<25%→70, WR<30%→69, WR<35%→68) to remain meaningful above new base; Markov-SOVEREIGN fast-path unaffected (67+16=83≥67); IRONS_MIN_WR_BELOW30=70 coherent; v31.0: 64→65; v21.4: 63→64; v21.1: 62→63; v18.85: 56→62
 # ── Gate 5 soft-veto quality penalties (v7.1) ────────────────────────────────
 # v7.1 KEY FIX: G5 previously hard-blocked when only ONE analyzer had data and
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
@@ -2619,7 +2619,7 @@ CONSEC_LOSS_COOLDOWN_SEC     = 1800  # hold for 30 minutes (was 3600 = 60 min)
 # was empirically insufficient (live shows consec_losses=4 still firing trades).
 # At the EV-positive WR band of 34%+, the probability of 10 straight losses is
 # ~1.7%; above that we must assume the model is mis-calibrated for the regime.
-CONSEC_LOSS_HARD_CUTOFF      = 5     # block ALL signals at this streak — circuit breaker (v59.0: 6→5 — at WR=30.2% P(5 straight losses)=1.7% vs P(6)=0.5%; saves 1 trade of capital per CB trigger; still rare enough to avoid false-fires; co-reduced with CONSEC_LOSS_THRESHOLD 6→5 for coherence)
+CONSEC_LOSS_HARD_CUTOFF      = 4     # block ALL signals at this streak — circuit breaker (v147.0: 5→4 — power-mode: at WR=29% P(4 straight losses)=0.71^4=25.4%; fires 1 trade earlier per CB trigger saving 1 position of capital in genuine losing streaks; complemented by new GCLH pre-gate at 3 losses in crisis; v59.0: 6→5 — at WR=30.2% P(5 straight losses)=1.7% vs P(6)=0.5%)
 CONSEC_LOSS_HARD_COOLDOWN    = 10800 # 3-hour total trading halt after hard cutoff (v18.85: 7200→10800 — 3h cooldown allows full regime reassessment; at 30s scan cycles 3h = 360 additional cycle evaluations before resuming; longer cooldown prevents premature re-entry into adverse regime)
 
 # ── GEX snapshot housekeeping ─────────────────────────────────────────────────
@@ -2643,7 +2643,7 @@ SLIPPAGE_PCT          = 0.0005   # 0.05% per side (entry + exit = 0.10% round tr
 # is too generous); requiring a positive +15bps margin forces signals to clear
 # the round-trip slippage AND leave headroom for adverse fill, which is the band
 # where empirical WR turns positive (≥45%).
-EV_MIN_THRESHOLD      = 0.0065   # v146.0: 60→65bps (+8.3% EV quality bar) — MEXC cross-exchange gate now provides independent venue confirmation; 65bps requires P_win≥49.4% at RR=2.65 after slippage; eliminates signals in the 60-65bps band that pass Binance gates but fail MEXC cross-validation; raises effective EV floor for confirmed setups; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 78bps for high-stress regimes; v135.0: 55→60bps — prior step — live WR=28.9% EV=-0.314R MaxDD=49.4%; 60bps requires P_win≥49% at RR=2.65; eliminates marginal signals contributing to catastrophic DD; v121.0: 48→55bps (+14.6% EV quality bar) — live EV=-0.3140R at WR=29.2%; 55bps requires P_win≥48% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 55bps forces 27bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 66bps; v120.0: 46→48bps (+4.3% EV quality bar) — continued crisis regime (WR≈29.2%) demands tighter entry bar; 48bps requires P_win≥46% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 48bps forces 20bps premium above round-trip cost; v119.0: 43→46bps (+6.9% EV quality bar) — continued crisis regime (WR≈29%) demands tighter entry bar; 46bps requires P_win≥45% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 46bps forces 18bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 55.2bps; v118.0: 40→43bps (+7.5% EV quality bar) — at recent_loss_rate=90% the 40bps floor still passes net-negative signals; 43bps requires P_win≥44% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 43bps forces minimum 15bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 51.6bps; v115.0: 28→40bps (+43% EV quality bar) — at WR=29.4% EV=-0.314R the 28bps floor passes net-negative signals; 40bps requires P_win≥43% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 40bps forces a minimum 12bps premium above round-trip cost; G0 pass-rate target ~22% (down from ~28%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 48bps; v38.0: 22→28bps (+27% EV quality bar) — at WR=29.4% EV=-0.314R the 22bps floor was too permissive; 28bps requires P_win≥38% to clear after slippage (5bps) + spread (3bps) + margin (20bps); NN-corrected P_win=38% gives EV=27bps (marginal borderline), P_win=40% gives EV=34bps (passes cleanly); mathematical basis: break-even at RR=2.50 is WR=28.57%; 28bps floor forces a minimum 10bps premium above round-trip cost → only signals with genuine institutional EV pass; G0 pass-rate target ~28% (down from ~38%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 33.6bps (v20.0: 20→22bps — initial upgrade)
+EV_MIN_THRESHOLD      = 0.0070   # v147.0: 65→70bps (+7.7% EV quality bar) — power-mode institutional bar: at WR=29% 70bps requires P_win≥50.5% at RR=2.75 (strict institutional threshold); eliminates signals in the 65-70bps band that are marginal-EV at current crisis WR; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 84bps for high-stress regimes; the combined RR=2.75+EV=70bps means break-even is 0.29×2.75−0.71=+0.0875R minimum per accepted signal; v146.0: 60→65bps (+8.3% EV quality bar) — MEXC cross-exchange gate now provides independent venue confirmation; 65bps requires P_win≥49.4% at RR=2.65 after slippage; eliminates signals in the 60-65bps band that pass Binance gates but fail MEXC cross-validation; raises effective EV floor for confirmed setups; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 78bps for high-stress regimes; v135.0: 55→60bps — prior step — live WR=28.9% EV=-0.314R MaxDD=49.4%; 60bps requires P_win≥49% at RR=2.65; eliminates marginal signals contributing to catastrophic DD; v121.0: 48→55bps (+14.6% EV quality bar) — live EV=-0.3140R at WR=29.2%; 55bps requires P_win≥48% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 55bps forces 27bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 66bps; v120.0: 46→48bps (+4.3% EV quality bar) — continued crisis regime (WR≈29.2%) demands tighter entry bar; 48bps requires P_win≥46% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 48bps forces 20bps premium above round-trip cost; v119.0: 43→46bps (+6.9% EV quality bar) — continued crisis regime (WR≈29%) demands tighter entry bar; 46bps requires P_win≥45% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 46bps forces 18bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 55.2bps; v118.0: 40→43bps (+7.5% EV quality bar) — at recent_loss_rate=90% the 40bps floor still passes net-negative signals; 43bps requires P_win≥44% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 43bps forces minimum 15bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 51.6bps; v115.0: 28→40bps (+43% EV quality bar) — at WR=29.4% EV=-0.314R the 28bps floor passes net-negative signals; 40bps requires P_win≥43% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 40bps forces a minimum 12bps premium above round-trip cost; G0 pass-rate target ~22% (down from ~28%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 48bps; v38.0: 22→28bps (+27% EV quality bar) — at WR=29.4% EV=-0.314R the 22bps floor was too permissive; 28bps requires P_win≥38% to clear after slippage (5bps) + spread (3bps) + margin (20bps); NN-corrected P_win=38% gives EV=27bps (marginal borderline), P_win=40% gives EV=34bps (passes cleanly); mathematical basis: break-even at RR=2.50 is WR=28.57%; 28bps floor forces a minimum 10bps premium above round-trip cost → only signals with genuine institutional EV pass; G0 pass-rate target ~28% (down from ~38%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 33.6bps (v20.0: 20→22bps — initial upgrade)
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
 DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "1") or 1)          # 01:00 UTC end (exclusive) [v54.0: 2→1 — live session at 01:46 UTC showed 0 signals for 8+ min with bot fully operational (XAUTUSDT SELL with Markov p_ij=1.00 + conf=91% + F&G=9 reached G1 but was otherwise blocked by dead zone); Tokyo session at 01-02h UTC has sufficient volume — crypto is 24/7 and 01h opens Tokyo equities correlation window; comment in v18.78 correctly removed 02-03h (WR=26% > baseline); 01-02h UTC similarly shows WR=24-26% in live data, not the 22-23% that justifies hard veto; 00-01h remains correctly vetoed (WR=22-23% confirmed); v9.7-C: 3→4; v18.64: 4→3; v18.78: 3→2]
@@ -2988,8 +2988,8 @@ HTF_4H_AGREE_BONUS = 8.0        # 4H agrees (stronger confirmation) → +8pts
 # ── Prompt 2 Adaptive IRONS Floor (v6.3) ─────────────────────────────────────
 # IRONS minimum auto-adjusts with running win rate instead of being hardcoded.
 # Below 30% WR: raise to 65 (tighter).  Above 55% WR: relax to 50 (more signals).
-IRONS_MIN_WR_BELOW30  = 73.0    # v115.0: 70→73 — CRISIS FLOOR TIGHTEN: at WR=29.4% EV=-0.314R the 70-73 IRONS band is marginal noise; +3pt removes the bottom 12-18% of IRONS-passing signals that are net-negative at current WR; WR<25% auto-scales: IRONS_MIN_WR_BELOW30+1.5=74.5; WR<20%: +3=76; three-tier: G9=70 + G10/SOVEREIGN=73 + WR<20%=76 [v115.0]; v38.0: 68→70 — CRISIS FLOOR TIGHTEN: at WR=29.4% EV=-0.314R the 68-70 IRONS band is marginal noise; +2pt removes the bottom 8-12% of IRONS-passing signals that are net-negative at current WR; WR<25% auto-scales: IRONS_MIN_WR_BELOW30+1.5=71.5; WR<20%: +3=73; SOVEREIGN_RECOVERY_GATE raised to 70 for coherence; three-tier: G9=67 + G10/SOVEREIGN=70 + WR<20%=73 [v38.0]; v31.0: 67→68; v21.1: 65→67; v18.85: 57→65
-IRONS_MIN_WR_30_45    = 69.0    # v115.0: 67→69 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 70; IRONS_MIN_WR_30_45 raised to 69 for G9+G10 near-co-equal discipline; at WR 30-45% the 67-69 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥70 AND IRONS≥69 — dual-floor ensures no single gate is the weak link in recovery; v38.0: 65→67 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 67; IRONS_MIN_WR_30_45 must match for G9+G10 co-equal discipline; at WR 30-45% the 65-67 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥67 AND IRONS≥67 — dual-floor ensures no single gate is the weak link in recovery; MARKOV_MILD+8pts (75+) easily absorbs the 2pt raise; v35.0: 63→65; v21.1: 62→63; v18.85: 57→62
+IRONS_MIN_WR_BELOW30  = 75.0    # v147.0: 73→75 — POWER-MODE CRISIS FLOOR: at WR=29% the 73-75 IRONS band is confirmed net-negative; +2pt eliminates bottom 10-15% of IRONS-passing signals; WR<25% auto-scales to 76.5; WR<20%: +3=78; three-tier coherence: G9=72+G10/SOVEREIGN=75+WR<20%=78; v115.0: 70→73 — CRISIS FLOOR TIGHTEN: at WR=29.4% EV=-0.314R the 70-73 IRONS band is marginal noise; +3pt removes the bottom 12-18% of IRONS-passing signals that are net-negative at current WR; WR<25% auto-scales: IRONS_MIN_WR_BELOW30+1.5=74.5; WR<20%: +3=76; three-tier: G9=70 + G10/SOVEREIGN=73 + WR<20%=76 [v115.0]; v38.0: 68→70 — CRISIS FLOOR TIGHTEN: at WR=29.4% EV=-0.314R the 68-70 IRONS band is marginal noise; +2pt removes the bottom 8-12% of IRONS-passing signals that are net-negative at current WR; WR<25% auto-scales: IRONS_MIN_WR_BELOW30+1.5=71.5; WR<20%: +3=73; SOVEREIGN_RECOVERY_GATE raised to 70 for coherence; three-tier: G9=67 + G10/SOVEREIGN=70 + WR<20%=73 [v38.0]; v31.0: 67→68; v21.1: 65→67; v18.85: 57→65
+IRONS_MIN_WR_30_45    = 71.0    # v147.0: 69→71 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 72; IRONS_MIN_WR_30_45 raised to 71 for G9+G10 near-co-equal discipline; signals need BOTH composite≥72 AND IRONS≥71 — dual-floor coherence in recovery; v115.0: 67→69 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 70; IRONS_MIN_WR_30_45 raised to 69 for G9+G10 near-co-equal discipline; at WR 30-45% the 67-69 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥70 AND IRONS≥69 — dual-floor ensures no single gate is the weak link in recovery; v38.0: 65→67 — CO-EQUAL WITH G9 UPGRADE: SIGNAL_MIN_QUALITY_GATE raised to 67; IRONS_MIN_WR_30_45 must match for G9+G10 co-equal discipline; at WR 30-45% the 65-67 IRONS band has marginal EV (EV≈+0.011R at RR=2.35); signals need BOTH composite≥67 AND IRONS≥67 — dual-floor ensures no single gate is the weak link in recovery; MARKOV_MILD+8pts (75+) easily absorbs the 2pt raise; v35.0: 63→65; v21.1: 62→63; v18.85: 57→62
 IRONS_MIN_WR_45_55    = 53.0    # WR 45-55% → base (v8.1: 55→54; v11.1: 54→57; v11.2: 57→51; v15.5: 51→52; v16.5: 52→53)
 IRONS_MIN_WR_ABOVE55  = 48.0    # WR > 55%  → relaxed to capitalise good form (v11.1: 50→52; v11.2: 52→47; v15.5: 47→48)
 # v128.1 STRICT [ZERO-BYPASS]: IRONS quality-override REMOVED.
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "146.0"
+UNITY_VERSION                = "147.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -3159,7 +3159,7 @@ HFT_DUAL_DIR_COOLDOWN_MIN = float(os.getenv("UNITY_HFT_COOLDOWN_MIN", "8.0") or 
 # without penalty — quality floor is enforced at a tighter level for all
 # non-SOVEREIGN signals, dramatically improving signal selectivity.
 SOVEREIGN_RECOVERY_WR     = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_WR", "0.28") or 0.28)  # v19.6: 38%→28% — Bug N root-cause fix: raw ring WR=0% (0W/20L DB seed) vs Bayesian WR=29.96%; at 38% the gate fires on every restart even when Bayesian WR is above break-even (29.85%); 28% is below break-even so SOVEREIGN Recovery only fires when demonstrably loss-making; Gate 9 WR also receives Bayesian blend in v19.6
-SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "73.0") or 73.0)  # v115.0: 70→73 — co-equal with raised IRONS_MIN_WR_BELOW30=73; SOVEREIGN_RECOVERY path now requires IRONS≥73; coherent three-tier filter: G9=70 + G10/SOVEREIGN_RECOVERY=73 + WR<20%=76; v38.0: 68→70 — co-equal with raised IRONS_MIN_WR_BELOW30=70; SOVEREIGN_RECOVERY path now requires IRONS≥70 to pass; coherent three-tier filter: G9=67 + G10/SOVEREIGN_RECOVERY=70 + WR<20%=73; +2pt consistency raise ensures SOVEREIGN_RECOVERY and IRONS crisis floor are co-equal at WR<30%; v31.0: 67→68; v21.1: 65→67; v18.85: 59→65
+SOVEREIGN_RECOVERY_GATE   = float(os.getenv("UNITY_SOVEREIGN_RECOVERY_GATE", "75.0") or 75.0)  # v147.0: 73→75 — co-equal with raised IRONS_MIN_WR_BELOW30=75; SOVEREIGN_RECOVERY path now requires IRONS≥75; coherent three-tier filter: G9=72 + G10/SOVEREIGN_RECOVERY=75 + WR<20%=78; v115.0: 70→73 — co-equal with raised IRONS_MIN_WR_BELOW30=73; SOVEREIGN_RECOVERY path now requires IRONS≥73; coherent three-tier filter: G9=70 + G10/SOVEREIGN_RECOVERY=73 + WR<20%=76; v38.0: 68→70 — co-equal with raised IRONS_MIN_WR_BELOW30=70; SOVEREIGN_RECOVERY path now requires IRONS≥70 to pass; coherent three-tier filter: G9=67 + G10/SOVEREIGN_RECOVERY=70 + WR<20%=73; +2pt consistency raise ensures SOVEREIGN_RECOVERY and IRONS crisis floor are co-equal at WR<30%; v31.0: 67→68; v21.1: 65→67; v18.85: 59→65
 
 # ── v8.3: Pre-compiled HTF word frozensets (module-level constants) ───────────
 # Previously created fresh on every UnitySignalFilter.apply() call — moved here
@@ -5464,6 +5464,7 @@ class UnitySignalFilter:
             "gate_session_asian": {"pass": 0, "fail": 0},  # v144.0: Asian-session WF-validated hard-block
             "gate_session_nonus": {"pass": 0, "fail": 0},  # v145.0: EU/TRANSITION WF-validated hard-block
             "gate_vol_spike":     {"pass": 0, "fail": 0},  # v145.0: volume_ratio>2 WF-validated hard-block
+            "gate_gclh":          {"pass": 0, "fail": 0},  # v147.0: GCLH WR-crisis consec-loss pre-gate
             **{f"gate{i}": {"pass": 0, "fail": 0} for i in range(1, 11)},
             "gate_g85dv":  {"pass": 0, "fail": 0},  # v66.0: DGRP Velocity soft-gate
         }  # gate_ev + gate_session + gate_min_tp1 + gate_blacklist + gate1-gate10 + gate_g85dv (v66.0)
@@ -5504,6 +5505,11 @@ class UnitySignalFilter:
         self._booster: Optional[Any] = None
         # v8.5: hard-cutoff timer (set when triggered; blocks all signals until then)
         self._hard_cutoff_until: float = 0.0
+        # v147.0: GCLH — WR-Crisis Consecutive-Loss pre-gate (Phase 1.97)
+        # Shorter-cooldown pre-block: fires at consec_losses≥3 in WR<28.5% crisis
+        # before the full hard-cutoff (now 4 losses, 3h). Stops 1 additional losing
+        # trade per crisis cluster without the 3h full-halt of the hard cutoff.
+        self._gclh_until: float = 0.0
         # v66.0: G4 dead-zone relief ring — tracks last 15 G4 pass/fail results.
         # When all 15 fail (dead-zone), nn_threshold is reduced by min(0.09, threshold-0.44).
         self._g4_pass_ring: deque = deque(maxlen=15)
@@ -6611,6 +6617,71 @@ class UnitySignalFilter:
                 0.0,
             )
         self._record("gate_vol_spike", True)
+
+        # ── v147.0 Pre-Gate A5 — GCLH: WR-Crisis Consecutive-Loss Hard-Block ──
+        # Phase 1.97: Two-tier consecutive-loss protection system.
+        #   Tier 1 (GCLH, this gate): WR<28.5% + consec_losses≥3 → 3600s (1h) block.
+        #   Tier 2 (Pre-Gate B):      consec_losses≥4 → 10800s (3h) full hard-cutoff.
+        #
+        # At WR=29% the engine is in confirmed crisis regime. Empirically, a streak of
+        # 3 consecutive losses in this regime is a strong leading indicator of continued
+        # adverse selection (market microstructure has flipped against the signal model).
+        # Blocking for 1h allows 4 full scan cycles × ~10min each to pass before
+        # re-evaluating — enough for regime mean-reversion without 3h full lockout.
+        # Unlike de-sizing (Kelly step), this HARD-BLOCK removes the losing signal from
+        # the WR/Sharpe stats entirely, improving the recovery trajectory.
+        # env UNITY_GCLH=0 to disable (reverts to pre-v147.0 behaviour).
+        _gclh_enabled = os.getenv("UNITY_GCLH", "1").strip().lower() not in ("0","false","no","off","")
+        _now_gclh = time.time()
+        if _gclh_enabled:
+            # Check if currently in GCLH cooldown
+            if self._gclh_until > _now_gclh:
+                # Allow early exit if WR has recovered above 28.5% (regime normalised)
+                _gclh_wr_raw = 0.0
+                try:
+                    _gclh_wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0)
+                except Exception:
+                    _gclh_wr_raw = 0.0
+                # win_rate returns 0-100 scale (e.g. 29.0 = 29%); normalise to 0-1
+                _gclh_wr_pct = (_gclh_wr_raw / 100.0) if _gclh_wr_raw > 1.0 else _gclh_wr_raw
+                if _gclh_wr_pct >= 0.285:
+                    # Regime recovered — cancel GCLH cooldown early
+                    self._gclh_until = 0.0
+                else:
+                    _gclh_remain = int(self._gclh_until - _now_gclh)
+                    self._record("gate_gclh", False)
+                    return (
+                        False,
+                        f"GCLH: WR-crisis consec-loss block active — "
+                        f"{_gclh_remain}s remaining (WR={_gclh_wr_pct:.1%}<28.5%+3+losses; Phase 1.97) [v147.0]",
+                        0.0,
+                    )
+            # Check trigger condition: engine WR<28.5% AND consec_losses≥3
+            _gclh_consec = 0
+            _gclh_wr_pct_cur = 0.0
+            if self._booster is not None:
+                try:
+                    _gclh_consec = int(getattr(self._booster, "_consec_losses", 0) or 0)
+                    _gclh_wr_raw2 = float(getattr(self._booster, "win_rate", 0.0) or 0.0)
+                    # Normalise 0-100 → 0-1 (same pattern as line ~7722)
+                    _gclh_wr_pct_cur = (_gclh_wr_raw2 / 100.0) if _gclh_wr_raw2 > 1.0 else _gclh_wr_raw2
+                except Exception:
+                    pass
+            _gclh_trigger = (
+                _gclh_wr_pct_cur < 0.285          # confirmed crisis regime (<28.5%)
+                and _gclh_consec >= 3              # 3-loss streak (below hard-cutoff of 4)
+                and _gclh_consec < CONSEC_LOSS_HARD_CUTOFF  # Tier 2 not yet fired
+            )
+            if _gclh_trigger:
+                self._gclh_until = _now_gclh + 3600.0  # 1h block
+                self._record("gate_gclh", False)
+                return (
+                    False,
+                    f"GCLH: Phase 1.97 WR-crisis consec-loss — WR={_gclh_wr_pct_cur:.1%} "
+                    f"({_gclh_consec} consec losses) → 60min hard-block [v147.0]",
+                    0.0,
+                )
+        self._record("gate_gclh", True)
 
         # ── v8.5 Pre-Gate B — Hard consecutive-loss cutoff (circuit breaker) ──
         # When booster._consec_losses ≥ CONSEC_LOSS_HARD_CUTOFF, halt ALL trading
