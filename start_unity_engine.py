@@ -1171,9 +1171,9 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v154.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block[v154.0] |
+KEY GATES (v155.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-time-release[v155.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
   IRONS_MIN=77(WR<30%)+78.5(WR<25%)+80(WR<20%,WR<18%)+78.5(WR<17%)+79.5(WR<15%)[v103.0]+80.5(WR<12%)[v104.0]+82.0(WR<10%)[v105.0]+83.0(WR<8%)[v106.0]+84.5(WR<6%)[v107.0]+86.0(WR<5%)[v108.0]+87.5(WR<4%)[v109.0]+89.0(WR<3%)[v110.0]+90.5(WR<2%)[v113.0]+91.5(WR<1%)[v114.0]+92.5(WR<0.5%)[v117.0]+94.0(WR<0.2%)[v118.0]+94.5(WR<0.1%)[v118.0]+95.0(WR<0.05%)[v119.0]+95.5(WR<0.02%)[v120.0]+96.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=73 | SOVEREIGN_RECOVERY=77 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
-  G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<30%+SR<-4.0+DD>47%→-2.5pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/healthy→+1.5pts)[v124.0/v151.0] | G8.5Q4:MaxDD-EV-Compound(DD>47%+WR<28%→-4.0pts/DD>48%+WR<30%→-3.5pts/DD>42%+WR<32%→-2.0pts/+1.5pts)[v121.0/v152.0] | G8.5H3:RecentWR-EmergencyBrake(WR<15%→-3.0/WR<20%→-2.0/WR<25%→-1.5/WR<28%→-1.0/WR>40%→+1.5pts)[v103.0/v153.0] |
+  G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/WR<30%+SR<-4.0+DD>47%→-2.5pts/WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0]/healthy→+1.5pts)[v124.0/v155.0] | G8.5Q4:MaxDD-EV-Compound(DD>47%+WR<28%→-4.0pts/DD>48%+WR<30%→-3.5pts/DD>42%+WR<32%→-2.0pts/+1.5pts)[v121.0/v152.0] | G8.5H3:RecentWR-EmergencyBrake(WR<15%→-3.0/WR<20%→-2.0/WR<25%→-1.5/WR<28%→-1.0/WR>40%→+1.5pts)[v103.0/v153.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-7pts,DD>47%→-5pts,DD>43%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "154.0"
+UNITY_VERSION                = "155.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5467,6 +5467,7 @@ class UnitySignalFilter:
             "gate_gclh":          {"pass": 0, "fail": 0},  # v147.0: GCLH WR-crisis consec-loss pre-gate
             "gate_gslk":          {"pass": 0, "fail": 0},  # v148.0: GSLK per-symbol streak-loss kill pre-gate
             "gate_gdcr":          {"pass": 0, "fail": 0},  # v154.0: GDCR triple-crisis hard-block (DD+WR+SR)
+            "gate_gmdr":          {"pass": 0, "fail": 0},  # v155.0: GMDR medium-crisis recovery hard-block
             **{f"gate{i}": {"pass": 0, "fail": 0} for i in range(1, 11)},
             "gate_g85dv":  {"pass": 0, "fail": 0},  # v66.0: DGRP Velocity soft-gate
         }  # gate_ev + gate_session + gate_min_tp1 + gate_blacklist + gate1-gate10 + gate_g85dv (v66.0)
@@ -5512,6 +5513,11 @@ class UnitySignalFilter:
         # before the full hard-cutoff (now 4 losses, 3h). Stops 1 additional losing
         # trade per crisis cluster without the 3h full-halt of the hard cutoff.
         self._gclh_until: float = 0.0
+        # v155.0: GDCR time-release attrs — track continuous block duration + last relief signal
+        self._gdcr_block_start: float = 0.0   # timestamp when GDCR first fired (0=not blocking)
+        self._gdcr_last_relief: float = 0.0   # timestamp of last time-release signal allowed through
+        # v155.0: GMDR — Medium-Drawdown-Recovery hard-block cooldown (Phase 1.99)
+        self._gmdr_until: float = 0.0
         # v148.0: GSLK — Per-Symbol Streak-Loss Kill (Phase 2.0)
         # Uses existing SymbolPerformanceTracker._consec_loss dict (per-symbol consecutive
         # loss counter, already maintained by record_outcome()). When any individual symbol
@@ -6749,6 +6755,24 @@ class UnitySignalFilter:
                     _gclh_wr_pct_cur = (_gclh_wr_raw2 / 100.0) if _gclh_wr_raw2 > 1.0 else _gclh_wr_raw2
                 except Exception:
                     pass
+            # v155.0 GCLH ultra-crisis tier: WR<26% + 2 losses → 30min block (fires 1 loss
+            # earlier when WR is in deep crisis below the 28.5% standard threshold).
+            # At WR=25-26% each additional loss has outsized probability given adverse
+            # selection has structurally shifted; 2 losses are statistically sufficient.
+            _gclh_ultra_trigger = (
+                _gclh_wr_pct_cur < 0.26           # deep crisis (below 28.5% standard)
+                and _gclh_consec >= 2              # 2-loss streak (1 earlier than standard tier)
+                and _gclh_consec < CONSEC_LOSS_HARD_CUTOFF
+            )
+            if _gclh_ultra_trigger:
+                self._gclh_until = _now_gclh + 1800.0  # 30min block (vs 1h standard)
+                self._record("gate_gclh", False)
+                return (
+                    False,
+                    f"GCLH: Phase 1.97b ultra-crisis WR<26% — WR={_gclh_wr_pct_cur:.1%} "
+                    f"({_gclh_consec} consec losses) → 30min hard-block [v155.0]",
+                    0.0,
+                )
             _gclh_trigger = (
                 _gclh_wr_pct_cur < 0.285          # confirmed crisis regime (<28.5%)
                 and _gclh_consec >= 3              # 3-loss streak (below hard-cutoff of 4)
@@ -6789,17 +6813,86 @@ class UnitySignalFilter:
             except Exception:
                 pass
             if _gdcr_dd > 47.5 and _gdcr_wr < 0.30 and _gdcr_sr < -4.0:
-                self._record("gate_gdcr", False)
+                # v155.0 GDCR time-release valve — breaks the death spiral where permanent
+                # GDCR block prevents any new wins from improving WR/SR, making GDCR lift
+                # impossible.  After 4h continuous block, allow ONE signal per 2h recovery
+                # window so the engine can accumulate winning trades and re-qualify for normal
+                # trading.  The released signal still must pass ALL other gates (GCLH, CB, etc.)
+                # env UNITY_GDCR_RELEASE=0 to disable time-release (revert to v154 behaviour).
+                _now_gdcr = time.time()
+                if self._gdcr_block_start == 0.0:
+                    self._gdcr_block_start = _now_gdcr
+                _gdcr_release_ok = os.getenv("UNITY_GDCR_RELEASE", "1").strip().lower() not in ("0","false","no","off","")
+                _gdcr_elapsed      = _now_gdcr - self._gdcr_block_start
+                _gdcr_since_relief = _now_gdcr - self._gdcr_last_relief
+                if (_gdcr_release_ok
+                        and _gdcr_elapsed > 14400.0        # 4h continuous block threshold
+                        and _gdcr_since_relief > 7200.0):  # 2h between time-release windows
+                    self._gdcr_last_relief = _now_gdcr
+                    self._logger.warning(
+                        f"⚠️ GDCR time-release [v155.0]: 1-signal recovery window after "
+                        f"{_gdcr_elapsed/3600:.1f}h block — "
+                        f"DD={_gdcr_dd:.1f}% WR={_gdcr_wr:.1%} SR={_gdcr_sr:.2f}"
+                    )
+                    # Fall through to self._record("gate_gdcr", True) below
+                else:
+                    self._record("gate_gdcr", False)
+                    return (
+                        False,
+                        (
+                            f"GDCR: Phase 1.98 triple-crisis hard-block — "
+                            f"DD={_gdcr_dd:.1f}%>47.5% + WR={_gdcr_wr:.1%}<30% + "
+                            f"SR={_gdcr_sr:+.2f}<-4.0 [v155.0]"
+                        ),
+                        0.0,
+                    )
+            else:
+                # Condition cleared — reset block-start so next GDCR activation gets fresh timer
+                self._gdcr_block_start = 0.0
+        self._record("gate_gdcr", True)
+
+        # ── v155.0 Pre-Gate A5c — GMDR: Medium-Drawdown-Recovery Hard-Block ──
+        # Phase 1.99: fires when MaxDD is approaching GDCR territory with early consecutive-
+        # loss evidence.  Closes the structural gap between GCLH (3 losses, no DD awareness)
+        # and GDCR (DD>47.5%+WR<30%+SR<-4.0 triple-crisis).
+        # Condition: MaxDD > 43.0%  AND  WR < 28%  AND  consec_losses ≥ 2 → 1800s (30min)
+        # Zero-API: reads self.max_drawdown_pct, booster.win_rate, booster._consec_losses.
+        # env UNITY_GMDR=0 to disable.
+        _gmdr_enabled = os.getenv("UNITY_GMDR", "1").strip().lower() not in ("0","false","no","off","")
+        _now_gmdr = time.time()
+        if _gmdr_enabled:
+            if self._gmdr_until > _now_gmdr:
+                _gmdr_remain = int(self._gmdr_until - _now_gmdr)
+                self._record("gate_gmdr", False)
+                return (
+                    False,
+                    f"GMDR: medium-crisis recovery block active — "
+                    f"{_gmdr_remain}s remaining (DD>43%+WR<28%+2losses; Phase 1.99) [v155.0]",
+                    0.0,
+                )
+            _gmdr_dd     = float(self.max_drawdown_pct)
+            _gmdr_wr     = 0.0
+            _gmdr_consec = 0
+            try:
+                if self._booster is not None:
+                    _gmdr_wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0)
+                    _gmdr_wr     = (_gmdr_wr_raw / 100.0) if _gmdr_wr_raw > 1.0 else _gmdr_wr_raw
+                    _gmdr_consec = int(getattr(self._booster, "_consec_losses", 0) or 0)
+            except Exception:
+                pass
+            if _gmdr_dd > 43.0 and _gmdr_wr < 0.28 and _gmdr_consec >= 2:
+                self._gmdr_until = _now_gmdr + 1800.0  # 30min block
+                self._record("gate_gmdr", False)
                 return (
                     False,
                     (
-                        f"GDCR: Phase 1.98 triple-crisis hard-block — "
-                        f"DD={_gdcr_dd:.1f}%>47.5% + WR={_gdcr_wr:.1%}<30% + "
-                        f"SR={_gdcr_sr:+.2f}<-4.0 [v154.0]"
+                        f"GMDR: Phase 1.99 medium-crisis hard-block — "
+                        f"DD={_gmdr_dd:.1f}%>43% + WR={_gmdr_wr:.1%}<28% + "
+                        f"{_gmdr_consec} consec losses → 30min block [v155.0]"
                     ),
                     0.0,
                 )
-        self._record("gate_gdcr", True)
+        self._record("gate_gmdr", True)
 
         # ── v8.5 Pre-Gate B — Hard consecutive-loss cutoff (circuit breaker) ──
         # When booster._consec_losses ≥ CONSEC_LOSS_HARD_CUTOFF, halt ALL trading
@@ -16596,6 +16689,16 @@ class UnitySignalFilter:
             elif _u4_wr < 0.28 and _u4_sr < -3.0 and _u4_dd > 42.0:
                 _u4_adj = -3.0
                 _u4_tuc = -1
+            elif _u4_wr < 0.30 and _u4_sr < -4.0 and _u4_dd > 47.0:
+                # v151.0 tier: WR<30%+SR<-4.0+DD>47% — sub-ultimate crisis wide-WR band
+                _u4_adj = -2.5
+                _u4_tuc = -1
+            elif _u4_wr < 0.30 and _u4_sr < -3.0 and _u4_dd > 44.0:
+                # v155.0 tier: sub-GDCR zone (DD 44-47.5%, SR<-3.0) — fills the scoring
+                # gap where GDCR isn't active but conditions are structurally adverse.
+                # At DD=44-47%, WR=29%, SR=-3.5 the prior code gave 0 pts; this adds -2.0pts.
+                _u4_adj = -2.0
+                _u4_tuc = -1
             elif _u4_wr > 0.40 and _u4_sr > -0.5 and _u4_dd < 18.0:
                 _u4_adj = 1.5
                 _u4_tuc = 1
@@ -19104,6 +19207,7 @@ class UnitySignalFilter:
         "gate_session_nonus": "GEUT",  # v145.0: EU/TRANSITION hard-block (WF-validated)
         "gate_vol_spike":     "GVSP",  # v145.0: volume_ratio>2 hard-block (WF-validated)
         "gate_gdcr":          "GDCR",  # v154.0: triple-crisis hard-block (DD+WR+SR)
+        "gate_gmdr":          "GMDR",  # v155.0: medium-crisis recovery hard-block
         "gate_funding":    "GFND",    # v9.7: Binance USDM funding-window guard
         "gate_cusum":      "GCUS",    # v9.7: de Prado symmetric CUSUM event filter
         "gate_ofi":        "GOFI",    # v9.7: Order-Flow Imbalance Z-score (Cont 2014)
