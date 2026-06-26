@@ -1171,9 +1171,9 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v149.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% |
+KEY GATES (v150.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts |
   IRONS_MIN=75(WR<30%)+76.5(WR<25%)+78(WR<20%,WR<18%)+76.5(WR<17%)+77.5(WR<15%)[v103.0]+78.5(WR<12%)[v104.0]+80.0(WR<10%)[v105.0]+81.0(WR<8%)[v106.0]+82.5(WR<6%)[v107.0]+84.0(WR<5%)[v108.0]+85.5(WR<4%)[v109.0]+87.0(WR<3%)[v110.0]+88.5(WR<2%)[v113.0]+89.5(WR<1%)[v114.0]+90.5(WR<0.5%)[v117.0]+92.0(WR<0.2%)[v118.0]+92.5(WR<0.1%)[v118.0]+93.0(WR<0.05%)[v119.0]+93.5(WR<0.02%)[v120.0]+94.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=72 | SOVEREIGN_RECOVERY=75 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
-  G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts)[v124.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/healthy→+1.5pts)[v124.0] |
+  G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/healthy→+1.5pts)[v124.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
   G8.5r:FundingRate_Alignment(±2pts;±3pts-SuperExtreme≥0.10%) | G8.5L:HMM_FLIP_COOL=900s |
   MaxDD_EarlyDeterrent:DD>50%→-7pts,DD>47%→-5pts,DD>43%→-2.5pts,DD>40%→-1pt(pre-quality-score) |
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "149.0"
+UNITY_VERSION                = "150.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -16463,6 +16463,15 @@ class UnitySignalFilter:
                         # Extreme greed SHORT: fear-of-missing-out peak exhaustion
                         _t4_adj = 1.5
                         _t4_cap = 1
+                    elif _t4_fg < 20.0 and _t4_btc_regime == "FLIP ZONE":
+                        # v150.0: GCEF — crowded SHORT in Extreme Fear + FLIP ZONE.
+                        # In capitulation (F&G<20), short positions are maximally
+                        # crowded; FLIP ZONE (dealer-neutral GEX) means no structural
+                        # support for further downside. Squeeze risk is highest.
+                        # Mirror of the LONG +2.5pts reversal bonus — penalises
+                        # directional alignment with the panicking crowd.
+                        _t4_adj = -2.5
+                        _t4_cap = -1
             self._last_g85t4_cap = _t4_cap
             quality_score += _t4_adj
             _t4_pass = 1 if _t4_adj >= 0.0 else 0
@@ -25961,7 +25970,7 @@ class UnityEngine:
         logger.info(f"   Gate 8.5— Dyn Backtester     {_dbt_status}  ← per-symbol 15m proxy strategy backtest, refresh @1800s [v10.0]")
         logger.info(f"   Gate 8.5— MiroFish Sim Bias  {_msim_status}  ← 10-agent swarm simulation, fallback when DYN_BACKTEST has <{UNITY_DBT_MIN_TRADES} trades [v10.0]")
         logger.info(f"   Gate 9  — Quality Floor      ≥ {SIGNAL_MIN_QUALITY_GATE:.0f}/100 composite score")
-        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-73/100 WR-driven [v70.0: WR<30%→70 | WR<25%→71.5 | WR<20%→72 | WR<18%→73 | WR30-45%→67]")
+        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-92/100 WR-driven [v147.0: WR<30%→75 | WR<25%→76.5 | WR<20%→78 | WR<18%→78 | WR30-45%→71]")
         logger.info(f"   Layer 2.7 UT Bot Strategy    {_utbot_status}  ← UT Bot Alerts + STC confirmation [v6.0]")
         logger.info("")
         logger.info("💰 KELLY CRITERION:")
@@ -28978,11 +28987,24 @@ class UnityEngine:
                         # the lifetime posterior is the authoritative WR estimator.
                         _rn_bayes_w = min(0.85, max(0.60, (_rn_bayes_n - 4.0) / (_rn_bayes_n - 4.0 + 20.0)))
                         _rn_blend_wr = _rn_bayes_w * _rn_bayes_wr + (1.0 - _rn_bayes_w) * _rn_ring_wr
+                        # v150.0: conservative tier selection — when Bayesian WR < 30%
+                        # but the ring component (0.15 weight, ~28 pts) pushes blend
+                        # above the 30% boundary, use the Bayesian WR (authoritative:
+                        # N≥2793 samples) for IRONS tier selection.  Prevents a short
+                        # burst of ring-wins from temporarily lifting blend to 31-32%
+                        # and applying the WR30-45% tier (IRONS=71) instead of the
+                        # correct WR<30% tier (IRONS=75) when Bayes still says sub-30%.
+                        _rn_tier_wr = (
+                            min(_rn_blend_wr, _rn_bayes_wr)
+                            if _rn_bayes_wr < 0.30
+                            else _rn_blend_wr
+                        )
                         if self.signal_filter is not None:
-                            self.signal_filter.update_adaptive_irons(_rn_blend_wr)
+                            self.signal_filter.update_adaptive_irons(_rn_tier_wr)
                             self._logger.info(
-                                f"📂 [v19.4 Bug O] IRONS adaptive floor updated: "
-                                f"blend_wr={_rn_blend_wr:.1%} (Bayes×{_rn_bayes_w:.2f}+ring×{1-_rn_bayes_w:.2f}) "
+                                f"📂 [v19.5 Bug O] IRONS adaptive floor updated: "
+                                f"blend_wr={_rn_blend_wr:.1%} tier_wr={_rn_tier_wr:.1%} "
+                                f"(Bayes×{_rn_bayes_w:.2f}+ring×{1-_rn_bayes_w:.2f}) "
                                 f"→ min={self.signal_filter.effective_irons_min:.0f} "
                                 f"(was persisted min={self.signal_filter._adaptive_irons_min:.0f})"
                             )
@@ -29057,12 +29079,20 @@ class UnityEngine:
                         # Bug O fix; seeded ring (0W/20L) cannot drag IRONS floor to
                         # ultra-crisis tier=68 when Bayesian evidence is N≥2488 trades
                         _bl_bayes_w = min(0.85, max(0.60, (_bl_bayes_n - 4.0) / (_bl_bayes_n - 4.0 + 20.0)))
-                        _irons_wr = _bl_bayes_w * _bl_bayes_wr + (1.0 - _bl_bayes_w) * _bl_ring_wr
+                        _bl_blend_wr = _bl_bayes_w * _bl_bayes_wr + (1.0 - _bl_bayes_w) * _bl_ring_wr
+                        # v150.0: conservative tier selection — mirrors Bug O fix.
+                        # When Bayesian WR < 30% but ring pushes blend above boundary,
+                        # use min(blend, bayes) so WR<30% tier (IRONS=75) is enforced.
+                        _irons_wr = (
+                            min(_bl_blend_wr, _bl_bayes_wr)
+                            if _bl_bayes_wr < 0.30
+                            else _bl_blend_wr
+                        )
                 except Exception:
                     pass
                 self.signal_filter.update_adaptive_irons(_irons_wr)
                 self._logger.info(
-                    f"🎯 [v7.2] Adaptive IRONS pre-set: blend_wr={_irons_wr:.1%} → "
+                    f"🎯 [v7.3] Adaptive IRONS pre-set: tier_wr={_irons_wr:.1%} → "
                     f"min={self.signal_filter.effective_irons_min:.0f} "
                     f"(was: default={IRONS_MIN_SCORE:.0f})"
                 )
