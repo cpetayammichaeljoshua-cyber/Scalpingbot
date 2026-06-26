@@ -6725,10 +6725,8 @@ class UnitySignalFilter:
                     _gclh_wr_raw = 0.0
                 # win_rate returns 0-100 scale (e.g. 29.0 = 29%); normalise to 0-1
                 _gclh_wr_pct = (_gclh_wr_raw / 100.0) if _gclh_wr_raw > 1.0 else _gclh_wr_raw
-                if _gclh_wr_pct >= 0.30:
-                    # Regime recovered above 30% — cancel GCLH cooldown early
-                    # v151.0: raised from 28.5%→30% (at WR=29% the 28.5% release
-                    # triggered immediately, cancelling the block on every cycle)
+                if _gclh_wr_pct >= 0.285:
+                    # Regime recovered — cancel GCLH cooldown early
                     self._gclh_until = 0.0
                 else:
                     _gclh_remain = int(self._gclh_until - _now_gclh)
@@ -6736,7 +6734,7 @@ class UnitySignalFilter:
                     return (
                         False,
                         f"GCLH: WR-crisis consec-loss block active — "
-                        f"{_gclh_remain}s remaining (WR={_gclh_wr_pct:.1%}<30%+3+losses; Phase 1.97) [v151.0]",
+                        f"{_gclh_remain}s remaining (WR={_gclh_wr_pct:.1%}<28.5%+3+losses; Phase 1.97) [v147.0]",
                         0.0,
                     )
             # Check trigger condition: engine WR<28.5% AND consec_losses≥3
@@ -6751,10 +6749,7 @@ class UnitySignalFilter:
                 except Exception:
                     pass
             _gclh_trigger = (
-                _gclh_wr_pct_cur < 0.30           # v151.0: 28.5%→30% — at WR=29% the
-                                                   # old 28.5% threshold never armed GCLH;
-                                                   # raised to 30% so current crisis always
-                                                   # has GCLH armed (3 consec → 1h block)
+                _gclh_wr_pct_cur < 0.285          # confirmed crisis regime (<28.5%)
                 and _gclh_consec >= 3              # 3-loss streak (below hard-cutoff of 4)
                 and _gclh_consec < CONSEC_LOSS_HARD_CUTOFF  # Tier 2 not yet fired
             )
@@ -6764,7 +6759,7 @@ class UnitySignalFilter:
                 return (
                     False,
                     f"GCLH: Phase 1.97 WR-crisis consec-loss — WR={_gclh_wr_pct_cur:.1%} "
-                    f"({_gclh_consec} consec losses) → 60min hard-block [v151.0]",
+                    f"({_gclh_consec} consec losses) → 60min hard-block [v147.0]",
                     0.0,
                 )
         self._record("gate_gclh", True)
@@ -16520,14 +16515,6 @@ class UnitySignalFilter:
             if _u4_wr < 0.25 and _u4_sr < -4.0 and _u4_dd > 47.0:
                 _u4_adj = -4.0
                 _u4_tuc = -2
-            elif _u4_wr < 0.30 and _u4_sr < -4.0 and _u4_dd > 47.0:
-                # v151.0: ADVANCED-CRISIS tier — closes the gap where WR 28-30%
-                # with SR<-4.0 AND DD>47% receives ZERO penalty from either tier.
-                # At live state (WR=29%+SR=-4.87+DD=49.37%) neither ultra (WR<25%)
-                # nor deep (WR<28%) fires. This tier fires RIGHT NOW in this regime.
-                # Kelly99 (×0.72 deep-crisis) also applies via _u4_tuc=-1.
-                _u4_adj = -2.5
-                _u4_tuc = -1
             elif _u4_wr < 0.28 and _u4_sr < -3.0 and _u4_dd > 42.0:
                 _u4_adj = -3.0
                 _u4_tuc = -1
