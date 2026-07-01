@@ -7,7 +7,7 @@
   "win_count": 812,
   "loss_count": 1988,
   "total_profit_pct": -635.2340997229917,
-  "scan_cycles": 24595,
+  "scan_cycles": 24596,
   "last_signal_quality": 0.0,
   "trade_returns": [
     1.85,
@@ -214,5 +214,5 @@
   "peak_equity": 101.85,
   "current_equity": 52.516700685738876,
   "max_drawdown_pct": 49.373795692078595,
-  "saved_at": "2026-06-28T00:05:14.711293"
+  "saved_at": "2026-07-01T17:41:12.667163"
 }

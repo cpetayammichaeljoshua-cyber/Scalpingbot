@@ -1,3 +1,4 @@
+- [Unity Engine v161.0 upgrades](unity-engine-v161.md) — GDOW:Tue-SHORT/Sun-LONG hard-block; GCAL:day1-7→+1pt/day15-21→-1.5pt; GDIV:>55-syms→-2.5pt; GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt; GMOM3:2×LONG→SHORT→+1.5pt; GBATCH:size5/7→+2.5pt; IRONS-recovery-paradox; v160→161
 - [Unity Engine v159.0 upgrades](unity-engine-v159.md) — G8.5AC GDLB 140th gate: LONG@WR<32%→-1.0pt/WR<28%→-1.5pts (data:16k signals LONG-avgP=-0.28% vs SHORT+0.26%); Kelly133 LONG de-size ×0.90/×0.85; full CSV analysis in file; v158→159
 - [Unity Engine v158.0 upgrades](unity-engine-v158.md) — GDCR-RQG: relief window preserved (not burned) when conf≥92+WR<30% anti-signal candidate; G8.5AB XRSI 139th gate: LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts; v157→158
 - [Unity Engine v157.0 upgrades](unity-engine-v157.md) — G8.5AA CWD (138th gate): conf≥92+WR<30%→-1.5pts / conf≥90+WR<25%→-1.0pts (data-confirmed anti-signal); Kelly132 near-GXPR de-size ×0.78 at 45-65% near-zero; v156→157

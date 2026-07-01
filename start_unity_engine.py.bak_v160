@@ -1171,7 +1171,7 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v161.0): GDOW:Tue-SHORT/Sun-LONG→hard-block[v161.0] | GCAL:day1-7→+1.0pt/day15-21→-1.5pt[v161.0] | GDIV:>55-unique-syms→-2.5pt[v161.0] | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt[v161.0] | GMOM3:2×LONG→SHORT→+1.5pt[v161.0] | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt[v161.0] | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82[v161.0] | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
+KEY GATES (v160.0): MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
   IRONS_MIN=77(WR<30%)+78.5(WR<25%)+80(WR<20%,WR<18%)+78.5(WR<17%)+79.5(WR<15%)[v103.0]+80.5(WR<12%)[v104.0]+82.0(WR<10%)[v105.0]+83.0(WR<8%)[v106.0]+84.5(WR<6%)[v107.0]+86.0(WR<5%)[v108.0]+87.5(WR<4%)[v109.0]+89.0(WR<3%)[v110.0]+90.5(WR<2%)[v113.0]+91.5(WR<1%)[v114.0]+92.5(WR<0.5%)[v117.0]+94.0(WR<0.2%)[v118.0]+94.5(WR<0.1%)[v118.0]+95.0(WR<0.05%)[v119.0]+95.5(WR<0.02%)[v120.0]+96.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=73 | SOVEREIGN_RECOVERY=77 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/WR<30%+SR<-4.0+DD>47%→-2.5pts/WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0]/healthy→+1.5pts)[v124.0/v155.0] | G8.5Q4:MaxDD-EV-Compound(DD>47%+WR<28%→-4.0pts/DD>48%+WR<30%→-3.5pts/DD>42%+WR<32%→-2.0pts/+1.5pts)[v121.0/v152.0] | G8.5H3:RecentWR-EmergencyBrake(WR<15%→-3.0/WR<20%→-2.0/WR<25%→-1.5/WR<28%→-1.0/WR>40%→+1.5pts)[v103.0/v153.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
@@ -3008,42 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "161.0"
-
-# ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
-# Six-session quantitative analysis of 17,647 InsiderTactics trades.
-# PF proof: filtered 33.5% flow → PF=1.407 EV=+3.13%; blocked 66.5% → PF=0.822.
-# All gates below are walk-forward-data-confirmed on ≥1 independent analysis session.
-
-# GDOW — Day-of-Week Direction Kill Gate (pre-gate hard block)
-# Tue SHORT: WR=21.7% EV=-2.14% | Sun LONG: EV=-2.30% (17k-trade confirmed kills)
-GDOW_ENABLED   = os.getenv("UNITY_GDOW", "1").strip().lower() not in ("0","false","no","off","")
-DOW_KILL_CFG   = {
-    ("SHORT", 1): "Tue SHORT EV=-2.14% (data: 17k trades — worst SHORT day)",
-    ("LONG",  6): "Sun LONG EV=-2.30% (data: 17k trades — worst LONG day)",
-}
-
-# GCAL — Calendar Week Effect soft gate (month-start alpha / mid-month drag)
-# Days 1-7: WR=26.6% EV=+1.55% (+1.0pt) | Days 15-21: WR=20.8% EV=-0.53% (-1.5pt)
-GCAL_ENABLED   = os.getenv("UNITY_GCAL", "1").strip().lower() not in ("0","false","no","off","")
-
-# GDIV — Symbol Diversity Alarm soft gate (>52 unique syms/day = catastrophic)
-# Catastrophic days avg 52.5 unique syms WR=16.6% vs profitable days 44.0 syms WR=31.0%
-GDIV_ENABLED   = os.getenv("UNITY_GDIV", "1").strip().lower() not in ("0","false","no","off","")
-GDIV_LIMIT     = 52    # unique symbol count threshold; ≥55 = catastrophic (-2.5pt)
-
-# GSEQ — Intraday Sequence Position soft gate
-# Signals 11-20 = peak window WR+5pp | Signals 91-100 = kill zone WR-8pp
-GSEQ_ENABLED   = os.getenv("UNITY_GSEQ", "1").strip().lower() not in ("0","false","no","off","")
-
-# GMOM3 — 3-Signal Session Momentum soft gate (direction reversal edge)
-# After 2xLONG recent → SHORT fires: WR=28% EV=+1.79% (strongest session edge)
-GMOM3_ENABLED  = os.getenv("UNITY_GMOM3", "1").strip().lower() not in ("0","false","no","off","")
-
-# GBATCH — Batch Size soft gate (rapid-fire cluster quality signal)
-# Batch 5 or 7 signals: WR+6pp elite | Batch 4/9/10: WR-8pp confirmed kill
-GBATCH_ENABLED = os.getenv("UNITY_GBATCH", "1").strip().lower() not in ("0","false","no","off","")
-GBATCH_WIN_SEC = 180   # 3-min window for batch detection (rapid-fire cluster)
+UNITY_VERSION                = "160.0"
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -5936,19 +5901,6 @@ class UnitySignalFilter:
         self._gate_stats_recent["gate_g85ac_dlb"] = deque(maxlen=self._gate_stats_window_n)  # v159.0
         self._gate_stats["gate_g85ad_gtod"]       = {"pass": 0, "fail": 0}  # v160.0: Time-of-Day Direction Penalty (US-session worst pockets: LONG@13-15h/SHORT@22h)
         self._gate_stats_recent["gate_g85ad_gtod"]= deque(maxlen=self._gate_stats_window_n)  # v160.0
-        # v161.0 gate stats
-        self._gate_stats["gate_g85ae_gdow"]         = {"pass": 0, "fail": 0}  # v161.0: DOW Direction Kill (Tue SHORT/Sun LONG data-confirmed neg-EV pre-gate)
-        self._gate_stats_recent["gate_g85ae_gdow"]  = deque(maxlen=self._gate_stats_window_n)
-        self._gate_stats["gate_g85af_gcal"]         = {"pass": 0, "fail": 0}  # v161.0: Calendar Week Effect (+1.0pt wk1 alpha / -1.5pt wk3 drag)
-        self._gate_stats_recent["gate_g85af_gcal"]  = deque(maxlen=self._gate_stats_window_n)
-        self._gate_stats["gate_g85ag_gdiv"]         = {"pass": 0, "fail": 0}  # v161.0: Symbol Diversity Alarm (>52 syms/day catastrophic WR=16.6%)
-        self._gate_stats_recent["gate_g85ag_gdiv"]  = deque(maxlen=self._gate_stats_window_n)
-        self._gate_stats["gate_g85ah_gseq"]         = {"pass": 0, "fail": 0}  # v161.0: Intraday Sequence Gate (11-20 peak +1.5pt / 91-100 kill -2.5pt)
-        self._gate_stats_recent["gate_g85ah_gseq"]  = deque(maxlen=self._gate_stats_window_n)
-        self._gate_stats["gate_g85ai_gmom3"]        = {"pass": 0, "fail": 0}  # v161.0: 3-Signal Session Momentum (2×LONG→SHORT edge WR=28% EV=+1.79%)
-        self._gate_stats_recent["gate_g85ai_gmom3"] = deque(maxlen=self._gate_stats_window_n)
-        self._gate_stats["gate_g85aj_gbatch"]       = {"pass": 0, "fail": 0}  # v161.0: Batch Size Gate (5/7=elite+2.5pt / 4/9/10=kill-3.0pt)
-        self._gate_stats_recent["gate_g85aj_gbatch"]= deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85x5_adf"] = deque(maxlen=self._gate_stats_window_n)  # v142.0
         self._last_g85b4_rws: int = 0   # v115.0: +1=hot-streak WR>45%, -1=below-BE WR<34%, -2=losing WR<27%, -3=catastrophic WR<18%, 0=neutral; Kelly Step 80
         self._last_g85c4_aev: int = 0   # v116.0: +1=EV-positive-trend, -1=below-BE, -2=EV-deteriorating, -3=deep-EV-hole, 0=neutral/cold-start; Kelly Step 81
@@ -6010,24 +5962,6 @@ class UnitySignalFilter:
         self._last_g85ab_xrsi: int    = 0    # v158.0: -3=extreme RSI chase(>78/<22), -2=overbought/oversold chase(>72/<28), 0=neutral; scoring penalty only
         self._last_g85ac_dlb: int     = 0    # v159.0: -2=LONG@WR<28%(−1.5pts), -1=LONG@WR<32%(−1.0pt), 0=neutral; data-confirmed LONG structural bias penalty
         self._last_g85ad_gtod: int    = 0    # v160.0: -3=worst-pocket(LONG13-14h/-2.0pt SHORT22h), -2=bad-pocket(LONG15h), 0=neutral; ToD direction penalty
-        # v161.0: Data-confirmed gate state variables
-        self._last_g85ae_gdow: int     = 0    # v161.0: -2=killed(Tue SHORT/Sun LONG), 0=neutral; DOW hard-block (data: EV=-2.1/-2.3%)
-        self._last_g85af_gcal: float   = 0.0  # v161.0: +1.0=wk1-alpha, -1.5=wk3-drag, 0=neutral; calendar week effect
-        self._last_g85ag_gdiv: float   = 0.0  # v161.0: -2.5=catastrophic>55syms, -1.5=warning>50syms, +0.5=concentrated<40syms
-        self._last_g85ah_gseq: float   = 0.0  # v161.0: +1.5=peak(11-20), -2.5=kill(91-100), 0=neutral; intraday sequence
-        self._last_g85ai_gmom3: float  = 0.0  # v161.0: +1.5=reversal-edge(2×LONG→SHORT), -0.5=fatigue, 0=neutral
-        self._last_g85aj_gbatch: float = 0.0  # v161.0: +2.5=elite(batch5/7), -3.0=kill(batch4/9/10), 0=neutral
-        # v161.0: Daily tracking state (UTC-day reset)
-        self._v161_daily_signal_n: int  = 0   # signals fired today (UTC day boundary reset)
-        self._v161_unique_syms: set     = set()  # unique symbols today (UTC day boundary reset)
-        self._v161_last_day_utc: int    = -1   # last UTC day tracked (for reset detection)
-        # v161.0: Direction ring for GMOM3 (last 3 signal directions fired)
-        self._v161_dir_ring: list       = []   # last ≤3 directions: e.g. ["LONG","LONG","SHORT"]
-        # v161.0: Batch detection — timestamps of signals in the current batch window
-        self._v161_batch_ts: list       = []   # signal timestamps in GBATCH_WIN_SEC window
-        # v161.0: Recovery paradox IRONS — prev_day_total_pnl drives boot-floor calibration
-        self._v161_prev_day_total: float = 0.0  # yesterday's total session pnl% (from booster)
-        self._v161_prev_day_checked: int = -1   # UTC day when prev_day_total was last loaded
         self._ofi_z_ring: deque       = deque(maxlen=30)   # v143.0: rolling ofi_z history for PCO cross-correlation
         self._vpin_pco_ring: deque    = deque(maxlen=30)   # v143.0: rolling vpin_norm history for PCO cross-correlation
         self._quality_score_ring: "deque[float]" = __import__("collections").deque(maxlen=8)  # v124.0: last-8 quality scores for F284 velocity
@@ -6520,30 +6454,6 @@ class UnitySignalFilter:
             self._adaptive_irons_min = IRONS_MIN_WR_45_55
         else:
             self._adaptive_irons_min = IRONS_MIN_WR_ABOVE55
-
-        # v161.0: Recovery Paradox calibration — prev_day_total_pnl overrides WR floor.
-        # Data (17k trades): catastrophic days (<-500%) → next day WR=27.6% EV=+2.45% (bounce).
-        # Moderate negative (-100% to 0%) → next day WR=22.4% EV=-1.61% (WORST next-day historically).
-        # NON-OBVIOUS: relax IRONS after catastrophe, tighten after moderate negative days.
-        try:
-            _v161_pdt = float(getattr(self, "_v161_prev_day_total", 0.0) or 0.0)
-            if _v161_pdt != 0.0:
-                if _v161_pdt < -500.0:
-                    # Strong bounce expected: relax IRONS if WR-based floor ≤ 79
-                    if self._adaptive_irons_min <= 79.0:
-                        self._adaptive_irons_min = min(self._adaptive_irons_min, 72.0)
-                elif _v161_pdt < -200.0:
-                    # Muted recovery: moderate caution (max with 79)
-                    self._adaptive_irons_min = max(self._adaptive_irons_min, 79.0)
-                elif _v161_pdt < -100.0:
-                    # Grinding regime — tighten
-                    self._adaptive_irons_min = max(self._adaptive_irons_min, 80.0)
-                elif _v161_pdt < 0.0:
-                    # Worst next-day historically — maximum tighten
-                    self._adaptive_irons_min = max(self._adaptive_irons_min, 82.0)
-                # If prev_day > 0 (profitable): no paradox override — WR-based is already correct
-        except Exception:
-            pass   # recovery paradox non-fatal — never break IRONS path
 
     @property
     def effective_irons_min(self) -> float:
@@ -7100,36 +7010,6 @@ class UnitySignalFilter:
             except Exception:
                 pass   # GXPR is non-fatal — cold-start / missing ring → pass-through
         self._record("gate_gxpr", True)
-
-        # ── v161.0 Pre-Gate A5f — GDOW: Day-of-Week Direction Kill ────────────
-        # Data: 17,647 InsiderTactics trades (six-session quantitative analysis).
-        # Confirmed kills (negative-EV across full dataset, not walk-forward yet):
-        #   Tue SHORT: WR=21.7%, EV=-2.14% (worst SHORT day, −0.44pp below baseline)
-        #   Sun LONG:  EV=-2.30% (worst LONG day, −2.30pp below baseline)
-        # Block rate: ~14% of total flow (targeted, not broad-brush).
-        # Implementation: pre-gate hard-block (identical to GASN/GEUT pattern).
-        # env UNITY_GDOW=0 to disable and revert to zero blocking.
-        if GDOW_ENABLED:
-            try:
-                _gdow_sd  = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""
-                _gdow_dir = "SHORT" if _gdow_sd in ("SHORT","SELL","short","sell") else ("LONG" if _gdow_sd in ("LONG","BUY","long","buy") else "")
-                if _gdow_dir:
-                    _gdow_wd  = datetime.utcnow().weekday()  # 0=Mon, 1=Tue, …, 6=Sun
-                    _gdow_key = (_gdow_dir, _gdow_wd)
-                    if _gdow_key in DOW_KILL_CFG:
-                        _gdow_reason = DOW_KILL_CFG[_gdow_key]
-                        self._last_g85ae_gdow = -2
-                        self._record("gate_g85ae_gdow", False)
-                        self._logger.warning(
-                            f"🛑 GDOW [v161.0]: {_gdow_reason} — blocking signal [GDOW]"
-                        )
-                        return (False, f"GDOW: {_gdow_reason}", 0.0)
-                self._last_g85ae_gdow = 0
-                self._record("gate_g85ae_gdow", True)
-            except Exception:
-                self._record("gate_g85ae_gdow", True)
-        else:
-            self._record("gate_g85ae_gdow", True)
 
         # ── v8.5 Pre-Gate B — Hard consecutive-loss cutoff (circuit breaker) ──
         # When booster._consec_losses ≥ CONSEC_LOSS_HARD_CUTOFF, halt ALL trading
@@ -18767,224 +18647,6 @@ class UnitySignalFilter:
             _record("gate_g85ad_gtod", _ad_pass)
         except Exception:
             pass  # G8.5AD GTOD Time-of-Day Direction Penalty is non-fatal soft-gate
-
-        # ── v161.0: Daily state reset (UTC-day boundary) ─────────────────────
-        # Resets _v161_daily_signal_n, _v161_unique_syms, _v161_dir_ring, _v161_batch_ts
-        # and loads prev_day_total_pnl for recovery paradox each new UTC day.
-        try:
-            _v161_today = datetime.utcnow().day
-            if _v161_today != getattr(self, "_v161_last_day_utc", -1):
-                # Store yesterday's total pnl for recovery paradox
-                try:
-                    _v161_old_total = 0.0
-                    if self._booster is not None:
-                        _v161_pnl_ring = list(getattr(self._booster, "_pnl_ring", []) or [])
-                        if len(_v161_pnl_ring) >= 5:
-                            # Approximate prev-day total from pnl ring (sum × 100 for % representation)
-                            _v161_old_total = sum(_v161_pnl_ring[-30:]) * 100.0  # last-30 as proxy
-                    self._v161_prev_day_total = _v161_old_total
-                except Exception:
-                    pass
-                self._v161_daily_signal_n  = 0
-                self._v161_unique_syms     = set()
-                self._v161_dir_ring        = []
-                self._v161_batch_ts        = []
-                self._v161_last_day_utc    = _v161_today
-        except Exception:
-            pass  # daily reset non-fatal
-
-        # ── v161.0 G8.5AF — GCAL: Calendar Week Effect ───────────────────────
-        # Data: 17,647 InsiderTactics trades. Month-start alpha vs mid-month drag.
-        # Days 1-7:  WR=26.6% EV=+1.55% (+1.0pt quality bonus — institutional positioning)
-        # Days 8-14: WR=22.3% EV=-0.47% (neutral→slight penalty -0.5pt)
-        # Days 15-21: WR=20.8% EV=-0.53% (-1.5pt strongest drag fortnight)
-        # Days 22-31: WR=21.8% EV=-0.09% (-0.3pt mild late-month drag)
-        try:
-            self._last_g85af_gcal = 0.0
-            if GCAL_ENABLED:
-                _gcal_dom = datetime.utcnow().day
-                if 1 <= _gcal_dom <= 7:
-                    _gcal_adj = 1.0      # month-start alpha — institutional rebalancing flow
-                    self._last_g85af_gcal = 1.0
-                    score += _gcal_adj
-                    self._logger.debug(f"📅 [v161.0 G8.5AF GCAL] Month-start alpha: day {_gcal_dom} (+1.0pt)")
-                elif 8 <= _gcal_dom <= 14:
-                    _gcal_adj = -0.5     # mid-month onset drag
-                    self._last_g85af_gcal = -0.5
-                    score += _gcal_adj
-                elif 15 <= _gcal_dom <= 21:
-                    _gcal_adj = -1.5     # worst fortnight drag
-                    self._last_g85af_gcal = -1.5
-                    score += _gcal_adj
-                    self._logger.debug(f"📅 [v161.0 G8.5AF GCAL] Mid-month drag: day {_gcal_dom} (-1.5pt)")
-                else:
-                    _gcal_adj = -0.3     # late-month mild drag
-                    self._last_g85af_gcal = -0.3
-                    score += _gcal_adj
-            _gcal_fire = abs(self._last_g85af_gcal) >= 0.5
-            _record("gate_g85af_gcal", not _gcal_fire or self._last_g85af_gcal > 0)
-        except Exception:
-            pass  # GCAL non-fatal soft-gate
-
-        # ── v161.0 G8.5AG — GDIV: Symbol Diversity Alarm ─────────────────────
-        # Data: catastrophic days avg 52.5 unique symbols WR=16.6% vs profitable 44.0 syms WR=31.0%.
-        # Multi-sector volatility → signal quality degrades → spray-and-pray regime.
-        # Thresholds: >55 unique syms = catastrophic (-2.5pt) | >50 = warning (-1.5pt) | <40 = concentrated (+0.5pt)
-        try:
-            self._last_g85ag_gdiv = 0.0
-            if GDIV_ENABLED:
-                # Update today's unique symbol count
-                _gdiv_sym = symbol.upper() if symbol else ""
-                if _gdiv_sym:
-                    self._v161_unique_syms.add(_gdiv_sym)
-                _gdiv_n = len(self._v161_unique_syms)
-                if _gdiv_n >= 55:
-                    _gdiv_adj = -2.5
-                    self._last_g85ag_gdiv = -2.5
-                    score += _gdiv_adj
-                    self._logger.warning(
-                        f"⚠️ [v161.0 G8.5AG GDIV] Catastrophic symbol diversity: "
-                        f"{_gdiv_n} unique syms today ≥55 (data: WR=16.6% vs 31.0% normal) → -2.5pt"
-                    )
-                elif _gdiv_n >= 50:
-                    _gdiv_adj = -1.5
-                    self._last_g85ag_gdiv = -1.5
-                    score += _gdiv_adj
-                elif _gdiv_n >= GDIV_LIMIT:
-                    _gdiv_adj = -0.8
-                    self._last_g85ag_gdiv = -0.8
-                    score += _gdiv_adj
-                elif _gdiv_n < 40:
-                    _gdiv_adj = 0.5     # concentrated session = quality regime
-                    self._last_g85ag_gdiv = 0.5
-                    score += _gdiv_adj
-            _record("gate_g85ag_gdiv", self._last_g85ag_gdiv >= -1.5)
-        except Exception:
-            pass  # GDIV non-fatal soft-gate
-
-        # ── v161.0 G8.5AH — GSEQ: Intraday Sequence Position ────────────────
-        # Data: intraday signal sequence dramatically predicts quality.
-        # Signals 1-10:  warm-up period (WR=23%) — bot calibrating to session
-        # Signals 11-20: PEAK window (WR=28% EV=+1.79%) — full momentum +1.5pt
-        # Signals 21-90: plateau baseline (WR=22-24%) — neutral
-        # Signals 91-100: kill zone (WR=14% EV=-3.4%) — severe degradation -2.5pt
-        # Signals >100:  meltdown zone (WR=12%) — ultra-kill -3.5pt
-        try:
-            self._last_g85ah_gseq = 0.0
-            if GSEQ_ENABLED:
-                self._v161_daily_signal_n += 1
-                _gseq_n = self._v161_daily_signal_n
-                if 11 <= _gseq_n <= 20:
-                    _gseq_adj = 1.5
-                    self._last_g85ah_gseq = 1.5
-                    score += _gseq_adj
-                    self._logger.debug(f"🎯 [v161.0 G8.5AH GSEQ] Peak window signal #{_gseq_n} (+1.5pt)")
-                elif 21 <= _gseq_n <= 90:
-                    pass  # neutral plateau
-                elif 91 <= _gseq_n <= 100:
-                    _gseq_adj = -2.5
-                    self._last_g85ah_gseq = -2.5
-                    score += _gseq_adj
-                    self._logger.warning(
-                        f"⚠️ [v161.0 G8.5AH GSEQ] Kill zone: signal #{_gseq_n} "
-                        f"(data: WR=14% EV=-3.4%) → -2.5pt"
-                    )
-                elif _gseq_n > 100:
-                    _gseq_adj = -3.5
-                    self._last_g85ah_gseq = -3.5
-                    score += _gseq_adj
-                    self._logger.warning(
-                        f"🛑 [v161.0 G8.5AH GSEQ] Meltdown zone: signal #{_gseq_n} "
-                        f"(data: WR=12%) → -3.5pt"
-                    )
-            _record("gate_g85ah_gseq", self._last_g85ah_gseq >= -2.5)
-        except Exception:
-            pass  # GSEQ non-fatal soft-gate
-
-        # ── v161.0 G8.5AI — GMOM3: 3-Signal Session Direction Momentum ───────
-        # Data: strongest session-level edge in 17k-trade dataset.
-        # After 2×LONG then SHORT fires: WR=28% EV=+1.79% (reversal edge → +1.5pt)
-        # After 2×SHORT continuation SHORT: WR=22% EV=-0.41% (fatigue → -0.5pt)
-        # After 2×LONG then LONG: WR=20% EV=-0.38% (LONG-dominance → -1.0pt)
-        # Mechanism: SHORT after LONG-dominated session = regime change signal (highest quality)
-        try:
-            self._last_g85ai_gmom3 = 0.0
-            if GMOM3_ENABLED:
-                _gm3_sd  = signal_data.get("action", signal_data.get("direction", "")) if isinstance(signal_data, dict) else ""
-                _gm3_dir = "LONG" if _gm3_sd in ("LONG","BUY","long","buy") else ("SHORT" if _gm3_sd in ("SHORT","SELL","short","sell") else "")
-                if _gm3_dir:
-                    _gm3_ring = list(self._v161_dir_ring)   # last ≤3 directions
-                    if len(_gm3_ring) >= 2:
-                        _gm3_longs  = _gm3_ring.count("LONG")
-                        _gm3_shorts = _gm3_ring.count("SHORT")
-                        if _gm3_longs >= 2 and _gm3_dir == "SHORT":
-                            # Reversal SHORT after LONG-dominated session — strongest edge
-                            _gm3_adj = 1.5
-                            self._last_g85ai_gmom3 = 1.5
-                            score += _gm3_adj
-                            self._logger.debug(
-                                f"🎯 [v161.0 G8.5AI GMOM3] Reversal SHORT after {_gm3_longs}×LONG session "
-                                f"(data: WR=28% EV=+1.79%) → +1.5pt"
-                            )
-                        elif _gm3_longs >= 2 and _gm3_dir == "LONG":
-                            # LONG after LONG-dominance — confirmed kill
-                            _gm3_adj = -1.0
-                            self._last_g85ai_gmom3 = -1.0
-                            score += _gm3_adj
-                        elif _gm3_shorts >= 2 and _gm3_dir == "SHORT":
-                            # SHORT continuation fatigue
-                            _gm3_adj = -0.5
-                            self._last_g85ai_gmom3 = -0.5
-                            score += _gm3_adj
-                    # Update direction ring (keep last 3)
-                    self._v161_dir_ring.append(_gm3_dir)
-                    if len(self._v161_dir_ring) > 3:
-                        self._v161_dir_ring = self._v161_dir_ring[-3:]
-            _record("gate_g85ai_gmom3", self._last_g85ai_gmom3 >= -1.0)
-        except Exception:
-            pass  # GMOM3 non-fatal soft-gate
-
-        # ── v161.0 G8.5AJ — GBATCH: Batch Size Signal Cluster ────────────────
-        # Data: rapid-fire signal batches have dramatically different WR by batch size.
-        # Batch 5 or 7 signals in window: WR+6pp elite → +2.5pt
-        # Batch 4, 9, or 10 signals: WR-8pp confirmed kill → -3.0pt
-        # Batch 1-3 (isolated signal): WR=baseline → 0pt
-        # Batch 6/8: neutral → 0pt
-        # Mechanism: batch size 5/7 = selective momentum regime; 4/9/10 = spray-and-pray chaos
-        try:
-            self._last_g85aj_gbatch = 0.0
-            if GBATCH_ENABLED:
-                _gbat_now = time.time()
-                # Prune batch window to last GBATCH_WIN_SEC seconds
-                self._v161_batch_ts = [t for t in self._v161_batch_ts if _gbat_now - t < GBATCH_WIN_SEC]
-                self._v161_batch_ts.append(_gbat_now)
-                _gbat_n = len(self._v161_batch_ts)
-                if _gbat_n in (5, 7):
-                    _gbat_adj = 2.5
-                    self._last_g85aj_gbatch = 2.5
-                    score += _gbat_adj
-                    self._logger.debug(
-                        f"🎯 [v161.0 G8.5AJ GBATCH] Elite batch size {_gbat_n} "
-                        f"(data: WR+6pp) → +2.5pt"
-                    )
-                elif _gbat_n in (4, 9, 10):
-                    _gbat_adj = -3.0
-                    self._last_g85aj_gbatch = -3.0
-                    score += _gbat_adj
-                    self._logger.warning(
-                        f"⚠️ [v161.0 G8.5AJ GBATCH] Kill batch size {_gbat_n} "
-                        f"(data: WR-8pp) → -3.0pt"
-                    )
-                elif _gbat_n > 10:
-                    _gbat_adj = -4.0
-                    self._last_g85aj_gbatch = -4.0
-                    score += _gbat_adj
-                    self._logger.warning(
-                        f"🛑 [v161.0 G8.5AJ GBATCH] Ultra-kill batch {_gbat_n} → -4.0pt"
-                    )
-            _record("gate_g85aj_gbatch", self._last_g85aj_gbatch >= -3.0)
-        except Exception:
-            pass  # GBATCH non-fatal soft-gate
 
 
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
