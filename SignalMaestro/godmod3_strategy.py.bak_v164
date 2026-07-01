@@ -1411,11 +1411,6 @@ class G0DM0D3Engine:
         # exhausting model rate limits (each model: 8 req/min = 0.133/sec)
         self._global_call_times:    deque = deque(maxlen=self._MAX_AI_CALLS_PER_60S * 2)
         self._global_throttle_lock: Optional[asyncio.Lock] = None
-        # v165.0: Per-symbol result cache — reduces duplicate LLM API calls (network egress)
-        # Cache key = symbol+mode. Entry = (vote, conf, narr, trace_json, expire_ts).
-        # 80 symbols × avg 3 scans/min → ~30% duplicate calls suppressed per cycle.
-        self._sym_result_cache: dict = {}   # {cache_key: (vote, conf, narr, trc, expire_ts)}
-        self._SYM_CACHE_TTL: float  = 75.0  # seconds TTL — covers one full scan cycle
 
         self._call_stats: Dict[str, int] = {
             "total":           0,
@@ -2639,33 +2634,6 @@ class G0DM0D3Engine:
                     f"G0DM0D3: AI rate-limited — available in ~{wait_s:.0f}s",
                     json.dumps(trace))
 
-        # ── v165.0: Per-symbol result cache check (Loop Engineering + network savings) ─
-        # Loop Engineering (Technique 5): the bot re-uses its prior self-evaluation for
-        # the same symbol+mode within the TTL window — zero-cost duplicate-call suppression.
-        # Impact: 80 symbols × 3 scans/min = ~240 eval/min; ~30% of calls are duplicates.
-        # Cache key = symbol + mode (direction is encoded in the prompt perturbed above).
-        import time as _gm3_time
-        _sym_cache_key = f"{symbol}|{mode}"
-        _sym_cache_now = _gm3_time.time()
-        _cached_entry  = self._sym_result_cache.get(_sym_cache_key)
-        if _cached_entry is not None:
-            _cached_vote, _cached_conf, _cached_narr, _cached_trc, _cached_exp = _cached_entry
-            if _sym_cache_now < _cached_exp:
-                # Cache hit: return prior vote (loop re-confirmed, no new API call needed)
-                self.logger.debug(
-                    f"⚡ [v165.0 LooP-Cache] {symbol}/{mode}: cache hit "
-                    f"(age={_sym_cache_now - (_cached_exp - self._SYM_CACHE_TTL):.0f}s) "
-                    f"→ reusing {_cached_vote} conf={_cached_conf:.1f}%"
-                )
-                return _cached_vote, _cached_conf, _cached_narr, _cached_trc
-            else:
-                del self._sym_result_cache[_sym_cache_key]  # expired
-        # Prune stale entries if cache grows (80 syms × ~3 modes max = ~240 entries)
-        if len(self._sym_result_cache) > 400:
-            _prune_now = _gm3_time.time()
-            self._sym_result_cache = {k: v for k, v in self._sym_result_cache.items()
-                                      if v[4] > _prune_now}
-
         # ── Global per-60s throttle: cap AI calls from 80-symbol parallel scans ──
         # This is the PRIMARY fix for 429 storms: even with per-model buckets,
         # 80 simultaneous scans can exhaust ALL model limits within seconds.
@@ -2930,14 +2898,6 @@ class G0DM0D3Engine:
             f"[{winner.model}] score={winner.score:.0f}/100 "
             f"latency={winner.latency_ms:.0f}ms"
         )
-        # v165.0: Store successful result in per-symbol cache (Loop Engineering re-use)
-        try:
-            import time as _gs_time
-            self._sym_result_cache[_sym_cache_key] = (
-                vote, conf, narrative, json.dumps(trace), _gs_time.time() + self._SYM_CACHE_TTL
-            )
-        except Exception:
-            pass  # cache store is non-fatal
         return vote, conf, narrative, json.dumps(trace)
 
     def get_stats(self) -> Dict[str, Any]:
