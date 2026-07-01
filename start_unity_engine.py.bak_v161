@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "162.0"
+UNITY_VERSION                = "161.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -20009,12 +20009,6 @@ class UnitySignalFilter:
             "gate_g85ab_xrsi":        "G8.5AB",  # v158.0: RSI Extreme Direction Penalty (-2.5/-1.5pts LONG>RSI72/SHORT<RSI28 at WR<35%)
             "gate_g85ac_dlb":         "G8.5AC",  # v159.0: Direction Long Bias Penalty (-1.5/-1.0pts LONG at WR<28%/<32%; 16k-trade confirmed structural edge)
             "gate_g85ad_gtod":        "G8.5AD",  # v160.0: Time-of-Day Direction Penalty (LONG@13-15h→-1.0/-1.5pts; SHORT@22h→-2.0pts; worst US-session pockets)
-            "gate_g85ae_gdow":        "G8.5AE-GDOW",  # v161.0: DOW Direction Kill hard pre-gate (Tue SHORT/Sun LONG → hard-block)
-            "gate_g85af_gcal":        "G8.5AF",  # v161.0: Calendar Week Effect (+1.0pt wk1-alpha / -1.5pt wk3-drag / -0.5pt late-month)
-            "gate_g85ag_gdiv":        "G8.5AG",  # v161.0: Symbol Diversity Alarm (>55-unique-syms→-2.5pt / >50→-1.5pt / <40→+0.5pt)
-            "gate_g85ah_gseq":        "G8.5AH",  # v161.0: Intraday Sequence Position (sig11-20→+1.5pt / sig91-100→-2.5pt)
-            "gate_g85ai_gmom3":       "G8.5AI",  # v161.0: 3-Signal Session Momentum (2×LONG→SHORT reversal-edge→+1.5pt / dir-fatigue→-0.5pt)
-            "gate_g85aj_gbatch":      "G8.5AJ",  # v161.0: Batch Size Gate (batch5/7→+2.5pt / batch4/9/10→-3.0pt)
     }
 
     def gate_stats_summary(self) -> str:
@@ -20168,11 +20162,6 @@ class UnitySignalFilter:
             "gate_g85ab_xrsi",         # RSI Extreme Direction Penalty -2.5/-1.5pts chase anti-signal (WR<35%) — cannot block a signal [v158.0]
             "gate_g85ac_dlb",          # Direction Long Bias Penalty -1.5/-1.0pts (LONG at WR<32%) — cannot block a signal [v159.0]
             "gate_g85ad_gtod",         # Time-of-Day Direction Penalty -2.0/-1.5/-1.0pts worst US-session pockets — cannot block a signal [v160.0]
-            "gate_g85af_gcal",         # Calendar Week Effect +1.0/-1.5/-0.3pt score adjuster — cannot block a signal [v161.0]
-            "gate_g85ag_gdiv",         # Symbol Diversity Alarm -2.5/-1.5/-0.8/+0.5pt score adjuster — cannot block a signal [v161.0]
-            "gate_g85ah_gseq",         # Intraday Sequence Position +1.5/-2.5pt score adjuster — cannot block a signal [v161.0]
-            "gate_g85ai_gmom3",        # 3-Signal Session Momentum +1.5/-0.5pt score adjuster — cannot block a signal [v161.0]
-            "gate_g85aj_gbatch",       # Batch Size Gate +2.5/-3.0pt score adjuster — cannot block a signal [v161.0]
             "gate_vibe",        # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
             # v144.0: NOT a soft adjuster — a deterministic time-of-day HARD block.
@@ -20186,10 +20175,6 @@ class UnitySignalFilter:
             # both are INTENDED structural cuts, not tunable signal-quality bottlenecks.
             "gate_session_nonus",
             "gate_vol_spike",
-            # v161.0: GDOW is a deterministic DOW hard-block (0% pass Tue SHORT/Sun LONG).
-            # This is INTENDED structural gating — showing it as #1 bottleneck every
-            # Tuesday/Sunday would hide real tunable bottlenecks (G0/G4/G0.5).
-            "gate_g85ae_gdow",
         })
         rates: list = []
         for gate, stats in self._gate_stats.items():
@@ -25106,73 +25091,6 @@ class UnityProfitBooster:
                             )
         except Exception:
             pass  # Kelly Step 134 GTOD Time-of-Day De-size is non-fatal
-
-        # ── v162.0: Kelly Step 135 — GCAL Calendar Week De-size ─────────────
-        # Mirrors G8.5AF GCAL scoring penalty at position-sizing level.
-        # Data: week-3 (day15-21) structural drag WR=-1.5pt signal → de-size.
-        # Week 3 / Late-month adverse → ×0.93 (matched to calendar scoring -1.5pt tier)
-        # Week 1 alpha → no de-size (scoring +1.0pt already captured in threshold)
-        try:
-            _k135_gcal = float(getattr(self, "_last_g85af_gcal", 0.0) or 0.0)
-            _k135_pre  = self.last_kelly_fraction
-            _k135_ceil = self._kelly_ceil if hasattr(self, "_kelly_ceil") else self.last_kelly_fraction * 2.0
-            if _k135_gcal <= -1.5:
-                self.last_kelly_fraction = min(_k135_ceil, self.last_kelly_fraction * 0.93)
-                self._logger.debug(
-                    f"[v162.0 Step135 GCAL] week-3/late-month drag → Kelly ×0.93 "
-                    f"({_k135_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
-                )
-            elif _k135_gcal <= -0.5:
-                self.last_kelly_fraction = min(_k135_ceil, self.last_kelly_fraction * 0.97)
-        except Exception:
-            pass  # Kelly Step 135 GCAL Calendar Week De-size is non-fatal
-
-        # ── v162.0: Kelly Step 136 — GDIV Symbol Diversity De-size ──────────
-        # Mirrors G8.5AG GDIV scoring penalty at position-sizing level.
-        # Data: catastrophic diversity days (≥55 unique syms) WR=16.6% vs 31% normal.
-        # Catastrophic ≥55 syms → ×0.88 (hard de-size matching -2.5pt scoring)
-        # Warning ≥50 syms → ×0.93 (moderate de-size matching -1.5pt scoring)
-        try:
-            _k136_gdiv = float(getattr(self, "_last_g85ag_gdiv", 0.0) or 0.0)
-            _k136_pre  = self.last_kelly_fraction
-            _k136_ceil = self._kelly_ceil if hasattr(self, "_kelly_ceil") else self.last_kelly_fraction * 2.0
-            if _k136_gdiv <= -2.5:
-                self.last_kelly_fraction = min(_k136_ceil, self.last_kelly_fraction * 0.88)
-                self._logger.debug(
-                    f"[v162.0 Step136 GDIV] catastrophic diversity → Kelly ×0.88 "
-                    f"({_k136_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
-                )
-            elif _k136_gdiv <= -1.5:
-                self.last_kelly_fraction = min(_k136_ceil, self.last_kelly_fraction * 0.93)
-                self._logger.debug(
-                    f"[v162.0 Step136 GDIV] diversity warning → Kelly ×0.93 "
-                    f"({_k136_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
-                )
-        except Exception:
-            pass  # Kelly Step 136 GDIV Symbol Diversity De-size is non-fatal
-
-        # ── v162.0: Kelly Step 137 — GBATCH Batch Size Sizing ───────────────
-        # Mirrors G8.5AJ GBATCH scoring at position-sizing level.
-        # Elite batch (5 or 7 signals/3min): boost → ×1.02 (momentum regime premium)
-        # Kill batch (4 or 9/10 signals/3min): de-size → ×0.88 (over/under-activity alarm)
-        try:
-            _k137_gbatch = float(getattr(self, "_last_g85aj_gbatch", 0.0) or 0.0)
-            _k137_pre    = self.last_kelly_fraction
-            _k137_ceil   = self._kelly_ceil if hasattr(self, "_kelly_ceil") else self.last_kelly_fraction * 2.0
-            if _k137_gbatch <= -3.0:
-                self.last_kelly_fraction = min(_k137_ceil, self.last_kelly_fraction * 0.88)
-                self._logger.debug(
-                    f"[v162.0 Step137 GBATCH] kill-batch size → Kelly ×0.88 "
-                    f"({_k137_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
-                )
-            elif _k137_gbatch >= 2.5:
-                self.last_kelly_fraction = min(_k137_ceil, self.last_kelly_fraction * 1.02)
-                self._logger.debug(
-                    f"[v162.0 Step137 GBATCH] elite-batch regime → Kelly ×1.02 "
-                    f"({_k137_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
-                )
-        except Exception:
-            pass  # Kelly Step 137 GBATCH Batch Size Sizing is non-fatal
 
 
 

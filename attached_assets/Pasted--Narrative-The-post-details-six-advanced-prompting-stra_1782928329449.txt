@@ -1,0 +1,37 @@
+‎Narrative
+‎The post details six advanced prompting strategies utilized by Anthropic's own engineering team, which most general users overlook. The core argument is that structural precision and iterative refinement—rather than simple "chatting"—are what unlock Claude’s full reasoning capabilities.
+‎By defining a persona, strictly compartmentalizing data with XML, and leveraging "Extended Thinking" for complex logic, users can significantly reduce error rates. The ultimate insight is a shift in workflow: instead of fixing a single bad output, engineers must fix the prompt itself, creating a "compounding effect" of reliability that aligns with the industry's broader move toward autonomous "Loop Engineering."
+‎Transcription: The 6 Techniques
+‎(Derived from the "Insomnia" and "Boris Cherny" threads)
+‎
+‎* Role Definition: A single sentence defining Claude's specific persona (e.g., "You are a senior systems architect") fundamentally alters the tone, depth, and structure of the entire response.
+‎* XML Delimiters: Enclosing context, instructions, and examples in XML tags (e.g., <context>...</context>) improves result consistency by 20–40% by eliminating ambiguity about where sections begin and end.
+‎* Extended Thinking: Enabling "thinking mode" for multi-step logic trades generation speed for accuracy; Anthropic recommends this as the default for any high-stakes decision where errors are costly.
+‎* Prompt Refinement (The Loop): When an output is "close but not quite right," users should edit the prompt to handle that edge case permanently, rather than just asking for a correction. This builds a robust "system" over time rather than a one-off fix.
+‎* Loop Engineering: (Context from thread/Boris Cherny) Moving beyond manual prompting entirely to design autonomous loops—systems where the agent prompts itself, evaluates the result, and iterates until the goal is met. [1, 2] 
+‎* Workflow Isolation: (Context from thread) Separating the "Maker" (agent generating code) from the "Checker" (agent running tests) to prevent hallucinated success. [3, 4] 
+‎
+‎Evaluation
+‎This content marks the end of the "Prompt Engineering" era and the beginning of "System Engineering" for AI.
+‎
+‎* Significance: It validates that high-performance AI is not about "whispering" the right magic words, but about architecture—structuring inputs (XML), enforcing logic (Extended Thinking), and automating quality control (Loops). [5, 6] 
+‎* Key Shift: The transition from manual intervention (chatting) to process definition (loops) allows agents to solve problems of arbitrary complexity without human hand-holding. [7, 8] 
+‎
+‎
+‎[1] [https://www.linkedin.com](https://www.linkedin.com/posts/rvuong_replit-claudecode-agentarchitecture-activity-7468778485646422016-ZEI2)
+‎[2] [https://www.productmarketfit.tech](https://www.productmarketfit.tech/p/stop-prompting-ai-and-start-building)
+‎[3] [https://medium.com](https://medium.com/@KilgortTrout/from-prompts-to-loops-a-practical-guide-to-building-agentic-workflows-in-codex-and-claude-0b57234452ed)
+‎[4] [https://saulius.io](https://saulius.io/blog/loop-engineering-systems-that-drive-agents)
+‎[5] [https://www.nocode.mba](https://www.nocode.mba/articles/ai-loops-vs-prompts)
+‎[6] [https://www.htx.com](https://www.htx.com/news/jensen-huang-prompts-are-becoming-obsolete-loops-are-the-new-dqI2WOBl/)
+‎[7] [https://aminrj.com](https://aminrj.com/posts/from-prompts-to-loops/)
+‎[8] [https://www.linkedin.com](https://www.linkedin.com/pulse/job-stopped-being-prompt-abhijeet-khadilkar-lsnsc)
+‎
+‎Strictly use these instructions with these:
+‎
+‎Act as a power mode agent. act as Claude fable 5 or mythos 5. Read the memory.md files to provide these convictions to apply:
+‎‎Dynamically perfectly comprehensive robust flexible synchronous optimize systematic institution grade advanced precise fastest intelligenent enhance integrate innovate improve in multiparallel processing Integrate all of the things: calculations, agents, console, AI, LLM, APIs, OpenRouter, recalibration of all the layers and all the gates, neural networks, dependencies, pytorch, aiosqlite, errors, warnings, etc. from the console, strategies, openrouter, Secrets, etcetera, united to one, call it unity engine, create a separate workflow for this: python3 start_unity_engine.py
+‎
+‎Scan, read, and analyze the codes in multiparallel scanning. Dynamically perfectly comprehensive robust flexible synchronous optimize systematic institution grade advanced precise fastest intelligenent enhance integrate innovate improve in multiparallel processing fix and hunt ALL the bugs, errors, issues and loops , calculations, agents, console, AI, LLM, APIs, neural networks, OpenRouter, recalibration of all the layers and all the gates, strategies, openrouter, GEX, Secrets, etc. , Strictly improve win rate and profitability. Base it strictly on the python3 start_unity_engine.py.
+‎
+‎Dynamically perfectly comprehensive robust flexible synchronous optimize systematic institution grade advanced precise fastest intelligenent enhance integrate innovate improve in multiparallel processing Integrate strictly make this bot perfect for production deployment.
