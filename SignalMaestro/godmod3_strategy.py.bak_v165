@@ -1415,7 +1415,7 @@ class G0DM0D3Engine:
         # Cache key = symbol+mode. Entry = (vote, conf, narr, trace_json, expire_ts).
         # 80 symbols × avg 3 scans/min → ~30% duplicate calls suppressed per cycle.
         self._sym_result_cache: dict = {}   # {cache_key: (vote, conf, narr, trc, expire_ts)}
-        self._SYM_CACHE_TTL: float  = 90.0  # v166.0: 75s→90s — 20% more cache hits per scan cycle; 90s covers 1.5× scan cycles for 80-symbol universe with 10s CYCLE_SLEEP_MIN
+        self._SYM_CACHE_TTL: float  = 75.0  # seconds TTL — covers one full scan cycle
 
         self._call_stats: Dict[str, int] = {
             "total":           0,
