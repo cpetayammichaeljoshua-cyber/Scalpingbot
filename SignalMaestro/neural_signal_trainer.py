@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 395 features → 79 tokens × 5 dims (395 = 79 × 5) [v170.0: 78×5=390→79×5=395; v169.0: 78×5=390; v143.0: 73×5=365; v141.0: 70×5=350]
-_TORCH_N_TOKENS  = 79   # v170.0: 73→79 (+5 GHRZ+GALP+session-edge features F391-F395)
+# Transformer tokenisation: reshape 405 features → 81 tokens × 5 dims (405 = 81 × 5) [v172.0: 80×5=400→81×5=405; v171.0: 80×5=400; v170.0: 79×5=395; v143.0: 73×5=365; v141.0: 70×5=350]
+_TORCH_N_TOKENS  = 81   # v172.0: 80→81 (+5 GLTB+DirBias+GCMS+NegDensity+Consensus features F401-F405)
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5; v138.0: 335=67×5; v139.0: 340=68×5; v140.0: 345=69×5; v141.0: 350=70×5; v163.0: 365=73×5; v170.0: 395=79×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 395  # v76 (v170.0): 390 + 5 GHRZgate+HourDeadZone+GALPgate+PeakHourScore+SessionEdgeDelta = 395 (aw_ghrz_gate, hour_dead_zone, ax_galp_gate, peak_hour_score, session_edge_delta) [v163.0: 365=73×5; v170.0: 395=79×5; Weight auto-reset on INPUT_DIM 390→395 mismatch]
+INPUT_DIM          = 405  # v78 (v172.0): 400 + 5 GLTBgate+DirBiasRatio+GCMSgate+NegGateDensity+GateConsensus = 405 [v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5; Weight auto-reset on INPUT_DIM 400→405 mismatch]
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1792,6 +1792,48 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0, min(1.0,  _v76_f394)))                                      # 394 peak_hour_score
     _v76_f395 = _safe_float(trade.get("session_edge_delta",0.0), 0.0)
     f.append(max(-1.0, min(1.0, _v76_f395)))                                      # 395 session_edge_delta
+
+    # ── v77 (v171.0): F396-F400 — GVLR+GRLB+Live-Edge Features ─────────────
+    # GVLR (157th gate): VPIN ultra-low regime — bonus for clean microstructure + OFI alignment
+    # GRLB (158th gate): relative live bottleneck — dynamic sym-vs-engine WR delta gate
+    # Both are soft gates: penalise structural holes, reward live alpha pockets.
+    # Zero-padded backward-compat for trades stored before v171.0.
+    # F396: ay_gvlr_gate      — GVLR state {+1.5→1.0, +1.0→0.8, -2.0→0.0, 0→0.5} [0,1]
+    # F397: vpin_ultra_clean  — binary: 1.0 if VPIN pct < 0.08 at signal time [0,1]
+    # F398: az_grlb_gate      — GRLB state {+1.5→1.0, +1.0→0.8, -2.0→0.2, -2.5→0.0, 0→0.5} [0,1]
+    # F399: sym_wr_vs_global  — per-symbol WR − engine WR / 30pp normalised [-1,+1]
+    # F400: sym_live_edge     — composite: VPIN ultra-clean + GRLB bonus / 2 [0,1]
+    _v77_f396 = _safe_float(trade.get("ay_gvlr_gate",      0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v77_f396)))                                      # 396 ay_gvlr_gate
+    _v77_f397 = _safe_float(trade.get("vpin_ultra_clean",  0.0), 0.0)
+    f.append(max(0.0, min(1.0,  _v77_f397)))                                      # 397 vpin_ultra_clean
+    _v77_f398 = _safe_float(trade.get("az_grlb_gate",      0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v77_f398)))                                      # 398 az_grlb_gate
+    _v77_f399 = _safe_float(trade.get("sym_wr_vs_global",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v77_f399)))                                      # 399 sym_wr_vs_global
+    _v77_f400 = _safe_float(trade.get("sym_live_edge",     0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v77_f400)))                                      # 400 sym_live_edge
+
+    # ── v78 (v172.0): F401-F405 — GLTB+GCMS Meta-Gate Features ──────────────
+    # GLTB (159th gate): Loop-Thinking Directional Bias — 10-signal direction ring evaluation
+    # GCMS (160th gate): Checker Meta-Score Synthesis — compound gate hostility/consensus
+    # Technique 5 (Loop Engineering) + Technique 6 (Workflow Isolation) — Maker/Checker.
+    # Zero-padded backward-compat for trades stored before v172.0.
+    # F401: ba_gltb_gate       — GLTB state {-2.0→0.0, -1.5→0.2, 0→0.5, +1.0→0.8, +1.5→1.0} [0,1]
+    # F402: dir_bias_ratio     — LONG fraction in 10-signal ring [0,1]; 0.5 = neutral (50/50)
+    # F403: bb_gcms_gate       — GCMS state {-2.5→0.0, -2.0→0.15, -1.5→0.3, 0→0.5, +1.5→0.8, +2.0→1.0} [0,1]
+    # F404: neg_gate_density   — fraction of 15 GCMS sentinel sources scoring negative [0,1]
+    # F405: gate_consensus_score — net consensus (pos-neg)/(N+1) → normalised to [0,1]
+    _v78_f401 = _safe_float(trade.get("ba_gltb_gate",         0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v78_f401)))                                      # 401 ba_gltb_gate
+    _v78_f402 = _safe_float(trade.get("dir_bias_ratio",       0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v78_f402)))                                      # 402 dir_bias_ratio
+    _v78_f403 = _safe_float(trade.get("bb_gcms_gate",         0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v78_f403)))                                      # 403 bb_gcms_gate
+    _v78_f404 = _safe_float(trade.get("neg_gate_density",     0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v78_f404)))                                      # 404 neg_gate_density
+    _v78_f405 = _safe_float(trade.get("gate_consensus_score", 0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v78_f405)))                                      # 405 gate_consensus_score
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:

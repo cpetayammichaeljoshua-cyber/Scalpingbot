@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v170.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v172.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 156-gate filter · 5-bucket RL · Kelly 151-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 160-gate filter · 5-bucket RL · Kelly 155-steps · GEX · SRM):
  v143.0 improvements [2026-06-20]:
    1. G8.5Y5 PCO PCA-Cross-Signal-Orthogonality Gate (135th gate, +2.0/+1.0/-1.0/-2.0/-3.5pts) [v143.0]:
       From FLOAM step 4 (Collinearity Deflation): measures pairwise Pearson correlation between
@@ -1171,7 +1171,7 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v170.0): GHRZ:00h/19h-UTC-dead-zone+WR<30%→-2.0pt/structural→-1.5pt(data:12k-sig-52%WR-vs-71%peak)[v170.0] | GALP:06-09h-UTC-peak+WR≥32%→+1.5pt/WR<32%→+1.0pt(data:71%-WR-peak-session)[v170.0] | Kelly150:GHRZ-crisis-dead-zone→×0.83/structural→×0.88[v170.0] | Kelly151:GALP-strong→×1.04/recovery→×1.02[v170.0] | NN-v76-395feat:F391-F395(aw_ghrz+hour_dead_zone+ax_galp+peak_hour+session_edge)[v170.0] | AlphaExpand:CAKEUSDT-84%WR-n97/OPUSDT-80%WR-n71/TRXUSDT-78%WR-n113/ENJUSDT-74%WR-n65(cross-source-12k-validation)[v170.0] | AvoidExpand:ZKJUSDT/PLAYUSDT/FLOCKUSDT/VVVUSDT/HBARUSDT/SKYAIUSDT(0-18%WR-negative-EV-confirmed)[v170.0] | ScanParallel:138→134(-2.9%-Railway-CPU)[v170.0] | LEGACY-v169.0: GWFV:CPCV<0.47+WR<30%→-2.0pt/CPCV≥0.50+WR<25%→-1.5pt(PromptRefinement-WFV)[v169.0] | GDDV:quality-slope<-0.05+WR<30%→-2.0pt/slope<-0.02→-1.5pt(ExtThink-DDvelocity)[v169.0] | Kelly148:GWFV-bad→×0.82/shift→×0.86[v169.0] | Kelly149:GDDV-severe→×0.81/mod→×0.87[v169.0] | NN-v75-390feat:F386-F390(au_gwfv+cpcv_gap+av_gddv+quality_slope+wfv_regime)[v169.0] | ScanParallel:144→138(-4.2%-Railway-CPU)[v169.0] | LEGACY-v168.0: GFRD:funding>0.05%/8h+LONG→-2.0pt/0.025%→-1.5pt(XML-crowding)[v168.0] | GORD:ofi_z<-2.5+LONG→-2.0pt/ofi_z<-1.5+WR<30%→-1.5pt(WI-OFI-Checker)[v168.0] | Kelly146:GFRD-extreme→×0.83/mod→×0.87[v168.0] | Kelly147:GORD-extreme→×0.82/crisis→×0.88[v168.0] | NN-v74-385feat:F381-F385(as_gfrd+funding_abs+at_gord+ofi_diverge+flow_quality)[v168.0] | ScanParallel:150→144(-4.0%-Railway-CPU)[v168.0] | LEGACY-v167.0: GRSL:pnl-slope<-0.003+WR<30%→-2.0pt/slope<-0.001+cold→-1.5pt(LoopEng-linreg)[v167.0] | GEVAP:ev_ring_r5<0+WR<30%→-2.0pt/fade>0.005R+EV<0.08R→-1.5pt(ExtThink-EV-velocity)[v167.0] | Kelly144:GRSL-severe→×0.85/mild→×0.89[v167.0] | Kelly145:GEVAP-collapse→×0.83/fade→×0.88[v167.0] | NN-v73-380feat:F376-F380(aq_grsl+pnl_slope10+ar_gevap+ev_velocity+ev_regime_score)[v167.0] | ScanParallel:156→150(-3.8%-Railway-CPU)[v167.0] | LEGACY-v166.0: GCAL2:LLMconf≥82+WR<30%→-2.0pt/conf≥78→-1.5pt(WI-Checker-vs-Maker)[v166.0] | GLEN:loop_coh<0.34+WR<30%→-2.0pt/coh<0.51+cold_seq≥0.67→-1.5pt(LoopEng-Maker→Checker)[v166.0] | Kelly142:GCAL2-severe→×0.84/mod→×0.88[v166.0] | Kelly143:GLEN-ultra→×0.82/weak→×0.87[v166.0] | NN-v72-375feat:F371-F375(ao_gcal2+ai_conf_norm+ap_glen+loop_coh_x_wr+regime_align_4f)[v166.0] | ScanParallel:164→156(-4.9%-Railway-CPU)[v166.0] | LLMCacheTTL:75s→90s(+20%-cache-hits)[v166.0] | LEGACY-v165.0: GHTF:last5≥3wins+WR>35%→+1.5pt/last3losses+WR<30%→-2.0pt[v165.0] | GMAP:LONG@RSI68-72+WR<30%→-1.5pt/SHORT@RSI28-32+WR<30%→-1.5pt[v165.0] | LoopCoherence:F370-3factor-EV-coherence-zero-API[v165.0] | Kelly140:GHTF-hot→×1.05/cold→×0.84[v165.0] | Kelly141:GMAP-RSI-anti-pattern→×0.87[v165.0] | NN-v71-370feat:F366-F370(am_ghtf+hot_seq+cold_seq+an_gmap+loop_coherence)[v165.0] | ScanParallel:176→164(-6.8%-Railway-CPU+mem)[v165.0] | SymLastTsProune:500→150[v165.0] | LEGACY-v164.0: RoleDef:DrUNITY-persona(microstructure+regime+Kelly-EV)[v164.0] | ExtThink:3-factor-CoT(REGIME?FLOW?RISK?)-silent-check-before-vote[v164.0] | PRL:json-parse-fail→<correction>-tag-retry-once-temp0.05[v164.0] | WI:_validate_vote_schema-Checker(vote∈BUY/SELL/NEUTRAL+conf∈45-95+narrative≥5c)[v164.0] | ConsortiumCache:X-OR-Prompt-Cache-1-added-to-consortium-calls[v164.0] | ScanParallel:192→176(-8.3%-Railway-CPU+mem)[v164.0] | LEGACY-v163.0: GSDD:2×same-dir+WR<30%→-1.5pt/3×→-2.5pt[v163.0] | GREX:sym<8min→-2.5pt/<15min→-1.5pt[v163.0] | XMLPrompt:XML-delimited-user-msg→20-40%-JSON-compliance[v163.0] | MaxTokens:200→160(volatile/breakout/news)/180→150(trending/ranging/default)[v163.0] | PromptCache:X-OR-Prompt-Cache-1[v163.0] | Kelly138:GSDD-2×same-dir+WR<30%→×0.88/3×→×0.82[v163.0] | Kelly139:GREX-sym<8min→×0.78/<15min→×0.85[v163.0] | NN-v70-365feat:F361-F365(ak_gsdd+al_grex+dir_run+sym_recency+xml_quality)[v163.0] | LEGACY-v161.0: GDOW:Tue-SHORT/Sun-LONG→hard-block | GCAL:day1-7→+1.0pt/day15-21→-1.5pt | GDIV:>55-unique-syms→-2.5pt | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt | GMOM3:2×LONG→SHORT→+1.5pt | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82 | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
+KEY GATES (v172.0): GLTB:LONG-dominated(≥7/10-signals)+WR<30%→-2.0pt/≥6/10+cold≥2→-1.5pt/SHORT-dom(≥7/10)+WR≥32%→+1.5pt(LoopEng-DirBias-data:LONG-avgP=-0.28%vs-SHORT+0.26%)[v172.0] | GCMS:neg-gate-count≥5+WR<30%→-2.5pt/≥4+cold≥2→-2.0pt/≥3+WR<32%→-1.5pt/pos≥5+WR≥32%→+2.0pt/pos≥4+WR≥30%→+1.5pt(Checker-MetaScore-WorkflowIsolation)[v172.0] | Kelly154:GLTB-bias-crisis→×0.85/bias-short-aligned→×1.03[v172.0] | Kelly155:GCMS-compound-hostile→×0.82/green-consensus→×1.04[v172.0] | NN-v78-405feat:F401-F405(ba_gltb+dir_bias_ratio+bb_gcms+neg_gate_density+gate_consensus)[v172.0] | ScanParallel:130→126(-3.1%-Railway-CPU)[v172.0] | LEGACY-v171.0: GVLR:VPIN<0.05+OFI-aligned→+1.5pt/VPIN>0.65+WR<30%→-2.0pt(157th-gate)[v171.0] | GRLB:sym-WR>global+10pp→+1.5pt/sym-WR<global-20pp→-2.5pt(158th-gate)[v171.0] | Kelly152:GVLR-toxic→×0.85/ultra-clean→×1.03[v171.0] | Kelly153:GRLB-struct-hole→×0.80/struct-alpha→×1.02[v171.0] | NN-v77-400feat:F396-F400(ay_gvlr+vpin_ultra_clean+az_grlb+sym_wr_vs_global+sym_live_edge)[v171.0] | ScanParallel:134→130(-3.0%-Railway-CPU)[v171.0] | LEGACY-v170.0: GHRZ:00h/19h-UTC-dead-zone+WR<30%→-2.0pt/structural→-1.5pt(data:12k-sig-52%WR-vs-71%peak)[v170.0] | GALP:06-09h-UTC-peak+WR≥32%→+1.5pt/WR<32%→+1.0pt(data:71%-WR-peak-session)[v170.0] | Kelly150:GHRZ-crisis-dead-zone→×0.83/structural→×0.88[v170.0] | Kelly151:GALP-strong→×1.04/recovery→×1.02[v170.0] | NN-v76-395feat:F391-F395(aw_ghrz+hour_dead_zone+ax_galp+peak_hour+session_edge)[v170.0] | AlphaExpand:CAKEUSDT-84%WR-n97/OPUSDT-80%WR-n71/TRXUSDT-78%WR-n113/ENJUSDT-74%WR-n65(cross-source-12k-validation)[v170.0] | AvoidExpand:ZKJUSDT/PLAYUSDT/FLOCKUSDT/VVVUSDT/HBARUSDT/SKYAIUSDT(0-18%WR-negative-EV-confirmed)[v170.0] | ScanParallel:138→134(-2.9%-Railway-CPU)[v170.0] | LEGACY-v169.0: GWFV:CPCV<0.47+WR<30%→-2.0pt/CPCV≥0.50+WR<25%→-1.5pt(PromptRefinement-WFV)[v169.0] | GDDV:quality-slope<-0.05+WR<30%→-2.0pt/slope<-0.02→-1.5pt(ExtThink-DDvelocity)[v169.0] | Kelly148:GWFV-bad→×0.82/shift→×0.86[v169.0] | Kelly149:GDDV-severe→×0.81/mod→×0.87[v169.0] | NN-v75-390feat:F386-F390(au_gwfv+cpcv_gap+av_gddv+quality_slope+wfv_regime)[v169.0] | ScanParallel:144→138(-4.2%-Railway-CPU)[v169.0] | LEGACY-v168.0: GFRD:funding>0.05%/8h+LONG→-2.0pt/0.025%→-1.5pt(XML-crowding)[v168.0] | GORD:ofi_z<-2.5+LONG→-2.0pt/ofi_z<-1.5+WR<30%→-1.5pt(WI-OFI-Checker)[v168.0] | Kelly146:GFRD-extreme→×0.83/mod→×0.87[v168.0] | Kelly147:GORD-extreme→×0.82/crisis→×0.88[v168.0] | NN-v74-385feat:F381-F385(as_gfrd+funding_abs+at_gord+ofi_diverge+flow_quality)[v168.0] | ScanParallel:150→144(-4.0%-Railway-CPU)[v168.0] | LEGACY-v167.0: GRSL:pnl-slope<-0.003+WR<30%→-2.0pt/slope<-0.001+cold→-1.5pt(LoopEng-linreg)[v167.0] | GEVAP:ev_ring_r5<0+WR<30%→-2.0pt/fade>0.005R+EV<0.08R→-1.5pt(ExtThink-EV-velocity)[v167.0] | Kelly144:GRSL-severe→×0.85/mild→×0.89[v167.0] | Kelly145:GEVAP-collapse→×0.83/fade→×0.88[v167.0] | NN-v73-380feat:F376-F380(aq_grsl+pnl_slope10+ar_gevap+ev_velocity+ev_regime_score)[v167.0] | ScanParallel:156→150(-3.8%-Railway-CPU)[v167.0] | LEGACY-v166.0: GCAL2:LLMconf≥82+WR<30%→-2.0pt/conf≥78→-1.5pt(WI-Checker-vs-Maker)[v166.0] | GLEN:loop_coh<0.34+WR<30%→-2.0pt/coh<0.51+cold_seq≥0.67→-1.5pt(LoopEng-Maker→Checker)[v166.0] | Kelly142:GCAL2-severe→×0.84/mod→×0.88[v166.0] | Kelly143:GLEN-ultra→×0.82/weak→×0.87[v166.0] | NN-v72-375feat:F371-F375(ao_gcal2+ai_conf_norm+ap_glen+loop_coh_x_wr+regime_align_4f)[v166.0] | ScanParallel:164→156(-4.9%-Railway-CPU)[v166.0] | LLMCacheTTL:75s→90s(+20%-cache-hits)[v166.0] | LEGACY-v165.0: GHTF:last5≥3wins+WR>35%→+1.5pt/last3losses+WR<30%→-2.0pt[v165.0] | GMAP:LONG@RSI68-72+WR<30%→-1.5pt/SHORT@RSI28-32+WR<30%→-1.5pt[v165.0] | LoopCoherence:F370-3factor-EV-coherence-zero-API[v165.0] | Kelly140:GHTF-hot→×1.05/cold→×0.84[v165.0] | Kelly141:GMAP-RSI-anti-pattern→×0.87[v165.0] | NN-v71-370feat:F366-F370(am_ghtf+hot_seq+cold_seq+an_gmap+loop_coherence)[v165.0] | ScanParallel:176→164(-6.8%-Railway-CPU+mem)[v165.0] | SymLastTsProune:500→150[v165.0] | LEGACY-v164.0: RoleDef:DrUNITY-persona(microstructure+regime+Kelly-EV)[v164.0] | ExtThink:3-factor-CoT(REGIME?FLOW?RISK?)-silent-check-before-vote[v164.0] | PRL:json-parse-fail→<correction>-tag-retry-once-temp0.05[v164.0] | WI:_validate_vote_schema-Checker(vote∈BUY/SELL/NEUTRAL+conf∈45-95+narrative≥5c)[v164.0] | ConsortiumCache:X-OR-Prompt-Cache-1-added-to-consortium-calls[v164.0] | ScanParallel:192→176(-8.3%-Railway-CPU+mem)[v164.0] | LEGACY-v163.0: GSDD:2×same-dir+WR<30%→-1.5pt/3×→-2.5pt[v163.0] | GREX:sym<8min→-2.5pt/<15min→-1.5pt[v163.0] | XMLPrompt:XML-delimited-user-msg→20-40%-JSON-compliance[v163.0] | MaxTokens:200→160(volatile/breakout/news)/180→150(trending/ranging/default)[v163.0] | PromptCache:X-OR-Prompt-Cache-1[v163.0] | Kelly138:GSDD-2×same-dir+WR<30%→×0.88/3×→×0.82[v163.0] | Kelly139:GREX-sym<8min→×0.78/<15min→×0.85[v163.0] | NN-v70-365feat:F361-F365(ak_gsdd+al_grex+dir_run+sym_recency+xml_quality)[v163.0] | LEGACY-v161.0: GDOW:Tue-SHORT/Sun-LONG→hard-block | GCAL:day1-7→+1.0pt/day15-21→-1.5pt | GDIV:>55-unique-syms→-2.5pt | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt | GMOM3:2×LONG→SHORT→+1.5pt | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82 | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
   IRONS_MIN=77(WR<30%)+78.5(WR<25%)+80(WR<20%,WR<18%)+78.5(WR<17%)+79.5(WR<15%)[v103.0]+80.5(WR<12%)[v104.0]+82.0(WR<10%)[v105.0]+83.0(WR<8%)[v106.0]+84.5(WR<6%)[v107.0]+86.0(WR<5%)[v108.0]+87.5(WR<4%)[v109.0]+89.0(WR<3%)[v110.0]+90.5(WR<2%)[v113.0]+91.5(WR<1%)[v114.0]+92.5(WR<0.5%)[v117.0]+94.0(WR<0.2%)[v118.0]+94.5(WR<0.1%)[v118.0]+95.0(WR<0.05%)[v119.0]+95.5(WR<0.02%)[v120.0]+96.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=73 | SOVEREIGN_RECOVERY=77 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/WR<30%+SR<-4.0+DD>47%→-2.5pts/WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0]/healthy→+1.5pts)[v124.0/v155.0] | G8.5Q4:MaxDD-EV-Compound(DD>47%+WR<28%→-4.0pts/DD>48%+WR<30%→-3.5pts/DD>42%+WR<32%→-2.0pts/+1.5pts)[v121.0/v152.0] | G8.5H3:RecentWR-EmergencyBrake(WR<15%→-3.0/WR<20%→-2.0/WR<25%→-1.5/WR<28%→-1.0/WR>40%→+1.5pts)[v103.0/v153.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
@@ -2423,7 +2423,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 134      # asyncio.Semaphore — v170.0: 138→134 (-2.9%) Railway CPU efficiency; (v169.0: 144→138 -4.2%); (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6%; v106.0: 126→128 +1.6%; v107.0: 128→130 +1.5%; v108.0: 130→132 +1.5%; v109.0: 132→134 +1.5%; v110.0: 134→136 +1.5%; v111.0: 136→138 +1.5%; v112.0: 138→140 +1.4%; v113.0: 140→142 +1.4%; v114.0: 142→144 +1.4%; v116.0: 144→146 +1.4%; v117.0: 146→148 +1.4%; v118.0: 148→150 +1.3%; v119.0: 150→152 +1.3%; v120.0: 152→154 +1.3%; v121.0: 154→156 +1.3%; v123.0: 156→158 +1.3%; v124.0: 158→160 +1.3%; v125.0: 160→162 +1.2%; v126.0: 162→164 +1.2%; v127.0: 164→166 +1.2%; v128.0: 166→168 +1.2%; v133.0: 170→172 +1.2%; v134.0: 172→174 +1.1%; v135.0: 174→176 +1.1%; v136.0: 176→178 +1.1%; v137.0: 178→180 +1.1%; v138.0: 180→182 +1.1%; v139.0: 182→184 +1.1%; v140.0: 184→186 +1.1%; v141.0: 186→188 +1.1%; v142.0: 188→190 +1.1%; v143.0: 190→192 +1.1%; v164.0: 192→176 -8.3%)
+SCAN_PARALLEL_LIMIT   = 126      # asyncio.Semaphore — v172.0: 130→126 (-3.1%) Railway CPU efficiency; v171.0: 134→130 (-3.0%) Railway CPU efficiency; v170.0: 138→134 (-2.9%) Railway CPU efficiency; (v169.0: 144→138 -4.2%); (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6%; v106.0: 126→128 +1.6%; v107.0: 128→130 +1.5%; v108.0: 130→132 +1.5%; v109.0: 132→134 +1.5%; v110.0: 134→136 +1.5%; v111.0: 136→138 +1.5%; v112.0: 138→140 +1.4%; v113.0: 140→142 +1.4%; v114.0: 142→144 +1.4%; v116.0: 144→146 +1.4%; v117.0: 146→148 +1.4%; v118.0: 148→150 +1.3%; v119.0: 150→152 +1.3%; v120.0: 152→154 +1.3%; v121.0: 154→156 +1.3%; v123.0: 156→158 +1.3%; v124.0: 158→160 +1.3%; v125.0: 160→162 +1.2%; v126.0: 162→164 +1.2%; v127.0: 164→166 +1.2%; v128.0: 166→168 +1.2%; v133.0: 170→172 +1.2%; v134.0: 172→174 +1.1%; v135.0: 174→176 +1.1%; v136.0: 176→178 +1.1%; v137.0: 178→180 +1.1%; v138.0: 180→182 +1.1%; v139.0: 182→184 +1.1%; v140.0: 184→186 +1.1%; v141.0: 186→188 +1.1%; v142.0: 188→190 +1.1%; v143.0: 190→192 +1.1%; v164.0: 192→176 -8.3%)
 CYCLE_SLEEP_MIN       = 10       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster; v18.69: 12→10 — 20% faster cycling at 80-symbol universe; combined with SCAN_PARALLEL_LIMIT=72 yields ~+25% total scan throughput vs v18.68)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "170.0"
+UNITY_VERSION                = "172.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -3184,6 +3184,39 @@ GALP_PEAK_HOURS = frozenset({6, 7, 8, 9})  # 67-71% WR peak session hours (UTC)
 GALP_WR_STRONG  = 32.0                     # regime-healthy WR threshold for full bonus
 GALP_MIN_TRADES = 20                       # cold-start guard
 
+# GLTB — Loop-Thinking Directional Bias Sentinel (v172.0: Technique 5 Loop Engineering)
+# Data: LONG avgPnL = -0.28% vs SHORT avgPnL = +0.26% (live trade_history 16k signals).
+# Structural LONG-bias is the #1 EV bleed source at WR=29%. This gate self-evaluates
+# direction frequency in the last 10 signals (autonomous loop) — more reliable than
+# any single-signal check. SHORT-dominance during healthy WR = highest-quality sessions.
+GLTB_ENABLED       = os.getenv("UNITY_GLTB", "1").strip().lower() not in ("0","false","no","off","")
+GLTB_RING_SIZE     = 10      # direction ring depth (last N signals evaluated)
+GLTB_CRISIS_LONG_N = 7       # ≥7 LONGs in ring = crisis directional bias
+GLTB_WARN_LONG_N   = 6       # ≥6 LONGs in ring + cold streak = mild bias warning
+GLTB_ALPHA_SHORT_N = 7       # ≥7 SHORTs in ring + WR≥32% = structural SHORT alpha
+GLTB_MILD_SHORT_N  = 6       # ≥6 SHORTs in ring + WR≥30% = mild alignment bonus
+GLTB_WR_CRISIS     = 30.0    # WR threshold for crisis-compound penalty
+GLTB_WR_STRONG     = 32.0    # WR threshold for structural SHORT alpha bonus
+GLTB_COLD_MIN      = 2       # consecutive losses before cold-bias fires
+GLTB_MIN_RING      = 8       # minimum signals in ring before gate fires (cold-start guard)
+
+# GCMS — Checker Meta-Score Synthesis Gate (v172.0: Technique 6 Workflow Isolation)
+# The "Checker" agent: after all soft-gate Makers have scored the signal, GCMS
+# aggregates their signed outputs into a compound hostility / consensus score.
+# When ≥5 gates fire negatively and WR is in crisis, the compound is far worse than
+# any individual gate predicts — the Checker blocks what the Makers collectively missed.
+GCMS_ENABLED         = os.getenv("UNITY_GCMS", "1").strip().lower() not in ("0","false","no","off","")
+GCMS_NEG_ULTRA       = 5     # ≥5 negative gate signals + WR<30% → -2.5pt (compound hostility)
+GCMS_NEG_CRISIS      = 4     # ≥4 negative gate signals + cold_seq ≥ 2 → -2.0pt
+GCMS_NEG_WARN        = 3     # ≥3 negative gate signals + WR<32% → -1.5pt
+GCMS_POS_ULTRA       = 5     # ≥5 positive gate signals + WR≥32% → +2.0pt (full consensus)
+GCMS_POS_STRONG      = 4     # ≥4 positive gate signals + WR≥30% → +1.5pt
+GCMS_WR_CRISIS       = 30.0  # WR threshold for compound-hostile compound
+GCMS_WR_WARN         = 32.0  # WR threshold for warn tier
+GCMS_WR_STRONG       = 30.0  # WR threshold for positive consensus
+GCMS_WR_ULTRA        = 32.0  # WR threshold for ultra-positive consensus
+GCMS_COLD_MIN        = 2     # consecutive losses for crisis compound tier
+
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
 # ── v18.38 Markov Chain Entry Gate ────────────────────────────────────────────
@@ -3227,6 +3260,8 @@ ALPHA_SYMBOLS_IT_BORDERLINE = frozenset({
     # ── v170.0: 2 large-sample borderline additions from 12,231-signal SignalTactics dataset ──
     "CTSIUSDT",    # 70% WR (n=10, avgPnL=+59.5%) — solid WR with positive EV [v170.0]
     "IOPUSDT",     # 80% WR (n=5, avgPnL=+41.2%) — borderline minimum sample but strong edge [v170.0]
+    # ── v171.0: 1 live-performance addition ──
+    "KATUSDT",     # 100% WR (live) — engine top performer; consistent momentum alpha; monitor for sample growth [v171.0]
 })
 ALPHA_SYMBOLS_IT_BONUS       = 2.5   # quality bonus for high-conviction alpha symbols [v18.61: 2.0→2.5]
 ALPHA_SYMBOLS_IT_BORDERLINE_BONUS = 1.5  # quality bonus for borderline alpha symbols [v18.61: new]
@@ -3282,6 +3317,12 @@ IT_AVOID_SYMBOLS = frozenset({
     "VVVUSDT",     # 18% WR (n=11)  — near-zero WR, avg PnL=-18.2%
     "HBARUSDT",    # 29% WR (n=7)   — avg PnL=-27.6% (extreme loss magnitude despite partial WR)
     "SKYAIUSDT",   # 17% WR (n=6)   — near-zero WR, avg PnL=-25.0%
+    # ── 3 new symbols added v171.0 — confirmed from live engine console (2026-07-02) ──
+    # Live performance data shows 0% WR in recent rolling window; contributing to GBLK=#1 bottleneck.
+    # Pre-scan blocking removes these from the scan universe entirely, reducing GBLK load.
+    "WLFIUSDT",    # 0% WR (live)  — engine top-avoid; recurring negative EV structural hole
+    "DOTUSDT",     # 0% WR (live)  — engine top-avoid; established negative pattern in live trading
+    "APTUSDT",     # 0% WR (live)  — engine top-avoid; confirmed structural underperformer
 })
 IT_AVOID_QUALITY_PENALTY = -3.0  # quality penalty for IT avoid symbols [v18.61: new]
 
@@ -6113,6 +6154,11 @@ class UnitySignalFilter:
         self._gate_stats_recent["gate_g85ak_gsdd"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats["gate_g85al_grex"]         = {"pass": 0, "fail": 0}  # v163.0: Recent-Symbol-Reuse (same sym within 8min→-2.5pt / 15min→-1.5pt)
         self._gate_stats_recent["gate_g85al_grex"]  = deque(maxlen=self._gate_stats_window_n)
+        # v171.0 gate stats
+        self._gate_stats["gate_g85ay_gvlr"]         = {"pass": 0, "fail": 0}  # v171.0: VPIN-Ultra-Low-Regime (+1.5/+1.0/-2.0pts)
+        self._gate_stats_recent["gate_g85ay_gvlr"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85az_grlb"]         = {"pass": 0, "fail": 0}  # v171.0: Relative-Live-Bottleneck Sentinel (+1.5/+1.0/-2.0/-2.5pts)
+        self._gate_stats_recent["gate_g85az_grlb"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85x5_adf"] = deque(maxlen=self._gate_stats_window_n)  # v142.0
         self._last_g85b4_rws: int = 0   # v115.0: +1=hot-streak WR>45%, -1=below-BE WR<34%, -2=losing WR<27%, -3=catastrophic WR<18%, 0=neutral; Kelly Step 80
         self._last_g85c4_aev: int = 0   # v116.0: +1=EV-positive-trend, -1=below-BE, -2=EV-deteriorating, -3=deep-EV-hole, 0=neutral/cold-start; Kelly Step 81
@@ -6196,6 +6242,8 @@ class UnitySignalFilter:
         self._last_g85av_gddv:  float = 0.0  # v169.0: -2.0=quality-collapse(slope<-0.05+WR<30%), -1.5=declining-quality+crisis, 0=neutral; Kelly Step 149
         self._last_g85aw_ghrz:  float = 0.0  # v170.0: -2.0=dead-zone+crisis, -1.5=structural-dead-zone, 0=neutral; Kelly Step 150
         self._last_g85ax_galp:  float = 0.0  # v170.0: +1.5=peak-session+strong-regime, +1.0=peak-session+mild-regime, 0=neutral; Kelly Step 151
+        self._last_g85ay_gvlr:  float = 0.0  # v171.0: +1.5=ultra-clean-VPIN+OFI-aligned, +1.0=clean+OFI-aligned, -2.0=toxic+WR-crisis, 0=neutral; Kelly Step 152
+        self._last_g85az_grlb:  float = 0.0  # v171.0: +1.5=sym-alpha>10pp-above-global, +1.0=sym-alpha>5pp, -2.0=sym-hole>10pp-below, -2.5=struct-hole>20pp-below, 0=neutral; Kelly Step 153
         # v163.0: Per-symbol rapid-reuse tracking (GREX gate)
         self._v163_sym_last_ts: dict  = {}   # {symbol: last_eval_ts} for GREX window tracking
         # v161.0: Daily tracking state (UTC-day reset)
@@ -11397,6 +11445,88 @@ class UnitySignalFilter:
                         signal_data.setdefault("peak_hour_score",    0.5)
                         signal_data.setdefault("session_edge_delta", 0.0)
                     pass  # v170.0 F391-F395 injection block is non-fatal
+
+                    # ── v171.0: F396-F400 — GVLR+GRLB+Live-Edge Features ────
+                    try:
+                        # F396: ay_gvlr_gate — GVLR state {+1.5→1.0, +1.0→0.8, -2.0→0.0, 0→0.5}
+                        _f396_gvlr = float(getattr(self, "_last_g85ay_gvlr", 0.0) or 0.0)
+                        signal_data["ay_gvlr_gate"] = {1.5: 1.0, 1.0: 0.8, -2.0: 0.0}.get(_f396_gvlr, 0.5)
+                        # F397: vpin_ultra_clean — binary 1.0 if current VPIN pct < 0.08 (ultra-clean microstructure)
+                        _f397_vpin_ref = getattr(self, "_vpin_model", None)
+                        if _f397_vpin_ref is not None and getattr(_f397_vpin_ref, "is_ready", False):
+                            _, _f397_vpin_pct, _, _ = _f397_vpin_ref.get_signal()
+                            signal_data["vpin_ultra_clean"] = 1.0 if float(_f397_vpin_pct) < 0.08 else 0.0
+                        else:
+                            signal_data["vpin_ultra_clean"] = 0.0
+                        # F398: az_grlb_gate — GRLB state {+1.5→1.0, +1.0→0.8, -2.0→0.2, -2.5→0.0, 0→0.5}
+                        _f398_grlb = float(getattr(self, "_last_g85az_grlb", 0.0) or 0.0)
+                        signal_data["az_grlb_gate"] = {1.5: 1.0, 1.0: 0.8, -2.0: 0.2, -2.5: 0.0}.get(_f398_grlb, 0.5)
+                        # F399: sym_wr_vs_global — per-symbol WR relative to engine WR, normalised [-1,+1]
+                        # +1=sym WR 30pp+ above engine, -1=sym WR 30pp+ below engine
+                        _f399_tracker = getattr(self, "_sym_tracker", None)
+                        if _f399_tracker is not None and symbol:
+                            _f399_sym_wr = float(getattr(_f399_tracker, "win_rate", lambda s: 0.5)(str(symbol).upper()) or 0.5) * 100.0
+                            _f399_eng_wr = float(signal_data.get("win_rate", 50.0) or 50.0)
+                            signal_data["sym_wr_vs_global"] = max(-1.0, min(1.0, (_f399_sym_wr - _f399_eng_wr) / 30.0))
+                        else:
+                            signal_data["sym_wr_vs_global"] = 0.0
+                        # F400: sym_live_edge — composite: GVLR bonus + GRLB bonus, normalised [0,1]
+                        # High value = signal is from a live-alpha symbol in a clean-flow regime
+                        _f400_vpin_clean = 1.0 if signal_data.get("vpin_ultra_clean", 0.0) > 0.5 else 0.0
+                        _f400_grlb_bonus = 1.0 if _f398_grlb >= 1.0 else (0.5 if _f398_grlb == 0.0 else 0.0)
+                        signal_data["sym_live_edge"] = (_f400_vpin_clean + _f400_grlb_bonus) / 2.0
+                    except Exception:
+                        signal_data.setdefault("ay_gvlr_gate",      0.5)
+                        signal_data.setdefault("vpin_ultra_clean",   0.0)
+                        signal_data.setdefault("az_grlb_gate",       0.5)
+                        signal_data.setdefault("sym_wr_vs_global",   0.0)
+                        signal_data.setdefault("sym_live_edge",      0.5)
+                    pass  # v171.0 F396-F400 injection block is non-fatal
+                try:
+                    # ── v78 (v172.0): F401-F405 — GLTB+GCMS Meta-Gate Features ─────────
+                    # F401: ba_gltb_gate       — GLTB state {-2.0→0.0, -1.5→0.2, 0→0.5, +1.0→0.8, +1.5→1.0}
+                    # F402: dir_bias_ratio     — LONG fraction in 10-signal ring [0,1]; 0.5 = neutral
+                    # F403: bb_gcms_gate       — GCMS state {-2.5→0.0, -2.0→0.15, -1.5→0.3, 0→0.5, +1.5→0.8, +2.0→1.0}
+                    # F404: neg_gate_density   — fraction of 15 GCMS sentinel sources that are negative [0,1]
+                    # F405: gate_consensus_score — signed net consensus (pos-neg)/(pos+neg+1) → normalised [0,1]
+                    _f401_gltb = float(getattr(self, "_last_g85ba_gltb", 0.0) or 0.0)
+                    signal_data["ba_gltb_gate"] = {-2.0: 0.0, -1.5: 0.2, 1.0: 0.8, 1.5: 1.0}.get(_f401_gltb, 0.5)
+                    _f402_ring = list(getattr(self, "_v172_gltb_dir_ring", []))
+                    if len(_f402_ring) >= 2:
+                        signal_data["dir_bias_ratio"] = max(0.0, min(1.0, _f402_ring.count("LONG") / len(_f402_ring)))
+                    else:
+                        signal_data["dir_bias_ratio"] = 0.5
+                    _f403_gcms = float(getattr(self, "_last_g85bb_gcms", 0.0) or 0.0)
+                    signal_data["bb_gcms_gate"] = {-2.5: 0.0, -2.0: 0.15, -1.5: 0.3, 1.5: 0.8, 2.0: 1.0}.get(_f403_gcms, 0.5)
+                    _gcms_srcs = [
+                        float(getattr(self, "_last_g85aw_ghrz",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85ax_galp",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85ay_gvlr",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85az_grlb",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85am_ghtf",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85an_gmap",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85ao_gcal2", 0.0) or 0.0),
+                        float(getattr(self, "_last_g85ap_glen",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85aq_grsl",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85ar_gevap", 0.0) or 0.0),
+                        float(getattr(self, "_last_g85as_gfrd",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85at_gord",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85au_gwfv",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85av_gddv",  0.0) or 0.0),
+                        float(getattr(self, "_last_g85ba_gltb",  0.0) or 0.0),
+                    ]
+                    _f404_neg = sum(1 for v in _gcms_srcs if v < 0.0)
+                    signal_data["neg_gate_density"] = max(0.0, min(1.0, _f404_neg / 15.0))
+                    _f405_pos = sum(1 for v in _gcms_srcs if v > 0.0)
+                    _f405_net = (_f405_pos - _f404_neg) / (len(_gcms_srcs) + 1)  # signed [-1,+1]
+                    signal_data["gate_consensus_score"] = max(0.0, min(1.0, (_f405_net + 1.0) / 2.0))  # [0,1]
+                    signal_data.setdefault("ba_gltb_gate",         0.5)
+                    signal_data.setdefault("dir_bias_ratio",       0.5)
+                    signal_data.setdefault("bb_gcms_gate",         0.5)
+                    signal_data.setdefault("neg_gate_density",     0.5)
+                    signal_data.setdefault("gate_consensus_score", 0.5)
+                except Exception:
+                    pass  # v172.0 F401-F405 injection block is non-fatal
 
                     if isinstance(signal_data, dict) and callable(_pfd):
                         nn_prob = float(_pfd(signal_data))
@@ -20027,6 +20157,212 @@ class UnitySignalFilter:
         except Exception:
             pass  # GALP non-fatal soft-gate
 
+        # ── v171.0 G8.5AY — GVLR: VPIN Ultra-Low Regime Bonus (157th gate) ──
+        # Maker gate — reads live VPIN microstructure state vs OFI alignment.
+        # Data: live VPIN=1% (2026-07-02 00h UTC) signals ultra-clean order flow.
+        # Existing gates reward toxic-flow detection; this captures the inverse:
+        # ultra-clean VPIN + OFI alignment = structural edge pocket not gated elsewhere.
+        # Bonus tiers:  VPIN pct < 0.05 + OFI dir-aligned → +1.5pt (ultra-clean)
+        #               VPIN pct < 0.15 + OFI dir-aligned → +1.0pt (clean)
+        # Penalty tier: VPIN pct > 0.65 + WR < 30% → -2.0pt (toxic flow + WR crisis)
+        # Stores _last_g85ay_gvlr for Kelly Step 152.
+        try:
+            self._last_g85ay_gvlr = 0.0
+            _gvlr_vpin_ref = getattr(self, "_vpin_model", None)
+            if _gvlr_vpin_ref is not None and getattr(_gvlr_vpin_ref, "is_ready", False):
+                _gvlr_vpin_val, _gvlr_vpin_pct, _, _gvlr_vpin_toxic = _gvlr_vpin_ref.get_signal()
+                _gvlr_wr   = float(win_rate) if win_rate is not None else 50.0
+                _gvlr_ofi  = float(signal_data.get("ofi_z", 0.0) if isinstance(signal_data, dict) else 0.0)
+                _gvlr_dir  = (1 if str(signal_data.get("action", signal_data.get("direction", "BUY")) if isinstance(signal_data, dict) else "BUY").upper() in ("BUY", "LONG") else -1)
+                _gvlr_ofi_aligned = (_gvlr_ofi > 0.3 and _gvlr_dir == 1) or (_gvlr_ofi < -0.3 and _gvlr_dir == -1)
+                _gvlr_adj  = 0.0
+                if _gvlr_vpin_pct < 0.05 and _gvlr_ofi_aligned and not _gvlr_vpin_toxic:
+                    _gvlr_adj = 1.5  # ultra-clean flow + OFI momentum aligned
+                elif _gvlr_vpin_pct < 0.15 and _gvlr_ofi_aligned and not _gvlr_vpin_toxic:
+                    _gvlr_adj = 1.0  # clean flow + OFI momentum aligned
+                elif _gvlr_vpin_pct > 0.65 and _gvlr_wr < 30.0:
+                    _gvlr_adj = -2.0  # toxic order flow compound crisis
+                if _gvlr_adj != 0.0:
+                    self._last_g85ay_gvlr = _gvlr_adj
+                    score += _gvlr_adj
+                    _gvlr_tier = ("ultra-clean+OFI" if _gvlr_adj >= 1.5 else
+                                  ("clean+OFI" if _gvlr_adj >= 1.0 else "toxic-crisis"))
+                    self._logger.debug(
+                        f"🌊 [v171.0 G8.5AY GVLR] VPIN_pct={_gvlr_vpin_pct:.3f} "
+                        f"OFI_z={_gvlr_ofi:.2f} dir={_gvlr_dir:+d} ({_gvlr_tier}) "
+                        f"→ {_gvlr_adj:+.1f}pt"
+                    )
+            _record("gate_g85ay_gvlr", self._last_g85ay_gvlr >= 0.0)
+        except Exception:
+            pass  # GVLR non-fatal soft-gate
+
+        # ── v171.0 G8.5AZ — GRLB: Relative Live Bottleneck Sentinel (158th gate)
+        # Checker gate — Workflow Isolation: Maker generates signal, Checker validates
+        # it against the LIVE per-symbol portfolio state using _sym_tracker.
+        # Live console bottleneck: GBLK=50%(#1) due to 0%-WR symbols (WLFI/DOT/APT).
+        # GRLB adds a RELATIVE gate: symbol WR vs engine global WR (dynamic, self-updating).
+        # Penalty: symbol WR < global_WR - 10pp (≥10 trades) → -2.0pt
+        # Penalty: symbol WR < global_WR - 20pp (≥8 trades) → -2.5pt (structural hole)
+        # Bonus:   symbol WR > global_WR + 5pp  (≥10 trades) → +1.0pt (live alpha)
+        # Bonus:   symbol WR > global_WR + 10pp (≥15 trades) → +1.5pt (structural edge)
+        # Guard: symbol not already GBLK-blocked (complement, not duplicate).
+        # Stores _last_g85az_grlb for Kelly Step 153.
+        try:
+            self._last_g85az_grlb = 0.0
+            _grlb_tracker = getattr(self, "_sym_tracker", None)
+            if _grlb_tracker is not None and symbol:
+                _grlb_sym = str(symbol).upper()
+                _grlb_n   = int(getattr(_grlb_tracker, "trade_count", lambda s: 0)(_grlb_sym) or 0)
+                if _grlb_n >= 8:
+                    _grlb_sym_wr  = float(getattr(_grlb_tracker, "win_rate", lambda s: 0.5)(_grlb_sym) or 0.5) * 100.0
+                    _grlb_eng_wr  = float(win_rate) if win_rate is not None else 50.0
+                    _grlb_delta   = _grlb_sym_wr - _grlb_eng_wr
+                    _grlb_adj     = 0.0
+                    if _grlb_delta >= 10.0 and _grlb_n >= 15:
+                        _grlb_adj = 1.5  # structural alpha: sym 10pp+ above engine WR
+                    elif _grlb_delta >= 5.0 and _grlb_n >= 10:
+                        _grlb_adj = 1.0  # live alpha: sym 5pp+ above engine WR
+                    elif _grlb_delta <= -20.0:
+                        _grlb_adj = -2.5  # structural hole: sym 20pp+ below engine WR
+                    elif _grlb_delta <= -10.0 and _grlb_n >= 10:
+                        _grlb_adj = -2.0  # underperformer: sym 10pp+ below engine WR
+                    if _grlb_adj != 0.0:
+                        self._last_g85az_grlb = _grlb_adj
+                        score += _grlb_adj
+                        _grlb_tier = ("struct-alpha" if _grlb_adj >= 1.5 else
+                                      ("live-alpha" if _grlb_adj >= 1.0 else
+                                       ("struct-hole" if _grlb_adj <= -2.5 else "underperformer")))
+                        self._logger.debug(
+                            f"📊 [v171.0 G8.5AZ GRLB] {_grlb_sym} sym_wr={_grlb_sym_wr:.1f}% "
+                            f"eng_wr={_grlb_eng_wr:.1f}% delta={_grlb_delta:+.1f}pp "
+                            f"n={_grlb_n} ({_grlb_tier}) → {_grlb_adj:+.1f}pt"
+                        )
+            _record("gate_g85az_grlb", self._last_g85az_grlb >= 0.0)
+        except Exception:
+            pass  # GRLB non-fatal soft-gate
+
+        # ── v172.0 G8.5BA — GLTB: Loop-Thinking Directional Bias Sentinel (159th gate) ──
+        # Technique 5: Loop Engineering — an autonomous self-evaluating loop that checks
+        # directional bias across the last 10 signals. Unlike any single-signal gate,
+        # this gate detects *structural* LONG-bias bleed before it manifests as drawdown.
+        # Data basis: live trade_history analysis — LONG avgPnL = -0.28% vs SHORT +0.26%.
+        # At WR=29%, LONG-dominated sessions are the primary EV source of structural loss.
+        # Ring: last ≤10 signal directions (updated in GMOM3 block via _v172_gltb_dir_ring).
+        # Penalty tiers:
+        #   LONG-dominated (≥7/10) + WR < 30% → -2.0pt (crisis directional bias)
+        #   LONG-dominated (≥6/10) + consec_losses ≥ 2 → -1.5pt (cold-bias compound)
+        # Bonus tiers:
+        #   SHORT-dominated (≥7/10) + WR ≥ 32% → +1.5pt (structural SHORT alpha)
+        #   SHORT-dominated (≥6/10) + WR ≥ 30% → +1.0pt (mild alignment bonus)
+        # Guard: ≥8 signals in ring (GLTB_MIN_RING) before firing.
+        # Stores _last_g85ba_gltb for Kelly Step 154.
+        try:
+            self._last_g85ba_gltb = 0.0
+            if GLTB_ENABLED:
+                _gltb_ring = list(getattr(self, "_v172_gltb_dir_ring", []))
+                if len(_gltb_ring) >= GLTB_MIN_RING:
+                    _gltb_longs  = _gltb_ring.count("LONG")
+                    _gltb_shorts = _gltb_ring.count("SHORT")
+                    _gltb_n      = len(_gltb_ring)
+                    _gltb_wr     = float(win_rate) if win_rate is not None else 50.0
+                    _gltb_cold   = int(getattr(self, "_consec_losses", 0) or 0)
+                    _gltb_adj    = 0.0
+                    _gltb_tier   = ""
+                    if _gltb_longs >= GLTB_CRISIS_LONG_N and _gltb_wr < GLTB_WR_CRISIS:
+                        _gltb_adj  = -2.0
+                        _gltb_tier = "LONG-crisis-bias"
+                    elif _gltb_longs >= GLTB_WARN_LONG_N and _gltb_cold >= GLTB_COLD_MIN:
+                        _gltb_adj  = -1.5
+                        _gltb_tier = "cold-LONG-bias"
+                    elif _gltb_shorts >= GLTB_ALPHA_SHORT_N and _gltb_wr >= GLTB_WR_STRONG:
+                        _gltb_adj  = 1.5
+                        _gltb_tier = "SHORT-alpha"
+                    elif _gltb_shorts >= GLTB_MILD_SHORT_N and _gltb_wr >= GLTB_WR_CRISIS:
+                        _gltb_adj  = 1.0
+                        _gltb_tier = "mild-SHORT-align"
+                    if _gltb_adj != 0.0:
+                        self._last_g85ba_gltb = _gltb_adj
+                        score += _gltb_adj
+                        self._logger.debug(
+                            f"🔄 [v172.0 G8.5BA GLTB] ring={_gltb_ring[-GLTB_RING_SIZE:]} "
+                            f"longs={_gltb_longs}/{_gltb_n} shorts={_gltb_shorts}/{_gltb_n} "
+                            f"WR={_gltb_wr:.1f}% consec={_gltb_cold} ({_gltb_tier}) "
+                            f"→ {_gltb_adj:+.1f}pt"
+                        )
+            _record("gate_g85ba_gltb", self._last_g85ba_gltb >= 0.0)
+        except Exception:
+            pass  # GLTB non-fatal soft-gate
+
+        # ── v172.0 G8.5BB — GCMS: Checker Meta-Score Synthesis Gate (160th gate) ──
+        # Technique 6: Workflow Isolation — Maker/Checker architecture at the meta level.
+        # All soft-gate Makers have now scored the signal (GVLR, GRLB, GHTF, GMAP, GCAL2,
+        # GLEN, GRSL, GEVAP, GFRD, GORD, GWFV, GDDV, GHRZ, GALP, GLTB all run before here).
+        # The Checker synthesises their signed scores into a compound hostility/consensus.
+        # Single-gate penalties can be diluted by a high total score. Compound-hostile
+        # (≥5 gates negative) at WR<30% is a regime the Maker gates individually miss.
+        # Sources (zero-API): reads existing _last_g85* sentinel floats set by prior gates.
+        # Penalty tiers:
+        #   neg_count ≥ 5 + WR < 30% → -2.5pt (compound systemic hostility)
+        #   neg_count ≥ 4 + consec_losses ≥ 2 → -2.0pt (crisis-compound)
+        #   neg_count ≥ 3 + WR < 32% → -1.5pt (structural concern)
+        # Bonus tiers:
+        #   pos_count ≥ 5 + WR ≥ 32% → +2.0pt (full green-light consensus)
+        #   pos_count ≥ 4 + WR ≥ 30% → +1.5pt (strong consensus)
+        # Stores _last_g85bb_gcms for Kelly Step 155.
+        try:
+            self._last_g85bb_gcms = 0.0
+            if GCMS_ENABLED:
+                # Collect the last-known scores from all recent soft-gate sentinels
+                _gcms_sentinels = [
+                    float(getattr(self, "_last_g85aw_ghrz",  0.0) or 0.0),  # GHRZ dead-zone
+                    float(getattr(self, "_last_g85ax_galp",  0.0) or 0.0),  # GALP peak session
+                    float(getattr(self, "_last_g85ay_gvlr",  0.0) or 0.0),  # GVLR VPIN regime
+                    float(getattr(self, "_last_g85az_grlb",  0.0) or 0.0),  # GRLB sym bottleneck
+                    float(getattr(self, "_last_g85am_ghtf",  0.0) or 0.0),  # GHTF hot/cold streak
+                    float(getattr(self, "_last_g85an_gmap",  0.0) or 0.0),  # GMAP RSI anti-pattern
+                    float(getattr(self, "_last_g85ao_gcal2", 0.0) or 0.0),  # GCAL2 AI overconf
+                    float(getattr(self, "_last_g85ap_glen",  0.0) or 0.0),  # GLEN loop coherence
+                    float(getattr(self, "_last_g85aq_grsl",  0.0) or 0.0),  # GRSL pnl-slope
+                    float(getattr(self, "_last_g85ar_gevap", 0.0) or 0.0),  # GEVAP EV velocity
+                    float(getattr(self, "_last_g85as_gfrd",  0.0) or 0.0),  # GFRD funding crowding
+                    float(getattr(self, "_last_g85at_gord",  0.0) or 0.0),  # GORD OFI divergence
+                    float(getattr(self, "_last_g85au_gwfv",  0.0) or 0.0),  # GWFV walk-forward
+                    float(getattr(self, "_last_g85av_gddv",  0.0) or 0.0),  # GDDV quality velocity
+                    float(getattr(self, "_last_g85ba_gltb",  0.0) or 0.0),  # GLTB dir-bias (above)
+                ]
+                _gcms_neg_count = sum(1 for v in _gcms_sentinels if v < 0.0)
+                _gcms_pos_count = sum(1 for v in _gcms_sentinels if v > 0.0)
+                _gcms_wr   = float(win_rate) if win_rate is not None else 50.0
+                _gcms_cold = int(getattr(self, "_consec_losses", 0) or 0)
+                _gcms_adj  = 0.0
+                _gcms_tier = ""
+                if _gcms_neg_count >= GCMS_NEG_ULTRA and _gcms_wr < GCMS_WR_CRISIS:
+                    _gcms_adj  = -2.5
+                    _gcms_tier = "compound-hostile"
+                elif _gcms_neg_count >= GCMS_NEG_CRISIS and _gcms_cold >= GCMS_COLD_MIN:
+                    _gcms_adj  = -2.0
+                    _gcms_tier = "crisis-compound"
+                elif _gcms_neg_count >= GCMS_NEG_WARN and _gcms_wr < GCMS_WR_WARN:
+                    _gcms_adj  = -1.5
+                    _gcms_tier = "structural-concern"
+                elif _gcms_pos_count >= GCMS_POS_ULTRA and _gcms_wr >= GCMS_WR_ULTRA:
+                    _gcms_adj  = 2.0
+                    _gcms_tier = "full-consensus"
+                elif _gcms_pos_count >= GCMS_POS_STRONG and _gcms_wr >= GCMS_WR_STRONG:
+                    _gcms_adj  = 1.5
+                    _gcms_tier = "strong-consensus"
+                if _gcms_adj != 0.0:
+                    self._last_g85bb_gcms = _gcms_adj
+                    score += _gcms_adj
+                    self._logger.debug(
+                        f"🧩 [v172.0 G8.5BB GCMS] neg={_gcms_neg_count} pos={_gcms_pos_count} "
+                        f"WR={_gcms_wr:.1f}% consec={_gcms_cold} ({_gcms_tier}) "
+                        f"→ {_gcms_adj:+.1f}pt"
+                    )
+            _record("gate_g85bb_gcms", self._last_g85bb_gcms >= 0.0)
+        except Exception:
+            pass  # GCMS non-fatal soft-gate
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -21059,6 +21395,8 @@ class UnitySignalFilter:
             "gate_g85al_grex":        "G8.5AL",  # v163.0: Recent-Symbol-Reuse (<8min→-2.5pt / <15min→-1.5pt)
             "gate_g85aw_ghrz":        "G8.5AW",  # v170.0: Hour-Regime-Zero dead-zone (00h/19h+WR<30%→-2.0pt / structural→-1.5pt)
             "gate_g85ax_galp":        "G8.5AX",  # v170.0: Alpha-Session-Convergence-Plus peak (06-09h+WR≥32%→+1.5pt / recovery→+1.0pt)
+            "gate_g85ay_gvlr":        "G8.5AY",  # v171.0: VPIN-Ultra-Low-Regime Bonus (VPIN<0.05+OFI→+1.5pt / VPIN>0.65+crisis→-2.0pt)
+            "gate_g85az_grlb":        "G8.5AZ",  # v171.0: Relative-Live-Bottleneck Sentinel (sym>global+10pp→+1.5pt / sym<global-20pp→-2.5pt)
     }
 
     def gate_stats_summary(self) -> str:
@@ -21221,6 +21559,8 @@ class UnitySignalFilter:
             "gate_g85al_grex",         # Recent-Symbol-Reuse -2.5/-1.5pt score adjuster — cannot block a signal [v163.0]
             "gate_g85aw_ghrz",         # Hour-Regime-Zero dead-zone -2.0/-1.5pt score adjuster — cannot block a signal [v170.0]
             "gate_g85ax_galp",         # Alpha-Session-Convergence-Plus +1.5/+1.0pt score adjuster — cannot block a signal [v170.0]
+            "gate_g85ay_gvlr",         # VPIN-Ultra-Low-Regime +1.5/+1.0/-2.0pt adjuster — cannot block a signal [v171.0]
+            "gate_g85az_grlb",         # Relative-Live-Bottleneck +1.5/+1.0/-2.0/-2.5pt adjuster — cannot block a signal [v171.0]
             "gate_vibe",        # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
             # v144.0: NOT a soft adjuster — a deterministic time-of-day HARD block.
@@ -26544,6 +26884,150 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 151 GALP Alpha Session Convergence is non-fatal
 
+        # ── v171.0: Kelly Step 152 — GVLR VPIN Ultra-Low Regime Sizing
+        # Ultra-clean VPIN + OFI aligned → modest upsize on microstructure edge
+        # Toxic VPIN crisis → de-size to protect against adverse order flow
+        try:
+            _k152_gvlr = float(getattr(self, "_last_g85ay_gvlr", 0.0) or 0.0)
+            if _k152_gvlr <= -2.0:
+                _k152_pre   = self.last_kelly_fraction
+                _k152_floor = max(self.last_kelly_fraction * 0.85, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k152_floor)
+                self._logger.debug(
+                    f"[v171.0 Step152 GVLR] toxic-flow crisis → Kelly ×0.85 "
+                    f"({_k152_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k152_gvlr >= 1.5:
+                _k152_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self._logger.debug(
+                    f"[v171.0 Step152 GVLR] ultra-clean+OFI-aligned → Kelly ×1.03 "
+                    f"({_k152_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k152_gvlr >= 1.0:
+                _k152_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self._logger.debug(
+                    f"[v171.0 Step152 GVLR] clean+OFI-aligned → Kelly ×1.02 "
+                    f"({_k152_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 152 GVLR is non-fatal
+
+        # ── v171.0: Kelly Step 153 — GRLB Relative Live Bottleneck Sizing
+        # Structural alpha symbol (>10pp above engine WR) → modest upsize
+        # Structural hole symbol (>20pp below engine WR) → de-size
+        try:
+            _k153_grlb = float(getattr(self, "_last_g85az_grlb", 0.0) or 0.0)
+            if _k153_grlb <= -2.5:
+                _k153_pre   = self.last_kelly_fraction
+                _k153_floor = max(self.last_kelly_fraction * 0.80, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k153_floor)
+                self._logger.debug(
+                    f"[v171.0 Step153 GRLB] structural-hole → Kelly ×0.80 "
+                    f"({_k153_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k153_grlb <= -2.0:
+                _k153_pre   = self.last_kelly_fraction
+                _k153_floor = max(self.last_kelly_fraction * 0.85, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k153_floor)
+                self._logger.debug(
+                    f"[v171.0 Step153 GRLB] underperformer → Kelly ×0.85 "
+                    f"({_k153_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k153_grlb >= 1.5:
+                _k153_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self._logger.debug(
+                    f"[v171.0 Step153 GRLB] struct-alpha → Kelly ×1.02 "
+                    f"({_k153_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 153 GRLB is non-fatal
+
+        # ── v172.0: Kelly Step 154 — GLTB Loop-Thinking Directional Bias Sizing
+        # LONG-bias crisis → de-size to protect against direction-EV structural bleed
+        # SHORT-dominance alpha → modest upsize on the confirmed highest-quality sessions
+        try:
+            _k154_gltb = float(getattr(self, "_last_g85ba_gltb", 0.0) or 0.0)
+            if _k154_gltb <= -2.0:
+                _k154_pre   = self.last_kelly_fraction
+                _k154_floor = max(self.last_kelly_fraction * 0.85, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k154_floor)
+                self._logger.debug(
+                    f"[v172.0 Step154 GLTB] LONG-crisis-bias → Kelly ×0.85 "
+                    f"({_k154_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k154_gltb <= -1.5:
+                _k154_pre   = self.last_kelly_fraction
+                _k154_floor = max(self.last_kelly_fraction * 0.88, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k154_floor)
+                self._logger.debug(
+                    f"[v172.0 Step154 GLTB] cold-LONG-bias → Kelly ×0.88 "
+                    f"({_k154_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k154_gltb >= 1.5:
+                _k154_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self._logger.debug(
+                    f"[v172.0 Step154 GLTB] SHORT-alpha-aligned → Kelly ×1.03 "
+                    f"({_k154_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 154 GLTB is non-fatal
+
+        # ── v172.0: Kelly Step 155 — GCMS Checker Meta-Score Sizing
+        # Compound-hostile (≥5 gates negative) → aggressive de-size; regime unsalvageable
+        # Full green-light consensus (≥5 gates positive) → upsize on highest-EV regime
+        try:
+            _k155_gcms = float(getattr(self, "_last_g85bb_gcms", 0.0) or 0.0)
+            if _k155_gcms <= -2.5:
+                _k155_pre   = self.last_kelly_fraction
+                _k155_floor = max(self.last_kelly_fraction * 0.82, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k155_floor)
+                self._logger.debug(
+                    f"[v172.0 Step155 GCMS] compound-hostile → Kelly ×0.82 "
+                    f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k155_gcms <= -2.0:
+                _k155_pre   = self.last_kelly_fraction
+                _k155_floor = max(self.last_kelly_fraction * 0.85, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k155_floor)
+                self._logger.debug(
+                    f"[v172.0 Step155 GCMS] crisis-compound → Kelly ×0.85 "
+                    f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k155_gcms <= -1.5:
+                _k155_pre   = self.last_kelly_fraction
+                _k155_floor = max(self.last_kelly_fraction * 0.88, 0.0005)
+                self.last_kelly_fraction = min(self.last_kelly_fraction, _k155_floor)
+                self._logger.debug(
+                    f"[v172.0 Step155 GCMS] structural-concern → Kelly ×0.88 "
+                    f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k155_gcms >= 2.0:
+                _k155_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil)
+                self._logger.debug(
+                    f"[v172.0 Step155 GCMS] full-consensus → Kelly ×1.04 "
+                    f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k155_gcms >= 1.5:
+                _k155_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self._logger.debug(
+                    f"[v172.0 Step155 GCMS] strong-consensus → Kelly ×1.02 "
+                    f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 155 GCMS is non-fatal
+
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
@@ -28334,7 +28818,7 @@ class UnityEngine:
         logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC 14combos[v85.0]")
         logger.info("              └─ OpenRouter        — 2 confirmed-storm-free models (gpt-oss-120b+gpt-oss-20b GODMODE)[v111.0] + 5-storm-models-replaced[v111.0], 5 tiers, EnsembleVote")
         logger.info("              └─ SmartLLMRouter    — ClawRouter-inspired cascade fallback")
-        logger.info("   Layer  5 : Neural Network      — 395-feature NN v76 (MLP+Transformer 79×5 tokens: F356:y5_pco_gate + F357:y5_signal_orthogonality + F358:y5_ofi_qs_corr + F359:z5_ics_gate + F360:z5_floam_ir + F361:ak_gsdd_gate + F362:al_grex_gate + F363:dir_run_length + F364:sym_reuse_recency + F365:xml_prompt_quality + F386:au_gwfv_gate + F387:cpcv_wfv_gap + F388:av_gddv_gate + F389:quality_slope_norm + F390:wfv_regime_score + F391:aw_ghrz_gate + F392:hour_dead_zone + F393:ax_galp_gate + F394:peak_hour_score + F395:session_edge_delta), Wilder-ATR, online learning")
+        logger.info("   Layer  5 : Neural Network      — 405-feature NN v78 (MLP+Transformer 81×5 tokens: F356:y5_pco_gate + F357:y5_signal_orthogonality + F358:y5_ofi_qs_corr + F359:z5_ics_gate + F360:z5_floam_ir + F361:ak_gsdd_gate + F362:al_grex_gate + F363:dir_run_length + F364:sym_reuse_recency + F365:xml_prompt_quality + F386:au_gwfv_gate + F387:cpcv_wfv_gap + F388:av_gddv_gate + F389:quality_slope_norm + F390:wfv_regime_score + F391:aw_ghrz_gate + F392:hour_dead_zone + F393:ax_galp_gate + F394:peak_hour_score + F395:session_edge_delta + F396:ay_gvlr_gate + F397:vpin_ultra_clean + F398:az_grlb_gate + F399:sym_wr_vs_global + F400:sym_live_edge + F401:ba_gltb_gate + F402:dir_bias_ratio + F403:bb_gcms_gate + F404:neg_gate_density + F405:gate_consensus_score), Wilder-ATR, online learning")
         logger.info("   Layer  6 : ATAS + Bookmap      — 15 indicators + order-flow depth")
         logger.info("   Layer  7 : Risk+Kelly Engine   — SmartDynamic SL/TP + Leveraging + Kelly")
         logger.info("   Layer  8 : AI Orchestrator     — Sentiment + Prediction + RL")
@@ -28344,7 +28828,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 154-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+WRAdaptCap[v86.0]+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus-5gate±3.5pts[v68.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0,v75.0-FIX] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5A:FundingTrend-2.0/+1.5pts[v68.0] · G8.5B:OFI-Persist±2.0pts[v72.0] · G8.5C:RegimeCoh±2.0pts[v73.0] · G8.5D:OFI-Velocity±2.0/-1.5pts[v74.0] · G8.5E:CrossCoherence+2.0/+0.8/-1.5pts[v75.0] · G8.5F:VWAP-Extension±2.0/+1.5pts[v76.0] · G8.5G:CUSUM-Breakout±1.5pts[v76.0] · G8.5H:FlowAsymmetry±2.0/+1.5pts[v77.0] · G8.5I:MicroTrend±1.5pts[v77.0] · G8.5J:HMMRegimeTransition±2.0/+1.5pts[v78.0] · G8.5K:SpreadLiquidity±2.0/+1.5pts[v79.0] · G8.5L2:VolPressureRegime±2.0/+1.5pts[v80.0] · G8.5N2:FundMomPersist±2.0/+1.5pts[v81.0] · G8.5S2:WRCrisisRegime±2.0/+1.5pts[v85.0] · G8.5T2:ExtremeFearRegime±1.5/+0.5pts[v85.0] · G8.5U2:VoV-StabilityRegime±1.5pts[v87.0] · G8.5V2:OBPressure±2.0pts[v88.0] · G8.5W2:DrawdownMomentum(-3.0/-2.0pts)[v89.0] · G8.5X2:WinRateTraj±2.0pts[v90.0] · G8.5Y2:HMM-VPINCoh±2.0pts[v91.0] · G8.5H3:RecentWR-EmgBrake(-3.0/-2.0/+1.5pts)[v103.0] · G8.5I3:IRONSFloor-Sharpe(-2.0/-1.5/+1.5/+1.0pts)[v103.0] · G8.5J3:LLM-TechCoh(-2.0/-1.0/+1.5pts)[v104.0] · G8.5K3:StreakSession(-2.0/+1.5pts)[v104.0] · G8.5R3:BTC-WRTraj-OFI-TripleMomentum(±2.0/±1.5pts)[v108.0] · G8.5S3:Quality-Sharpe-Coherence-CompositeHealth(±2.0/±1.5pts)[v108.0] · G8.5T3:RegimeFlow-OFI-WR-TripleAlignment(±2.0/±1.5pts)[v109.0] · G8.5U3:Kalman-HMM-Spread-TripleSync(±2.0/±1.5pts)[v109.0] · G8.5V3:TripleEV-Confidence-Persistence(±2.0/±1.5pts)[v110.0] · G8.5W3:MomentumStack-OFI-MicroTrend-TripleSync(±2.0/±1.5pts)[v111.0] · G8.5X3:CrisisCompass-DDM-WRT-TripleSafety(±2.0/±1.5pts)[v113.0] · G8.5Y3:MomentumCoh-TripleSync-MetaGate(±2.0/±1.5pts)[v113.0] · G8.5Z3:RegimeCrisisQuality-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5A4:FlowVolumeRegime-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5B4:RollingWR-Momentum-Sentinel(-3.0/-2.0/-1.0/+1.5pts)[v115.0/v154.0] · G8.5C4:AdaptiveEV-Persistence(-3.0/-2.0/-1.0/+1.5pts)[v116.0] · G8.5D4:TimesFM-ForecastConfluence(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5E4:TimesFM-RegimeSync(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5V4:EV-Recovery-Velocity(+2.0/+1.0/-2.0pts)[v125.0] · G8.5W4:WinRate-Acceleration-Coherence(+2.0/+1.5/-2.0pts)[v125.0] · G8.5X4:Quality-Score-Velocity-Recovery(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Y4:OFI-WR-Trajectory-Sync(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Z4:Adaptive-Regime-Composite(+2.0/+1.0/-2.0pts)[v127.0] · G8.5A5:Sharpe-Velocity-Confluence(+2.0/+1.0/-2.0pts)[v127.0] · G8.5B5:EV-Persistence-Velocity(+2.0/+1.0/-2.0pts)[v128.0] · G8.5C5:TripleSignalQuality-Convergence(+2.0/+1.0/-2.0pts)[v128.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0]+FlowStack[v74.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 160-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+WRAdaptCap[v86.0]+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus-5gate±3.5pts[v68.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0,v75.0-FIX] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5A:FundingTrend-2.0/+1.5pts[v68.0] · G8.5B:OFI-Persist±2.0pts[v72.0] · G8.5C:RegimeCoh±2.0pts[v73.0] · G8.5D:OFI-Velocity±2.0/-1.5pts[v74.0] · G8.5E:CrossCoherence+2.0/+0.8/-1.5pts[v75.0] · G8.5F:VWAP-Extension±2.0/+1.5pts[v76.0] · G8.5G:CUSUM-Breakout±1.5pts[v76.0] · G8.5H:FlowAsymmetry±2.0/+1.5pts[v77.0] · G8.5I:MicroTrend±1.5pts[v77.0] · G8.5J:HMMRegimeTransition±2.0/+1.5pts[v78.0] · G8.5K:SpreadLiquidity±2.0/+1.5pts[v79.0] · G8.5L2:VolPressureRegime±2.0/+1.5pts[v80.0] · G8.5N2:FundMomPersist±2.0/+1.5pts[v81.0] · G8.5S2:WRCrisisRegime±2.0/+1.5pts[v85.0] · G8.5T2:ExtremeFearRegime±1.5/+0.5pts[v85.0] · G8.5U2:VoV-StabilityRegime±1.5pts[v87.0] · G8.5V2:OBPressure±2.0pts[v88.0] · G8.5W2:DrawdownMomentum(-3.0/-2.0pts)[v89.0] · G8.5X2:WinRateTraj±2.0pts[v90.0] · G8.5Y2:HMM-VPINCoh±2.0pts[v91.0] · G8.5H3:RecentWR-EmgBrake(-3.0/-2.0/+1.5pts)[v103.0] · G8.5I3:IRONSFloor-Sharpe(-2.0/-1.5/+1.5/+1.0pts)[v103.0] · G8.5J3:LLM-TechCoh(-2.0/-1.0/+1.5pts)[v104.0] · G8.5K3:StreakSession(-2.0/+1.5pts)[v104.0] · G8.5R3:BTC-WRTraj-OFI-TripleMomentum(±2.0/±1.5pts)[v108.0] · G8.5S3:Quality-Sharpe-Coherence-CompositeHealth(±2.0/±1.5pts)[v108.0] · G8.5T3:RegimeFlow-OFI-WR-TripleAlignment(±2.0/±1.5pts)[v109.0] · G8.5U3:Kalman-HMM-Spread-TripleSync(±2.0/±1.5pts)[v109.0] · G8.5V3:TripleEV-Confidence-Persistence(±2.0/±1.5pts)[v110.0] · G8.5W3:MomentumStack-OFI-MicroTrend-TripleSync(±2.0/±1.5pts)[v111.0] · G8.5X3:CrisisCompass-DDM-WRT-TripleSafety(±2.0/±1.5pts)[v113.0] · G8.5Y3:MomentumCoh-TripleSync-MetaGate(±2.0/±1.5pts)[v113.0] · G8.5Z3:RegimeCrisisQuality-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5A4:FlowVolumeRegime-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5B4:RollingWR-Momentum-Sentinel(-3.0/-2.0/-1.0/+1.5pts)[v115.0/v154.0] · G8.5C4:AdaptiveEV-Persistence(-3.0/-2.0/-1.0/+1.5pts)[v116.0] · G8.5D4:TimesFM-ForecastConfluence(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5E4:TimesFM-RegimeSync(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5V4:EV-Recovery-Velocity(+2.0/+1.0/-2.0pts)[v125.0] · G8.5W4:WinRate-Acceleration-Coherence(+2.0/+1.5/-2.0pts)[v125.0] · G8.5X4:Quality-Score-Velocity-Recovery(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Y4:OFI-WR-Trajectory-Sync(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Z4:Adaptive-Regime-Composite(+2.0/+1.0/-2.0pts)[v127.0] · G8.5A5:Sharpe-Velocity-Confluence(+2.0/+1.0/-2.0pts)[v127.0] · G8.5B5:EV-Persistence-Velocity(+2.0/+1.0/-2.0pts)[v128.0] · G8.5C5:TripleSignalQuality-Convergence(+2.0/+1.0/-2.0pts)[v128.0] · G8.5BA:GLTB-LoopDirBias(-2.0/-1.5/+1.5/+1.0pts)[v172.0] · G8.5BB:GCMS-CheckerMeta(-2.5/-2.0/-1.5/+2.0/+1.5pts)[v172.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0]+FlowStack[v74.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")
@@ -32821,7 +33305,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"156-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5H-FlowAsymmetry[v77.0]·G8.5I-MicroTrend[v77.0]·G8.5J-HMMTransition[v78.0]·G8.5K-SpreadLiq[v79.0]·G8.5L2-VolPressure[v80.0]·G8.5N2-FundMom[v81.0]·G8.5O2-WREVCoh[v82.0]·G8.5P2-EVCrisis[v83.0]·G8.5Q-TrendMom[v84.0]·G8.5R2-RegimeSent[v84.0]·G8.5S2-WRCrisisRegime[v85.0]·G8.5T2-ExtremeFearRegime[v85.0]·G8.5U2-VoV-Stability[v87.0]·G8.5V2-OBPressure[v88.0]·G8.5W2-DDMomentum[v89.0]·G8.5X2-WRTrajectory[v90.0]·G8.5Y2-HMMVPINCoh[v91.0]·G8.5Z2-RMSSync[v92.0]·G8.5A3-VPCTripleConf[v93.0]·G8.5B3-HOSTripleSync[v94.0]·G8.5C3-VOETripleConv[v95.0]·G8.5D3-RDWTripleRisk[v96.0]·G8.5E3-EFOTriplePressure[v97.0]·G8.5F3-MLCCoherence[v101.0]·G8.5G3-SVQMomentum[v102.0]·G8.5H3-EWBrake[v103.0]·G8.5I3-IRFlorSharpe[v103.0]·G8.5R3-BWOTripleMomentum[v108.0]·G8.5S3-QSCCompositeHealth[v108.0]·G8.5T3-RFWTripleAlign[v109.0]·G8.5U3-KHSTripleSync[v109.0]·G8.5V3-TECTripleEVConf[v110.0]·G8.5W3-MOTTripleSync[v111.0]·G8.5X3-CDSTripleSafety[v113.0]·G8.5Y3-MCSMetaTripleSync[v113.0]·G8.5Z3-RQTTripleSync[v114.0]·G8.5A4-FVRTripleSync[v114.0]·G8.5B4-RWSentinel[v115.0]·G8.5C4-AEVSentinel[v116.0]·G8.5D4-TFCForecastConf[v117.0]·G8.5E4-TRSRegimeSync[v117.0]·G8.5F4-TPMPatchMomentum[v118.0]·G8.5G4-SVTFCComposite[v118.0]·G8.5H4-TPEPatchEnsemble[v119.0]·G8.5I4-DGCDrawdownGuard[v119.0]·G8.5J4-TFMSMultiScale[v120.0]·G8.5K4-PSRRegimeAlign[v120.0]·G8.5L4-WSDTriple[v120.0]·G8.5M4-OFMicroTriple[v120.0]·G8.5N4-TFCConsensusMeta[v120.0]·G8.5T4-CapReversal[v124.0]·G8.5U4-TUCSentinel[v124.0]·G8.5V4-ERVelocity[v125.0]·G8.5W4-WACCoh[v125.0]·G8.5X4-SVRVelRecovery[v126.0]·G8.5Y4-OWSTrajectorySync[v126.0]·G8.5Z4-ARCAdaptRegimeComp[v127.0]·G8.5A5-SVCSharpeVelConf[v127.0]·G8.5L5-MEVTripleBrake[v136.0]·G8.5M5-OSWTripleMomentum[v137.0]·G8.5N5-FSLTripleSafety[v137.0]·G8.5O5-RSQTripleCoherence[v138.0]·G8.5P5-EWVTripleComposite[v138.0]·G8.5Q5-DVSTripleSafety[v139.0]·G8.5R5-VCFTripleMomentum[v139.0]·G8.5S5-LSQTripleConvergence[v140.0]·G8.5T5-MFRTripleResonance[v140.0]·G8.5U5-OUPMeanReversion[v141.0]·G8.5V5-MFAFloamAlpha[v141.0]·G8.5W5-WNZWinsorGuard[v142.0]·G8.5X5-ADFStationarity[v142.0]·G8.5Y5-PCOFLOAMOrthogonality[v143.0]·G8.5Z5-ICSFLOAMIRGate[v143.0]·G8.5AU-GWFV[v169.0]·G8.5AV-GDDV[v169.0]·G8.5AW-GHRZ[v170.0]·G8.5AX-GALP[v170.0]·G8.5V·AdaptIRONS) · "
+        f"160-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5H-FlowAsymmetry[v77.0]·G8.5I-MicroTrend[v77.0]·G8.5J-HMMTransition[v78.0]·G8.5K-SpreadLiq[v79.0]·G8.5L2-VolPressure[v80.0]·G8.5N2-FundMom[v81.0]·G8.5O2-WREVCoh[v82.0]·G8.5P2-EVCrisis[v83.0]·G8.5Q-TrendMom[v84.0]·G8.5R2-RegimeSent[v84.0]·G8.5S2-WRCrisisRegime[v85.0]·G8.5T2-ExtremeFearRegime[v85.0]·G8.5U2-VoV-Stability[v87.0]·G8.5V2-OBPressure[v88.0]·G8.5W2-DDMomentum[v89.0]·G8.5X2-WRTrajectory[v90.0]·G8.5Y2-HMMVPINCoh[v91.0]·G8.5Z2-RMSSync[v92.0]·G8.5A3-VPCTripleConf[v93.0]·G8.5B3-HOSTripleSync[v94.0]·G8.5C3-VOETripleConv[v95.0]·G8.5D3-RDWTripleRisk[v96.0]·G8.5E3-EFOTriplePressure[v97.0]·G8.5F3-MLCCoherence[v101.0]·G8.5G3-SVQMomentum[v102.0]·G8.5H3-EWBrake[v103.0]·G8.5I3-IRFlorSharpe[v103.0]·G8.5R3-BWOTripleMomentum[v108.0]·G8.5S3-QSCCompositeHealth[v108.0]·G8.5T3-RFWTripleAlign[v109.0]·G8.5U3-KHSTripleSync[v109.0]·G8.5V3-TECTripleEVConf[v110.0]·G8.5W3-MOTTripleSync[v111.0]·G8.5X3-CDSTripleSafety[v113.0]·G8.5Y3-MCSMetaTripleSync[v113.0]·G8.5Z3-RQTTripleSync[v114.0]·G8.5A4-FVRTripleSync[v114.0]·G8.5B4-RWSentinel[v115.0]·G8.5C4-AEVSentinel[v116.0]·G8.5D4-TFCForecastConf[v117.0]·G8.5E4-TRSRegimeSync[v117.0]·G8.5F4-TPMPatchMomentum[v118.0]·G8.5G4-SVTFCComposite[v118.0]·G8.5H4-TPEPatchEnsemble[v119.0]·G8.5I4-DGCDrawdownGuard[v119.0]·G8.5J4-TFMSMultiScale[v120.0]·G8.5K4-PSRRegimeAlign[v120.0]·G8.5L4-WSDTriple[v120.0]·G8.5M4-OFMicroTriple[v120.0]·G8.5N4-TFCConsensusMeta[v120.0]·G8.5T4-CapReversal[v124.0]·G8.5U4-TUCSentinel[v124.0]·G8.5V4-ERVelocity[v125.0]·G8.5W4-WACCoh[v125.0]·G8.5X4-SVRVelRecovery[v126.0]·G8.5Y4-OWSTrajectorySync[v126.0]·G8.5Z4-ARCAdaptRegimeComp[v127.0]·G8.5A5-SVCSharpeVelConf[v127.0]·G8.5L5-MEVTripleBrake[v136.0]·G8.5M5-OSWTripleMomentum[v137.0]·G8.5N5-FSLTripleSafety[v137.0]·G8.5O5-RSQTripleCoherence[v138.0]·G8.5P5-EWVTripleComposite[v138.0]·G8.5Q5-DVSTripleSafety[v139.0]·G8.5R5-VCFTripleMomentum[v139.0]·G8.5S5-LSQTripleConvergence[v140.0]·G8.5T5-MFRTripleResonance[v140.0]·G8.5U5-OUPMeanReversion[v141.0]·G8.5V5-MFAFloamAlpha[v141.0]·G8.5W5-WNZWinsorGuard[v142.0]·G8.5X5-ADFStationarity[v142.0]·G8.5Y5-PCOFLOAMOrthogonality[v143.0]·G8.5Z5-ICSFLOAMIRGate[v143.0]·G8.5AU-GWFV[v169.0]·G8.5AV-GDDV[v169.0]·G8.5AW-GHRZ[v170.0]·G8.5AX-GALP[v170.0]·G8.5AY-GVLR[v171.0]·G8.5AZ-GRLB[v171.0]·G8.5BA-GLTB[v172.0]·G8.5BB-GCMS[v172.0]·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
