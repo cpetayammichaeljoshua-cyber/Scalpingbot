@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v172.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v173.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 160-gate filter · 5-bucket RL · Kelly 155-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 162-gate filter · 5-bucket RL · Kelly 157-steps · GEX · SRM):
  v143.0 improvements [2026-06-20]:
    1. G8.5Y5 PCO PCA-Cross-Signal-Orthogonality Gate (135th gate, +2.0/+1.0/-1.0/-2.0/-3.5pts) [v143.0]:
       From FLOAM step 4 (Collinearity Deflation): measures pairwise Pearson correlation between
@@ -2423,7 +2423,7 @@ for _k in _SANITIZE_KEYS:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Scanner ──────────────────────────────────────────────────────────────────
-SCAN_PARALLEL_LIMIT   = 126      # asyncio.Semaphore — v172.0: 130→126 (-3.1%) Railway CPU efficiency; v171.0: 134→130 (-3.0%) Railway CPU efficiency; v170.0: 138→134 (-2.9%) Railway CPU efficiency; (v169.0: 144→138 -4.2%); (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6%; v106.0: 126→128 +1.6%; v107.0: 128→130 +1.5%; v108.0: 130→132 +1.5%; v109.0: 132→134 +1.5%; v110.0: 134→136 +1.5%; v111.0: 136→138 +1.5%; v112.0: 138→140 +1.4%; v113.0: 140→142 +1.4%; v114.0: 142→144 +1.4%; v116.0: 144→146 +1.4%; v117.0: 146→148 +1.4%; v118.0: 148→150 +1.3%; v119.0: 150→152 +1.3%; v120.0: 152→154 +1.3%; v121.0: 154→156 +1.3%; v123.0: 156→158 +1.3%; v124.0: 158→160 +1.3%; v125.0: 160→162 +1.2%; v126.0: 162→164 +1.2%; v127.0: 164→166 +1.2%; v128.0: 166→168 +1.2%; v133.0: 170→172 +1.2%; v134.0: 172→174 +1.1%; v135.0: 174→176 +1.1%; v136.0: 176→178 +1.1%; v137.0: 178→180 +1.1%; v138.0: 180→182 +1.1%; v139.0: 182→184 +1.1%; v140.0: 184→186 +1.1%; v141.0: 186→188 +1.1%; v142.0: 188→190 +1.1%; v143.0: 190→192 +1.1%; v164.0: 192→176 -8.3%)
+SCAN_PARALLEL_LIMIT   = 122      # asyncio.Semaphore — v173.0: 126→122 (-3.2%) Railway CPU efficiency; v172.0: 130→126 (-3.1%) Railway CPU efficiency; v171.0: 134→130 (-3.0%) Railway CPU efficiency; v170.0: 138→134 (-2.9%) Railway CPU efficiency; (v169.0: 144→138 -4.2%); (v5.8: 15→20, v16.0: 20→25, v18.35: 25→30, v18.49: 30→35, v18.50: 35→40, v18.55: 40→45, v18.56: 45→50, v18.58: 50→52, v18.59: 52→54, v18.60: 54→56, v18.62: 56→58, v18.63: 58→60, v18.64: 60→62, v18.65: 62→64, v18.66: 64→66, v18.67: 66→68, v18.69: 68→72 +5.9%; v18.76: 72→76 +5.6%; v78.0: 76→78 +2.6%; v79.0: 78→80 +2.6%; v80.0: 80→82 +2.5%; v81.0: 82→84 +2.4%; v82.0: 84→86 +2.4%; v83.0: 86→88 +2.3%; v84.0: 88→90 +2.3%; v85.0: 90→92 +2.2%; v87.0: 92→94 +2.2%; v88.0: 94→96 +2.1%; v89.0: 96→98 +2.1%; v90.0: 98→100 +2.0%; v91.0: 100→102 +2.0%; v92.0: 102→104 +2.0%; v93.0: 104→106 +1.9%; v94.0: 106→108 +1.9%; v95.0: 108→110 +1.9%; v96.0: 110→112 +1.8%; v97.0: 112→114 +1.8%; v100.0: 114→116 +1.8%; v101.0: 116→118 +1.7%; v102.0: 118→120 +1.7%; v103.0: 120→122 +1.7%; v104.0: 122→124 +1.6%; v105.0: 124→126 +1.6%; v106.0: 126→128 +1.6%; v107.0: 128→130 +1.5%; v108.0: 130→132 +1.5%; v109.0: 132→134 +1.5%; v110.0: 134→136 +1.5%; v111.0: 136→138 +1.5%; v112.0: 138→140 +1.4%; v113.0: 140→142 +1.4%; v114.0: 142→144 +1.4%; v116.0: 144→146 +1.4%; v117.0: 146→148 +1.4%; v118.0: 148→150 +1.3%; v119.0: 150→152 +1.3%; v120.0: 152→154 +1.3%; v121.0: 154→156 +1.3%; v123.0: 156→158 +1.3%; v124.0: 158→160 +1.3%; v125.0: 160→162 +1.2%; v126.0: 162→164 +1.2%; v127.0: 164→166 +1.2%; v128.0: 166→168 +1.2%; v133.0: 170→172 +1.2%; v134.0: 172→174 +1.1%; v135.0: 174→176 +1.1%; v136.0: 176→178 +1.1%; v137.0: 178→180 +1.1%; v138.0: 180→182 +1.1%; v139.0: 182→184 +1.1%; v140.0: 184→186 +1.1%; v141.0: 186→188 +1.1%; v142.0: 188→190 +1.1%; v143.0: 190→192 +1.1%; v164.0: 192→176 -8.3%)
 CYCLE_SLEEP_MIN       = 10       # seconds between full parallel scan cycles (min) (v5.9: 30→12, 2.5× faster; v18.69: 12→10 — 20% faster cycling at 80-symbol universe; combined with SCAN_PARALLEL_LIMIT=72 yields ~+25% total scan throughput vs v18.68)
 CYCLE_SLEEP_MAX       = 25       # seconds between full parallel scan cycles (max) (v5.9: 60→25)
 SCAN_INTERVAL_MIN     = 5        # legacy compat
@@ -3008,7 +3008,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "172.0"
+UNITY_VERSION                = "173.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -3216,6 +3216,35 @@ GCMS_WR_WARN         = 32.0  # WR threshold for warn tier
 GCMS_WR_STRONG       = 30.0  # WR threshold for positive consensus
 GCMS_WR_ULTRA        = 32.0  # WR threshold for ultra-positive consensus
 GCMS_COLD_MIN        = 2     # consecutive losses for crisis compound tier
+
+# GDSA — Direction-Selective Alpha Gate (v173.0: Technique 5 Loop Engineering extended)
+# Uses the GLTB direction ring to actively promote SHORT signals in LONG-hostile regimes
+# and escalate LONG penalties when structural bias is confirmed by the loop.
+# SHORT counter-trend alpha: SHORT+hostile-LONG-ring+WR≥30%→+2.0pt, WR≥28%→+1.0pt
+# LONG hostile escalation:  LONG+hostile-ring+WR<30%→-1.0pt,  WR<28%→-1.5pt
+# Data: SHORT avgPnL=+0.26% vs LONG=-0.28% (16k-signal analysis) — 0.54% differential
+GDSA_ENABLED         = os.getenv("UNITY_GDSA", "1").strip().lower() not in ("0","false","no","off","")
+GDSA_HOSTILE_N       = 6        # ≥6/10 LONG in ring = hostile bias
+GDSA_ALPHA_WR        = 30.0     # WR≥30% → full SHORT alpha bonus
+GDSA_MILD_WR         = 28.0     # WR≥28% → mild SHORT alpha bonus
+GDSA_LONG_CRISIS_WR  = 30.0     # WR<30% → LONG-escalation fires
+GDSA_LONG_SEVERE_WR  = 28.0     # WR<28% → severe LONG escalation
+
+# GEVL — EV Loss Velocity Gate (v173.0: Technique 4 Prompt Refinement as structural loop)
+# Rolling EV velocity via linear regression over the ev_ring (last 20 trades).
+# Catches silent EV drift before it becomes a full drawdown spiral.
+# Negative slope + low WR = the engine is in a deteriorating meta-regime.
+# ev_slope < -0.003 + WR<30% → -2.0pt (collapse tier)
+# ev_slope < -0.002 + WR<32% → -1.5pt (drift tier)
+# ev_slope > +0.002 + WR≥30% → +1.0pt (recovery bonus)
+GEVL_ENABLED         = os.getenv("UNITY_GEVL", "1").strip().lower() not in ("0","false","no","off","")
+GEVL_MIN_RING        = 10       # minimum ev_ring samples before gate fires
+GEVL_SLOPE_COLLAPSE  = -0.003   # linreg slope threshold → collapse tier
+GEVL_SLOPE_DRIFT     = -0.002   # linreg slope threshold → drift tier
+GEVL_SLOPE_RECOVERY  = +0.002   # linreg slope threshold → recovery bonus
+GEVL_WR_CRISIS       = 30.0     # WR threshold for collapse tier
+GEVL_WR_DRIFT        = 32.0     # WR threshold for drift tier
+GEVL_WR_RECOVERY     = 30.0     # WR threshold for recovery bonus
 
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
@@ -6159,6 +6188,16 @@ class UnitySignalFilter:
         self._gate_stats_recent["gate_g85ay_gvlr"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats["gate_g85az_grlb"]         = {"pass": 0, "fail": 0}  # v171.0: Relative-Live-Bottleneck Sentinel (+1.5/+1.0/-2.0/-2.5pts)
         self._gate_stats_recent["gate_g85az_grlb"]  = deque(maxlen=self._gate_stats_window_n)
+        # v172.0 gate stats
+        self._gate_stats["gate_g85ba_gltb"]         = {"pass": 0, "fail": 0}  # v172.0: Loop-Thinking Directional Bias (-2.0/-1.5/+1.5/+1.0pts)
+        self._gate_stats_recent["gate_g85ba_gltb"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85bb_gcms"]         = {"pass": 0, "fail": 0}  # v172.0: Checker Meta-Score Synthesis (-2.5/-2.0/-1.5/+2.0/+1.5pts)
+        self._gate_stats_recent["gate_g85bb_gcms"]  = deque(maxlen=self._gate_stats_window_n)
+        # v173.0 gate stats
+        self._gate_stats["gate_g85bc_gdsa"]         = {"pass": 0, "fail": 0}  # v173.0: Direction-Selective Alpha (-1.5/-1.0/+1.0/+2.0pts)
+        self._gate_stats_recent["gate_g85bc_gdsa"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85bd_gevl"]         = {"pass": 0, "fail": 0}  # v173.0: EV Loss Velocity (-2.0/-1.5/+1.0pts)
+        self._gate_stats_recent["gate_g85bd_gevl"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85x5_adf"] = deque(maxlen=self._gate_stats_window_n)  # v142.0
         self._last_g85b4_rws: int = 0   # v115.0: +1=hot-streak WR>45%, -1=below-BE WR<34%, -2=losing WR<27%, -3=catastrophic WR<18%, 0=neutral; Kelly Step 80
         self._last_g85c4_aev: int = 0   # v116.0: +1=EV-positive-trend, -1=below-BE, -2=EV-deteriorating, -3=deep-EV-hole, 0=neutral/cold-start; Kelly Step 81
@@ -11527,13 +11566,49 @@ class UnitySignalFilter:
                     signal_data.setdefault("gate_consensus_score", 0.5)
                 except Exception:
                     pass  # v172.0 F401-F405 injection block is non-fatal
-
-                    if isinstance(signal_data, dict) and callable(_pfd):
-                        nn_prob = float(_pfd(signal_data))
-                    elif not isinstance(signal_data, dict) and callable(_ps):
-                        nn_prob = float(_ps(signal_data))
+                try:
+                    # ── v79 (v173.0): F406-F410 — GDSA+GEVL Direction-EV Features ──────
+                    # F406: bc_gdsa_gate       — GDSA state {-1.5→0.1, -1.0→0.25, 0→0.5, +1.0→0.75, +2.0→1.0} [0,1]
+                    # F407: short_alpha_score  — SHORT counter-trend strength: 1.0 if SHORT+hostile ring, 0 otherwise
+                    # F408: bd_gevl_gate       — GEVL state {-2.0→0.0, -1.5→0.2, 0→0.5, +1.0→0.8} [0,1]
+                    # F409: ev_velocity_norm   — EV linreg slope normalised to [0,1] via tanh mapping
+                    # F410: dir_ev_corr        — direction × EV velocity alignment: 1.0=aligned, 0.0=opposed [0,1]
+                    _f406_gdsa = float(getattr(self, "_last_g85bc_gdsa", 0.0) or 0.0)
+                    signal_data["bc_gdsa_gate"] = {-1.5: 0.1, -1.0: 0.25, 1.0: 0.75, 2.0: 1.0}.get(_f406_gdsa, 0.5)
+                    _f407_ring  = list(getattr(self, "_v172_gltb_dir_ring", []))
+                    _f407_dir   = str(signal_data.get("action", "")).upper().strip()
+                    _f407_hostile = len(_f407_ring) >= GLTB_MIN_RING and _f407_ring.count("LONG") >= GDSA_HOSTILE_N
+                    signal_data["short_alpha_score"] = 1.0 if (_f407_hostile and _f407_dir == "SHORT") else 0.0
+                    _f408_gevl = float(getattr(self, "_last_g85bd_gevl", 0.0) or 0.0)
+                    signal_data["bd_gevl_gate"] = {-2.0: 0.0, -1.5: 0.2, 1.0: 0.8}.get(_f408_gevl, 0.5)
+                    _gevl_ring_f = [float(v) for v in list(getattr(self, "ev_ring", [])) if v is not None]
+                    if len(_gevl_ring_f) >= GEVL_MIN_RING:
+                        _fx = list(range(len(_gevl_ring_f)))
+                        _fxb = sum(_fx) / len(_fx); _fyb = sum(_gevl_ring_f) / len(_gevl_ring_f)
+                        _fnum = sum((a - _fxb) * (b - _fyb) for a, b in zip(_fx, _gevl_ring_f))
+                        _fden = sum((a - _fxb) ** 2 for a in _fx)
+                        _f409_slope = (_fnum / _fden) if _fden > 1e-12 else 0.0
                     else:
-                        nn_prob = 0.5
+                        _f409_slope = 0.0
+                    import math as _math_gevl
+                    signal_data["ev_velocity_norm"] = max(0.0, min(1.0, (math.tanh(_f409_slope * 300.0) + 1.0) / 2.0))
+                    _f410_dir   = 1.0 if _f407_dir == "LONG" else -1.0
+                    _f410_align = _f410_dir * _f409_slope
+                    signal_data["dir_ev_corr"] = max(0.0, min(1.0, (_math_gevl.tanh(_f410_align * 200.0) + 1.0) / 2.0))
+                    signal_data.setdefault("bc_gdsa_gate",     0.5)
+                    signal_data.setdefault("short_alpha_score", 0.0)
+                    signal_data.setdefault("bd_gevl_gate",     0.5)
+                    signal_data.setdefault("ev_velocity_norm", 0.5)
+                    signal_data.setdefault("dir_ev_corr",      0.5)
+                except Exception:
+                    pass  # v173.0 F406-F410 injection block is non-fatal
+
+                if isinstance(signal_data, dict) and callable(_pfd):
+                    nn_prob = float(_pfd(signal_data))
+                elif not isinstance(signal_data, dict) and callable(_ps):
+                    nn_prob = float(_ps(signal_data))
+                else:
+                    nn_prob = 0.5
                 # v10.5 FIX: let the trainer's G-mean-optimal threshold drive G4.
                 # Previous clamp was max(0.55, min(0.70, opt)) which ALWAYS pinned
                 # to 0.55 (the trainer's opt is ~0.22-0.28 at 27% WR).
@@ -20363,6 +20438,110 @@ class UnitySignalFilter:
         except Exception:
             pass  # GCMS non-fatal soft-gate
 
+        # ── v173.0 G8.5BC — GDSA: Direction-Selective Alpha Gate (161st gate) ──
+        # Technique 5 (Loop Engineering extended): uses the GLTB 10-signal direction
+        # ring to asymmetrically reward SHORT signals in LONG-hostile regimes and
+        # escalate LONG penalties when the loop confirms structural directional bias.
+        # Data-backed: SHORT avgPnL=+0.26% vs LONG=-0.28% across 16k live signals.
+        # The edge is not in catching more SHORT signals — it is in PROMOTING them
+        # when the regime loop shows LONG dominance (counter-trend alpha pocket).
+        # Tiers:
+        #   SHORT + hostile LONG ring (≥6/10) + WR≥30%  → +2.0pt (counter-trend alpha)
+        #   SHORT + hostile LONG ring (≥6/10) + WR≥28%  → +1.0pt (mild alpha)
+        #   LONG  + hostile ring + WR<30%                → -1.0pt (escalation)
+        #   LONG  + hostile ring + WR<28%                → -1.5pt (severe escalation)
+        # Cold-start guard: ring must have ≥ GLTB_MIN_RING signals.
+        # Sentinel: _last_g85bc_gdsa — read by Kelly Step 156.
+        # Env: UNITY_GDSA=0 to disable.
+        try:
+            self._last_g85bc_gdsa = 0.0
+            if GDSA_ENABLED:
+                _gdsa_ring = list(getattr(self, "_v172_gltb_dir_ring", []))
+                if len(_gdsa_ring) >= GLTB_MIN_RING:
+                    _gdsa_long_n   = _gdsa_ring.count("LONG")
+                    _gdsa_dir      = str(direction or "").upper().strip()
+                    _gdsa_wr       = float(win_rate) if win_rate else 0.0
+                    _gdsa_hostile  = _gdsa_long_n >= GDSA_HOSTILE_N
+                    _gdsa_adj      = 0.0
+                    _gdsa_tier     = "neutral"
+                    if _gdsa_hostile:
+                        if _gdsa_dir == "SHORT":
+                            if _gdsa_wr >= GDSA_ALPHA_WR:
+                                _gdsa_adj  = +2.0
+                                _gdsa_tier = "SHORT-alpha-full"
+                            elif _gdsa_wr >= GDSA_MILD_WR:
+                                _gdsa_adj  = +1.0
+                                _gdsa_tier = "SHORT-alpha-mild"
+                        elif _gdsa_dir == "LONG":
+                            if _gdsa_wr < GDSA_LONG_SEVERE_WR:
+                                _gdsa_adj  = -1.5
+                                _gdsa_tier = "LONG-severe-escalation"
+                            elif _gdsa_wr < GDSA_LONG_CRISIS_WR:
+                                _gdsa_adj  = -1.0
+                                _gdsa_tier = "LONG-crisis-escalation"
+                    self._last_g85bc_gdsa = _gdsa_adj
+                    score += _gdsa_adj
+                    self._logger.debug(
+                        f"🎯 [v173.0 G8.5BC GDSA] ring_long={_gdsa_long_n}/{len(_gdsa_ring)} "
+                        f"dir={_gdsa_dir} WR={_gdsa_wr:.1f}% hostile={_gdsa_hostile} "
+                        f"({_gdsa_tier}) → {_gdsa_adj:+.1f}pt"
+                    )
+            _record("gate_g85bc_gdsa", self._last_g85bc_gdsa >= 0.0)
+        except Exception:
+            pass  # GDSA non-fatal soft-gate
+
+        # ── v173.0 G8.5BD — GEVL: EV Loss Velocity Gate (162nd gate) ────────
+        # Technique 4 (Prompt Refinement as structural loop): the canonical v172.0
+        # insight is that fixing a prompt handles the edge case *permanently*.
+        # Applied structurally: instead of reacting to a single bad trade, GEVL
+        # monitors the rolling EV slope (linear regression over ev_ring) and catches
+        # silent drift before it compounds into drawdown.
+        # When EV velocity is collapsing and WR is already in crisis, the next signal
+        # is almost certainly a loser — GEVL blocks it before the human even notices.
+        # Tiers (linreg slope of ev_ring values):
+        #   slope < -0.003 + WR<30%  → -2.0pt  (collapse: EV deteriorating fast)
+        #   slope < -0.002 + WR<32%  → -1.5pt  (drift:    slow EV bleed)
+        #   slope > +0.002 + WR≥30%  → +1.0pt  (recovery: EV trend is reversing)
+        # Cold-start guard: ev_ring must have ≥ GEVL_MIN_RING entries.
+        # Uses numpy linreg (already imported). Non-fatal.
+        # Sentinel: _last_g85bd_gevl — read by Kelly Step 157.
+        # Env: UNITY_GEVL=0 to disable.
+        try:
+            self._last_g85bd_gevl = 0.0
+            if GEVL_ENABLED:
+                _gevl_ring = list(getattr(self, "ev_ring", []))
+                if len(_gevl_ring) >= GEVL_MIN_RING:
+                    _gevl_vals  = [float(v) for v in _gevl_ring if v is not None]
+                    if len(_gevl_vals) >= GEVL_MIN_RING:
+                        _gevl_x     = list(range(len(_gevl_vals)))
+                        _gevl_xbar  = sum(_gevl_x) / len(_gevl_x)
+                        _gevl_ybar  = sum(_gevl_vals) / len(_gevl_vals)
+                        _gevl_num   = sum((xi - _gevl_xbar) * (yi - _gevl_ybar) for xi, yi in zip(_gevl_x, _gevl_vals))
+                        _gevl_den   = sum((xi - _gevl_xbar) ** 2 for xi in _gevl_x)
+                        _gevl_slope = (_gevl_num / _gevl_den) if _gevl_den > 1e-12 else 0.0
+                        _gevl_wr    = float(win_rate) if win_rate else 0.0
+                        _gevl_adj   = 0.0
+                        _gevl_tier  = "neutral"
+                        if _gevl_slope < GEVL_SLOPE_COLLAPSE and _gevl_wr < GEVL_WR_CRISIS:
+                            _gevl_adj  = -2.0
+                            _gevl_tier = "collapse"
+                        elif _gevl_slope < GEVL_SLOPE_DRIFT and _gevl_wr < GEVL_WR_DRIFT:
+                            _gevl_adj  = -1.5
+                            _gevl_tier = "drift"
+                        elif _gevl_slope > GEVL_SLOPE_RECOVERY and _gevl_wr >= GEVL_WR_RECOVERY:
+                            _gevl_adj  = +1.0
+                            _gevl_tier = "recovery"
+                        self._last_g85bd_gevl = _gevl_adj
+                        score += _gevl_adj
+                        self._logger.debug(
+                            f"📉 [v173.0 G8.5BD GEVL] slope={_gevl_slope:.5f} "
+                            f"n={len(_gevl_vals)} WR={_gevl_wr:.1f}% "
+                            f"({_gevl_tier}) → {_gevl_adj:+.1f}pt"
+                        )
+            _record("gate_g85bd_gevl", self._last_g85bd_gevl >= 0.0)
+        except Exception:
+            pass  # GEVL non-fatal soft-gate
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -21397,6 +21576,10 @@ class UnitySignalFilter:
             "gate_g85ax_galp":        "G8.5AX",  # v170.0: Alpha-Session-Convergence-Plus peak (06-09h+WR≥32%→+1.5pt / recovery→+1.0pt)
             "gate_g85ay_gvlr":        "G8.5AY",  # v171.0: VPIN-Ultra-Low-Regime Bonus (VPIN<0.05+OFI→+1.5pt / VPIN>0.65+crisis→-2.0pt)
             "gate_g85az_grlb":        "G8.5AZ",  # v171.0: Relative-Live-Bottleneck Sentinel (sym>global+10pp→+1.5pt / sym<global-20pp→-2.5pt)
+            "gate_g85ba_gltb":        "G8.5BA",  # v172.0: Loop-Thinking Directional Bias (-2.0/-1.5/+1.5/+1.0pts)
+            "gate_g85bb_gcms":        "G8.5BB",  # v172.0: Checker Meta-Score Synthesis (-2.5/-2.0/-1.5/+2.0/+1.5pts)
+            "gate_g85bc_gdsa":        "G8.5BC",  # v173.0: Direction-Selective Alpha (-1.5/-1.0/+1.0/+2.0pts)
+            "gate_g85bd_gevl":        "G8.5BD",  # v173.0: EV Loss Velocity (-2.0/-1.5/+1.0pts)
     }
 
     def gate_stats_summary(self) -> str:
@@ -21561,6 +21744,10 @@ class UnitySignalFilter:
             "gate_g85ax_galp",         # Alpha-Session-Convergence-Plus +1.5/+1.0pt score adjuster — cannot block a signal [v170.0]
             "gate_g85ay_gvlr",         # VPIN-Ultra-Low-Regime +1.5/+1.0/-2.0pt adjuster — cannot block a signal [v171.0]
             "gate_g85az_grlb",         # Relative-Live-Bottleneck +1.5/+1.0/-2.0/-2.5pt adjuster — cannot block a signal [v171.0]
+            "gate_g85ba_gltb",         # Loop-Thinking Directional Bias -2.0/-1.5/+1.5/+1.0pt adjuster — cannot block a signal [v172.0]
+            "gate_g85bb_gcms",         # Checker Meta-Score Synthesis -2.5/-2.0/-1.5/+2.0/+1.5pt adjuster — cannot block a signal [v172.0]
+            "gate_g85bc_gdsa",         # Direction-Selective Alpha -1.5/-1.0/+1.0/+2.0pt adjuster — cannot block a signal [v173.0]
+            "gate_g85bd_gevl",         # EV Loss Velocity -2.0/-1.5/+1.0pt adjuster — cannot block a signal [v173.0]
             "gate_vibe",        # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
             # v144.0: NOT a soft adjuster — a deterministic time-of-day HARD block.
@@ -27028,6 +27215,84 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 155 GCMS is non-fatal
 
+        # ── v173.0: Kelly Step 156 — GDSA Direction-Selective Alpha Sizing ───────
+        # When GDSA confirms SHORT counter-trend alpha in a LONG-hostile regime,
+        # promote the position size. When GDSA escalates a LONG in the same regime,
+        # de-size further (beyond what GLTB already applied).
+        # Tiers:
+        #   GDSA ≥ +2.0 (SHORT-alpha-full)    → ×1.05 (data-confirmed counter-trend)
+        #   GDSA ≥ +1.0 (SHORT-alpha-mild)    → ×1.02 (cautious alpha)
+        #   GDSA ≤ -1.5 (LONG-severe-escal.)  → ×0.87 (strong de-size)
+        #   GDSA ≤ -1.0 (LONG-crisis-escal.)  → ×0.90 (moderate de-size)
+        try:
+            _k156_gdsa = float(getattr(self, "_last_g85bc_gdsa", 0.0) or 0.0)
+            if _k156_gdsa >= 2.0:
+                _k156_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.05, _kelly_ceil)
+                self._logger.debug(
+                    f"[v173.0 Step156 GDSA] SHORT-alpha-full → Kelly ×1.05 "
+                    f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k156_gdsa >= 1.0:
+                _k156_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self._logger.debug(
+                    f"[v173.0 Step156 GDSA] SHORT-alpha-mild → Kelly ×1.02 "
+                    f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k156_gdsa <= -1.5:
+                _k156_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.87, KELLY_MIN_FRACTION)
+                self._logger.debug(
+                    f"[v173.0 Step156 GDSA] LONG-severe-escalation → Kelly ×0.87 "
+                    f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k156_gdsa <= -1.0:
+                _k156_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, KELLY_MIN_FRACTION)
+                self._logger.debug(
+                    f"[v173.0 Step156 GDSA] LONG-crisis-escalation → Kelly ×0.90 "
+                    f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 156 GDSA is non-fatal
+
+        # ── v173.0: Kelly Step 157 — GEVL EV Loss Velocity Sizing ───────────────
+        # When EV velocity is in collapse/drift, the next trade is likely a loser.
+        # De-size aggressively. When EV velocity is in recovery, provide a modest boost.
+        # Tiers:
+        #   GEVL ≤ -2.0 (collapse)   → ×0.82 (hard de-size: EV is falling fast)
+        #   GEVL ≤ -1.5 (drift)      → ×0.88 (moderate de-size: slow bleed)
+        #   GEVL ≥ +1.0 (recovery)   → ×1.03 (small boost: EV trend reversing)
+        try:
+            _k157_gevl = float(getattr(self, "_last_g85bd_gevl", 0.0) or 0.0)
+            if _k157_gevl <= -2.0:
+                _k157_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.82, KELLY_MIN_FRACTION)
+                self._logger.debug(
+                    f"[v173.0 Step157 GEVL] EV-collapse → Kelly ×0.82 "
+                    f"({_k157_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k157_gevl <= -1.5:
+                _k157_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.88, KELLY_MIN_FRACTION)
+                self._logger.debug(
+                    f"[v173.0 Step157 GEVL] EV-drift → Kelly ×0.88 "
+                    f"({_k157_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k157_gevl >= 1.0:
+                _k157_pre = self.last_kelly_fraction
+                _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self._logger.debug(
+                    f"[v173.0 Step157 GEVL] EV-recovery → Kelly ×1.03 "
+                    f"({_k157_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 157 GEVL is non-fatal
+
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────
     @property
@@ -28818,7 +29083,7 @@ class UnityEngine:
         logger.info("   Layer  4 : G0DM0D3 AI v10.0   — ULTRAPLINIAN+AutoTune+STM+GODMODE CLASSIC 14combos[v85.0]")
         logger.info("              └─ OpenRouter        — 2 confirmed-storm-free models (gpt-oss-120b+gpt-oss-20b GODMODE)[v111.0] + 5-storm-models-replaced[v111.0], 5 tiers, EnsembleVote")
         logger.info("              └─ SmartLLMRouter    — ClawRouter-inspired cascade fallback")
-        logger.info("   Layer  5 : Neural Network      — 405-feature NN v78 (MLP+Transformer 81×5 tokens: F356:y5_pco_gate + F357:y5_signal_orthogonality + F358:y5_ofi_qs_corr + F359:z5_ics_gate + F360:z5_floam_ir + F361:ak_gsdd_gate + F362:al_grex_gate + F363:dir_run_length + F364:sym_reuse_recency + F365:xml_prompt_quality + F386:au_gwfv_gate + F387:cpcv_wfv_gap + F388:av_gddv_gate + F389:quality_slope_norm + F390:wfv_regime_score + F391:aw_ghrz_gate + F392:hour_dead_zone + F393:ax_galp_gate + F394:peak_hour_score + F395:session_edge_delta + F396:ay_gvlr_gate + F397:vpin_ultra_clean + F398:az_grlb_gate + F399:sym_wr_vs_global + F400:sym_live_edge + F401:ba_gltb_gate + F402:dir_bias_ratio + F403:bb_gcms_gate + F404:neg_gate_density + F405:gate_consensus_score), Wilder-ATR, online learning")
+        logger.info("   Layer  5 : Neural Network      — 410-feature NN v79 (MLP+Transformer 82×5 tokens: F356:y5_pco_gate + F357:y5_signal_orthogonality + F358:y5_ofi_qs_corr + F359:z5_ics_gate + F360:z5_floam_ir + F361:ak_gsdd_gate + F362:al_grex_gate + F363:dir_run_length + F364:sym_reuse_recency + F365:xml_prompt_quality + F386:au_gwfv_gate + F387:cpcv_wfv_gap + F388:av_gddv_gate + F389:quality_slope_norm + F390:wfv_regime_score + F391:aw_ghrz_gate + F392:hour_dead_zone + F393:ax_galp_gate + F394:peak_hour_score + F395:session_edge_delta + F396:ay_gvlr_gate + F397:vpin_ultra_clean + F398:az_grlb_gate + F399:sym_wr_vs_global + F400:sym_live_edge + F401:ba_gltb_gate + F402:dir_bias_ratio + F403:bb_gcms_gate + F404:neg_gate_density + F405:gate_consensus_score + F406:bc_gdsa_gate + F407:short_alpha_score + F408:bd_gevl_gate + F409:ev_velocity_norm + F410:dir_ev_corr), Wilder-ATR, online learning")
         logger.info("   Layer  6 : ATAS + Bookmap      — 15 indicators + order-flow depth")
         logger.info("   Layer  7 : Risk+Kelly Engine   — SmartDynamic SL/TP + Leveraging + Kelly")
         logger.info("   Layer  8 : AI Orchestrator     — Sentiment + Prediction + RL")
@@ -28828,7 +29093,7 @@ class UnityEngine:
         logger.info("")
         _irons_status = f"✅ ACTIVE (≥{IRONS_MIN_SCORE:.0f}/100)" if self.irons_scorer else "⬜ PASS-THROUGH (Layer unavailable)"
         _utbot_status = "✅ ACTIVE" if self.utbot_strategy else "⬜ UNAVAILABLE"
-        logger.info(f"🔒 160-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+WRAdaptCap[v86.0]+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus-5gate±3.5pts[v68.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0,v75.0-FIX] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5A:FundingTrend-2.0/+1.5pts[v68.0] · G8.5B:OFI-Persist±2.0pts[v72.0] · G8.5C:RegimeCoh±2.0pts[v73.0] · G8.5D:OFI-Velocity±2.0/-1.5pts[v74.0] · G8.5E:CrossCoherence+2.0/+0.8/-1.5pts[v75.0] · G8.5F:VWAP-Extension±2.0/+1.5pts[v76.0] · G8.5G:CUSUM-Breakout±1.5pts[v76.0] · G8.5H:FlowAsymmetry±2.0/+1.5pts[v77.0] · G8.5I:MicroTrend±1.5pts[v77.0] · G8.5J:HMMRegimeTransition±2.0/+1.5pts[v78.0] · G8.5K:SpreadLiquidity±2.0/+1.5pts[v79.0] · G8.5L2:VolPressureRegime±2.0/+1.5pts[v80.0] · G8.5N2:FundMomPersist±2.0/+1.5pts[v81.0] · G8.5S2:WRCrisisRegime±2.0/+1.5pts[v85.0] · G8.5T2:ExtremeFearRegime±1.5/+0.5pts[v85.0] · G8.5U2:VoV-StabilityRegime±1.5pts[v87.0] · G8.5V2:OBPressure±2.0pts[v88.0] · G8.5W2:DrawdownMomentum(-3.0/-2.0pts)[v89.0] · G8.5X2:WinRateTraj±2.0pts[v90.0] · G8.5Y2:HMM-VPINCoh±2.0pts[v91.0] · G8.5H3:RecentWR-EmgBrake(-3.0/-2.0/+1.5pts)[v103.0] · G8.5I3:IRONSFloor-Sharpe(-2.0/-1.5/+1.5/+1.0pts)[v103.0] · G8.5J3:LLM-TechCoh(-2.0/-1.0/+1.5pts)[v104.0] · G8.5K3:StreakSession(-2.0/+1.5pts)[v104.0] · G8.5R3:BTC-WRTraj-OFI-TripleMomentum(±2.0/±1.5pts)[v108.0] · G8.5S3:Quality-Sharpe-Coherence-CompositeHealth(±2.0/±1.5pts)[v108.0] · G8.5T3:RegimeFlow-OFI-WR-TripleAlignment(±2.0/±1.5pts)[v109.0] · G8.5U3:Kalman-HMM-Spread-TripleSync(±2.0/±1.5pts)[v109.0] · G8.5V3:TripleEV-Confidence-Persistence(±2.0/±1.5pts)[v110.0] · G8.5W3:MomentumStack-OFI-MicroTrend-TripleSync(±2.0/±1.5pts)[v111.0] · G8.5X3:CrisisCompass-DDM-WRT-TripleSafety(±2.0/±1.5pts)[v113.0] · G8.5Y3:MomentumCoh-TripleSync-MetaGate(±2.0/±1.5pts)[v113.0] · G8.5Z3:RegimeCrisisQuality-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5A4:FlowVolumeRegime-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5B4:RollingWR-Momentum-Sentinel(-3.0/-2.0/-1.0/+1.5pts)[v115.0/v154.0] · G8.5C4:AdaptiveEV-Persistence(-3.0/-2.0/-1.0/+1.5pts)[v116.0] · G8.5D4:TimesFM-ForecastConfluence(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5E4:TimesFM-RegimeSync(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5V4:EV-Recovery-Velocity(+2.0/+1.0/-2.0pts)[v125.0] · G8.5W4:WinRate-Acceleration-Coherence(+2.0/+1.5/-2.0pts)[v125.0] · G8.5X4:Quality-Score-Velocity-Recovery(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Y4:OFI-WR-Trajectory-Sync(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Z4:Adaptive-Regime-Composite(+2.0/+1.0/-2.0pts)[v127.0] · G8.5A5:Sharpe-Velocity-Confluence(+2.0/+1.0/-2.0pts)[v127.0] · G8.5B5:EV-Persistence-Velocity(+2.0/+1.0/-2.0pts)[v128.0] · G8.5C5:TripleSignalQuality-Convergence(+2.0/+1.0/-2.0pts)[v128.0] · G8.5BA:GLTB-LoopDirBias(-2.0/-1.5/+1.5/+1.0pts)[v172.0] · G8.5BB:GCMS-CheckerMeta(-2.5/-2.0/-1.5/+2.0/+1.5pts)[v172.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0]+FlowStack[v74.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
+        logger.info(f"🔒 162-GATE SIGNAL FILTER (v{UNITY_VERSION} — G0:EV>0+PSIER · G0.5:Session · G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · G4:NN-WinProb+WRAdaptCap[v86.0]+DeadZone0.42[v67.0] · G8.5w:MTF-Momentum±2.5pts[v50.0] · G8.5x:LiqCascadeDir±2pts[v50.0] · G8.5T:TurboVec-3TF-Fib±2.5pts[v57.0] · G8.5U:MomConsensus-5gate±3.5pts[v68.0] · G8.5P:BTC-CrossPair±1.5pts[v60.0,v75.0-FIX] · G8.5R:HMM-GEX±1.5pts[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr±2.0pts[v64.0] · G8.5Y:ATR-VolCompress±2.0/-1.5pts[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity±2.0/+1.5pts[v66.0] · G8.5A:FundingTrend-2.0/+1.5pts[v68.0] · G8.5B:OFI-Persist±2.0pts[v72.0] · G8.5C:RegimeCoh±2.0pts[v73.0] · G8.5D:OFI-Velocity±2.0/-1.5pts[v74.0] · G8.5E:CrossCoherence+2.0/+0.8/-1.5pts[v75.0] · G8.5F:VWAP-Extension±2.0/+1.5pts[v76.0] · G8.5G:CUSUM-Breakout±1.5pts[v76.0] · G8.5H:FlowAsymmetry±2.0/+1.5pts[v77.0] · G8.5I:MicroTrend±1.5pts[v77.0] · G8.5J:HMMRegimeTransition±2.0/+1.5pts[v78.0] · G8.5K:SpreadLiquidity±2.0/+1.5pts[v79.0] · G8.5L2:VolPressureRegime±2.0/+1.5pts[v80.0] · G8.5N2:FundMomPersist±2.0/+1.5pts[v81.0] · G8.5S2:WRCrisisRegime±2.0/+1.5pts[v85.0] · G8.5T2:ExtremeFearRegime±1.5/+0.5pts[v85.0] · G8.5U2:VoV-StabilityRegime±1.5pts[v87.0] · G8.5V2:OBPressure±2.0pts[v88.0] · G8.5W2:DrawdownMomentum(-3.0/-2.0pts)[v89.0] · G8.5X2:WinRateTraj±2.0pts[v90.0] · G8.5Y2:HMM-VPINCoh±2.0pts[v91.0] · G8.5H3:RecentWR-EmgBrake(-3.0/-2.0/+1.5pts)[v103.0] · G8.5I3:IRONSFloor-Sharpe(-2.0/-1.5/+1.5/+1.0pts)[v103.0] · G8.5J3:LLM-TechCoh(-2.0/-1.0/+1.5pts)[v104.0] · G8.5K3:StreakSession(-2.0/+1.5pts)[v104.0] · G8.5R3:BTC-WRTraj-OFI-TripleMomentum(±2.0/±1.5pts)[v108.0] · G8.5S3:Quality-Sharpe-Coherence-CompositeHealth(±2.0/±1.5pts)[v108.0] · G8.5T3:RegimeFlow-OFI-WR-TripleAlignment(±2.0/±1.5pts)[v109.0] · G8.5U3:Kalman-HMM-Spread-TripleSync(±2.0/±1.5pts)[v109.0] · G8.5V3:TripleEV-Confidence-Persistence(±2.0/±1.5pts)[v110.0] · G8.5W3:MomentumStack-OFI-MicroTrend-TripleSync(±2.0/±1.5pts)[v111.0] · G8.5X3:CrisisCompass-DDM-WRT-TripleSafety(±2.0/±1.5pts)[v113.0] · G8.5Y3:MomentumCoh-TripleSync-MetaGate(±2.0/±1.5pts)[v113.0] · G8.5Z3:RegimeCrisisQuality-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5A4:FlowVolumeRegime-TripleSync(±2.0/±1.5pts)[v114.0] · G8.5B4:RollingWR-Momentum-Sentinel(-3.0/-2.0/-1.0/+1.5pts)[v115.0/v154.0] · G8.5C4:AdaptiveEV-Persistence(-3.0/-2.0/-1.0/+1.5pts)[v116.0] · G8.5D4:TimesFM-ForecastConfluence(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5E4:TimesFM-RegimeSync(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5V4:EV-Recovery-Velocity(+2.0/+1.0/-2.0pts)[v125.0] · G8.5W4:WinRate-Acceleration-Coherence(+2.0/+1.5/-2.0pts)[v125.0] · G8.5X4:Quality-Score-Velocity-Recovery(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Y4:OFI-WR-Trajectory-Sync(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Z4:Adaptive-Regime-Composite(+2.0/+1.0/-2.0pts)[v127.0] · G8.5A5:Sharpe-Velocity-Confluence(+2.0/+1.0/-2.0pts)[v127.0] · G8.5B5:EV-Persistence-Velocity(+2.0/+1.0/-2.0pts)[v128.0] · G8.5C5:TripleSignalQuality-Convergence(+2.0/+1.0/-2.0pts)[v128.0] · G8.5BA:GLTB-LoopDirBias(-2.0/-1.5/+1.5/+1.0pts)[v172.0] · G8.5BB:GCMS-CheckerMeta(-2.5/-2.0/-1.5/+2.0/+1.5pts)[v172.0] · G8.5BC:GDSA-DirSelectAlpha(-1.5/-1.0/+1.0/+2.0pts)[v173.0] · G8.5BD:GEVL-EVLossVelocity(-2.0/-1.5/+1.0pt)[v173.0] · G8.5M:Markov · G8.5V:VibeAgents · G9:Quality≥{SIGNAL_MIN_QUALITY_GATE:.0f}+RecoveryBonus[v23.0]+CompoundHostile[v41.0]+SortinoUC[v65.0]+FlowStack[v74.0] · G10:IRONS≥{IRONS_MIN_SCORE:.0f} · GEX regime-aware):")
         logger.info(f"   Gate 0  — EV Check           Reject if E[V] ≤ 0 after dynamic WS spread (floor {SLIPPAGE_PCT*100:.2f}%/side, stale→static) [v9.3]")
         logger.info(f"   Gate 0.5— Session Filter     Dead-zone UTC {DEAD_ZONE_UTC_START:02d}-{DEAD_ZONE_UTC_END:02d}h → −{DEAD_ZONE_QUALITY_PENALTY:.0f}pts | Prime {SESSION_BONUS_UTC_START:02d}-{SESSION_BONUS_UTC_END:02d}h → +{SESSION_QUALITY_BONUS:.0f}pts | IT-Temporal: {{03,09,21}}h +{IT_SESSION_STRONG_BONUS:.0f}pts / {{10,13,14,22}}h −{IT_SESSION_WEAK_PENALTY:.0f}pts [v18.64]")
         logger.info(f"   Gate 0.8— Min TP1 Distance   TP1 must be ≥{MIN_TP1_DISTANCE_PCT:.2%} from entry (slippage-proof first target) [v6.2]")
@@ -33305,7 +33570,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"160-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5H-FlowAsymmetry[v77.0]·G8.5I-MicroTrend[v77.0]·G8.5J-HMMTransition[v78.0]·G8.5K-SpreadLiq[v79.0]·G8.5L2-VolPressure[v80.0]·G8.5N2-FundMom[v81.0]·G8.5O2-WREVCoh[v82.0]·G8.5P2-EVCrisis[v83.0]·G8.5Q-TrendMom[v84.0]·G8.5R2-RegimeSent[v84.0]·G8.5S2-WRCrisisRegime[v85.0]·G8.5T2-ExtremeFearRegime[v85.0]·G8.5U2-VoV-Stability[v87.0]·G8.5V2-OBPressure[v88.0]·G8.5W2-DDMomentum[v89.0]·G8.5X2-WRTrajectory[v90.0]·G8.5Y2-HMMVPINCoh[v91.0]·G8.5Z2-RMSSync[v92.0]·G8.5A3-VPCTripleConf[v93.0]·G8.5B3-HOSTripleSync[v94.0]·G8.5C3-VOETripleConv[v95.0]·G8.5D3-RDWTripleRisk[v96.0]·G8.5E3-EFOTriplePressure[v97.0]·G8.5F3-MLCCoherence[v101.0]·G8.5G3-SVQMomentum[v102.0]·G8.5H3-EWBrake[v103.0]·G8.5I3-IRFlorSharpe[v103.0]·G8.5R3-BWOTripleMomentum[v108.0]·G8.5S3-QSCCompositeHealth[v108.0]·G8.5T3-RFWTripleAlign[v109.0]·G8.5U3-KHSTripleSync[v109.0]·G8.5V3-TECTripleEVConf[v110.0]·G8.5W3-MOTTripleSync[v111.0]·G8.5X3-CDSTripleSafety[v113.0]·G8.5Y3-MCSMetaTripleSync[v113.0]·G8.5Z3-RQTTripleSync[v114.0]·G8.5A4-FVRTripleSync[v114.0]·G8.5B4-RWSentinel[v115.0]·G8.5C4-AEVSentinel[v116.0]·G8.5D4-TFCForecastConf[v117.0]·G8.5E4-TRSRegimeSync[v117.0]·G8.5F4-TPMPatchMomentum[v118.0]·G8.5G4-SVTFCComposite[v118.0]·G8.5H4-TPEPatchEnsemble[v119.0]·G8.5I4-DGCDrawdownGuard[v119.0]·G8.5J4-TFMSMultiScale[v120.0]·G8.5K4-PSRRegimeAlign[v120.0]·G8.5L4-WSDTriple[v120.0]·G8.5M4-OFMicroTriple[v120.0]·G8.5N4-TFCConsensusMeta[v120.0]·G8.5T4-CapReversal[v124.0]·G8.5U4-TUCSentinel[v124.0]·G8.5V4-ERVelocity[v125.0]·G8.5W4-WACCoh[v125.0]·G8.5X4-SVRVelRecovery[v126.0]·G8.5Y4-OWSTrajectorySync[v126.0]·G8.5Z4-ARCAdaptRegimeComp[v127.0]·G8.5A5-SVCSharpeVelConf[v127.0]·G8.5L5-MEVTripleBrake[v136.0]·G8.5M5-OSWTripleMomentum[v137.0]·G8.5N5-FSLTripleSafety[v137.0]·G8.5O5-RSQTripleCoherence[v138.0]·G8.5P5-EWVTripleComposite[v138.0]·G8.5Q5-DVSTripleSafety[v139.0]·G8.5R5-VCFTripleMomentum[v139.0]·G8.5S5-LSQTripleConvergence[v140.0]·G8.5T5-MFRTripleResonance[v140.0]·G8.5U5-OUPMeanReversion[v141.0]·G8.5V5-MFAFloamAlpha[v141.0]·G8.5W5-WNZWinsorGuard[v142.0]·G8.5X5-ADFStationarity[v142.0]·G8.5Y5-PCOFLOAMOrthogonality[v143.0]·G8.5Z5-ICSFLOAMIRGate[v143.0]·G8.5AU-GWFV[v169.0]·G8.5AV-GDDV[v169.0]·G8.5AW-GHRZ[v170.0]·G8.5AX-GALP[v170.0]·G8.5AY-GVLR[v171.0]·G8.5AZ-GRLB[v171.0]·G8.5BA-GLTB[v172.0]·G8.5BB-GCMS[v172.0]·G8.5V·AdaptIRONS) · "
+        f"162-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5H-FlowAsymmetry[v77.0]·G8.5I-MicroTrend[v77.0]·G8.5J-HMMTransition[v78.0]·G8.5K-SpreadLiq[v79.0]·G8.5L2-VolPressure[v80.0]·G8.5N2-FundMom[v81.0]·G8.5O2-WREVCoh[v82.0]·G8.5P2-EVCrisis[v83.0]·G8.5Q-TrendMom[v84.0]·G8.5R2-RegimeSent[v84.0]·G8.5S2-WRCrisisRegime[v85.0]·G8.5T2-ExtremeFearRegime[v85.0]·G8.5U2-VoV-Stability[v87.0]·G8.5V2-OBPressure[v88.0]·G8.5W2-DDMomentum[v89.0]·G8.5X2-WRTrajectory[v90.0]·G8.5Y2-HMMVPINCoh[v91.0]·G8.5Z2-RMSSync[v92.0]·G8.5A3-VPCTripleConf[v93.0]·G8.5B3-HOSTripleSync[v94.0]·G8.5C3-VOETripleConv[v95.0]·G8.5D3-RDWTripleRisk[v96.0]·G8.5E3-EFOTriplePressure[v97.0]·G8.5F3-MLCCoherence[v101.0]·G8.5G3-SVQMomentum[v102.0]·G8.5H3-EWBrake[v103.0]·G8.5I3-IRFlorSharpe[v103.0]·G8.5R3-BWOTripleMomentum[v108.0]·G8.5S3-QSCCompositeHealth[v108.0]·G8.5T3-RFWTripleAlign[v109.0]·G8.5U3-KHSTripleSync[v109.0]·G8.5V3-TECTripleEVConf[v110.0]·G8.5W3-MOTTripleSync[v111.0]·G8.5X3-CDSTripleSafety[v113.0]·G8.5Y3-MCSMetaTripleSync[v113.0]·G8.5Z3-RQTTripleSync[v114.0]·G8.5A4-FVRTripleSync[v114.0]·G8.5B4-RWSentinel[v115.0]·G8.5C4-AEVSentinel[v116.0]·G8.5D4-TFCForecastConf[v117.0]·G8.5E4-TRSRegimeSync[v117.0]·G8.5F4-TPMPatchMomentum[v118.0]·G8.5G4-SVTFCComposite[v118.0]·G8.5H4-TPEPatchEnsemble[v119.0]·G8.5I4-DGCDrawdownGuard[v119.0]·G8.5J4-TFMSMultiScale[v120.0]·G8.5K4-PSRRegimeAlign[v120.0]·G8.5L4-WSDTriple[v120.0]·G8.5M4-OFMicroTriple[v120.0]·G8.5N4-TFCConsensusMeta[v120.0]·G8.5T4-CapReversal[v124.0]·G8.5U4-TUCSentinel[v124.0]·G8.5V4-ERVelocity[v125.0]·G8.5W4-WACCoh[v125.0]·G8.5X4-SVRVelRecovery[v126.0]·G8.5Y4-OWSTrajectorySync[v126.0]·G8.5Z4-ARCAdaptRegimeComp[v127.0]·G8.5A5-SVCSharpeVelConf[v127.0]·G8.5L5-MEVTripleBrake[v136.0]·G8.5M5-OSWTripleMomentum[v137.0]·G8.5N5-FSLTripleSafety[v137.0]·G8.5O5-RSQTripleCoherence[v138.0]·G8.5P5-EWVTripleComposite[v138.0]·G8.5Q5-DVSTripleSafety[v139.0]·G8.5R5-VCFTripleMomentum[v139.0]·G8.5S5-LSQTripleConvergence[v140.0]·G8.5T5-MFRTripleResonance[v140.0]·G8.5U5-OUPMeanReversion[v141.0]·G8.5V5-MFAFloamAlpha[v141.0]·G8.5W5-WNZWinsorGuard[v142.0]·G8.5X5-ADFStationarity[v142.0]·G8.5Y5-PCOFLOAMOrthogonality[v143.0]·G8.5Z5-ICSFLOAMIRGate[v143.0]·G8.5AU-GWFV[v169.0]·G8.5AV-GDDV[v169.0]·G8.5AW-GHRZ[v170.0]·G8.5AX-GALP[v170.0]·G8.5AY-GVLR[v171.0]·G8.5AZ-GRLB[v171.0]·G8.5BA-GLTB[v172.0]·G8.5BB-GCMS[v172.0]·G8.5BC-GDSA[v173.0]·G8.5BD-GEVL[v173.0]·G8.5V·AdaptIRONS) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "

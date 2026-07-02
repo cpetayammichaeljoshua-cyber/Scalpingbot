@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 405 features → 81 tokens × 5 dims (405 = 81 × 5) [v172.0: 80×5=400→81×5=405; v171.0: 80×5=400; v170.0: 79×5=395; v143.0: 73×5=365; v141.0: 70×5=350]
-_TORCH_N_TOKENS  = 81   # v172.0: 80→81 (+5 GLTB+DirBias+GCMS+NegDensity+Consensus features F401-F405)
+# Transformer tokenisation: reshape 410 features → 82 tokens × 5 dims (410 = 82 × 5) [v173.0: 81×5=405→82×5=410; v172.0: 81×5=405; v171.0: 80×5=400; v170.0: 79×5=395; v143.0: 73×5=365; v141.0: 70×5=350]
+_TORCH_N_TOKENS  = 82   # v173.0: 81→82 (+5 GDSA+ShortAlpha+GEVL+EVVelocity+DirEVCorr features F406-F410)
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5; v138.0: 335=67×5; v139.0: 340=68×5; v140.0: 345=69×5; v141.0: 350=70×5; v163.0: 365=73×5; v170.0: 395=79×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 405  # v78 (v172.0): 400 + 5 GLTBgate+DirBiasRatio+GCMSgate+NegGateDensity+GateConsensus = 405 [v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5; Weight auto-reset on INPUT_DIM 400→405 mismatch]
+INPUT_DIM          = 410  # v79 (v173.0): 405 + 5 GDSAgate+ShortAlpha+GEVLgate+EVVelocity+DirEVCorr = 410 [v172.0: 405=81×5; v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5; Weight auto-reset on INPUT_DIM 405→410 mismatch]
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1834,6 +1834,27 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0, min(1.0,  _v78_f404)))                                      # 404 neg_gate_density
     _v78_f405 = _safe_float(trade.get("gate_consensus_score", 0.5), 0.5)
     f.append(max(0.0, min(1.0,  _v78_f405)))                                      # 405 gate_consensus_score
+
+    # ── v79 (v173.0): F406-F410 — GDSA+GEVL Direction-EV Features ────────────
+    # GDSA (161st gate): Direction-Selective Alpha — SHORT-side win-rate alpha detection
+    # GEVL (162nd gate): EV Loss Velocity — EV-ring linear-regression slope monitoring
+    # Technique 5 (Loop Engineering) + Technique 6 (Workflow Isolation).
+    # Zero-padded backward-compat for trades stored before v173.0.
+    # F406: bc_gdsa_gate      — GDSA state {-1.5→0.1, -1.0→0.3, 0→0.5, +1.0→0.7, +2.0→1.0} [0,1]
+    # F407: short_alpha_score — SHORT-side raw WR alpha fraction [0,1]; 0.5 = neutral (no edge)
+    # F408: bd_gevl_gate      — GEVL state {-2.0→0.0, -1.5→0.2, 0→0.5, +1.0→1.0} [0,1]
+    # F409: ev_velocity_norm  — EV-ring slope normalised; 0.5 = flat, >0.5 = improving, <0.5 = worsening
+    # F410: dir_ev_corr       — direction × EV-velocity cross-signal [0,1]; 0.5 = no correlation
+    _v79_f406 = _safe_float(trade.get("bc_gdsa_gate",      0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v79_f406)))                                      # 406 bc_gdsa_gate
+    _v79_f407 = _safe_float(trade.get("short_alpha_score", 0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v79_f407)))                                      # 407 short_alpha_score
+    _v79_f408 = _safe_float(trade.get("bd_gevl_gate",      0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v79_f408)))                                      # 408 bd_gevl_gate
+    _v79_f409 = _safe_float(trade.get("ev_velocity_norm",  0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v79_f409)))                                      # 409 ev_velocity_norm
+    _v79_f410 = _safe_float(trade.get("dir_ev_corr",       0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v79_f410)))                                      # 410 dir_ev_corr
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
