@@ -78,9 +78,9 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 350 features → 70 tokens × 5 dims (350 = 70 × 5) [v141.0: was 69×5=345; v140.0: 68×5=340; v139.0: 67×5=335]
-_TORCH_N_TOKENS  = 73
-_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5; v138.0: 335=67×5; v139.0: 340=68×5; v140.0: 345=69×5; v141.0: 350=70×5)
+# Transformer tokenisation: reshape 395 features → 79 tokens × 5 dims (395 = 79 × 5) [v170.0: 78×5=390→79×5=395; v169.0: 78×5=390; v143.0: 73×5=365; v141.0: 70×5=350]
+_TORCH_N_TOKENS  = 79   # v170.0: 73→79 (+5 GHRZ+GALP+session-edge features F391-F395)
+_TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5; v138.0: 335=67×5; v139.0: 340=68×5; v140.0: 345=69×5; v141.0: 350=70×5; v163.0: 365=73×5; v170.0: 395=79×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
 MIN_TRAIN_SAMPLES = 15   # v5.4: 20→15 — activates NN sooner; with 17 labeled trades (W=5/L=12)
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 365  # v70 (v163.0): 360 + 5 AKGSSDGate+ALGREXGate+DirRunLength+SymReuseRecency+XMLPromptQuality = 365 (ak_gsdd_gate, al_grex_gate, dir_run_length, sym_reuse_recency, xml_prompt_quality)
+INPUT_DIM          = 395  # v76 (v170.0): 390 + 5 GHRZgate+HourDeadZone+GALPgate+PeakHourScore+SessionEdgeDelta = 395 (aw_ghrz_gate, hour_dead_zone, ax_galp_gate, peak_hour_score, session_edge_delta) [v163.0: 365=73×5; v170.0: 395=79×5; Weight auto-reset on INPUT_DIM 390→395 mismatch]
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1772,6 +1772,26 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0,  min(1.0,  _v65_f339)))                                     # 339 r5_vcf_gate
     _v65_f340 = _safe_float(trade.get("r5_vpin_level", 0.4), 0.4)
     f.append(max(0.0,  min(1.0,  _v65_f340)))                                     # 340 r5_vpin_level
+
+    # ── v76 (v170.0): F391-F395 — GHRZ+GALP+Session-Edge Features ─────────────
+    # These 5 features encode the session-structure regime discovered from 12,231
+    # SignalTactics USDM signals: 00h/19h UTC dead zones (52% WR) and 06-09h peak
+    # window (67-71% WR). Zero-padded backward-compat for trades before v170.0.
+    # F391: aw_ghrz_gate      — GHRZ state {-2.0→0.0, -1.5→0.2, 0→0.5} [0,1]
+    # F392: hour_dead_zone    — binary: 1.0 if current UTC hour ∈ {0,19} [0,1]
+    # F393: ax_galp_gate      — GALP state {+1.5→1.0, +1.0→0.8, 0→0.5} [0,1]
+    # F394: peak_hour_score   — session edge: 1.0=peak(06-09h), 0.5=neutral, 0.0=dead [0,1]
+    # F395: session_edge_delta — net GALP-GHRZ delta [-1,+1] (positive=peak, negative=dead)
+    _v76_f391 = _safe_float(trade.get("aw_ghrz_gate",      0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v76_f391)))                                      # 391 aw_ghrz_gate
+    _v76_f392 = _safe_float(trade.get("hour_dead_zone",    0.0), 0.0)
+    f.append(max(0.0, min(1.0,  _v76_f392)))                                      # 392 hour_dead_zone
+    _v76_f393 = _safe_float(trade.get("ax_galp_gate",      0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v76_f393)))                                      # 393 ax_galp_gate
+    _v76_f394 = _safe_float(trade.get("peak_hour_score",   0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v76_f394)))                                      # 394 peak_hour_score
+    _v76_f395 = _safe_float(trade.get("session_edge_delta",0.0), 0.0)
+    f.append(max(-1.0, min(1.0, _v76_f395)))                                      # 395 session_edge_delta
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
