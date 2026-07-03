@@ -1,8 +1,30 @@
 #!/usr/bin/env python3
 """
-Unity Engine v190.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v191.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 166-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 168-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ v191.0 improvements [2026-07-03]:
+   Power-mode bug hunt (multiparallel scan): overscoring/overconsensus/overconfidence sweep +
+   2 more dead-gate fixes found post-v190.0 mass fix.
+   1. TWO gates found with NO analytics wiring at all (not just misplaced _record — completely
+      absent since creation): G8.5k IVCrush/IV-Rank monitor (since v18.72) and G8.5r FinRobot
+      Funding-Rate Alignment (since v21.3). Both silently adjusted quality_score for 100+
+      versions with zero visibility into /gates, gate_stats_summary(), or bottleneck detection.
+      Fixed: added gate_g85k_ivcrush + gate_g85r_funding to _gate_stats/_gate_stats_recent/
+      _GATE_DISPLAY_LABELS/_SOFT_GATE_KEYS with proper self._record() calls (168-gate total).
+   2. Overconsensus dampener applied to 2 more raw-count meta-gates that had escaped the
+      v179.0/v189.0 dampening sweep: G8.5U MomentumConsensus (5-gate agreement, was raw
+      +2.5/+1.5/+0.5pts with zero WR-calibration) and G8.5N4 TimesFM-ConsensusCap (5-model
+      forecast agreement, was raw +2.5/+2.0pts). Both now WR-smooth their POSITIVE bonus only
+      (negative veto stays full-strength — it is the confirmed edge) using the same ramp as
+      v189.0's GEX dampener: WR<=25%→×0.70, WR>=40%→×1.0, linear between. Raw vote-counting
+      agreement among correlated technical gates is not itself evidence of an edge in a
+      WR-suppressed regime; this prevents 5-gate "everyone agrees" consensus from overscoring
+      signals during the live ~29% WR crisis period documented in prior gate audits.
+   Walk-forward/CPCV audit (no changes needed — already correct): confirmed CPCV K=3 embargo
+   min(5, n//8) [v187.0], temporal-only train/val splits with no look-ahead, feature scaling
+   fit exclusively on training folds, and the 51% CPCV floor / 9% overfit-gap threshold are
+   all intact and consistent with prior walk-forward hardening work.
  v190.0 improvements [2026-07-03]:
    CRITICAL-FIX-v190.0: 95 gates had self._record() INSIDE the try/except block — the exact
    same silent dead-gate pattern as v178.0. When any exception occurred inside the gate's try
@@ -3076,7 +3098,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "190.0"
+UNITY_VERSION                = "191.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -12983,18 +13005,25 @@ class UnitySignalFilter:
         # High IV Rank (>80%) + elevated funding → -4pts (premium collapse risk).
         # Extreme funding (>0.10%) → -6pts systemic squeeze.
         # Low IV Rank (<20%) + flat funding → +3pts (vol expansion potential).
+        _iv_pass = True  # v191.0-FIX: dead-gate fix — never had _gate_stats/_record wiring since v18.72
         _iv_ref = getattr(self, "_iv_crush_monitor", None)
         if symbol and _iv_ref is not None:
             try:
                 _iv_regime, _iv_quality_adj, _iv_kelly = _iv_ref.get_signal(symbol)
                 if _iv_quality_adj != 0.0:
                     quality_score += _iv_quality_adj
+                    _iv_pass = _iv_quality_adj >= 0.0
                     self._logger.debug(
                         f"[G8.5k IVCrush v18.72] {symbol} regime={_iv_regime} "
                         f"→ {_iv_quality_adj:+.1f}pts"
                     )
             except Exception:
-                pass
+                pass  # G8.5k IVCrush is non-fatal soft-gate
+        self._gate_stats.setdefault("gate_g85k_ivcrush", {"pass": 0, "fail": 0})
+        self._gate_stats["gate_g85k_ivcrush"]["pass" if _iv_pass else "fail"] += 1
+        self._gate_stats_recent.setdefault("gate_g85k_ivcrush", deque(maxlen=self._gate_stats_window_n))
+        self._gate_stats_recent["gate_g85k_ivcrush"].append(1 if _iv_pass else 0)
+        self._record("gate_g85k_ivcrush", _iv_pass)
 
         # ── Gate 8.5sq — StochasticQuant OU/Heston/Kalman/Jump (v19.0) ──────
         # Institutional stochastic-calculus quality gate using the live-calibrated
@@ -13185,6 +13214,7 @@ class UnitySignalFilter:
         # Thresholds: elevated ≥ 0.02%/8h (2bps), extreme ≥ 0.05%/8h (5bps).
         # Data source: live 1s WS mark-price stream (L0.75) → _live_funding_rates.
         # Cap: ±2pts. Skips cleanly if funding data unavailable (vol_ratio guard).
+        _fr_pass = True  # v191.0-FIX: dead-gate fix — never had _gate_stats/_record wiring since v21.3
         try:
             _fr_sym  = (symbol or "").upper()
             _fr_rate = float(
@@ -13237,6 +13267,7 @@ class UnitySignalFilter:
                 _fr_adj = max(-2.0, min(2.0, _fr_adj))
                 if _fr_adj != 0.0:
                     quality_score += _fr_adj
+                    _fr_pass = _fr_adj >= 0.0
                     self._logger.debug(
                         f"[G8.5r FundingRate v21.3] {symbol} "
                         f"fr={_fr_rate*10000:.2f}bps/8h dir={_fr_dir} "
@@ -13244,7 +13275,12 @@ class UnitySignalFilter:
                         f"→ {_fr_adj:+.1f}pts"
                     )
         except Exception:
-            pass
+            pass  # G8.5r FundingRate is non-fatal soft-gate
+        self._gate_stats.setdefault("gate_g85r_funding", {"pass": 0, "fail": 0})
+        self._gate_stats["gate_g85r_funding"]["pass" if _fr_pass else "fail"] += 1
+        self._gate_stats_recent.setdefault("gate_g85r_funding", deque(maxlen=self._gate_stats_window_n))
+        self._gate_stats_recent["gate_g85r_funding"].append(1 if _fr_pass else 0)
+        self._record("gate_g85r_funding", _fr_pass)
 
         # v58.0/v68.0: Pre-initialize soft-gate adj/fired sentinels so G8.5U consensus
         # meta-gate can safely read them regardless of exception paths in each gate.
@@ -13744,6 +13780,16 @@ class UnitySignalFilter:
                 elif _g85u_n_pos == 2: _g85u_adj =  0.5   # 2/5 narrow
                 elif _g85u_n_pos == 1: _g85u_adj = -1.5   # split: 1 vs 4 opposing
                 else:                  _g85u_adj = -3.5   # all oppose: WR-killer veto
+                # v191.0-FIX: overconsensus dampener — raw agreement of 5 momentum
+                # gates is not itself evidence of edge; WR-smooth the POSITIVE side
+                # only (negative veto stays full-strength, it is the confirmed edge).
+                # Ramp: WR<=25%→×0.70, WR>=40%→×1.0, linear between (same curve as
+                # v189.0 GEX dampener) so raw agreement can't overscore in a losing regime.
+                if _g85u_adj > 0.0:
+                    _g85u_wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
+                    _g85u_wr     = _g85u_wr_raw / 100.0 if _g85u_wr_raw > 1.0 else _g85u_wr_raw
+                    _g85u_wr_mult = max(0.70, min(1.0, 0.70 + ((_g85u_wr - 0.25) / 0.15) * 0.30))
+                    _g85u_adj    *= _g85u_wr_mult
                 quality_score += _g85u_adj
                 self._logger.debug(
                     f"[G8.5U MomConsensus v68.0-5gate] {symbol} "
@@ -17653,6 +17699,15 @@ class UnitySignalFilter:
                 _n4_adj, _n4_tfc = -2.0, -1
             else:
                 _n4_adj, _n4_tfc = 0.0, 0
+            # v191.0-FIX: overconsensus dampener — 5-vote TimesFM agreement is a raw
+            # sample-size-agnostic count, not calibrated evidence; WR-smooth the
+            # POSITIVE side only (negative veto stays full-strength). Same ramp as
+            # v189.0 GEX / G8.5U dampeners: WR<=25%→×0.70, WR>=40%→×1.0.
+            if _n4_adj > 0.0:
+                _n4_wr_raw  = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
+                _n4_wr      = _n4_wr_raw / 100.0 if _n4_wr_raw > 1.0 else _n4_wr_raw
+                _n4_wr_mult = max(0.70, min(1.0, 0.70 + ((_n4_wr - 0.25) / 0.15) * 0.30))
+                _n4_adj    *= _n4_wr_mult
             quality_score          += _n4_adj
             self._last_g85n4_tfc   = _n4_tfc
             _n4_pass = (_n4_tfc >= 0)
@@ -22123,6 +22178,8 @@ class UnitySignalFilter:
         "gate_g85u":      "G8.5U",  # v68.0: MomentumConsensus 5-gate meta-gate (±3.5pts)
         "gate_g85p":      "G8.5P",  # v60.0: BTC cross-pair momentum alignment (±1.5pts)
         "gate_g85r":      "G8.5R",  # v62.0: HMM-GEX regime coherence joint confirmation (±1.5pts)
+        "gate_g85k_ivcrush":  "G8.5k-IV",  # v191.0-FIX: IV Crush/Rank monitor — was never wired to analytics since v18.72
+        "gate_g85r_funding":  "G8.5r-FR",  # v191.0-FIX: Funding-rate crowding gate — was never wired to analytics since v21.3
         "gate_g85q":      "G8.5q-QD",   # v181.0: QuantDinger momentum-volume coherence (±2.5/-2.5pts)
         "gate_g85sq":     "G8.5sq",     # v181.0: StochasticQuant OU/Heston/Kalman/Jump (cap ±6pts)
         "gate_g85s":      "G8.5S",  # v63.0: bid-ask spread stress (−2pts acute / −1pt elevated)
@@ -22310,6 +22367,8 @@ class UnitySignalFilter:
             "gate_g85u",   # MomentumConsensus ±3.0pt meta-gate — cannot block a signal
             "gate_g85p",   # BTC cross-pair momentum ±1.5pt adjuster — cannot block a signal [v64.0]
             "gate_g85r",   # HMM-GEX regime coherence ±1.5pt adjuster — cannot block a signal [v64.0]
+            "gate_g85k_ivcrush",  # IV Crush/Rank monitor adjuster — cannot block a signal [v191.0-FIX]
+            "gate_g85r_funding",  # Funding-rate crowding adjuster — cannot block a signal [v191.0-FIX]
             "gate_g85s",   # SpreadStress -2/-1pt adjuster — cannot block a signal [v64.0]
             "gate_g85z",   # AutoCorr persistence ±2.0pt adjuster — cannot block a signal [v64.0]
             "gate_g85y",   # ATR vol-compress ±2.0pt/-1.5pt adjuster — cannot block a signal [v65.0]

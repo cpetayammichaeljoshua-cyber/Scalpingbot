@@ -1,3 +1,4 @@
+- [Unity Engine v191.0 power-mode bug hunt](unity-engine-v191.md) — 2 gates (G8.5k/G8.5r) had zero analytics wiring since creation (distinct from v178/v190 pattern); overconsensus dampener extended to G8.5U+G8.5N4
 - [Unity Engine v190.0 dead-gate mass fix](unity-engine-v190.md) — 95 gates had _record() inside try/except (v178 pattern); mass fix + Markov sentinel + G8.5AA-AD unbound vars + GDOW double-record
 - [Unity Engine v189.0 GEX overconfidence dampener](unity-engine-v189.md) — G7 all 6 bonus paths WR-smoothed (×0.70-1.0 ramp 25%→40%); NEUTRAL/UNKNOWN +3.75→0; NaN-safe WR parse
 - [Unity Engine v188.0 absence-bias + CPCV fix](unity-engine-v188.md) — G4/G6/G7/G8 absence credits (+7.5/+3.75/+1.5/+2.5) removed→0; CPCV K=3 purge min(3,//10)→min(5,//8)
