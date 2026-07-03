@@ -1215,7 +1215,14 @@ gates look "alive" on dashboards while their actual filtering/scoring effect was
 references across all 36 blocks (lines 19182-20931), verified with a scoped diff (no other
 code touched) and a full `ast.parse` syntax check. This is very likely the primary reason
 live WR stayed ~29% despite v142-v177 "improvements" — none of that logic ever executed.
-[v178.0] | LEGACY-v172.0: GLTB:LONG-dominated(≥7/10-signals)+WR<30%→-2.0pt/≥6/10+cold≥2→-1.5pt/SHORT-dom(≥7/10)+WR≥32%→+1.5pt(LoopEng-DirBias-data:LONG-avgP=-0.28%vs-SHORT+0.26%)[v172.0] | GCMS:neg-gate-count≥5+WR<30%→-2.5pt/≥4+cold≥2→-2.0pt/≥3+WR<32%→-1.5pt/pos≥5+WR≥32%→+2.0pt/pos≥4+WR≥30%→+1.5pt(Checker-MetaScore-WorkflowIsolation)[v172.0] | Kelly154:GLTB-bias-crisis→×0.85/bias-short-aligned→×1.03[v172.0] | Kelly155:GCMS-compound-hostile→×0.82/green-consensus→×1.04[v172.0] | NN-v78-405feat:F401-F405(ba_gltb+dir_bias_ratio+bb_gcms+neg_gate_density+gate_consensus)[v172.0] | ScanParallel:130→126(-3.1%-Railway-CPU)[v172.0] | LEGACY-v171.0: GVLR:VPIN<0.05+OFI-aligned→+1.5pt/VPIN>0.65+WR<30%→-2.0pt(157th-gate)[v171.0] | GRLB:sym-WR>global+10pp→+1.5pt/sym-WR<global-20pp→-2.5pt(158th-gate)[v171.0] | Kelly152:GVLR-toxic→×0.85/ultra-clean→×1.03[v171.0] | Kelly153:GRLB-struct-hole→×0.80/struct-alpha→×1.02[v171.0] | NN-v77-400feat:F396-F400(ay_gvlr+vpin_ultra_clean+az_grlb+sym_wr_vs_global+sym_live_edge)[v171.0] | ScanParallel:134→130(-3.0%-Railway-CPU)[v171.0] | LEGACY-v170.0: GHRZ:00h/19h-UTC-dead-zone+WR<30%→-2.0pt/structural→-1.5pt(data:12k-sig-52%WR-vs-71%peak)[v170.0] | GALP:06-09h-UTC-peak+WR≥32%→+1.5pt/WR<32%→+1.0pt(data:71%-WR-peak-session)[v170.0] | Kelly150:GHRZ-crisis-dead-zone→×0.83/structural→×0.88[v170.0] | Kelly151:GALP-strong→×1.04/recovery→×1.02[v170.0] | NN-v76-395feat:F391-F395(aw_ghrz+hour_dead_zone+ax_galp+peak_hour+session_edge)[v170.0] | AlphaExpand:CAKEUSDT-84%WR-n97/OPUSDT-80%WR-n71/TRXUSDT-78%WR-n113/ENJUSDT-74%WR-n65(cross-source-12k-validation)[v170.0] | AvoidExpand:ZKJUSDT/PLAYUSDT/FLOCKUSDT/VVVUSDT/HBARUSDT/SKYAIUSDT(0-18%WR-negative-EV-confirmed)[v170.0] | ScanParallel:138→134(-2.9%-Railway-CPU)[v170.0] | LEGACY-v169.0: GWFV:CPCV<0.47+WR<30%→-2.0pt/CPCV≥0.50+WR<25%→-1.5pt(PromptRefinement-WFV)[v169.0] | GDDV:quality-slope<-0.05+WR<30%→-2.0pt/slope<-0.02→-1.5pt(ExtThink-DDvelocity)[v169.0] | Kelly148:GWFV-bad→×0.82/shift→×0.86[v169.0] | Kelly149:GDDV-severe→×0.81/mod→×0.87[v169.0] | NN-v75-390feat:F386-F390(au_gwfv+cpcv_gap+av_gddv+quality_slope+wfv_regime)[v169.0] | ScanParallel:144→138(-4.2%-Railway-CPU)[v169.0] | LEGACY-v168.0: GFRD:funding>0.05%/8h+LONG→-2.0pt/0.025%→-1.5pt(XML-crowding)[v168.0] | GORD:ofi_z<-2.5+LONG→-2.0pt/ofi_z<-1.5+WR<30%→-1.5pt(WI-OFI-Checker)[v168.0] | Kelly146:GFRD-extreme→×0.83/mod→×0.87[v168.0] | Kelly147:GORD-extreme→×0.82/crisis→×0.88[v168.0] | NN-v74-385feat:F381-F385(as_gfrd+funding_abs+at_gord+ofi_diverge+flow_quality)[v168.0] | ScanParallel:150→144(-4.0%-Railway-CPU)[v168.0] | LEGACY-v167.0: GRSL:pnl-slope<-0.003+WR<30%→-2.0pt/slope<-0.001+cold→-1.5pt(LoopEng-linreg)[v167.0] | GEVAP:ev_ring_r5<0+WR<30%→-2.0pt/fade>0.005R+EV<0.08R→-1.5pt(ExtThink-EV-velocity)[v167.0] | Kelly144:GRSL-severe→×0.85/mild→×0.89[v167.0] | Kelly145:GEVAP-collapse→×0.83/fade→×0.88[v167.0] | NN-v73-380feat:F376-F380(aq_grsl+pnl_slope10+ar_gevap+ev_velocity+ev_regime_score)[v167.0] | ScanParallel:156→150(-3.8%-Railway-CPU)[v167.0] | LEGACY-v166.0: GCAL2:LLMconf≥82+WR<30%→-2.0pt/conf≥78→-1.5pt(WI-Checker-vs-Maker)[v166.0] | GLEN:loop_coh<0.34+WR<30%→-2.0pt/coh<0.51+cold_seq≥0.67→-1.5pt(LoopEng-Maker→Checker)[v166.0] | Kelly142:GCAL2-severe→×0.84/mod→×0.88[v166.0] | Kelly143:GLEN-ultra→×0.82/weak→×0.87[v166.0] | NN-v72-375feat:F371-F375(ao_gcal2+ai_conf_norm+ap_glen+loop_coh_x_wr+regime_align_4f)[v166.0] | ScanParallel:164→156(-4.9%-Railway-CPU)[v166.0] | LLMCacheTTL:75s→90s(+20%-cache-hits)[v166.0] | LEGACY-v165.0: GHTF:last5≥3wins+WR>35%→+1.5pt/last3losses+WR<30%→-2.0pt[v165.0] | GMAP:LONG@RSI68-72+WR<30%→-1.5pt/SHORT@RSI28-32+WR<30%→-1.5pt[v165.0] | LoopCoherence:F370-3factor-EV-coherence-zero-API[v165.0] | Kelly140:GHTF-hot→×1.05/cold→×0.84[v165.0] | Kelly141:GMAP-RSI-anti-pattern→×0.87[v165.0] | NN-v71-370feat:F366-F370(am_ghtf+hot_seq+cold_seq+an_gmap+loop_coherence)[v165.0] | ScanParallel:176→164(-6.8%-Railway-CPU+mem)[v165.0] | SymLastTsProune:500→150[v165.0] | LEGACY-v164.0: RoleDef:DrUNITY-persona(microstructure+regime+Kelly-EV)[v164.0] | ExtThink:3-factor-CoT(REGIME?FLOW?RISK?)-silent-check-before-vote[v164.0] | PRL:json-parse-fail→<correction>-tag-retry-once-temp0.05[v164.0] | WI:_validate_vote_schema-Checker(vote∈BUY/SELL/NEUTRAL+conf∈45-95+narrative≥5c)[v164.0] | ConsortiumCache:X-OR-Prompt-Cache-1-added-to-consortium-calls[v164.0] | ScanParallel:192→176(-8.3%-Railway-CPU+mem)[v164.0] | LEGACY-v163.0: GSDD:2×same-dir+WR<30%→-1.5pt/3×→-2.5pt[v163.0] | GREX:sym<8min→-2.5pt/<15min→-1.5pt[v163.0] | XMLPrompt:XML-delimited-user-msg→20-40%-JSON-compliance[v163.0] | MaxTokens:200→160(volatile/breakout/news)/180→150(trending/ranging/default)[v163.0] | PromptCache:X-OR-Prompt-Cache-1[v163.0] | Kelly138:GSDD-2×same-dir+WR<30%→×0.88/3×→×0.82[v163.0] | Kelly139:GREX-sym<8min→×0.78/<15min→×0.85[v163.0] | NN-v70-365feat:F361-F365(ak_gsdd+al_grex+dir_run+sym_recency+xml_quality)[v163.0] | LEGACY-v161.0: GDOW:Tue-SHORT/Sun-LONG→hard-block | GCAL:day1-7→+1.0pt/day15-21→-1.5pt | GDIV:>55-unique-syms→-2.5pt | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt | GMOM3:2×LONG→SHORT→+1.5pt | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82 | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
+[v178.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
+~59-gate "3-vote Triple/Composite" meta-gate family (G8.5A3..G8.5Z5, v93.0-v143.0) chains
+earlier meta-gate OUTPUTS as inputs to later meta-gates, so the same few true-independent
+primitives (OFI/HMM/GEX/VPIN/funding/WR-trajectory) get re-scored dozens of times as if each
+were fresh confirmation. G8.5CORR reads all ~59 sentinel signs post-hoc, applies a
+Wilson/√corr-style discount (rho=0.65) to estimate the effective independent vote count, and
+subtracts the excess double-counted bonus. Non-fatal soft-gate, additive-only (does not
+modify the 59 existing gates), 180th gate. [v179.0] | LEGACY-v172.0: GLTB:LONG-dominated(≥7/10-signals)+WR<30%→-2.0pt/≥6/10+cold≥2→-1.5pt/SHORT-dom(≥7/10)+WR≥32%→+1.5pt(LoopEng-DirBias-data:LONG-avgP=-0.28%vs-SHORT+0.26%)[v172.0] | GCMS:neg-gate-count≥5+WR<30%→-2.5pt/≥4+cold≥2→-2.0pt/≥3+WR<32%→-1.5pt/pos≥5+WR≥32%→+2.0pt/pos≥4+WR≥30%→+1.5pt(Checker-MetaScore-WorkflowIsolation)[v172.0] | Kelly154:GLTB-bias-crisis→×0.85/bias-short-aligned→×1.03[v172.0] | Kelly155:GCMS-compound-hostile→×0.82/green-consensus→×1.04[v172.0] | NN-v78-405feat:F401-F405(ba_gltb+dir_bias_ratio+bb_gcms+neg_gate_density+gate_consensus)[v172.0] | ScanParallel:130→126(-3.1%-Railway-CPU)[v172.0] | LEGACY-v171.0: GVLR:VPIN<0.05+OFI-aligned→+1.5pt/VPIN>0.65+WR<30%→-2.0pt(157th-gate)[v171.0] | GRLB:sym-WR>global+10pp→+1.5pt/sym-WR<global-20pp→-2.5pt(158th-gate)[v171.0] | Kelly152:GVLR-toxic→×0.85/ultra-clean→×1.03[v171.0] | Kelly153:GRLB-struct-hole→×0.80/struct-alpha→×1.02[v171.0] | NN-v77-400feat:F396-F400(ay_gvlr+vpin_ultra_clean+az_grlb+sym_wr_vs_global+sym_live_edge)[v171.0] | ScanParallel:134→130(-3.0%-Railway-CPU)[v171.0] | LEGACY-v170.0: GHRZ:00h/19h-UTC-dead-zone+WR<30%→-2.0pt/structural→-1.5pt(data:12k-sig-52%WR-vs-71%peak)[v170.0] | GALP:06-09h-UTC-peak+WR≥32%→+1.5pt/WR<32%→+1.0pt(data:71%-WR-peak-session)[v170.0] | Kelly150:GHRZ-crisis-dead-zone→×0.83/structural→×0.88[v170.0] | Kelly151:GALP-strong→×1.04/recovery→×1.02[v170.0] | NN-v76-395feat:F391-F395(aw_ghrz+hour_dead_zone+ax_galp+peak_hour+session_edge)[v170.0] | AlphaExpand:CAKEUSDT-84%WR-n97/OPUSDT-80%WR-n71/TRXUSDT-78%WR-n113/ENJUSDT-74%WR-n65(cross-source-12k-validation)[v170.0] | AvoidExpand:ZKJUSDT/PLAYUSDT/FLOCKUSDT/VVVUSDT/HBARUSDT/SKYAIUSDT(0-18%WR-negative-EV-confirmed)[v170.0] | ScanParallel:138→134(-2.9%-Railway-CPU)[v170.0] | LEGACY-v169.0: GWFV:CPCV<0.47+WR<30%→-2.0pt/CPCV≥0.50+WR<25%→-1.5pt(PromptRefinement-WFV)[v169.0] | GDDV:quality-slope<-0.05+WR<30%→-2.0pt/slope<-0.02→-1.5pt(ExtThink-DDvelocity)[v169.0] | Kelly148:GWFV-bad→×0.82/shift→×0.86[v169.0] | Kelly149:GDDV-severe→×0.81/mod→×0.87[v169.0] | NN-v75-390feat:F386-F390(au_gwfv+cpcv_gap+av_gddv+quality_slope+wfv_regime)[v169.0] | ScanParallel:144→138(-4.2%-Railway-CPU)[v169.0] | LEGACY-v168.0: GFRD:funding>0.05%/8h+LONG→-2.0pt/0.025%→-1.5pt(XML-crowding)[v168.0] | GORD:ofi_z<-2.5+LONG→-2.0pt/ofi_z<-1.5+WR<30%→-1.5pt(WI-OFI-Checker)[v168.0] | Kelly146:GFRD-extreme→×0.83/mod→×0.87[v168.0] | Kelly147:GORD-extreme→×0.82/crisis→×0.88[v168.0] | NN-v74-385feat:F381-F385(as_gfrd+funding_abs+at_gord+ofi_diverge+flow_quality)[v168.0] | ScanParallel:150→144(-4.0%-Railway-CPU)[v168.0] | LEGACY-v167.0: GRSL:pnl-slope<-0.003+WR<30%→-2.0pt/slope<-0.001+cold→-1.5pt(LoopEng-linreg)[v167.0] | GEVAP:ev_ring_r5<0+WR<30%→-2.0pt/fade>0.005R+EV<0.08R→-1.5pt(ExtThink-EV-velocity)[v167.0] | Kelly144:GRSL-severe→×0.85/mild→×0.89[v167.0] | Kelly145:GEVAP-collapse→×0.83/fade→×0.88[v167.0] | NN-v73-380feat:F376-F380(aq_grsl+pnl_slope10+ar_gevap+ev_velocity+ev_regime_score)[v167.0] | ScanParallel:156→150(-3.8%-Railway-CPU)[v167.0] | LEGACY-v166.0: GCAL2:LLMconf≥82+WR<30%→-2.0pt/conf≥78→-1.5pt(WI-Checker-vs-Maker)[v166.0] | GLEN:loop_coh<0.34+WR<30%→-2.0pt/coh<0.51+cold_seq≥0.67→-1.5pt(LoopEng-Maker→Checker)[v166.0] | Kelly142:GCAL2-severe→×0.84/mod→×0.88[v166.0] | Kelly143:GLEN-ultra→×0.82/weak→×0.87[v166.0] | NN-v72-375feat:F371-F375(ao_gcal2+ai_conf_norm+ap_glen+loop_coh_x_wr+regime_align_4f)[v166.0] | ScanParallel:164→156(-4.9%-Railway-CPU)[v166.0] | LLMCacheTTL:75s→90s(+20%-cache-hits)[v166.0] | LEGACY-v165.0: GHTF:last5≥3wins+WR>35%→+1.5pt/last3losses+WR<30%→-2.0pt[v165.0] | GMAP:LONG@RSI68-72+WR<30%→-1.5pt/SHORT@RSI28-32+WR<30%→-1.5pt[v165.0] | LoopCoherence:F370-3factor-EV-coherence-zero-API[v165.0] | Kelly140:GHTF-hot→×1.05/cold→×0.84[v165.0] | Kelly141:GMAP-RSI-anti-pattern→×0.87[v165.0] | NN-v71-370feat:F366-F370(am_ghtf+hot_seq+cold_seq+an_gmap+loop_coherence)[v165.0] | ScanParallel:176→164(-6.8%-Railway-CPU+mem)[v165.0] | SymLastTsProune:500→150[v165.0] | LEGACY-v164.0: RoleDef:DrUNITY-persona(microstructure+regime+Kelly-EV)[v164.0] | ExtThink:3-factor-CoT(REGIME?FLOW?RISK?)-silent-check-before-vote[v164.0] | PRL:json-parse-fail→<correction>-tag-retry-once-temp0.05[v164.0] | WI:_validate_vote_schema-Checker(vote∈BUY/SELL/NEUTRAL+conf∈45-95+narrative≥5c)[v164.0] | ConsortiumCache:X-OR-Prompt-Cache-1-added-to-consortium-calls[v164.0] | ScanParallel:192→176(-8.3%-Railway-CPU+mem)[v164.0] | LEGACY-v163.0: GSDD:2×same-dir+WR<30%→-1.5pt/3×→-2.5pt[v163.0] | GREX:sym<8min→-2.5pt/<15min→-1.5pt[v163.0] | XMLPrompt:XML-delimited-user-msg→20-40%-JSON-compliance[v163.0] | MaxTokens:200→160(volatile/breakout/news)/180→150(trending/ranging/default)[v163.0] | PromptCache:X-OR-Prompt-Cache-1[v163.0] | Kelly138:GSDD-2×same-dir+WR<30%→×0.88/3×→×0.82[v163.0] | Kelly139:GREX-sym<8min→×0.78/<15min→×0.85[v163.0] | NN-v70-365feat:F361-F365(ak_gsdd+al_grex+dir_run+sym_recency+xml_quality)[v163.0] | LEGACY-v161.0: GDOW:Tue-SHORT/Sun-LONG→hard-block | GCAL:day1-7→+1.0pt/day15-21→-1.5pt | GDIV:>55-unique-syms→-2.5pt | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt | GMOM3:2×LONG→SHORT→+1.5pt | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82 | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
   IRONS_MIN=77(WR<30%)+78.5(WR<25%)+80(WR<20%,WR<18%)+78.5(WR<17%)+79.5(WR<15%)[v103.0]+80.5(WR<12%)[v104.0]+82.0(WR<10%)[v105.0]+83.0(WR<8%)[v106.0]+84.5(WR<6%)[v107.0]+86.0(WR<5%)[v108.0]+87.5(WR<4%)[v109.0]+89.0(WR<3%)[v110.0]+90.5(WR<2%)[v113.0]+91.5(WR<1%)[v114.0]+92.5(WR<0.5%)[v117.0]+94.0(WR<0.2%)[v118.0]+94.5(WR<0.1%)[v118.0]+95.0(WR<0.05%)[v119.0]+95.5(WR<0.02%)[v120.0]+96.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=73 | SOVEREIGN_RECOVERY=77 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/WR<30%+SR<-4.0+DD>47%→-2.5pts/WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0]/healthy→+1.5pts)[v124.0/v155.0] | G8.5Q4:MaxDD-EV-Compound(DD>47%+WR<28%→-4.0pts/DD>48%+WR<30%→-3.5pts/DD>42%+WR<32%→-2.0pts/+1.5pts)[v121.0/v152.0] | G8.5H3:RecentWR-EmergencyBrake(WR<15%→-3.0/WR<20%→-2.0/WR<25%→-1.5/WR<28%→-1.0/WR>40%→+1.5pts)[v103.0/v153.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
@@ -3052,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "178.0"
+UNITY_VERSION                = "179.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -6283,6 +6290,8 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85x5_adf"]        = {"pass": 0, "fail": 0}  # v142.0: ADF-Stationarity-Proxy OU-Validity soft gate
         self._gate_stats["gate_g85y5_pco"]        = {"pass": 0, "fail": 0}  # v143.0: PCA-Signal-Orthogonality FLOAM-IR soft gate
         self._gate_stats["gate_g85z5_ics"]        = {"pass": 0, "fail": 0}  # v143.0: Information-Coefficient-Sharpe FLOAM-IR soft gate
+        self._gate_stats["gate_g85corr_fcd"]        = {"pass": 0, "fail": 0}  # v179.0: Triple-X Family Correlation Dampener soft gate
+        self._gate_stats_recent["gate_g85corr_fcd"] = deque(maxlen=self._gate_stats_window_n)  # v179.0
         self._gate_stats["gate_g85aa_cwd"]        = {"pass": 0, "fail": 0}  # v157.0: Confidence-WR Divergence Penalty gate (anti-signal: high-conf at low-WR)
         self._gate_stats_recent["gate_g85aa_cwd"] = deque(maxlen=self._gate_stats_window_n)  # v157.0
         self._gate_stats["gate_g85ab_xrsi"]       = {"pass": 0, "fail": 0}  # v158.0: RSI Extreme Direction Penalty gate (chase anti-signal at WR<35%)
@@ -19447,6 +19456,84 @@ class UnitySignalFilter:
         except Exception:
             pass  # G8.5Z5 ICS Information-Coefficient-Sharpe is non-fatal soft-gate
 
+        # ── G8.5CORR — Triple-X Family Correlation Dampener (v179.0) ────────
+        # CRITICAL OVERCONSENSUS FIX: ~59 "3-vote Triple/Composite" meta-gates
+        # (G8.5A3..G8.5Z5 family, v93.0-v143.0) each independently score
+        # ±1.5/±2.0pts for "3-vote unanimous alignment" — but many of these
+        # votes are built by chaining EARLIER meta-gate OUTPUTS as inputs to
+        # LATER meta-gates (e.g. G8.5R3 votes on G8.5P3's stored output, which
+        # itself voted on G8.5D + G8.5N2). This means the same handful of true
+        # independent primitives (OFI, HMM, GEX, VPIN, funding, WR-trajectory)
+        # get re-counted dozens of times under the guise of "independent
+        # confirmation" — classic overconsensus: when the underlying OFI/HMM
+        # signal is bullish, most of the ~59 correlated sentinels will ALSO
+        # read bullish (because they share overlapping inputs), each awarding
+        # its own point bonus as if it were fresh evidence.
+        # This gate reads the stored sign of all ~59 family sentinel outputs
+        # post-hoc, estimates the correlation-adjusted "effective independent
+        # count" via a Wilson/√corr-style discount (rho=0.65, an engineering
+        # estimate — same family of chained-signal correlation this file
+        # already applies for the SOVEREIGN Wilson-bound fix), and claws back
+        # the excess double-counted bonus as a corrective adjustment that
+        # shrinks the naive total toward the fair (decorrelated) total.
+        # Non-fatal soft-gate; cannot block a signal. No Kelly step (this is a
+        # pure scoring-integrity correction, not a new predictive feature).
+        try:
+            _corr_sentinels = (
+                "_last_g85a3_vpc", "_last_g85a4_fvr", "_last_g85b3_hos", "_last_g85b4_rws",
+                "_last_g85b5_evpv", "_last_g85c3_voe", "_last_g85c4_aev", "_last_g85c5_tsqc",
+                "_last_g85d3_rdw", "_last_g85d4_tfc", "_last_g85d5_ekc", "_last_g85e3_efo",
+                "_last_g85e4_trs", "_last_g85e5_msc", "_last_g85f3_mlc", "_last_g85f4_tpm",
+                "_last_g85f5_irq", "_last_g85g3_svq", "_last_g85g4_svtfc", "_last_g85g5_rfc",
+                "_last_g85h3_ewb", "_last_g85h5_wrs", "_last_g85i3_ifm", "_last_g85i5_ovm",
+                "_last_g85j3_ltc", "_last_g85j5_emc", "_last_g85k3_ssc", "_last_g85k4_psr",
+                "_last_g85k5_qfc", "_last_g85l3_cc", "_last_g85l5_mev", "_last_g85m3_tqp",
+                "_last_g85m5_osw", "_last_g85n3_irc", "_last_g85n5_fsl", "_last_g85o3_wnq",
+                "_last_g85o5_rsq", "_last_g85p3_fos", "_last_g85p5_ewv", "_last_g85q3_rke",
+                "_last_g85q5_dvs", "_last_g85r3_bwo", "_last_g85r5_vcf", "_last_g85s3_qsc",
+                "_last_g85s5_lsq", "_last_g85t3_rfw", "_last_g85t4_cap", "_last_g85t5_mfr",
+                "_last_g85u3_khs", "_last_g85u4_tuc", "_last_g85u5_oup", "_last_g85v3_tec",
+                "_last_g85v5_mfa", "_last_g85w3_mot", "_last_g85w5_wnz", "_last_g85x3_cds",
+                "_last_g85x5_adf", "_last_g85y3_mcs", "_last_g85y5_pco", "_last_g85z3_rqt",
+                "_last_g85z5_ics",
+            )
+            _corr_votes = []
+            for _attr in _corr_sentinels:
+                _v = getattr(self, _attr, 0)
+                try:
+                    _v = int(_v)
+                except (TypeError, ValueError):
+                    _v = 0
+                if _v != 0:
+                    _corr_votes.append(1 if _v > 0 else -1)
+            _corr_n = len(_corr_votes)
+            _corr_adj = 0.0
+            _corr_fired = False
+            if _corr_n >= 6:
+                _corr_pos = sum(1 for v in _corr_votes if v > 0)
+                _corr_neg = _corr_n - _corr_pos
+                _corr_avg_pt = 1.75  # avg of the ±1.5/±2.0pt bonuses this family awards per-gate
+                _corr_naive_total = _corr_avg_pt * (_corr_pos - _corr_neg)
+                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family
+                _corr_effective_n = _corr_n / (1.0 + _corr_rho * max(_corr_n - 1, 0))
+                _corr_discount = (_corr_effective_n / _corr_n) ** 0.5
+                _corr_fair_total = _corr_naive_total * _corr_discount
+                _corr_adj = _corr_fair_total - _corr_naive_total  # negative-magnitude clawback
+                if abs(_corr_adj) >= 0.1:
+                    _corr_fired = True
+                    quality_score += _corr_adj
+            self._gate_stats["gate_g85corr_fcd"]["pass" if _corr_adj >= 0 else "fail"] += 1
+            self._gate_stats_recent["gate_g85corr_fcd"].append(1 if _corr_adj >= 0 else 0)
+            self._record("gate_g85corr_fcd", _corr_adj >= 0)
+            if _corr_fired:
+                self._logger.debug(
+                    f"[v179.0 G8.5CORR FamilyCorrDampener] {symbol} "
+                    f"n_active={_corr_n} naive={_corr_naive_total:+.2f} "
+                    f"fair={_corr_fair_total:+.2f} clawback={_corr_adj:+.2f}pts"
+                )
+        except Exception:
+            pass  # G8.5CORR Family Correlation Dampener is non-fatal soft-gate
+
         # ── G8.5AA — CWD: Confidence-WR Divergence Penalty (v157.0) ─────────
         # Zero-API soft-gate targeting the #1 confirmed anti-signal from live trade
         # data (2,798 resolved trades): AI confidence ≥90% at WR<30% produces WORSE
@@ -21960,6 +22047,7 @@ class UnitySignalFilter:
             "gate_g85x5_adf":         "G8.5X5",  # v142.0: ADF-Stationarity-Proxy OU-Validity Gate (+2.0/+1.0/-1.0/-2.0/-3.5pts emergency)
             "gate_g85y5_pco":         "G8.5Y5",  # v143.0: PCA-Signal-Orthogonality FLOAM-IR Gate (+2.0/+1.0/-1.0/-2.0/-3.5pts emergency)
             "gate_g85z5_ics":         "G8.5Z5",  # v143.0: Information-Coefficient-Sharpe FLOAM-IR Gate (+2.0/+1.0/-1.0/-2.0/-3.5pts emergency)
+            "gate_g85corr_fcd":       "G8.5CORR",  # v179.0: Triple-X Family Correlation Dampener (Wilson/√corr clawback on ~59-gate overconsensus)
             "gate_g85aa_cwd":         "G8.5AA",  # v157.0: Confidence-WR Divergence Penalty (-1.5/-1.0pts anti-signal when high-conf meets low-WR)
             "gate_g85ab_xrsi":        "G8.5AB",  # v158.0: RSI Extreme Direction Penalty (-2.5/-1.5pts LONG>RSI72/SHORT<RSI28 at WR<35%)
             "gate_g85ac_dlb":         "G8.5AC",  # v159.0: Direction Long Bias Penalty (-1.5/-1.0pts LONG at WR<28%/<32%; 16k-trade confirmed structural edge)
@@ -22133,6 +22221,7 @@ class UnitySignalFilter:
             "gate_g85x5_adf",          # ADF-Stationarity-Proxy OU-Validity Gate +2.0/+1.0/-1.0/-2.0/-3.5pts emergency [v142.0]
             "gate_g85y5_pco",          # PCA-Signal-Orthogonality FLOAM-IR Gate +2.0/+1.0/-1.0/-2.0/-3.5pts emergency [v143.0]
             "gate_g85z5_ics",          # Information-Coefficient-Sharpe FLOAM-IR Gate +2.0/+1.0/-1.0/-2.0/-3.5pts emergency [v143.0]
+            "gate_g85corr_fcd",        # Triple-X Family Correlation Dampener — Wilson/√corr clawback adjuster — cannot block a signal [v179.0]
             "gate_g85aa_cwd",          # Confidence-WR Divergence Penalty -1.5/-1.0pts penalty — cannot block a signal [v157.0]
             "gate_g85ab_xrsi",         # RSI Extreme Direction Penalty -2.5/-1.5pts chase anti-signal (WR<35%) — cannot block a signal [v158.0]
             "gate_g85ac_dlb",          # Direction Long Bias Penalty -1.5/-1.0pts (LONG at WR<32%) — cannot block a signal [v159.0]
