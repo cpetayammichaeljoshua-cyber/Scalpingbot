@@ -1,8 +1,47 @@
 #!/usr/bin/env python3
 """
-Unity Engine v195.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v197.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 176-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ v197.0 improvements [2026-07-03]:
+   Power-mode scan round 6: Overscoring sweep continued — 24 remaining unconditional positive-bonus
+   paths across the G8.5 microstructure/confluence gate family (portfolio-optimizer weight, momentum/
+   flow/CUSUM/VWAP/MicroTrend/HMM-Transition/SpreadLiq/VolPressure/FundingMomentum/WREVCoh alignment
+   bonuses, RWS hot-streak, AEV EV-positive, BTC-GEX dealer-alignment x2, Sortino/G9 regime bonuses)
+   now WR-dampened via _wr_dampen(). Total dampened sites: 63→87.
+   Root cause: prior sweeps (v189–v196) covered early-pipeline and top-tier meta-gate bonuses but left
+   many single-tier "alignment confirms direction → flat +Npts" branches in the G8.5D-O2 microstructure
+   gate chain unwrapped — including one inconsistency where G8.5E's 3/3-vote tier was already dampened
+   (v196.0) but its 2/3-vote tier (+0.8) was not, meaning partial-consensus signals were still receiving
+   an un-calibrated absolute bonus. All 24 sites are flat directional-alignment/confluence bonuses (not
+   penalties — negative tiers are left untouched since penalties should NOT be softened at low WR).
+   Verified: no dead-record (_record vs self._record) or bare-`score` NameError regressions (v178
+   pattern) introduced; python -c ast.parse() syntax clean.
+ v196.0 improvements [2026-07-03]:
+   Power-mode scan round 5: Overscoring sweep completed — 16 remaining positive-bonus paths across all
+   early pipeline stages and G8.5 TimesFM/meta-gate families now WR-dampened. Total sites: 47→63.
+   Category A — Early pipeline (pre-Gate-1) bonuses — all previously treated as "objective quality":
+   1. G0 EV bonus: `min(10.0, ev/0.005*10)` → _wr_dampen(). Up to +10pts; EV estimate at WR=25%
+      lags regime reality — Bayesian update is slow and EV can remain optimistic during drawdown.
+   2. G0.5 Prime session: `_prime_bonus` (SESSION_QUALITY_BONUS [+6.0] + Sortino bonus [+2.0])
+      → _wr_dampen(_prime_bonus). Time-of-day is not a WR-validated edge.
+   3. G0.5 Morning session: `_morning_bonus` → _wr_dampen(). Same rationale.
+   4. HTF alignment: `_htf_bonus` (1H + 4H agreement) → _wr_dampen(). Confluence signal.
+   5. OB microstructure: `_ob_bonus` (up to +6.0 imbalance + 2.0 tight-spread = +8.0) → _wr_dampen().
+      Orderbook state is a real-time market snapshot, not a validated WR-independent edge.
+   6. Liq cascade aligned: `+3.0` → _wr_dampen(3.0). Directional liq signal, not WR-validated.
+   7. TP1 proximity: `min(5.0, tp1_dist/0.02*5)` → _wr_dampen(). TP1 distance is setup quality;
+      wide TP1 at WR=25% does not prevent losses.
+   Category B — G8.5 meta-gate positive branches — consensus-class, should have been dampened:
+   8.  G8.5Y ATR-Compress: +2.0 (p25 compressed vol) → _wr_dampen(2.0)
+   9.  G8.5E CrossCoherence: +2.0 (3/3 OFI+HMM+GEX) → _wr_dampen(2.0)
+   10. G8.5Q TrendMomPersist: +2.0 (≥2 aligned votes) → _wr_dampen(2.0)
+   11. G8.5W3 MOT TripleSync: +2.0/+1.5 (3/2 positive) → _wr_dampen()
+   12. G8.5D4 TFC TimesFM: +2.0/+1.5 (conf≥0.70/0.55 aligned) → _wr_dampen()
+   13. G8.5E4 TRS RegimeSync: +2.0/+1.5 (triple/dual-sync) → _wr_dampen()
+   14. G8.5F4 TPM PatchMomentum: +2.0/+1.5 (3/2 scales aligned) → _wr_dampen()
+   15. G8.5G4 SVTFC Composite: +2.0/+1.5 (Sharpe+TF-votes) → _wr_dampen()
+   16. G8.5m-DIR GEX flip-zone alignment: +2.0 → _wr_dampen(2.0)
  v195.0 improvements [2026-07-03]:
    Power-mode scan round 4: Overscoring sweep continued — 7 remaining high-weight positive-bonus paths
    (Gates 1, 3, 4, 6, 7b, GLTB, GCMS) now WR-dampened via _wr_dampen(). Total dampened paths: 40→47.
@@ -3191,7 +3230,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "195.0"
+UNITY_VERSION                = "197.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -8770,7 +8809,7 @@ class UnitySignalFilter:
             # v11.5: Require EV≥50bps for full 10pts (was 10bps — too generous; let
             # borderline signals through during chronic losing streaks). At EV=25bps
             # the minimum allowed, this gives 5/10pts — a meaningful quality signal.
-            quality_score += min(10.0, max(0.0, _ev / 0.005 * 10.0))
+            quality_score += self._wr_dampen(min(10.0, max(0.0, _ev / 0.005 * 10.0)))  # v196.0: WR-dampened — EV bonus up to +10pts; at WR=25% EV estimate lags regime reality
         else:
             self._record("gate_ev", True)  # no price data → pass-through
 
@@ -8887,7 +8926,7 @@ class UnitySignalFilter:
                         _prime_bonus *= 0.65  # v18.88: -4.0→-7.0 — CALIBRATION FIX: at Sortino=-6.763 (current live) the old -4.0 threshold was degrading prime bonus from 6.0→3.9pts on EVERY prime-session signal (-2.1pt tax); threshold -4.0 was miscalibrated for the chronic-drawdown band (-4.0 to -6.0 Sortino) that crypto perp strategies regularly inhabit; -7.0 means only truly catastrophic Sortino (>3.5σ below break-even) degrades prime; at Sortino=-6.763 prime now gets full 6.0pts; at Sortino=-7.5+ it gets 0.65×=3.9pts
                 except Exception:
                     pass
-            quality_score += _prime_bonus
+            quality_score += self._wr_dampen(_prime_bonus)   # v196.0: WR-dampened — prime-session bonus (up to +8pts) is time-of-day signal, not WR-validated
             self._record("gate_session", True)
         elif _in_morning_session:
             # v30.0: London morning session — 08-10h UTC quality bonus [v30.0]
@@ -8902,7 +8941,7 @@ class UnitySignalFilter:
                         _morning_bonus *= 0.70  # catastrophic regime: partial morning lift [v30.0]
             except Exception:
                 pass
-            quality_score += _morning_bonus
+            quality_score += self._wr_dampen(_morning_bonus)  # v196.0: WR-dampened — morning-session bonus is time-of-day signal, not WR-validated
             self._record("gate_session", True)
             self._logger.debug(
                 f"G0.5_MORNING [v30.0]: UTC {_utc_hour:02d}h → +{_morning_bonus:.1f}pts [v30.0]"
@@ -9000,7 +9039,7 @@ class UnitySignalFilter:
             if _htf4_agree:
                 _htf_bonus += HTF_4H_AGREE_BONUS
             if _htf_bonus > 0:
-                quality_score += _htf_bonus
+                quality_score += self._wr_dampen(_htf_bonus)   # v196.0: WR-dampened — HTF alignment is confluence, not WR-independent edge
                 self._logger.debug(
                     f"📈 [{symbol}] HTF alignment bonus: 1H={'✅' if _htf1_agree else '❌'} "
                     f"4H={'✅' if _htf4_agree else '❌'} → +{_htf_bonus:.1f}pts"
@@ -9056,7 +9095,7 @@ class UnitySignalFilter:
             if _live_spread_pct > 0.0 and _live_spread_pct < SLIPPAGE_PCT * 0.5:
                 _ob_bonus += 2.0       # tight-spread fill-quality bonus
             if _ob_bonus > 0.0:
-                quality_score += _ob_bonus
+                quality_score += self._wr_dampen(_ob_bonus)    # v196.0: WR-dampened — OB microstructure bonus up to +8pts; imbalance signal is not WR-validated
                 self._logger.debug(
                     f"📊 [{symbol}] WS OB bonus: imbalance={_imbalance:+.3f} "
                     f"spread={_live_spread_pct:.4%} → +{_ob_bonus:.0f}pts [v16.0]"
@@ -9246,7 +9285,7 @@ class UnitySignalFilter:
                     f"${_opp_liq/1000:.0f}k opposing {direction} [v18.1]"
                 )
             if _aln_liq > 500_000:
-                quality_score += 3.0
+                quality_score += self._wr_dampen(3.0)   # v196.0: WR-dampened (was raw +3.0)
                 self._logger.debug(
                     f"🔥 [{symbol}] Liq exhaustion bonus +3pt: "
                     f"${_aln_liq/1000:.0f}k aligned with {direction} [v18.1]"
@@ -9271,7 +9310,7 @@ class UnitySignalFilter:
                     0.0,
                 )
             # TP1 distance bonus: wide TP1 adds up to +5 quality points
-            quality_score += min(5.0, (_tp1_dist_pct / 0.02) * 5.0)
+            quality_score += self._wr_dampen(min(5.0, (_tp1_dist_pct / 0.02) * 5.0))  # v196.0: WR-dampened — TP1 proximity bonus up to +5pts
         else:
             self._record("gate_min_tp1", True)   # no price data → pass-through
 
@@ -12852,9 +12891,9 @@ class UnitySignalFilter:
                 _sym_weight = _port_opt.get_weight(symbol)
                 if _sym_weight is not None:
                     if _sym_weight > 0.25:
-                        quality_score += 3.0
+                        quality_score += self._wr_dampen(3.0)  # v197.0: WR-dampened — portfolio-optimizer overweight (>0.25) bonus is allocation-signal, not WR-validated
                     elif _sym_weight > 0.12:
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — portfolio-optimizer moderate-weight (>0.12) bonus is allocation-signal, not WR-validated
                     elif _sym_weight < 0.02:
                         quality_score -= 1.0
             except Exception:
@@ -12890,7 +12929,7 @@ class UnitySignalFilter:
                         _short_aligned = _ofi_z < 0 and "SELL" in _sig_dir
                         if _long_aligned or _short_aligned:
                             if _spread <= 0.0015:   # ≤0.15% spread
-                                quality_score += 3.0
+                                quality_score += self._wr_dampen(3.0)  # v197.0: WR-dampened — G8.5d microstructure momentum-aligned bonus is flow-confluence, not WR-validated
                                 self._logger.debug(
                                     f"[G8.5d v18.13] MOMENTUM_ALIGNED: {symbol} "
                                     f"OFI_Z={_ofi_z:+.2f} spread={_spread:.4f} "
@@ -12966,7 +13005,7 @@ class UnitySignalFilter:
                     _hmm_dir = str(direction or "").upper()
                     if ((_hmm_regime_str == "EXPANSION"   and _hmm_dir == "BUY") or
                             (_hmm_regime_str == "CONTRACTION" and _hmm_dir == "SELL")):
-                        quality_score += 2.5
+                        quality_score += self._wr_dampen(2.5)  # v197.0: WR-dampened — G8.5e HMM directional-confirmation bonus is regime-confluence, not WR-validated
                         self._logger.debug(
                             f"[G8.5e HMM-DIR v18.98] {symbol} {_hmm_regime_str}+{_hmm_dir} "
                             f"aligned → +2.5pts direction-confirmation"
@@ -13844,7 +13883,7 @@ class UnitySignalFilter:
                         _g85y_p25 = float(_np_g85y.percentile(_g85y_win, 25))
                         _g85y_p80 = float(_np_g85y.percentile(_g85y_win, 80))
                         if _g85y_cur <= _g85y_p25:
-                            quality_score += 2.0
+                            quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened
                             _g85y_fired = True
                             self._logger.debug(
                                 f"[G8.5Y ATR-Compress v65.0] {symbol} "
@@ -13961,7 +14000,7 @@ class UnitySignalFilter:
                         f"→ -2.0pts rapid-deterioration"
                     )
                 elif _dgrp_vel > 6.0:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5X DGRP-Velocity rapid-improvement bonus is momentum-confluence, not WR-validated
                     _g85dv_fired   = True
                     self._logger.debug(
                         f"[G8.5X DGRP-Vel v66.0] {symbol} velocity={_dgrp_vel:+.1f}pts>+6 "
@@ -14332,13 +14371,13 @@ class UnitySignalFilter:
                     self._last_g85e_votes = _g85e_votes   # store for Kelly Step 34
                     _g85e_fired = True
                     if _g85e_votes == 3:
-                        quality_score += 2.0
+                        quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (3/3 OFI+HMM+GEX consensus)
                         self._logger.debug(
                             f"[G8.5E CrossCoherence v75.0] {symbol} {_g85e_dir} "
                             f"3/3 votes aligned (OFI+HMM+GEX) → +2.0pts ultra-conviction"
                         )
                     elif _g85e_votes == 2:
-                        quality_score += 0.8
+                        quality_score += self._wr_dampen(0.8)  # v197.0: WR-dampened — G8.5E CrossCoherence 2/3-vote majority bonus is flow-confluence, not WR-validated
                         self._logger.debug(
                             f"[G8.5E CrossCoherence v75.0] {symbol} {_g85e_dir} "
                             f"2/3 votes aligned → +0.8pts majority confirmation"
@@ -14392,13 +14431,13 @@ class UnitySignalFilter:
                 _g85f_fired = True
                 if _g85f_in_dir:
                     if _g85f_abs >= 80.0:
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5F VWAP-Extension breakout (>80bps) bonus is price-confluence, not WR-validated
                         self._logger.debug(
                             f"[G8.5F VWAP-Extension v76.0] {symbol} {_g85f_dir} "
                             f"dist={_g85f_avwap:+.1f}bps (>80bps in dir) → +1.5pts breakout"
                         )
                     elif _g85f_abs >= 40.0:
-                        quality_score += 0.8
+                        quality_score += self._wr_dampen(0.8)  # v197.0: WR-dampened — G8.5F VWAP-Extension mild-extension (40-80bps) bonus is price-confluence, not WR-validated
                         self._logger.debug(
                             f"[G8.5F VWAP-Extension v76.0] {symbol} {_g85f_dir} "
                             f"dist={_g85f_avwap:+.1f}bps (40-80bps in dir) → +0.8pts mild extension"
@@ -14473,7 +14512,7 @@ class UnitySignalFilter:
                         )
                         _g85g_fired = True
                         if _g85g_aligned:
-                            quality_score += 1.5
+                            quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5G CUSUM-Breakout aligned bonus is flow-confluence, not WR-validated
                             self._logger.debug(
                                 f"[G8.5G CUSUM-Breakout v76.0] {symbol} {_g85g_dir} "
                                 f"CUSUM active ofi_z={_g85g_ofi_z:+.2f} aligned → +1.5pts breakout confirm"
@@ -14547,7 +14586,7 @@ class UnitySignalFilter:
                         )
                     elif _g85h_ofi_aligned and _g85h_ob_algn and _g85h_abs_z >= 1.0:
                         # Both OFI and OB imbalance confirm direction
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5H FlowAsymmetry dual-align bonus is flow-confluence, not WR-validated
                         self._last_g85h_ofi_aligned = 1
                         self._logger.debug(
                             f"[G8.5H FlowAsym v77.0] {symbol} {direction} "
@@ -14600,7 +14639,7 @@ class UnitySignalFilter:
                     _g85i_is_buy  = (direction or "").upper() in ("BUY", "LONG")
                     _g85i_aligned = (_g85i_slope > 0.0) == _g85i_is_buy
                     if _g85i_aligned:
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5I MicroTrend aligned bonus is trend-confluence, not WR-validated
                         self._logger.debug(
                             f"[G8.5I MicroTrend v77.0] {symbol} {direction} "
                             f"slope={_g85i_slope:+.6f} ({_g85i_n} closes) ALIGNED → +1.5pts"
@@ -14647,7 +14686,7 @@ class UnitySignalFilter:
                 if direction == "BUY":
                     if _g85j_hmm_prob > 0.65 and _g85j_delta > 0.0:
                         # Expansion regime confirmed and strengthening → LONG-aligned
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5J HMMTransition BUY-aligned bonus is regime-confluence, not WR-validated
                         self._last_g85j_regime_signal = 1
                         self._logger.debug(
                             f"[G8.5J HMMTransition v78.0] {symbol} BUY "
@@ -14665,7 +14704,7 @@ class UnitySignalFilter:
                 elif direction == "SELL":
                     if _g85j_hmm_prob < 0.35 and _g85j_delta < 0.0:
                         # Contraction regime confirmed and deepening → SHORT-aligned
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5J HMMTransition SELL-aligned bonus is regime-confluence, not WR-validated
                         self._last_g85j_regime_signal = 1
                         self._logger.debug(
                             f"[G8.5J HMMTransition v78.0] {symbol} SELL "
@@ -14716,7 +14755,7 @@ class UnitySignalFilter:
                     )
                 elif _g85k_spread_ratio <= _g85k_pct25 and _g85k_spread_ratio < 0.85:
                     # Liquid: spread at <=25th percentile AND meaningfully below median
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5K SpreadLiq liquid-market bonus is microstructure-confluence, not WR-validated
                     _g85k_fired = True
                     self._last_g85k_liq_signal = 1
                     self._logger.debug(
@@ -14757,7 +14796,7 @@ class UnitySignalFilter:
                     )
                 elif _g85l2_cross > 0:
                     # OFI aligned with direction during volume surge → institutional volume confirmation
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5L2 VolPressure aligned bonus is volume-confluence, not WR-validated
                     _g85l2_fired = True
                     self._last_g85l2_vpr_signal = 1
                     self._logger.debug(
@@ -14797,7 +14836,7 @@ class UnitySignalFilter:
                     )
                 # Funding trend ALIGNED with direction (crowd momentum confirms us)
                 elif _g85n2_cross < 0:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5N2 FundingMomentum aligned bonus is crowd-confluence, not WR-validated
                     self._last_g85n2_fmp_signal = 1
                     _g85n2_fired = True
                     _log.debug(
@@ -14836,7 +14875,7 @@ class UnitySignalFilter:
                         f"wr={_g85o2_wr:.1f}% consec={_g85o2_consec} → −2.0pts"
                     )
                 elif _g85o2_wr > 42.0 and _g85o2_consec == 0:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5O2 WREVCoh HighWR+NoLoss bonus is streak-confluence, not WR-validated
                     self._last_g85o2_ev_signal = 1
                     _g85o2_fired = True
                     _log.debug(
@@ -14959,7 +14998,7 @@ class UnitySignalFilter:
                 # Apply score adjustment
                 if _q_votes_total >= 2:
                     if _q_votes_aligned >= 2:
-                        quality_score += 2.0
+                        quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened
                         self._last_g85q_trendmom = 1
                         _q_fired = True
                         self._logger.debug(
@@ -16785,11 +16824,11 @@ class UnitySignalFilter:
             _w3_pos = sum(1 for v in [_w3_v1, _w3_v2, _w3_v3] if v > 0)
             _w3_neg = sum(1 for v in [_w3_v1, _w3_v2, _w3_v3] if v < 0)
             if _w3_pos == 3:
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (3/3 positive)
                 self._last_g85w3_mot = 1
                 _w3_fired = True
             elif _w3_pos == 2 and _w3_neg < 2:
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v196.0: WR-dampened (2/3 positive)
                 self._last_g85w3_mot = 1
                 _w3_fired = True
             elif _w3_neg == 3:
@@ -17005,7 +17044,7 @@ class UnitySignalFilter:
                         f"→ -1.0pts below-BE streak warning (n={_b4_size})"
                     )
                 elif _b4_wr > 0.45:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5B4 RWS hot-streak bonus is streak-confluence, not WR-validated
                     self._last_g85b4_rws = 1
                     self._logger.debug(
                         f"[G8.5B4 RWS v115.0] {symbol} roll15-WR={_b4_wr:.1%} "
@@ -17058,7 +17097,7 @@ class UnitySignalFilter:
                     quality_score -= 1.0
                 elif _c4_recent_avg > 0.05:
                     self._last_g85c4_aev = 1
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5C4 AEV EV-positive bonus is EV-trend, not WR-validated
                     self._logger.debug(
                         f"G8.5C4_AEV: {symbol} EV-positive recent10={_c4_recent_avg:.3f}R → +1.5pts"
                     )
@@ -17123,14 +17162,14 @@ class UnitySignalFilter:
                     _d4_aligned    = (_d4_agg_dir == _d4_signal_dir)
                     if _d4_aligned and _d4_conf >= 0.70:
                         self._last_g85d4_tfc = 1
-                        quality_score += 2.0
+                        quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (TFC aligned conf≥0.70)
                         self._logger.debug(
                             f"[G8.5D4 TFC v117.0] {symbol} TimesFM forecast ALIGNED "
                             f"dir={_d4_agg_dir} conf={_d4_conf:.2f} → +2.0pts"
                         )
                     elif _d4_aligned and _d4_conf >= 0.55:
                         self._last_g85d4_tfc = 1
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v196.0: WR-dampened (TFC partial-align conf≥0.55)
                         self._logger.debug(
                             f"[G8.5D4 TFC v117.0] {symbol} TimesFM partial-align "
                             f"dir={_d4_agg_dir} conf={_d4_conf:.2f} → +1.5pts"
@@ -17221,13 +17260,13 @@ class UnitySignalFilter:
                 _e4_total = len(_e4_votes)
                 if _e4_pos == _e4_total:
                     self._last_g85e4_trs = 1
-                    quality_score += 2.0
+                    quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (triple-sync)
                     self._logger.debug(
                         f"[G8.5E4 TRS v117.0] {symbol} triple-sync {_e4_votes} → +2.0pts"
                     )
                 elif _e4_pos >= 2:
                     self._last_g85e4_trs = 1
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v196.0: WR-dampened (dual-sync)
                     self._logger.debug(
                         f"[G8.5E4 TRS v117.0] {symbol} dual-sync {_e4_votes} → +1.5pts"
                     )
@@ -17334,12 +17373,12 @@ class UnitySignalFilter:
                 if _f4_votes_aligned == 3:
                     self._last_g85f4_tpm = 1
                     self._last_g85f4_strength = 1.0
-                    quality_score += 2.0
+                    quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (3/3 scales aligned)
                     self._logger.debug(f"[G8.5F4 TPM v118.0] {symbol} 3/3 scales aligned → +2.0pts (str=1.00)")
                 elif _f4_votes_aligned == 2:
                     self._last_g85f4_tpm = 1
                     self._last_g85f4_strength = 0.67
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v196.0: WR-dampened (2/3 scales aligned)
                     self._logger.debug(f"[G8.5F4 TPM v118.0] {symbol} 2/3 scales aligned → +1.5pts (str=0.67)")
                 elif _f4_votes_opposed == 3:
                     self._last_g85f4_tpm = -1
@@ -17405,12 +17444,12 @@ class UnitySignalFilter:
             _g4_scored = False
             if _g4_sharpe_improving and _g4_tf_votes >= 2:
                 self._last_g85g4_svtfc = 1
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (Sharpe+2TF-votes)
                 self._logger.debug(f"[G8.5G4 SVTFC v118.0] {symbol} Sharpe+vel={_g4_sharpe_vel:.2f} + TFvotes={_g4_tf_votes} → +2.0pts")
                 _g4_scored = True
             elif _g4_sharpe_improving and _g4_tf_votes >= 1:
                 self._last_g85g4_svtfc = 1
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v196.0: WR-dampened (Sharpe+1TF-vote)
                 self._logger.debug(f"[G8.5G4 SVTFC v118.0] {symbol} Sharpe+vel={_g4_sharpe_vel:.2f} + TFvotes={_g4_tf_votes} → +1.5pts")
                 _g4_scored = True
             elif _g4_sharpe_deteriorating and _g4_tf_votes <= -2:
@@ -21452,7 +21491,7 @@ class UnitySignalFilter:
                                                 (_g85m_dir == "SELL" and not _g85m_above)
                                             )
                                             if _g85m_aligned:
-                                                quality_score += 2.0
+                                                quality_score += self._wr_dampen(2.0)  # v196.0: WR-dampened (GEX flip-zone alignment)
                                                 self._logger.debug(
                                                     f"[G8.5m-DIR v18.98] {symbol} {_g85m_dir} aligned "
                                                     f"entry={_g85m_entry_px:.0f} {'>' if _g85m_above else '<'} "
@@ -21473,14 +21512,14 @@ class UnitySignalFilter:
                                             f"NEGATIVE_GEX + BUY → -2.0pts (dealer short-gamma)"
                                         )
                                     elif _g85m_dir == "SELL":  # v18.98 BUG FIX: was "SHORT" (never matched)
-                                        quality_score += 1.5
+                                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5m BTC-GEX dealer-aligned bonus is cross-pair-confluence, not WR-validated
                                         self._logger.debug(
                                             f"[G8.5m BTC-GEX v18.98] {symbol} BTC net=${_g85m_net/1e6:.0f}M "
                                             f"NEGATIVE_GEX + SELL → +1.5pts (aligned with dealer)"
                                         )
                                 elif _g85m_net > 500_000_000.0:
                                     if _g85m_dir == "BUY":   # v18.98 BUG FIX: was "LONG" (never matched)
-                                        quality_score += 1.5
+                                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G8.5m BTC-GEX dealer-aligned bonus is cross-pair-confluence, not WR-validated
                                         self._logger.debug(
                                             f"[G8.5m BTC-GEX v18.98] {symbol} BTC net=+${_g85m_net/1e6:.0f}M "
                                             f"POSITIVE_GEX + BUY → +1.5pts (gamma pin supports)"
@@ -21645,7 +21684,7 @@ class UnitySignalFilter:
                         f"+{_srt_q_bonus:.1f}pts (precision regime)"
                     )
                 elif _srt_q > 0.5:
-                    quality_score += 1.5   # modest positive regime bonus
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — Sortino modest-positive-regime bonus is regime-signal, not WR-validated
                 elif _srt_q < -1.5:
                     # Severe downside: Srt=-1.5→-0, Srt=-4.5→-5pts (max -5)
                     _srt_q_pen = min(5.0, abs(_srt_q + 1.5) * (5.0 / 3.0))
@@ -21704,7 +21743,7 @@ class UnitySignalFilter:
                     _rmb_prior20  = sum(_rmb_ring[-40:-20]) / 20.0
                     _rmb_sr       = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0)
                     if (_rmb_recent20 - _rmb_prior20) >= 0.03 and _rmb_sr > -2.0:
-                        quality_score += 1.5
+                        quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G9 Recovery-Momentum bonus is trend-signal, not WR-validated
                         self._logger.debug(
                             f"[v61.0] G9 Recovery Momentum Bonus: "
                             f"recent20={_rmb_recent20:.1%} prior20={_rmb_prior20:.1%} "
@@ -21938,7 +21977,7 @@ class UnitySignalFilter:
                       and _g9_gex_net < -500_000_000 and _g9_dir_u == "SELL"):
                     _g9_exp_bonus = True
                 if _g9_exp_bonus:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v197.0: WR-dampened — G9 RegimeExpansion dual-regime-confirm bonus is regime-confluence, not WR-validated
                     self._logger.debug(
                         f"[G9-RegimeExpansion v72.0] {symbol} HMM={_g9_hmm_str}"
                         f"(P={float(_g9_hmm_pexp or 0.0):.2f}) GEX={_g9_gex_net/1e9:.2f}B "

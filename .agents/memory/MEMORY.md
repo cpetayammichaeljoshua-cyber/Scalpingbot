@@ -1,3 +1,4 @@
+- [Unity Engine v197.0 overscoring sweep — microstructure confluence bonuses](unity-engine-v197.md) — 24 G8.5D-O2 flat alignment bonuses WR-dampened; caught partial-tier inconsistency (top tier dampened, lower tier not); sites 63→87
 - [Unity Engine v195.0 overscoring sweep — core signal bonuses](unity-engine-v195.md) — 7 G1/G3/G4/G6/G7b/GLTB/GCMS positive paths WR-dampened; total self._wr_dampen sites 40→47
 - [Unity Engine v194.0 overscoring sweep — foundational bonuses](unity-engine-v194.md) — 7 G2/G2.5/G2.5b/G2.5c/G5/ISB positive paths now _wr_dampen'd; banner corrected 168→176-gate
 - [Unity Engine v192.0 dead-gate fix + dampener extension](unity-engine-v192.md) — v190 sweep missed v142-v179 soft-gate block (W5/X5/Y5/Z5/CORR + B4 cold-start); _wr_dampen extended to 20+ triple-consensus paths
