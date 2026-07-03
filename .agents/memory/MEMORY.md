@@ -1,3 +1,4 @@
+- [Unity Engine v199.0 overscoring dampener completeness pass](unity-engine-v199.md) — 9 straggler positive bonuses WR-dampened; explorer-audit false positives documented (kelly_ceil already fixed, GSDD/GHTF not double-record)
 - [Unity Engine v198.0 overscoring sweep completion](unity-engine-v198.md) — all 126 remaining variable `_xxx_adj` bonus sites bulk-wrapped (safe: wr_dampen no-ops negatives); sweep started v178 now closed; sites 92→218
 - [Unity Engine v197.0 overscoring sweep — microstructure confluence bonuses](unity-engine-v197.md) — 24 G8.5D-O2 flat alignment bonuses WR-dampened; caught partial-tier inconsistency (top tier dampened, lower tier not); sites 63→87
 - [Unity Engine v195.0 overscoring sweep — core signal bonuses](unity-engine-v195.md) — 7 G1/G3/G4/G6/G7b/GLTB/GCMS positive paths WR-dampened; total self._wr_dampen sites 40→47

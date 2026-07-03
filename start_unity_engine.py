@@ -3254,7 +3254,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "198.0"
+UNITY_VERSION                = "199.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -9022,7 +9022,7 @@ class UnitySignalFilter:
             # Strong: 03h(WR=31%/EV=+7%), 09h(WR=29%/EV=+4.9%), 21h(WR=30%/EV=+2.9%)
             # Weak:   10h(WR=21%), 13h(WR=20%/EV=-2.4%), 14h(WR=19%/EV=-1.3%), 22h(EV=-3.3%)
             if _utc_hour in IT_SESSION_STRONG_HOURS:
-                quality_score += IT_SESSION_STRONG_BONUS
+                quality_score += self._wr_dampen(IT_SESSION_STRONG_BONUS)  # v199.0: WR-dampened
                 self._logger.debug(
                     f"G0.5_IT_STRONG: UTC {_utc_hour:02d}h → +{IT_SESSION_STRONG_BONUS:.0f}pts [v18.64]"
                 )
@@ -9035,7 +9035,7 @@ class UnitySignalFilter:
             import datetime as _dt
             _dow = _dt.datetime.utcnow().weekday()
             if _dow in IT_DOW_STRONG_DAYS:
-                quality_score += IT_DOW_STRONG_BONUS
+                quality_score += self._wr_dampen(IT_DOW_STRONG_BONUS)  # v199.0: WR-dampened
                 self._logger.debug(
                     f"G0.5_IT_DOW_STRONG: {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][_dow]} "
                     f"→ +{IT_DOW_STRONG_BONUS:.1f}pts (WR=29.0% vs 24.8% baseline) [v18.67]"
@@ -9253,7 +9253,7 @@ class UnitySignalFilter:
                 _proximity = max(0.0, 1.0 - abs(_avwap_dist) / UNITY_AVWAP_BAND_BPS)
                 _avwap_bonus = UNITY_AVWAP_MAX_BONUS_PTS * _proximity
                 if _avwap_bonus > 0:
-                    quality_score += _avwap_bonus
+                    quality_score += self._wr_dampen(_avwap_bonus)  # v199.0: WR-dampened
                     self._logger.debug(
                         f"🎯 [{symbol}] AVWAP confluence: dist={_avwap_dist:+.1f}bps "
                         f"band=±{UNITY_AVWAP_BAND_BPS:.0f}bps → +{_avwap_bonus:.1f}pts [v9.7]"
@@ -9296,7 +9296,7 @@ class UnitySignalFilter:
                     # Linear scaling: 0.5σ→0, 3σ→full bonus
                     _ofi_bonus = UNITY_OFI_Z_BONUS_PTS * max(0.0, (_z_mag - 0.5) / 2.5)
                     if _ofi_bonus > 0:
-                        quality_score += _ofi_bonus
+                        quality_score += self._wr_dampen(_ofi_bonus)  # v199.0: WR-dampened
                         self._logger.debug(
                             f"⚡ [{symbol}] OFI Z aligned: Z={_ofi_z:+.2f}σ "
                             f"→ +{_ofi_bonus:.1f}pts [v9.7]"
@@ -12789,13 +12789,13 @@ class UnitySignalFilter:
         # 3) DIRECTIONAL ALIGNMENT BONUS: +1.5pts when direction matches IT bias (WR≥70%)
         # 4) HIGH-EV BONUS: +1.0pt for symbols with convex payoff (positive EV despite <50% WR)
         if symbol and symbol in ALPHA_SYMBOLS_IT:
-            quality_score += ALPHA_SYMBOLS_IT_BONUS
+            quality_score += self._wr_dampen(ALPHA_SYMBOLS_IT_BONUS)  # v199.0: WR-dampened
             self._logger.debug(
                 f"[G8-AlphaIT v18.61] {symbol} HIGH-CONVICTION → "
                 f"+{ALPHA_SYMBOLS_IT_BONUS:.1f}pts (IT WR≥60%, n≥5)"
             )
         elif symbol and symbol in ALPHA_SYMBOLS_IT_BORDERLINE:
-            quality_score += ALPHA_SYMBOLS_IT_BORDERLINE_BONUS
+            quality_score += self._wr_dampen(ALPHA_SYMBOLS_IT_BORDERLINE_BONUS)  # v199.0: WR-dampened
             self._logger.debug(
                 f"[G8-AlphaIT v18.61] {symbol} BORDERLINE alpha → "
                 f"+{ALPHA_SYMBOLS_IT_BORDERLINE_BONUS:.1f}pts (IT WR 50-60%, n≥10)"
@@ -21714,7 +21714,7 @@ class UnitySignalFilter:
                 # hot regimes more aggressively while the edge is real.  Capped
                 # at +6pts (conservative) so a single lucky streak can't open-gate.
                 _bwp_bonus = min(6.0, max(0.0, (_bwp9 - 0.45) / 0.15 * 6.0))
-                quality_score += _bwp_bonus
+                quality_score += self._wr_dampen(_bwp_bonus)  # v199.0: WR-dampened
                 if _bwp_bonus >= 2.0:
                     self._logger.debug(
                         f"[v13.0] Bayes WP bonus: p̂={_bwp9:.1%}>45% → "
@@ -21737,7 +21737,7 @@ class UnitySignalFilter:
                 if _srt_q > 2.0:
                     # Deep precision: Srt=2.0→+2pts, Srt=4.0→+6pts (max +6)
                     _srt_q_bonus = min(6.0, 2.0 + (_srt_q - 2.0) * 2.0)
-                    quality_score += _srt_q_bonus
+                    quality_score += self._wr_dampen(_srt_q_bonus)  # v199.0: WR-dampened (was undampened while modest-tier below was already dampened in v197.0)
                     self._logger.debug(
                         f"[v17.0] Sortino Q+: Srt={_srt_q:.2f}>2.0 → "
                         f"+{_srt_q_bonus:.1f}pts (precision regime)"
@@ -22179,7 +22179,7 @@ class UnitySignalFilter:
                     # strength — use the stored _g85c_adj from this same evaluation
                     if abs(getattr(self, "_last_g85c_adj", 0.0)) >= 2.0:
                         _g9_stack_bonus = 1.0
-                        quality_score += _g9_stack_bonus
+                        quality_score += self._wr_dampen(_g9_stack_bonus)  # v199.0: WR-dampened
                         self._logger.debug(
                             f"⚡ [G9-FlowStack v74.0] {_g9_sb_sym} OFI3/3 + "
                             f"RegimeCoh dual-confirm → +1.0pt stack bonus "
