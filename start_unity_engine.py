@@ -7130,6 +7130,26 @@ class UnitySignalFilter:
             self._gate_stats_recent[gate] = _ring
         _ring.append(passed)
 
+    def _wr_dampen(self, pts: float) -> float:
+        """v192.0: shared overconsensus/overconfidence dampener.
+
+        Raw vote-counting / N-of-M agreement among correlated sub-signals is
+        not itself calibrated evidence of edge — it is only evidence that
+        correlated indicators moved together. This WR-smooths the POSITIVE
+        side of any consensus/confluence/coherence bonus so raw agreement
+        can't overscore a signal during a WR-suppressed regime. Negative
+        veto penalties must NOT be passed through this helper — "everyone
+        opposes" has been empirically validated as the real edge and stays
+        at full strength. Same ramp as v179.0 G8.5CORR / v189.0 GEX /
+        v191.0 G8.5U+G8.5N4: WR<=25%→×0.70, WR>=40%→×1.0, linear between.
+        """
+        if pts <= 0.0:
+            return pts
+        _wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
+        _wr = _wr_raw / 100.0 if _wr_raw > 1.0 else _wr_raw
+        _mult = max(0.70, min(1.0, 0.70 + ((_wr - 0.25) / 0.15) * 0.30))
+        return pts * _mult
+
     def apply(
         self,
         signal_data:     Dict[str, Any],
@@ -15560,7 +15580,7 @@ class UnitySignalFilter:
                             f"⚠️  [v93.0 G8.5A3] VPC DUAL-TOXIC: {_a3_oppose}/{_a3_n} oppose dir={_a3_sig_dir} -> -1.5pts"
                         )
                     if _a3_adj != 0.0:
-                        quality_score += _a3_adj
+                        quality_score += self._wr_dampen(_a3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5A3 VPIN-OFI-Funding Triple-Confluence is non-fatal soft-gate
         self._record("gate_g85a3_vpc", _a3_fired)
@@ -15631,7 +15651,7 @@ class UnitySignalFilter:
                             f"⚠️  [v94.0 G8.5B3] HOS DUAL-HOSTILE: {_b3_oppose}/{_b3_n} opposed dir={_b3_sd} -> -1.5pts"
                         )
                     if _b3_adj != 0.0:
-                        quality_score += _b3_adj
+                        quality_score += self._wr_dampen(_b3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5B3 HMM-OFI-Spread Triple-Sync is non-fatal soft-gate
         self._record("gate_g85b3_hos", _b3_fired)
@@ -15698,7 +15718,7 @@ class UnitySignalFilter:
                             f"⚠️  [v95.0 G8.5C3] VOE DUAL-HOSTILE: {_c3_oppose}/{_c3_n} opposed dir={_c3_sd} -> -1.5pts"
                         )
                     if _c3_adj != 0.0:
-                        quality_score += _c3_adj
+                        quality_score += self._wr_dampen(_c3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5C3 VolumeFlow-OFI-EV Triple-Convergence is non-fatal soft-gate
         self._record("gate_g85c3_voe", _c3_fired)
@@ -15757,7 +15777,7 @@ class UnitySignalFilter:
                         f"⚠️  [v96.0 G8.5D3] RDW DUAL-RISK-OFF: {_d3_neg}/{_d3_n} negative -> -1.5pts"
                     )
                 if _d3_adj != 0.0:
-                    quality_score += _d3_adj
+                    quality_score += self._wr_dampen(_d3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5D3 Regime-Drawdown-WinRate Triple-Risk is non-fatal soft-gate
         self._record("gate_g85d3_rdw", _d3_fired)
@@ -15812,7 +15832,7 @@ class UnitySignalFilter:
                         f"⚠️  [v97.0 G8.5E3] EFO DUAL-PRESSURE-OFF: {_e3_neg}/{_e3_n} negative -> -1.5pts"
                     )
                 if _e3_adj != 0.0:
-                    quality_score += _e3_adj
+                    quality_score += self._wr_dampen(_e3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5E3 EV-FundMom-OFI Triple-Pressure is non-fatal soft-gate
         self._record("gate_g85e3_efo", _e3_fired)
@@ -15870,7 +15890,7 @@ class UnitySignalFilter:
             else:
                 self._last_g85f3_mlc = 0   # v102.0 FIX: neutral — no adjustment
             if _f3_adj != 0.0:
-                quality_score += _f3_adj
+                quality_score += self._wr_dampen(_f3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5F3 MultiLayer-Coherence is non-fatal soft-gate
         self._record("gate_g85f3_mlc", _f3_fired)
@@ -16311,7 +16331,7 @@ class UnitySignalFilter:
                 _n3_fired = False  # insufficient votes — skip
             self._last_g85n3_irc = _n3_irc_out
             if _n3_adj != 0.0:
-                quality_score += _n3_adj
+                quality_score += self._wr_dampen(_n3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5N3 OFI-HMM-MicroTrend TripleSync is non-fatal soft-gate
         self._record("gate_g85n3_irc", _n3_fired)
@@ -16391,7 +16411,7 @@ class UnitySignalFilter:
                 _o3_fired = False
             self._last_g85o3_wnq = _o3_wnq_out
             if _o3_adj != 0.0:
-                quality_score += _o3_adj
+                quality_score += self._wr_dampen(_o3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5O3 WinRate-CPCV-NNQuality Coherence is non-fatal soft-gate
         self._record("gate_g85o3_wnq", _o3_fired)
@@ -16425,7 +16445,7 @@ class UnitySignalFilter:
                 _p3_adj = -1.5; _p3_out = -1; _p3_fired = True
             self._last_g85p3_fos = _p3_out
             if _p3_adj != 0.0:
-                quality_score += _p3_adj
+                quality_score += self._wr_dampen(_p3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5P3 FundMomentum-OFI-WRCrisis is non-fatal soft-gate
         self._record("gate_g85p3_fos", _p3_fired)
@@ -16457,7 +16477,7 @@ class UnitySignalFilter:
                 _q3_adj = -1.5; _q3_out = -1; _q3_fired = True
             self._last_g85q3_rke = _q3_out
             if _q3_adj != 0.0:
-                quality_score += _q3_adj
+                quality_score += self._wr_dampen(_q3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5Q3 RegimeSentiment-WREV-EFO is non-fatal soft-gate
         self._record("gate_g85q3_rke", _q3_fired)
@@ -16485,7 +16505,7 @@ class UnitySignalFilter:
                 _r3_adj = -2.0; _r3_out = -1; _r3_fired = True
             self._last_g85r3_bwo = _r3_out
             if _r3_adj != 0.0:
-                quality_score += _r3_adj
+                quality_score += self._wr_dampen(_r3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5R3 BTC-WRTraj-OFI TripleMomentum is non-fatal soft-gate
         self._record("gate_g85r3_bwo", _r3_fired)
@@ -16513,7 +16533,7 @@ class UnitySignalFilter:
                 _s3_adj = -2.0; _s3_out = -1; _s3_fired = True
             self._last_g85s3_qsc = _s3_out
             if _s3_adj != 0.0:
-                quality_score += _s3_adj
+                quality_score += self._wr_dampen(_s3_adj)  # v192.0-FIX: overconsensus dampener
         except Exception:
             pass  # G8.5S3 Quality-Sharpe-Coherence CompositeHealth is non-fatal soft-gate
         self._record("gate_g85s3_qsc", _s3_fired)
@@ -16541,11 +16561,11 @@ class UnitySignalFilter:
                 _t3_votes_align = sum(1 for v in [_t3_v1, _t3_v2, _t3_v3] if v == _t3_dir)
                 _t3_votes_oppose = sum(1 for v in [_t3_v1, _t3_v2, _t3_v3] if v != 0 and v != _t3_dir)
                 if _t3_votes_align == 3:
-                    quality_score += 2.0
+                    quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                     self._last_g85t3_rfw = 1
                     _t3_fired = True
                 elif _t3_votes_align == 2:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                     self._last_g85t3_rfw = 1
                     _t3_fired = True
                 elif _t3_votes_oppose == 3:
@@ -16585,11 +16605,11 @@ class UnitySignalFilter:
                 _u3_votes_align = sum(1 for v in [_u3_v1, _u3_v2, _u3_v3] if v == _u3_dir)
                 _u3_votes_oppose = sum(1 for v in [_u3_v1, _u3_v2, _u3_v3] if v != 0 and v != _u3_dir)
                 if _u3_votes_align == 3:
-                    quality_score += 2.0
+                    quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                     self._last_g85u3_khs = 1
                     _u3_fired = True
                 elif _u3_votes_align == 2:
-                    quality_score += 1.5
+                    quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                     self._last_g85u3_khs = 1
                     _u3_fired = True
                 elif _u3_votes_oppose == 3:
@@ -16624,11 +16644,11 @@ class UnitySignalFilter:
             _v3_pos = sum(1 for v in [_v3_v1, _v3_v2, _v3_v3] if v > 0)
             _v3_neg = sum(1 for v in [_v3_v1, _v3_v2, _v3_v3] if v < 0)
             if _v3_pos == 3:
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                 self._last_g85v3_tec = 1
                 _v3_fired = True
             elif _v3_pos == 2 and _v3_neg < 2:
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                 self._last_g85v3_tec = 1
                 _v3_fired = True
             elif _v3_neg == 3:
@@ -16702,11 +16722,11 @@ class UnitySignalFilter:
             _x3_pos = sum(1 for v in [_x3_v1, _x3_v2, _x3_v3] if v > 0)
             _x3_neg = sum(1 for v in [_x3_v1, _x3_v2, _x3_v3] if v < 0)
             if _x3_pos == 3:
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                 self._last_g85x3_cds = 1
                 _x3_fired = True
             elif _x3_pos == 2 and _x3_neg < 2:
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                 self._last_g85x3_cds = 1
                 _x3_fired = True
             elif _x3_neg == 3:
@@ -16742,11 +16762,11 @@ class UnitySignalFilter:
             _y3_pos = sum(1 for v in [_y3_v1, _y3_v2, _y3_v3] if v > 0)
             _y3_neg = sum(1 for v in [_y3_v1, _y3_v2, _y3_v3] if v < 0)
             if _y3_pos == 3:
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                 self._last_g85y3_mcs = 1
                 _y3_fired = True
             elif _y3_pos == 2 and _y3_neg < 2:
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                 self._last_g85y3_mcs = 1
                 _y3_fired = True
             elif _y3_neg == 3:
@@ -16781,11 +16801,11 @@ class UnitySignalFilter:
             _z3_pos = sum(1 for v in [_z3_v1, _z3_v2, _z3_v3] if v > 0)
             _z3_neg = sum(1 for v in [_z3_v1, _z3_v2, _z3_v3] if v < 0)
             if _z3_pos == 3:
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                 self._last_g85z3_rqt = 1
                 _z3_fired = True
             elif _z3_pos == 2 and _z3_neg < 2:
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                 self._last_g85z3_rqt = 1
                 _z3_fired = True
             elif _z3_neg == 3:
@@ -16820,11 +16840,11 @@ class UnitySignalFilter:
             _a4_pos = sum(1 for v in [_a4_v1, _a4_v2, _a4_v3] if v > 0)
             _a4_neg = sum(1 for v in [_a4_v1, _a4_v2, _a4_v3] if v < 0)
             if _a4_pos == 3:
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)  # v192.0-FIX: overconsensus dampener
                 self._last_g85a4_fvr = 1
                 _a4_fired = True
             elif _a4_pos == 2 and _a4_neg < 2:
-                quality_score += 1.5
+                quality_score += self._wr_dampen(1.5)  # v192.0-FIX: overconsensus dampener
                 self._last_g85a4_fvr = 1
                 _a4_fired = True
             elif _a4_neg == 3:
@@ -17562,7 +17582,7 @@ class UnitySignalFilter:
                     _k4_adj, _k4_psr = -1.5, -1
                 else:
                     _k4_adj, _k4_psr = 0.0, 0
-                quality_score          += _k4_adj
+                quality_score          += self._wr_dampen(_k4_adj)  # v192.0-FIX: overconsensus dampener
                 self._last_g85k4_psr   = _k4_psr
                 _k4_pass = (_k4_psr >= 0)
                 self._gate_stats["gate_g85k4_psr"]["pass" if _k4_pass else "fail"] += 1
@@ -17607,7 +17627,7 @@ class UnitySignalFilter:
                 _l4_adj, _l4_wsd = +1.5, +1
             else:
                 _l4_adj, _l4_wsd = 0.0, 0
-            quality_score          += _l4_adj
+            quality_score          += self._wr_dampen(_l4_adj)  # v192.0-FIX: overconsensus dampener
             self._last_g85l4_wsd   = _l4_wsd
             _l4_pass = (_l4_wsd >= 0)
             self._gate_stats["gate_g85l4_wsd"]["pass" if _l4_pass else "fail"] += 1
@@ -17658,7 +17678,7 @@ class UnitySignalFilter:
                 _m4_adj, _m4_ofm = -1.5, -1
             else:
                 _m4_adj, _m4_ofm = 0.0, 0
-            quality_score          += _m4_adj
+            quality_score          += self._wr_dampen(_m4_adj)  # v192.0-FIX: overconsensus dampener
             self._last_g85m4_ofm   = _m4_ofm
             _m4_pass = (_m4_ofm >= 0)
             self._gate_stats["gate_g85m4_ofm"]["pass" if _m4_pass else "fail"] += 1
