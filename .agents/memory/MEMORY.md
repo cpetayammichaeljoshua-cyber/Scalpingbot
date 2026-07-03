@@ -1,3 +1,4 @@
+- [Unity Engine v182.0 analytics wiring fix](unity-engine-v182.md) — 12 gates (G8.5AM–AX, v165-v170) missing from _gate_stats init/_GATE_DISPLAY_LABELS/_SOFT_GATE_KEYS; pattern: version-block gap (v163→v171 skipped v165-v170)
 - [Unity Engine v181.0 upgrades](unity-engine-v181.md) — G8.5CORR +15 sentinels (v127 SVC + v169-v175 float family, now 80 total); G8.5V/G8.5sq/G8.5q dead-recording fixed; IRONS docstring+banner stale values corrected
 - [Unity Engine v180.0 upgrades](unity-engine-v180.md) — G2.5b/G2.5c dead-recording fix + G8.5CORR sentinel expansion (6 missing v119-v120 gates); anti-dead-recording wiring checklist
 - [Unity Engine v179.0 overconsensus dampener](unity-engine-v179.md) — G8.5CORR Wilson/√corr clawback across 59 chained Triple-X meta-gates; +debugging lesson: persisted gate_stats + session hard-blocks can make a brand-new live gate falsely look like a dead no-op right after deploy

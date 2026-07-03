@@ -1215,7 +1215,7 @@ gates look "alive" on dashboards while their actual filtering/scoring effect was
 references across all 36 blocks (lines 19182-20931), verified with a scoped diff (no other
 code touched) and a full `ast.parse` syntax check. This is very likely the primary reason
 live WR stayed ~29% despite v142-v177 "improvements" — none of that logic ever executed.
-[v178.0] | v181.0-MULTI-BUG-FIX: (1) G8.5CORR overconsensus dampener expanded: added 15 missing sentinels — _last_g85a5_svc (v127 SVC gate was absent from clawback since introduction) + 14 v169-v175 score-adjuster gates (GWFV/GDDV/GHRZ/GALP/GVLR/GRLB/GLTB/GCMS/GDSA/GEVL/GRDC/GXWI/GPEL/GLCV). All store float ±values; int() cast produces ±1/0 votes correctly. Dampener now covers 80 sentinels (was 65). (2) G8.5V VibePool _record inside try: if get_vibe_consensus raised an exception (model timeout, JSON parse error) the self._record("gate_vibe",...) was silently skipped → gate appeared as "0 evaluated" in analytics despite firing every signal. Fixed: _vibe_delta=0.0 initialized OUTSIDE the if-block; single self._record("gate_vibe", _vibe_delta>=0) called OUTSIDE the try/except. (3) G8.5sq StochasticQuant + G8.5q QuantDinger: both soft-quality-adjuster gates (±6pt/±3pt quality caps) had NO self._record(), NO _gate_stats init, NO _GATE_DISPLAY_LABELS, NO _SOFT_GATE_KEYS entry — completely invisible to gate analytics since introduction. Fixed: _sq_adj_outer/_q_adj safe-default vars outside try; self._record() after except; full _gate_stats+_gate_stats_recent+display+soft_keys wiring. (4) IRONS docstring (update_adaptive_irons) corrected from v147.0 stale values (base=75, WR<20%=78) to current v152.0 values (base=77, WR<18%=80, WR18-20%=79, WR<25%=78.5, WR30-45%=72). (5) Gate 10 boot banner: WR<20%→80 was wrong (that's WR<18% tier); fixed to WR18-20%→79|WR<18%→80 which matches the two-tier code. v180→v181 [v180.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
+[v181.0] | v182.0-ANALYTICS-WIRING-FIX: 12 gates from v165.0–v170.0 (G8.5AM/AN/AO/AP/AQ/AR/AS/AT/AU/AV/AW/AX) were missing from _gate_stats boot-time init, _GATE_DISPLAY_LABELS, and _SOFT_GATE_KEYS since introduction. Root cause: the v163.0 gate-stats block (gate_g85ak/al) was followed immediately by the v171.0 block — the v165-v170 batch was never inserted. Consequence: (1) gate_stats_summary() showed raw dict keys ("gate_g85am_ghtf") instead of short labels ("G8.5AM") because _GATE_DISPLAY_LABELS had no entry; (2) gate_bottleneck_str() classified all 12 as hard-gates (not in _SOFT_GATE_KEYS) — they appeared as #1-#3 fake bottlenecks at every evaluation, masking real tunable bottlenecks (G0/G4/G0.5); (3) boot-time gate_stats_summary was incomplete (missing 12 entries until first signal fired _record()'s setdefault fallback). Gates were recording correctly (setdefault guard in _record prevents crash) but analytics were corrupted. Fix: added 12 _gate_stats+_gate_stats_recent entries (v165-v170 block), 10 _GATE_DISPLAY_LABELS entries (AM–AV; AW/AX were already present), 10 _SOFT_GATE_KEYS entries (AM–AV; AW/AX already present). AST-verified. v181→v182 [v178.0] | v181.0-MULTI-BUG-FIX: (1) G8.5CORR overconsensus dampener expanded: added 15 missing sentinels — _last_g85a5_svc (v127 SVC gate was absent from clawback since introduction) + 14 v169-v175 score-adjuster gates (GWFV/GDDV/GHRZ/GALP/GVLR/GRLB/GLTB/GCMS/GDSA/GEVL/GRDC/GXWI/GPEL/GLCV). All store float ±values; int() cast produces ±1/0 votes correctly. Dampener now covers 80 sentinels (was 65). (2) G8.5V VibePool _record inside try: if get_vibe_consensus raised an exception (model timeout, JSON parse error) the self._record("gate_vibe",...) was silently skipped → gate appeared as "0 evaluated" in analytics despite firing every signal. Fixed: _vibe_delta=0.0 initialized OUTSIDE the if-block; single self._record("gate_vibe", _vibe_delta>=0) called OUTSIDE the try/except. (3) G8.5sq StochasticQuant + G8.5q QuantDinger: both soft-quality-adjuster gates (±6pt/±3pt quality caps) had NO self._record(), NO _gate_stats init, NO _GATE_DISPLAY_LABELS, NO _SOFT_GATE_KEYS entry — completely invisible to gate analytics since introduction. Fixed: _sq_adj_outer/_q_adj safe-default vars outside try; self._record() after except; full _gate_stats+_gate_stats_recent+display+soft_keys wiring. (4) IRONS docstring (update_adaptive_irons) corrected from v147.0 stale values (base=75, WR<20%=78) to current v152.0 values (base=77, WR<18%=80, WR18-20%=79, WR<25%=78.5, WR30-45%=72). (5) Gate 10 boot banner: WR<20%→80 was wrong (that's WR<18% tier); fixed to WR18-20%→79|WR<18%→80 which matches the two-tier code. v180→v181 [v180.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
 ~59-gate "3-vote Triple/Composite" meta-gate family (G8.5A3..G8.5Z5, v93.0-v143.0) chains
 earlier meta-gate OUTPUTS as inputs to later meta-gates, so the same few true-independent
 primitives (OFI/HMM/GEX/VPIN/funding/WR-trajectory) get re-scored dozens of times as if each
@@ -3059,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "181.0"
+UNITY_VERSION                = "182.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -6327,6 +6327,33 @@ class UnitySignalFilter:
         self._gate_stats_recent["gate_g85ak_gsdd"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats["gate_g85al_grex"]         = {"pass": 0, "fail": 0}  # v163.0: Recent-Symbol-Reuse (same sym within 8min→-2.5pt / 15min→-1.5pt)
         self._gate_stats_recent["gate_g85al_grex"]  = deque(maxlen=self._gate_stats_window_n)
+        # v165.0–v170.0 gate stats [v182.0-FIX: was missing since introduction — gates were recording
+        # via _record()'s setdefault fallback but invisible to boot-time gate_stats_summary(),
+        # mislabeled (raw key not short code) and misclassified as hard gates in bottleneck display]
+        self._gate_stats["gate_g85am_ghtf"]         = {"pass": 0, "fail": 0}  # v165.0: Hot/Cold Trend Flow Momentum (+1.5/-2.0pts)
+        self._gate_stats_recent["gate_g85am_ghtf"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85an_gmap"]         = {"pass": 0, "fail": 0}  # v165.0: Momentum Anti-Pattern RSI Gap-Fill (-1.5pts)
+        self._gate_stats_recent["gate_g85an_gmap"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85ao_gcal2"]        = {"pass": 0, "fail": 0}  # v166.0: LLM-Checker Overconf Anti-Signal (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85ao_gcal2"] = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85ap_glen"]         = {"pass": 0, "fail": 0}  # v166.0: LoopEng Maker→Checker Coherence (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85ap_glen"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85aq_grsl"]         = {"pass": 0, "fail": 0}  # v167.0: LoopEng PnL Linreg Slope (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85aq_grsl"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85ar_gevap"]        = {"pass": 0, "fail": 0}  # v167.0: ExtThink EV-Velocity (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85ar_gevap"] = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85as_gfrd"]         = {"pass": 0, "fail": 0}  # v168.0: XML Funding-Rate Crowding Direction (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85as_gfrd"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85at_gord"]         = {"pass": 0, "fail": 0}  # v168.0: WI OFI-Checker Direction (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85at_gord"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85au_gwfv"]         = {"pass": 0, "fail": 0}  # v169.0: PromptRefinement WFV Gap (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85au_gwfv"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85av_gddv"]         = {"pass": 0, "fail": 0}  # v169.0: ExtThink DD-Velocity (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85av_gddv"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85aw_ghrz"]         = {"pass": 0, "fail": 0}  # v170.0: Hour-Regime-Zero dead-zone (-2.0/-1.5pts)
+        self._gate_stats_recent["gate_g85aw_ghrz"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85ax_galp"]         = {"pass": 0, "fail": 0}  # v170.0: Alpha-Session-Convergence-Plus (+1.5/+1.0pts)
+        self._gate_stats_recent["gate_g85ax_galp"]  = deque(maxlen=self._gate_stats_window_n)
         # v171.0 gate stats
         self._gate_stats["gate_g85ay_gvlr"]         = {"pass": 0, "fail": 0}  # v171.0: VPIN-Ultra-Low-Regime (+1.5/+1.0/-2.0pts)
         self._gate_stats_recent["gate_g85ay_gvlr"]  = deque(maxlen=self._gate_stats_window_n)
@@ -22099,6 +22126,17 @@ class UnitySignalFilter:
             "gate_g85aj_gbatch":      "G8.5AJ",  # v161.0: Batch Size Gate (batch5/7→+2.5pt / batch4/9/10→-3.0pt)
             "gate_g85ak_gsdd":        "G8.5AK",  # v163.0: Same-Direction-Drawdown (2×same-dir+WR<30%→-1.5pt / 3×same-dir→-2.5pt)
             "gate_g85al_grex":        "G8.5AL",  # v163.0: Recent-Symbol-Reuse (<8min→-2.5pt / <15min→-1.5pt)
+            # v165.0–v169.0 labels [v182.0-FIX: was missing, gate_stats_summary showed raw key names]
+            "gate_g85am_ghtf":        "G8.5AM",  # v165.0: Hot/Cold Trend Flow Momentum (+1.5/-2.0pts sequential pnl_ring)
+            "gate_g85an_gmap":        "G8.5AN",  # v165.0: Momentum Anti-Pattern RSI Gap-Fill (-1.5pts LONG@RSI68-72+WR<30%)
+            "gate_g85ao_gcal2":       "G8.5AO",  # v166.0: LLM-Checker Overconf Anti-Signal (-2.0/-1.5pts conf≥82+WR<30%)
+            "gate_g85ap_glen":        "G8.5AP",  # v166.0: LoopEng Maker→Checker Coherence (-2.0/-1.5pts loop_coh<0.34+WR<30%)
+            "gate_g85aq_grsl":        "G8.5AQ",  # v167.0: LoopEng PnL Linreg Slope (-2.0/-1.5pts pnl_slope<-0.003+WR<30%)
+            "gate_g85ar_gevap":       "G8.5AR",  # v167.0: ExtThink EV-Velocity (-2.0/-1.5pts ev_ring_r5<0+WR<30%)
+            "gate_g85as_gfrd":        "G8.5AS",  # v168.0: XML Funding-Rate Crowding Direction (-2.0/-1.5pts funding>0.05%+LONG)
+            "gate_g85at_gord":        "G8.5AT",  # v168.0: WI OFI-Checker Direction (-2.0/-1.5pts ofi_z<-2.5+LONG)
+            "gate_g85au_gwfv":        "G8.5AU",  # v169.0: PromptRefinement WFV Gap (-2.0/-1.5pts CPCV<0.47+WR<30%)
+            "gate_g85av_gddv":        "G8.5AV",  # v169.0: ExtThink DD-Velocity (-2.0/-1.5pts quality_slope<-0.05+WR<30%)
             "gate_g85aw_ghrz":        "G8.5AW",  # v170.0: Hour-Regime-Zero dead-zone (00h/19h+WR<30%→-2.0pt / structural→-1.5pt)
             "gate_g85ax_galp":        "G8.5AX",  # v170.0: Alpha-Session-Convergence-Plus peak (06-09h+WR≥32%→+1.5pt / recovery→+1.0pt)
             "gate_g85ay_gvlr":        "G8.5AY",  # v171.0: VPIN-Ultra-Low-Regime Bonus (VPIN<0.05+OFI→+1.5pt / VPIN>0.65+crisis→-2.0pt)
@@ -22276,6 +22314,17 @@ class UnitySignalFilter:
             "gate_g85aj_gbatch",       # Batch Size Gate +2.5/-3.0pt score adjuster — cannot block a signal [v161.0]
             "gate_g85ak_gsdd",         # Same-Direction-Drawdown -2.5/-1.5pt score adjuster — cannot block a signal [v163.0]
             "gate_g85al_grex",         # Recent-Symbol-Reuse -2.5/-1.5pt score adjuster — cannot block a signal [v163.0]
+            # v165.0–v169.0 soft-gate keys [v182.0-FIX: was missing → appeared as fake hard gates in bottleneck HUD]
+            "gate_g85am_ghtf",         # Hot/Cold Trend Flow +1.5/-2.0pt score adjuster — cannot block a signal [v165.0]
+            "gate_g85an_gmap",         # Momentum Anti-Pattern RSI Gap -1.5pt score adjuster — cannot block a signal [v165.0]
+            "gate_g85ao_gcal2",        # LLM-Checker Overconf -2.0/-1.5pt score adjuster — cannot block a signal [v166.0]
+            "gate_g85ap_glen",         # LoopEng Maker→Checker Coherence -2.0/-1.5pt score adjuster — cannot block a signal [v166.0]
+            "gate_g85aq_grsl",         # LoopEng PnL Slope -2.0/-1.5pt score adjuster — cannot block a signal [v167.0]
+            "gate_g85ar_gevap",        # ExtThink EV-Velocity -2.0/-1.5pt score adjuster — cannot block a signal [v167.0]
+            "gate_g85as_gfrd",         # XML Funding-Rate Crowding -2.0/-1.5pt score adjuster — cannot block a signal [v168.0]
+            "gate_g85at_gord",         # WI OFI-Checker -2.0/-1.5pt score adjuster — cannot block a signal [v168.0]
+            "gate_g85au_gwfv",         # WFV Gap -2.0/-1.5pt score adjuster — cannot block a signal [v169.0]
+            "gate_g85av_gddv",         # ExtThink DD-Velocity -2.0/-1.5pt score adjuster — cannot block a signal [v169.0]
             "gate_g85aw_ghrz",         # Hour-Regime-Zero dead-zone -2.0/-1.5pt score adjuster — cannot block a signal [v170.0]
             "gate_g85ax_galp",         # Alpha-Session-Convergence-Plus +1.5/+1.0pt score adjuster — cannot block a signal [v170.0]
             "gate_g85ay_gvlr",         # VPIN-Ultra-Low-Regime +1.5/+1.0/-2.0pt adjuster — cannot block a signal [v171.0]
