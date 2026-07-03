@@ -3433,6 +3433,14 @@ class MiroFishSwarmStrategy:
                              if len(closes) >= 5 and closes[-5] != 0 else 0.0)
                 _atr_5a = atr / cur_price * 100 if atr and cur_price > 0 else 0.5
 
+                # v177.1 OVERSCORING FIX: removed "n_contrary==0 and n_active>=7 → +1.5"
+                # term — this double-counted the exact same evidence already rewarded
+                # by the standalone "Unanimous consensus bonus" (+4.0pts, applied a few
+                # lines above via weighted_conf) and by participation_bonus (which
+                # scales continuously with n_active). n_contrary is guaranteed to be
+                # 0 or 1 here (anything >=2 already returned None upstream), so this
+                # branch was re-scoring the same unanimity signal for the second time
+                # through a separate additive path feeding into `confidence`.
                 _agg_score = 0.0
                 if abs(_mom_4bar) > 0.3:
                     _mom_aligned = (
@@ -3442,10 +3450,13 @@ class MiroFishSwarmStrategy:
                     _agg_score += 2.0 if _mom_aligned else -1.0
                 if consensus >= 0.90:
                     _agg_score += 1.5
-                if n_contrary == 0 and n_active >= 7:
-                    _agg_score += 1.5
                 _agg_score = max(-3.0, min(_agg_score, 4.0))
 
+                # v177.1 DEAD-CODE FIX: n_contrary can only be 0 or 1 at this point
+                # (n_contrary>=2 already rejected upstream at the CONSENSUS GATE) —
+                # "n_contrary >= 3" could never fire. Replaced with the actually
+                # reachable 1-dissenter case so the conservative penalty means
+                # something real instead of silently no-op-ing forever.
                 _con_score = 0.0
                 if action == "BUY" and _rsi_5a > 68:
                     _con_score -= 2.5
@@ -3453,16 +3464,18 @@ class MiroFishSwarmStrategy:
                     _con_score -= 2.5
                 if _atr_5a > 2.0:
                     _con_score -= 1.5
-                if n_contrary >= 3:
+                if n_contrary >= 1:
                     _con_score -= 1.5
                 _con_score = max(-4.0, min(_con_score, 1.0))
 
+                # v177.1: n_contrary<=2 was always true here (max reachable is 1) —
+                # narrowed to the real reachable value so the condition isn't a no-op.
                 _neu_score = 0.0
                 if 40 < _rsi_5a < 60:
                     _neu_score += 0.5
                 if 0.5 < _atr_5a < 1.5:
                     _neu_score += 0.5
-                if consensus >= 0.80 and n_contrary <= 2:
+                if consensus >= 0.80 and n_contrary == 0:
                     _neu_score += 1.0
                 _neu_score = max(-1.0, min(_neu_score, 2.0))
 

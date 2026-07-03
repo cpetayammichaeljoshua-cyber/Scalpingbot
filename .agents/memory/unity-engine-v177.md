@@ -36,6 +36,33 @@ gate is a strong overscoring candidate — apply a Wilson/Beta-binomial lower
 bound rather than tightening MIN_OBS or the raw threshold (tightening MIN_OBS
 just delays the same failure to a slightly larger unlucky streak).
 
+## Swarm consensus double-counting + dead code (v177.1)
+
+`mirofish_swarm_strategy.py`'s risk-debate block (`_agg_score`) awarded +1.5
+for `n_contrary==0 and n_active>=7`, but that exact condition (unanimous
+agreement + high participation) was already rewarded a few lines earlier by
+the standalone "Unanimous consensus bonus" (+4.0pts) and continuously by
+`participation_bonus`. Same evidence scored twice via two separate additive
+paths into `confidence`. Removed the redundant term from `_agg_score`.
+
+Also found dead code in the same block: `_con_score -= 1.5 if n_contrary >= 3`
+can never fire — `n_contrary` is capped at 1 by that point in the function
+(anything ≥2 already returns `None` earlier at the CONSENSUS GATE). Fixed to
+check the actually-reachable `n_contrary >= 1`. Same issue in `_neu_score`'s
+`n_contrary <= 2` (always true given the ≤1 ceiling) → narrowed to `== 0`.
+
+**Why:** multi-stage scoring pipelines (consensus → confidence bonus → risk
+debate → final delta) are prone to re-scoring the same upstream fact in a
+later stage that doesn't know it was already counted. Any time a later stage
+re-derives a condition already gated/rewarded earlier in the same function,
+check whether it's re-litigating already-consumed evidence.
+
+**How to apply:** when auditing scoring pipelines, trace each condition back
+to see if an earlier gate/bonus in the same call chain already consumed that
+exact fact — and separately, check whether earlier `return`/rejection paths
+make some later comparison thresholds physically unreachable (dead code that
+silently looks like a safety check but never fires).
+
 ## healthz Dead-Man's Switch (v176.0, undocumented until now)
 
 `/healthz`'s DMS latency threshold was hard-coded at 500ms — far below a real
