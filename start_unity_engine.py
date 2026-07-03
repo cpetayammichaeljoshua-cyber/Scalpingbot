@@ -1,8 +1,35 @@
 #!/usr/bin/env python3
 """
-Unity Engine v191.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v192.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 168-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ v192.0 improvements [2026-07-03]:
+   Power-mode bug hunt (multiparallel scan): 6 dead-recording fixes + overconsensus dampener
+   extension to 20+ triple-consensus meta-gates (A3–S3 + K4/L4/M4 family).
+   1. G8.5B4 RollingWR-Momentum-Sentinel — cold-start else branch (ring < 8 samples) had NO
+      _record() call at all → gate was invisible to /gates analytics for every cold-start signal
+      (typically first ~8 signals after boot). Fixed: added self._record("gate_g85b4_rws", True)
+      to the else branch AND to the except handler (exception path also lacked a record).
+   2. G8.5W5 WNZWinsorGuard (v142.0) — _record() was inside try/except (v190.0 mass-fix missed
+      this gate; v190 sweep covered gates 37-87 and 138-144, not the v142-v143 5-series block).
+      Fixed: except Exception block now calls self._record("gate_g85w5_wnz", True) — neutral on
+      any computation error so the gate is always visible to analytics regardless of data quality.
+   3. G8.5X5 ADFStationarity (v142.0) — same v190 miss pattern as W5. Fixed identically.
+   4. G8.5Y5 PCOFLOAMOrthogonality (v143.0) — same v190 miss pattern. Fixed identically.
+   5. G8.5Z5 ICSFLOAMIRGate (v143.0) — same v190 miss pattern. Fixed identically.
+   6. G8.5CORR FamilyCorrDampener (v179.0) — same v190 miss pattern. Fixed identically.
+      Root cause of all 5: the v190.0 automated sweep targeted gates v60-v143 class range (A-U2,
+      V2-Z2, A3-A4, AA-AL) but the 5-series block (W5/X5/Y5/Z5, v142-v143) and CORR (v179)
+      were added to the non-fatal soft-gate except-pass pattern AFTER that sweep. Pattern to
+      apply when auditing: cross-check every `except Exception: pass` block against whether the
+      associated _record() appears BEFORE that except in the same try block — if yes, it's the
+      v178/v190 dead-recording pattern.
+   7. Overconsensus dampener (_wr_dampen) extended to 20+ triple-consensus meta-gate positive
+      bonus paths (G8.5A3–G8.5S3 triple families, G8.5K4/L4/M4 OFI micro-triple family):
+      all raw "N-of-M agree" positive adjustments now WR-smoothed identical to v191.0's G8.5U
+      and G8.5N4 fix. Negative veto paths kept at full strength (confirmed edge).
+   Walk-forward/CPCV audit (no changes needed): temporal splits, embargo min(5,n//8), and
+   normalization fit on training-only confirmed intact. CPCV K=3 floor/gap thresholds coherent.
  v191.0 improvements [2026-07-03]:
    Power-mode bug hunt (multiparallel scan): overscoring/overconsensus/overconfidence sweep +
    2 more dead-gate fixes found post-v190.0 mass fix.
@@ -3098,7 +3125,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "191.0"
+UNITY_VERSION                = "192.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -16915,8 +16942,9 @@ class UnitySignalFilter:
                 self._record("gate_g85b4_rws", _b4_fired)
             else:
                 self._last_g85b4_rws = 0  # cold-start neutral
+                self._record("gate_g85b4_rws", True)  # v192.0-FIX: cold-start else branch had no _record → invisible to analytics; neutral = pass
         except Exception:
-            pass  # G8.5B4 RollingWR-Momentum-Sentinel is non-fatal soft-gate
+            self._record("gate_g85b4_rws", True)  # v192.0-FIX: exception path also lacked _record → neutral on error
 
         # ── Gate G8.5C4 — AdaptiveEV-Persistence Sentinel (v116.0) ─────────────────
         # Zero-API sentinel: uses the booster _ev_ring (deque maxlen=20) which stores
@@ -19475,7 +19503,7 @@ class UnitySignalFilter:
                 )
             quality_score += _w5_adj
         except Exception:
-            pass  # G8.5W5 WNZ Winsorization-Guard is non-fatal soft-gate
+            self._record("gate_g85w5_wnz", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
         # ── Gate 8.5X5 — ADF Stationarity-Proxy OU-Validity Gate [v142.0] ────────
         # From the StatArb framework: before trusting the OU-process mean-reversion
@@ -19544,7 +19572,7 @@ class UnitySignalFilter:
                 )
             quality_score += _x5_adj
         except Exception:
-            pass  # G8.5X5 ADF Stationarity-Guard is non-fatal soft-gate
+            self._record("gate_g85x5_adf", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
         # ── Gate 8.5Y5 — PCO PCA-Cross-Signal-Orthogonality Gate [v143.0] ─────────
         # From FLOAM (Fundamental Law of Active Management) Step 4: Collinearity Deflation.
@@ -19618,7 +19646,7 @@ class UnitySignalFilter:
                 )
             quality_score += _y5_adj
         except Exception:
-            pass  # G8.5Y5 PCO Signal-Orthogonality is non-fatal soft-gate
+            self._record("gate_g85y5_pco", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
         # ── Gate 8.5Z5 — ICS Information-Coefficient-Sharpe FLOAM-IR Gate [v143.0] ─
         # From FLOAM: IR = IC × √BR. Measures actual signal quality via IC proxy (rolling
@@ -19672,7 +19700,7 @@ class UnitySignalFilter:
                 )
             quality_score += _z5_adj
         except Exception:
-            pass  # G8.5Z5 ICS Information-Coefficient-Sharpe is non-fatal soft-gate
+            self._record("gate_g85z5_ics", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
         # ── G8.5CORR — Triple-X Family Correlation Dampener (v179.0) ────────
         # CRITICAL OVERCONSENSUS FIX: ~59 "3-vote Triple/Composite" meta-gates
@@ -19783,7 +19811,7 @@ class UnitySignalFilter:
                     f"fair={_corr_fair_total:+.2f} clawback={_corr_adj:+.2f}pts"
                 )
         except Exception:
-            pass  # G8.5CORR Family Correlation Dampener is non-fatal soft-gate
+            self._record("gate_g85corr_fcd", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
         # ── G8.5AA — CWD: Confidence-WR Divergence Penalty (v157.0) ─────────
         # Zero-API soft-gate targeting the #1 confirmed anti-signal from live trade

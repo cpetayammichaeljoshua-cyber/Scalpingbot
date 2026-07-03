@@ -1,3 +1,4 @@
+- [Unity Engine v192.0 dead-gate fix + dampener extension](unity-engine-v192.md) — v190 sweep missed v142-v179 soft-gate block (W5/X5/Y5/Z5/CORR + B4 cold-start); _wr_dampen extended to 20+ triple-consensus paths
 - [Unity Engine v191.0 power-mode bug hunt](unity-engine-v191.md) — 2 gates (G8.5k/G8.5r) had zero analytics wiring since creation (distinct from v178/v190 pattern); overconsensus dampener extended to G8.5U+G8.5N4
 - [Unity Engine v190.0 dead-gate mass fix](unity-engine-v190.md) — 95 gates had _record() inside try/except (v178 pattern); mass fix + Markov sentinel + G8.5AA-AD unbound vars + GDOW double-record
 - [Unity Engine v189.0 GEX overconfidence dampener](unity-engine-v189.md) — G7 all 6 bonus paths WR-smoothed (×0.70-1.0 ramp 25%→40%); NEUTRAL/UNKNOWN +3.75→0; NaN-safe WR parse
