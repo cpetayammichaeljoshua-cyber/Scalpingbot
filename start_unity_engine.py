@@ -3041,7 +3041,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "175.0"
+UNITY_VERSION                = "176.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -28327,11 +28327,18 @@ class UnityEngine:
         # ── v8.0 Omega-Tier: Dead-Man's Switch scan-cycle latency tracker ────
         # Each scan cycle records its wall-clock duration (ns).  The Dead-Man's
         # Switch fires if: (a) the cycle age exceeds WATCHDOG_STALL_SECONDS, OR
-        # (b) the rolling average latency exceeds _DMS_LATENCY_WARN_MS (500 ms).
+        # (b) the rolling average latency exceeds _DMS_LATENCY_WARN_MS (90000 ms).
         # The /healthz endpoint exposes both checks; Railway's health-check probe
         # automatically restarts the container when /healthz returns 503.
+        # v176.0 BUG FIX: threshold was 500ms — unreachable for a real cycle
+        # (80+ symbol parallel scan + LLM consortium consensus calls average
+        # ~10s/cycle even when healthy), so /healthz was permanently reporting
+        # latency_breach=True/503 post-boot, matching the same false-positive
+        # restart-loop class previously fixed for WATCHDOG_STALL_SECONDS
+        # (15min->30min). Raised to 90s: generous enough to absorb legitimate
+        # LLM/API slowness while still catching genuine runaway-latency deadlocks.
         self._cycle_latency_ns_ring: deque = deque(maxlen=30)  # last 30 cycles
-        self._DMS_LATENCY_WARN_MS:   float  = 500.0            # flag if avg > 500 ms
+        self._DMS_LATENCY_WARN_MS:   float  = 90000.0          # flag if avg > 90s
 
         # ── v8.0: WebSocket live orderbook state ─────────────────────────────
         # Populated by _ws_orderbook_task; keyed by symbol, value = dict with
@@ -33535,12 +33542,12 @@ class UnityEngine:
                 Returns 200 if ALL of the following hold:
                   • At least one layer online
                   • Scan-cycle heartbeat updated within WATCHDOG_STALL_SECONDS
-                  • Rolling average scan-cycle latency < _DMS_LATENCY_WARN_MS (500 ms)
+                  • Rolling average scan-cycle latency < _DMS_LATENCY_WARN_MS (90000 ms)
 
                 Returns 503 otherwise — Railway's health-check probe will restart
                 the container after 3 consecutive 503s (per Dockerfile HEALTHCHECK).
 
-                v8.0 Omega-Tier: adds Dead-Man's Switch latency check (500 ms gate)
+                v8.0 Omega-Tier: adds Dead-Man's Switch latency check (90000 ms gate)
                 to catch runaway-slow cycles before the full stall threshold fires.
                 """
                 try:

@@ -203,7 +203,7 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8080
 
 # ── Fault-tolerance: HEALTHCHECK ──────────────────────────────────────────────
-# /healthz -> 200 if layers online + scan not stalled + avg latency < 500ms
+# /healthz -> 200 if layers online + scan not stalled + avg latency < 90000ms
 HEALTHCHECK --interval=60s --timeout=15s --start-period=120s --retries=3 \
     CMD curl -sf http://localhost:${PORT:-8080}/healthz || exit 1
 
