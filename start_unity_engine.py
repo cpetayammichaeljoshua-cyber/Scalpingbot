@@ -1215,7 +1215,7 @@ gates look "alive" on dashboards while their actual filtering/scoring effect was
 references across all 36 blocks (lines 19182-20931), verified with a scoped diff (no other
 code touched) and a full `ast.parse` syntax check. This is very likely the primary reason
 live WR stayed ~29% despite v142-v177 "improvements" — none of that logic ever executed.
-[v178.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
+[v178.0] | v181.0-MULTI-BUG-FIX: (1) G8.5CORR overconsensus dampener expanded: added 15 missing sentinels — _last_g85a5_svc (v127 SVC gate was absent from clawback since introduction) + 14 v169-v175 score-adjuster gates (GWFV/GDDV/GHRZ/GALP/GVLR/GRLB/GLTB/GCMS/GDSA/GEVL/GRDC/GXWI/GPEL/GLCV). All store float ±values; int() cast produces ±1/0 votes correctly. Dampener now covers 80 sentinels (was 65). (2) G8.5V VibePool _record inside try: if get_vibe_consensus raised an exception (model timeout, JSON parse error) the self._record("gate_vibe",...) was silently skipped → gate appeared as "0 evaluated" in analytics despite firing every signal. Fixed: _vibe_delta=0.0 initialized OUTSIDE the if-block; single self._record("gate_vibe", _vibe_delta>=0) called OUTSIDE the try/except. (3) G8.5sq StochasticQuant + G8.5q QuantDinger: both soft-quality-adjuster gates (±6pt/±3pt quality caps) had NO self._record(), NO _gate_stats init, NO _GATE_DISPLAY_LABELS, NO _SOFT_GATE_KEYS entry — completely invisible to gate analytics since introduction. Fixed: _sq_adj_outer/_q_adj safe-default vars outside try; self._record() after except; full _gate_stats+_gate_stats_recent+display+soft_keys wiring. (4) IRONS docstring (update_adaptive_irons) corrected from v147.0 stale values (base=75, WR<20%=78) to current v152.0 values (base=77, WR<18%=80, WR18-20%=79, WR<25%=78.5, WR30-45%=72). (5) Gate 10 boot banner: WR<20%→80 was wrong (that's WR<18% tier); fixed to WR18-20%→79|WR<18%→80 which matches the two-tier code. v180→v181 [v180.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
 ~59-gate "3-vote Triple/Composite" meta-gate family (G8.5A3..G8.5Z5, v93.0-v143.0) chains
 earlier meta-gate OUTPUTS as inputs to later meta-gates, so the same few true-independent
 primitives (OFI/HMM/GEX/VPIN/funding/WR-trajectory) get re-scored dozens of times as if each
@@ -3059,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "180.0"
+UNITY_VERSION                = "181.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -5976,6 +5976,8 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85u"] = {"pass": 0, "fail": 0}
         self._gate_stats["gate_g85p"] = {"pass": 0, "fail": 0}  # v60.0: BTC cross-pair momentum alignment
         self._gate_stats["gate_g85r"] = {"pass": 0, "fail": 0}  # v62.0: HMM-GEX regime coherence
+        self._gate_stats["gate_g85q"] = {"pass": 0, "fail": 0}  # v181.0: QuantDinger momentum-volume coherence (G8.5q, ±2.5/-2.5pt cap ±3pt)
+        self._gate_stats["gate_g85sq"] = {"pass": 0, "fail": 0}  # v181.0: StochasticQuant OU/Heston/Kalman/Jump quality gate (cap ±6pt)
         self._gate_stats["gate_g85s"] = {"pass": 0, "fail": 0}  # v63.0: bid-ask spread stress
         self._gate_stats["gate_g85z"] = {"pass": 0, "fail": 0}  # v64.0: return autocorrelation persistence
         self._gate_stats["gate_g85y"] = {"pass": 0, "fail": 0}  # v65.0: ATR volatility compression/expansion
@@ -5984,8 +5986,10 @@ class UnitySignalFilter:
         self._gate_stats["gate_g85c"] = {"pass": 0, "fail": 0}  # v73.0: Regime-Coherence dual HMM+GEX confirm (±2.0pts)
         self._gate_stats_recent["gate_g85u"] = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85p"] = deque(maxlen=self._gate_stats_window_n)  # v60.0
-        self._gate_stats_recent["gate_g85r"] = deque(maxlen=self._gate_stats_window_n)  # v62.0
-        self._gate_stats_recent["gate_g85s"] = deque(maxlen=self._gate_stats_window_n)  # v63.0
+        self._gate_stats_recent["gate_g85r"]  = deque(maxlen=self._gate_stats_window_n)  # v62.0
+        self._gate_stats_recent["gate_g85q"]  = deque(maxlen=self._gate_stats_window_n)  # v181.0: QuantDinger
+        self._gate_stats_recent["gate_g85sq"] = deque(maxlen=self._gate_stats_window_n)  # v181.0: StochasticQuant
+        self._gate_stats_recent["gate_g85s"]  = deque(maxlen=self._gate_stats_window_n)  # v63.0
         self._gate_stats_recent["gate_g85z"] = deque(maxlen=self._gate_stats_window_n)  # v64.0
         self._gate_stats_recent["gate_g85y"] = deque(maxlen=self._gate_stats_window_n)  # v65.0
         self._gate_stats_recent["gate_g85a"] = deque(maxlen=self._gate_stats_window_n)  # v68.0
@@ -6804,13 +6808,14 @@ class UnitySignalFilter:
         """v6.3/v8.1: Adjust IRONS minimum threshold based on running win rate.
 
         Schedule: called by the engine each time an outcome is recorded.
-        WR < 20%  → raise to IRONS_MIN_WR_BELOW30+3  (78) — ultra-critical crisis tier [v147.0: 75+3=78]
-        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (76.5) — deep-crisis tier [v147.0: 75+1.5=76.5]
-        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (75) — elevated floor [v147.0: 73→75]
-        WR 30-45% → raise to IRONS_MIN_WR_30_45      (71) — near-co-equal with SIGNAL_MIN_QUALITY_GATE=72 [v147.0: 69→71]
+        WR < 18%  → raise to IRONS_MIN_WR_BELOW30+3  (80) — ultra-critical crisis tier [v181.0: 77+3=80]
+        WR 18-20% → raise to IRONS_MIN_WR_BELOW30+2  (79) — severe crisis tier [v181.0: 77+2=79]
+        WR < 25%  → raise to IRONS_MIN_WR_BELOW30+1.5 (78.5) — deep-crisis tier [v152.0: 77+1.5=78.5]
+        WR < 30%  → raise to IRONS_MIN_WR_BELOW30    (77) — elevated floor [v152.0: 75→77]
+        WR 30-45% → raise to IRONS_MIN_WR_30_45      (72) — moderate floor [v152.0: 71→72]
         WR 45-55% → base   IRONS_MIN_WR_45_55        (53) — neutral
         WR > 55%  → relax  IRONS_MIN_WR_ABOVE55      (48) — capitalise good form
-        Rationale: G9 floor=72, G10 floor=75 at WR<30% → genuine two-tier quality wall [v147.0].
+        Rationale: G9 floor=72, G10 floor=77 at WR<30% → genuine two-tier quality wall [v152.0].
         SOVEREIGN_RECOVERY path requires IRONS≥77, matching IRONS_MIN_WR_BELOW30 [v153.0: 75→77].
         NOTE v149.0: persistence load sites now enforce max(loaded, IRONS_MIN_WR_BELOW30) so
         parameter raises take effect immediately on restart (previously stale saved values
@@ -12891,6 +12896,7 @@ class UnitySignalFilter:
         #     jump_prob_1d > 5% → -1.0pts (moderate gap risk)
         #   Net adjustment capped ±6.0pts to prevent stochastic gate dominating.
         #   Gate skips silently when cache not yet warm (cold-start safe).
+        _sq_adj_outer = 0.0  # v181.0: safe default — guarantees self._record fires every cycle for G8.5sq
         _sq_ref = getattr(self, "_stochastic_quant", None)
         if symbol and _sq_ref is not None:
             try:
@@ -12970,6 +12976,7 @@ class UnitySignalFilter:
 
                     # ── Cap ±6pts and apply ─────────────────────────────────
                     _sq_adj = max(-6.0, min(6.0, _sq_adj))
+                    _sq_adj_outer = _sq_adj  # v181.0: lift into outer scope for _record
                     if _sq_adj != 0.0:
                         quality_score += _sq_adj
                         self._logger.info(
@@ -12980,6 +12987,7 @@ class UnitySignalFilter:
                         )
             except Exception:
                 pass
+            self._record("gate_g85sq", _sq_adj_outer >= 0.0)  # v181.0: always fires; negative net adj=fail
 
         # ── Gate 8.5q — QuantDinger Momentum-Volume Coherence (v21.2) ───────
         # Inspired by QuantDinger/TauricResearch momentum quality framework:
@@ -12997,6 +13005,7 @@ class UnitySignalFilter:
         #   vol_ratio ≤ 0.7 + RSI counter-directional:          −2.5pts (false breakout risk)
         #   RSI counter-directional (any vol):                   −1.5pts (fighting momentum)
         # Cap: ±3pts. Fires only when vol_ratio > 0.05 (data present check).
+        _q_adj = 0.0  # v181.0: safe default outside try — guarantees self._record fires every cycle
         try:
             _q_data      = signal_data if isinstance(signal_data, dict) else {}
             _q_vol_ratio = float(_q_data.get("volume_ratio",   _q_data.get("vol_ratio",  0.0)) or 0.0)
@@ -13041,6 +13050,7 @@ class UnitySignalFilter:
                     )
         except Exception:
             pass
+        self._record("gate_g85q", _q_adj >= 0.0)  # v181.0: always fires; default 0.0=pass, negative penalty=fail
 
         # ── Gate 8.5r — FinRobot/ValueCell Funding Rate Alignment (v21.3) ─────
         # Inspired by AI4Finance-Foundation/FinRobot funding regime intelligence
@@ -19512,6 +19522,16 @@ class UnitySignalFilter:
                 # v180.0: add missing v119-v120 composite gates omitted from original dampener list
                 "_last_g85h4_tpe", "_last_g85i4_dgc", "_last_g85j4_tfms",
                 "_last_g85l4_wsd", "_last_g85m4_ofm", "_last_g85n4_tfc",
+                # v181.0: add missing v127 SVC gate + v169-v175 score-adjuster family (15 sentinels)
+                # All store float (+/-/0); int() cast converts correctly to ±1/0 vote.
+                "_last_g85a5_svc",                                                  # v127.0 SVC Sharpe-Velocity-Confluence
+                "_last_g85au_gwfv", "_last_g85av_gddv",                            # v169.0 GWFV/GDDV
+                "_last_g85aw_ghrz", "_last_g85ax_galp",                            # v170.0 GHRZ/GALP
+                "_last_g85ay_gvlr", "_last_g85az_grlb",                            # v171.0 GVLR/GRLB
+                "_last_g85ba_gltb", "_last_g85bb_gcms",                            # v172.0 GLTB/GCMS
+                "_last_g85bc_gdsa", "_last_g85bd_gevl",                            # v173.0 GDSA/GEVL
+                "_last_g85be_grdc", "_last_g85bf_gxwi",                            # v174.0 GRDC/GXWI
+                "_last_g85bg_gpel", "_last_g85bh_glcv",                            # v175.0 GPEL/GLCV
             )
             _corr_votes = []
             for _attr in _corr_sentinels:
@@ -21197,6 +21217,7 @@ class UnitySignalFilter:
         # Weights: Trend=0.30, Flow=0.40 (most actionable for futures), Macro=0.30.
         # Never hard-vetos — soft quality modifier only.  Fail-safe by design.
         _vibe_sov_flag = False   # v18.42: VibePool SOVEREIGN flag for ISB convergence
+        _vibe_delta = 0.0   # v181.0: safe default outside if-block — guarantees self._record fires every cycle
         if symbol and direction and self._vibe_pool is not None:
             try:
                 _vibe_delta, _vibe_reason = self._vibe_pool.evaluate(
@@ -21212,11 +21233,9 @@ class UnitySignalFilter:
                     _vibe_log(f"🤖 [{symbol}] {_vibe_reason}")
                     if _vibe_delta >= VibeAgentPool.VIBE_SOVEREIGN_PTS:
                         _vibe_sov_flag = True   # v18.42: flag for Intelligence Singularity Bonus
-                    self._record("gate_vibe", _vibe_delta > 0)
-                else:
-                    self._record("gate_vibe", True)   # neutral = pass-through
             except Exception as _vibe_exc:
                 self._logger.debug(f"[VibePool G8.5V] non-fatal: {_vibe_exc}")
+            self._record("gate_vibe", _vibe_delta >= 0)  # v181.0: always fires; default 0.0=pass, negative=fail
         # v18.42: Intelligence Singularity Bonus (ISB)
         # When Markov SOVEREIGN (p_ij≥0.87) AND VibePool SOVEREIGN (consensus≥0.60)
         # both confirm the same signal direction, apply +3pts ISB bonus.
@@ -21958,6 +21977,8 @@ class UnitySignalFilter:
         "gate_g85u":      "G8.5U",  # v68.0: MomentumConsensus 5-gate meta-gate (±3.5pts)
         "gate_g85p":      "G8.5P",  # v60.0: BTC cross-pair momentum alignment (±1.5pts)
         "gate_g85r":      "G8.5R",  # v62.0: HMM-GEX regime coherence joint confirmation (±1.5pts)
+        "gate_g85q":      "G8.5q-QD",   # v181.0: QuantDinger momentum-volume coherence (±2.5/-2.5pts)
+        "gate_g85sq":     "G8.5sq",     # v181.0: StochasticQuant OU/Heston/Kalman/Jump (cap ±6pts)
         "gate_g85s":      "G8.5S",  # v63.0: bid-ask spread stress (−2pts acute / −1pt elevated)
         "gate_g85z":      "G8.5Z",  # v64.0: return autocorrelation persistence (±2.0pts trending/mean-rev)
         "gate_g85y":      "G8.5Y",  # v65.0: ATR volatility compression/expansion (±2.0pts/-1.5pts)
@@ -22151,6 +22172,8 @@ class UnitySignalFilter:
             "gate_g85n2_fmp",   # FundingMomentum-Persistence ±2.0/+1.5pt adjuster — cannot block a signal [v81.0]
             "gate_g85o2_evcoherence",  # WinRate-EV Coherence ±2.0/+1.5pt adjuster — cannot block a signal [v82.0]
             "gate_g85p2_evcrisis",     # EV-Crisis Quality Gate −3.0/−1.5pt adjuster — cannot block a signal [v83.0]
+            "gate_g85q",               # QuantDinger momentum-volume coherence ±2.5pt adjuster — cannot block a signal [v181.0]
+            "gate_g85sq",              # StochasticQuant OU/Heston/Kalman/Jump quality adjuster (cap ±6pt) — cannot block a signal [v181.0]
             "gate_g85q_trendmom",      # TrendMomentum-Persistence ±2.0pt adjuster — cannot block a signal [v84.0]
             "gate_g85r2_regimesent",   # RegimeSentiment-Composite ±2.0/+1.5pt adjuster — cannot block a signal [v84.0]
             "gate_g85s2_wrcrisis",     # WinRate-CrisisRegime ±2.0/+1.5pt adjuster — cannot block a signal [v85.0]
@@ -29774,7 +29797,7 @@ class UnityEngine:
         logger.info(f"   Gate 8.5— Dyn Backtester     {_dbt_status}  ← per-symbol 15m proxy strategy backtest, refresh @1800s [v10.0]")
         logger.info(f"   Gate 8.5— MiroFish Sim Bias  {_msim_status}  ← 10-agent swarm simulation, fallback when DYN_BACKTEST has <{UNITY_DBT_MIN_TRADES} trades [v10.0]")
         logger.info(f"   Gate 9  — Quality Floor      ≥ {SIGNAL_MIN_QUALITY_GATE:.0f}/100 composite score")
-        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-92/100 WR-driven [v153.0: WR<30%→77 | WR<25%→78.5 | WR<20%→80 | WR<18%→80 | WR30-45%→72 | SOVEREIGN=77]")
+        logger.info(f"   Gate 10 — IRONS AI Scorer    {_irons_status}  ← 25-indicator Momentum/Trend/Vol/Volume, adaptive≥50-92/100 WR-driven [v153.0: WR<30%→77 | WR<25%→78.5 | WR18-20%→79 | WR<18%→80 | WR30-45%→72 | SOVEREIGN=77]")
         logger.info(f"   Layer 2.7 UT Bot Strategy    {_utbot_status}  ← UT Bot Alerts + STC confirmation [v6.0]")
         logger.info("")
         logger.info("💰 KELLY CRITERION:")
