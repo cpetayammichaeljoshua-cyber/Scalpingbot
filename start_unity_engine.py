@@ -1204,7 +1204,18 @@ ARCHITECTURE (30 layers · 91-gate filter · 5-bucket RL · Kelly 83-steps · GE
   L10.9: Insider Analyzer       — On-chain smart-money flow detection
   L11:  Telegram Bot            — MiroFish Swarm v5.0 (23 active subsystems)
 
-KEY GATES (v172.0): GLTB:LONG-dominated(≥7/10-signals)+WR<30%→-2.0pt/≥6/10+cold≥2→-1.5pt/SHORT-dom(≥7/10)+WR≥32%→+1.5pt(LoopEng-DirBias-data:LONG-avgP=-0.28%vs-SHORT+0.26%)[v172.0] | GCMS:neg-gate-count≥5+WR<30%→-2.5pt/≥4+cold≥2→-2.0pt/≥3+WR<32%→-1.5pt/pos≥5+WR≥32%→+2.0pt/pos≥4+WR≥30%→+1.5pt(Checker-MetaScore-WorkflowIsolation)[v172.0] | Kelly154:GLTB-bias-crisis→×0.85/bias-short-aligned→×1.03[v172.0] | Kelly155:GCMS-compound-hostile→×0.82/green-consensus→×1.04[v172.0] | NN-v78-405feat:F401-F405(ba_gltb+dir_bias_ratio+bb_gcms+neg_gate_density+gate_consensus)[v172.0] | ScanParallel:130→126(-3.1%-Railway-CPU)[v172.0] | LEGACY-v171.0: GVLR:VPIN<0.05+OFI-aligned→+1.5pt/VPIN>0.65+WR<30%→-2.0pt(157th-gate)[v171.0] | GRLB:sym-WR>global+10pp→+1.5pt/sym-WR<global-20pp→-2.5pt(158th-gate)[v171.0] | Kelly152:GVLR-toxic→×0.85/ultra-clean→×1.03[v171.0] | Kelly153:GRLB-struct-hole→×0.80/struct-alpha→×1.02[v171.0] | NN-v77-400feat:F396-F400(ay_gvlr+vpin_ultra_clean+az_grlb+sym_wr_vs_global+sym_live_edge)[v171.0] | ScanParallel:134→130(-3.0%-Railway-CPU)[v171.0] | LEGACY-v170.0: GHRZ:00h/19h-UTC-dead-zone+WR<30%→-2.0pt/structural→-1.5pt(data:12k-sig-52%WR-vs-71%peak)[v170.0] | GALP:06-09h-UTC-peak+WR≥32%→+1.5pt/WR<32%→+1.0pt(data:71%-WR-peak-session)[v170.0] | Kelly150:GHRZ-crisis-dead-zone→×0.83/structural→×0.88[v170.0] | Kelly151:GALP-strong→×1.04/recovery→×1.02[v170.0] | NN-v76-395feat:F391-F395(aw_ghrz+hour_dead_zone+ax_galp+peak_hour+session_edge)[v170.0] | AlphaExpand:CAKEUSDT-84%WR-n97/OPUSDT-80%WR-n71/TRXUSDT-78%WR-n113/ENJUSDT-74%WR-n65(cross-source-12k-validation)[v170.0] | AvoidExpand:ZKJUSDT/PLAYUSDT/FLOCKUSDT/VVVUSDT/HBARUSDT/SKYAIUSDT(0-18%WR-negative-EV-confirmed)[v170.0] | ScanParallel:138→134(-2.9%-Railway-CPU)[v170.0] | LEGACY-v169.0: GWFV:CPCV<0.47+WR<30%→-2.0pt/CPCV≥0.50+WR<25%→-1.5pt(PromptRefinement-WFV)[v169.0] | GDDV:quality-slope<-0.05+WR<30%→-2.0pt/slope<-0.02→-1.5pt(ExtThink-DDvelocity)[v169.0] | Kelly148:GWFV-bad→×0.82/shift→×0.86[v169.0] | Kelly149:GDDV-severe→×0.81/mod→×0.87[v169.0] | NN-v75-390feat:F386-F390(au_gwfv+cpcv_gap+av_gddv+quality_slope+wfv_regime)[v169.0] | ScanParallel:144→138(-4.2%-Railway-CPU)[v169.0] | LEGACY-v168.0: GFRD:funding>0.05%/8h+LONG→-2.0pt/0.025%→-1.5pt(XML-crowding)[v168.0] | GORD:ofi_z<-2.5+LONG→-2.0pt/ofi_z<-1.5+WR<30%→-1.5pt(WI-OFI-Checker)[v168.0] | Kelly146:GFRD-extreme→×0.83/mod→×0.87[v168.0] | Kelly147:GORD-extreme→×0.82/crisis→×0.88[v168.0] | NN-v74-385feat:F381-F385(as_gfrd+funding_abs+at_gord+ofi_diverge+flow_quality)[v168.0] | ScanParallel:150→144(-4.0%-Railway-CPU)[v168.0] | LEGACY-v167.0: GRSL:pnl-slope<-0.003+WR<30%→-2.0pt/slope<-0.001+cold→-1.5pt(LoopEng-linreg)[v167.0] | GEVAP:ev_ring_r5<0+WR<30%→-2.0pt/fade>0.005R+EV<0.08R→-1.5pt(ExtThink-EV-velocity)[v167.0] | Kelly144:GRSL-severe→×0.85/mild→×0.89[v167.0] | Kelly145:GEVAP-collapse→×0.83/fade→×0.88[v167.0] | NN-v73-380feat:F376-F380(aq_grsl+pnl_slope10+ar_gevap+ev_velocity+ev_regime_score)[v167.0] | ScanParallel:156→150(-3.8%-Railway-CPU)[v167.0] | LEGACY-v166.0: GCAL2:LLMconf≥82+WR<30%→-2.0pt/conf≥78→-1.5pt(WI-Checker-vs-Maker)[v166.0] | GLEN:loop_coh<0.34+WR<30%→-2.0pt/coh<0.51+cold_seq≥0.67→-1.5pt(LoopEng-Maker→Checker)[v166.0] | Kelly142:GCAL2-severe→×0.84/mod→×0.88[v166.0] | Kelly143:GLEN-ultra→×0.82/weak→×0.87[v166.0] | NN-v72-375feat:F371-F375(ao_gcal2+ai_conf_norm+ap_glen+loop_coh_x_wr+regime_align_4f)[v166.0] | ScanParallel:164→156(-4.9%-Railway-CPU)[v166.0] | LLMCacheTTL:75s→90s(+20%-cache-hits)[v166.0] | LEGACY-v165.0: GHTF:last5≥3wins+WR>35%→+1.5pt/last3losses+WR<30%→-2.0pt[v165.0] | GMAP:LONG@RSI68-72+WR<30%→-1.5pt/SHORT@RSI28-32+WR<30%→-1.5pt[v165.0] | LoopCoherence:F370-3factor-EV-coherence-zero-API[v165.0] | Kelly140:GHTF-hot→×1.05/cold→×0.84[v165.0] | Kelly141:GMAP-RSI-anti-pattern→×0.87[v165.0] | NN-v71-370feat:F366-F370(am_ghtf+hot_seq+cold_seq+an_gmap+loop_coherence)[v165.0] | ScanParallel:176→164(-6.8%-Railway-CPU+mem)[v165.0] | SymLastTsProune:500→150[v165.0] | LEGACY-v164.0: RoleDef:DrUNITY-persona(microstructure+regime+Kelly-EV)[v164.0] | ExtThink:3-factor-CoT(REGIME?FLOW?RISK?)-silent-check-before-vote[v164.0] | PRL:json-parse-fail→<correction>-tag-retry-once-temp0.05[v164.0] | WI:_validate_vote_schema-Checker(vote∈BUY/SELL/NEUTRAL+conf∈45-95+narrative≥5c)[v164.0] | ConsortiumCache:X-OR-Prompt-Cache-1-added-to-consortium-calls[v164.0] | ScanParallel:192→176(-8.3%-Railway-CPU+mem)[v164.0] | LEGACY-v163.0: GSDD:2×same-dir+WR<30%→-1.5pt/3×→-2.5pt[v163.0] | GREX:sym<8min→-2.5pt/<15min→-1.5pt[v163.0] | XMLPrompt:XML-delimited-user-msg→20-40%-JSON-compliance[v163.0] | MaxTokens:200→160(volatile/breakout/news)/180→150(trending/ranging/default)[v163.0] | PromptCache:X-OR-Prompt-Cache-1[v163.0] | Kelly138:GSDD-2×same-dir+WR<30%→×0.88/3×→×0.82[v163.0] | Kelly139:GREX-sym<8min→×0.78/<15min→×0.85[v163.0] | NN-v70-365feat:F361-F365(ak_gsdd+al_grex+dir_run+sym_recency+xml_quality)[v163.0] | LEGACY-v161.0: GDOW:Tue-SHORT/Sun-LONG→hard-block | GCAL:day1-7→+1.0pt/day15-21→-1.5pt | GDIV:>55-unique-syms→-2.5pt | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt | GMOM3:2×LONG→SHORT→+1.5pt | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82 | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
+KEY GATES (v178.0): CRITICAL-FIX-v178.0: 36 gates (G8.5W5..G8.5BH, v142.0→v175.0) were silently
+dead since their introduction — each used a bare `_record(...)`/`score +=` instead of
+`self._record(...)`/`quality_score +=`. Both names are undefined in this scope, so every one
+of these gates raised a silent NameError swallowed by its own `except Exception: pass`, never
+applying its point adjustment and never registering with the authoritative gate tracker
+(the `_gate_stats` dict entry immediately preceding the crash point did update, making the
+gates look "alive" on dashboards while their actual filtering/scoring effect was a no-op for
+~4 months of iteration). Fixed by restoring the correct `self._record`/`quality_score`
+references across all 36 blocks (lines 19182-20931), verified with a scoped diff (no other
+code touched) and a full `ast.parse` syntax check. This is very likely the primary reason
+live WR stayed ~29% despite v142-v177 "improvements" — none of that logic ever executed.
+[v178.0] | LEGACY-v172.0: GLTB:LONG-dominated(≥7/10-signals)+WR<30%→-2.0pt/≥6/10+cold≥2→-1.5pt/SHORT-dom(≥7/10)+WR≥32%→+1.5pt(LoopEng-DirBias-data:LONG-avgP=-0.28%vs-SHORT+0.26%)[v172.0] | GCMS:neg-gate-count≥5+WR<30%→-2.5pt/≥4+cold≥2→-2.0pt/≥3+WR<32%→-1.5pt/pos≥5+WR≥32%→+2.0pt/pos≥4+WR≥30%→+1.5pt(Checker-MetaScore-WorkflowIsolation)[v172.0] | Kelly154:GLTB-bias-crisis→×0.85/bias-short-aligned→×1.03[v172.0] | Kelly155:GCMS-compound-hostile→×0.82/green-consensus→×1.04[v172.0] | NN-v78-405feat:F401-F405(ba_gltb+dir_bias_ratio+bb_gcms+neg_gate_density+gate_consensus)[v172.0] | ScanParallel:130→126(-3.1%-Railway-CPU)[v172.0] | LEGACY-v171.0: GVLR:VPIN<0.05+OFI-aligned→+1.5pt/VPIN>0.65+WR<30%→-2.0pt(157th-gate)[v171.0] | GRLB:sym-WR>global+10pp→+1.5pt/sym-WR<global-20pp→-2.5pt(158th-gate)[v171.0] | Kelly152:GVLR-toxic→×0.85/ultra-clean→×1.03[v171.0] | Kelly153:GRLB-struct-hole→×0.80/struct-alpha→×1.02[v171.0] | NN-v77-400feat:F396-F400(ay_gvlr+vpin_ultra_clean+az_grlb+sym_wr_vs_global+sym_live_edge)[v171.0] | ScanParallel:134→130(-3.0%-Railway-CPU)[v171.0] | LEGACY-v170.0: GHRZ:00h/19h-UTC-dead-zone+WR<30%→-2.0pt/structural→-1.5pt(data:12k-sig-52%WR-vs-71%peak)[v170.0] | GALP:06-09h-UTC-peak+WR≥32%→+1.5pt/WR<32%→+1.0pt(data:71%-WR-peak-session)[v170.0] | Kelly150:GHRZ-crisis-dead-zone→×0.83/structural→×0.88[v170.0] | Kelly151:GALP-strong→×1.04/recovery→×1.02[v170.0] | NN-v76-395feat:F391-F395(aw_ghrz+hour_dead_zone+ax_galp+peak_hour+session_edge)[v170.0] | AlphaExpand:CAKEUSDT-84%WR-n97/OPUSDT-80%WR-n71/TRXUSDT-78%WR-n113/ENJUSDT-74%WR-n65(cross-source-12k-validation)[v170.0] | AvoidExpand:ZKJUSDT/PLAYUSDT/FLOCKUSDT/VVVUSDT/HBARUSDT/SKYAIUSDT(0-18%WR-negative-EV-confirmed)[v170.0] | ScanParallel:138→134(-2.9%-Railway-CPU)[v170.0] | LEGACY-v169.0: GWFV:CPCV<0.47+WR<30%→-2.0pt/CPCV≥0.50+WR<25%→-1.5pt(PromptRefinement-WFV)[v169.0] | GDDV:quality-slope<-0.05+WR<30%→-2.0pt/slope<-0.02→-1.5pt(ExtThink-DDvelocity)[v169.0] | Kelly148:GWFV-bad→×0.82/shift→×0.86[v169.0] | Kelly149:GDDV-severe→×0.81/mod→×0.87[v169.0] | NN-v75-390feat:F386-F390(au_gwfv+cpcv_gap+av_gddv+quality_slope+wfv_regime)[v169.0] | ScanParallel:144→138(-4.2%-Railway-CPU)[v169.0] | LEGACY-v168.0: GFRD:funding>0.05%/8h+LONG→-2.0pt/0.025%→-1.5pt(XML-crowding)[v168.0] | GORD:ofi_z<-2.5+LONG→-2.0pt/ofi_z<-1.5+WR<30%→-1.5pt(WI-OFI-Checker)[v168.0] | Kelly146:GFRD-extreme→×0.83/mod→×0.87[v168.0] | Kelly147:GORD-extreme→×0.82/crisis→×0.88[v168.0] | NN-v74-385feat:F381-F385(as_gfrd+funding_abs+at_gord+ofi_diverge+flow_quality)[v168.0] | ScanParallel:150→144(-4.0%-Railway-CPU)[v168.0] | LEGACY-v167.0: GRSL:pnl-slope<-0.003+WR<30%→-2.0pt/slope<-0.001+cold→-1.5pt(LoopEng-linreg)[v167.0] | GEVAP:ev_ring_r5<0+WR<30%→-2.0pt/fade>0.005R+EV<0.08R→-1.5pt(ExtThink-EV-velocity)[v167.0] | Kelly144:GRSL-severe→×0.85/mild→×0.89[v167.0] | Kelly145:GEVAP-collapse→×0.83/fade→×0.88[v167.0] | NN-v73-380feat:F376-F380(aq_grsl+pnl_slope10+ar_gevap+ev_velocity+ev_regime_score)[v167.0] | ScanParallel:156→150(-3.8%-Railway-CPU)[v167.0] | LEGACY-v166.0: GCAL2:LLMconf≥82+WR<30%→-2.0pt/conf≥78→-1.5pt(WI-Checker-vs-Maker)[v166.0] | GLEN:loop_coh<0.34+WR<30%→-2.0pt/coh<0.51+cold_seq≥0.67→-1.5pt(LoopEng-Maker→Checker)[v166.0] | Kelly142:GCAL2-severe→×0.84/mod→×0.88[v166.0] | Kelly143:GLEN-ultra→×0.82/weak→×0.87[v166.0] | NN-v72-375feat:F371-F375(ao_gcal2+ai_conf_norm+ap_glen+loop_coh_x_wr+regime_align_4f)[v166.0] | ScanParallel:164→156(-4.9%-Railway-CPU)[v166.0] | LLMCacheTTL:75s→90s(+20%-cache-hits)[v166.0] | LEGACY-v165.0: GHTF:last5≥3wins+WR>35%→+1.5pt/last3losses+WR<30%→-2.0pt[v165.0] | GMAP:LONG@RSI68-72+WR<30%→-1.5pt/SHORT@RSI28-32+WR<30%→-1.5pt[v165.0] | LoopCoherence:F370-3factor-EV-coherence-zero-API[v165.0] | Kelly140:GHTF-hot→×1.05/cold→×0.84[v165.0] | Kelly141:GMAP-RSI-anti-pattern→×0.87[v165.0] | NN-v71-370feat:F366-F370(am_ghtf+hot_seq+cold_seq+an_gmap+loop_coherence)[v165.0] | ScanParallel:176→164(-6.8%-Railway-CPU+mem)[v165.0] | SymLastTsProune:500→150[v165.0] | LEGACY-v164.0: RoleDef:DrUNITY-persona(microstructure+regime+Kelly-EV)[v164.0] | ExtThink:3-factor-CoT(REGIME?FLOW?RISK?)-silent-check-before-vote[v164.0] | PRL:json-parse-fail→<correction>-tag-retry-once-temp0.05[v164.0] | WI:_validate_vote_schema-Checker(vote∈BUY/SELL/NEUTRAL+conf∈45-95+narrative≥5c)[v164.0] | ConsortiumCache:X-OR-Prompt-Cache-1-added-to-consortium-calls[v164.0] | ScanParallel:192→176(-8.3%-Railway-CPU+mem)[v164.0] | LEGACY-v163.0: GSDD:2×same-dir+WR<30%→-1.5pt/3×→-2.5pt[v163.0] | GREX:sym<8min→-2.5pt/<15min→-1.5pt[v163.0] | XMLPrompt:XML-delimited-user-msg→20-40%-JSON-compliance[v163.0] | MaxTokens:200→160(volatile/breakout/news)/180→150(trending/ranging/default)[v163.0] | PromptCache:X-OR-Prompt-Cache-1[v163.0] | Kelly138:GSDD-2×same-dir+WR<30%→×0.88/3×→×0.82[v163.0] | Kelly139:GREX-sym<8min→×0.78/<15min→×0.85[v163.0] | NN-v70-365feat:F361-F365(ak_gsdd+al_grex+dir_run+sym_recency+xml_quality)[v163.0] | LEGACY-v161.0: GDOW:Tue-SHORT/Sun-LONG→hard-block | GCAL:day1-7→+1.0pt/day15-21→-1.5pt | GDIV:>55-unique-syms→-2.5pt | GSEQ:sig11-20→+1.5pt/sig91-100→-2.5pt | GMOM3:2×LONG→SHORT→+1.5pt | GBATCH:size5/7→+2.5pt/size4/9/10→-3.0pt | IRONSrecovery-paradox:prevDay<-500%→floor72/prevDay-100to0%→floor82 | LEGACY-v160.0: MIN_RR=2.75 | NN_WIN_PROB=0.58 | EV_MIN=70bps(regime-adaptive) | MIN_TP1=0.65% | GBLK≥15/WR<28% | GCEF:FLIP+F&G≤20+SHORT→-2.5pts | GDCR:DD>47.5%+WR<30%+SR<-4.0→hard-block+4h-release-adaptive[v156.0]+RQG:conf≥92→preserve-window[v158.0] | GMDR:DD>43%+WR<28%+2losses→30min-block[v155.0] | GCLH:WR<26%+2losses→30min/WR<28.5%+3losses→60min[v155.0] | GXPR:near-zero-pnl≥65%/last-20→45min-block[v156.0] | G8.5AA:CWD conf≥92+WR<30%→-1.5pts/conf≥90+WR<25%→-1.0pts[v157.0] | G8.5AB:XRSI LONG>RSI72/SHORT<RSI28@WR<35%→-1.5/-2.5pts[v158.0] | G8.5AC:GDLB LONG@WR<32%→-1.0pt/WR<28%→-1.5pts(data:16k-signal LONG-avgP=-0.28%)[v159.0] | G8.5AD:GTOD LONG@13-14h→-1.5pts/15h→-1.0pt+SHORT@22h→-2.0pts(data:worst-US-pocket avgP≤-3%)[v160.0] | Kelly132:near-GXPR(45-65%near-zero)→×0.78[v157.0] | Kelly133:GDLB LONG@WR<32%→×0.90/WR<28%→×0.85[v159.0] | Kelly134:GTOD LONG@13-14h→×0.82/15h→×0.88+SHORT@22h→×0.78[v160.0] | G8.5U4:sub-GDCR-tier:WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0] |
   IRONS_MIN=77(WR<30%)+78.5(WR<25%)+80(WR<20%,WR<18%)+78.5(WR<17%)+79.5(WR<15%)[v103.0]+80.5(WR<12%)[v104.0]+82.0(WR<10%)[v105.0]+83.0(WR<8%)[v106.0]+84.5(WR<6%)[v107.0]+86.0(WR<5%)[v108.0]+87.5(WR<4%)[v109.0]+89.0(WR<3%)[v110.0]+90.5(WR<2%)[v113.0]+91.5(WR<1%)[v114.0]+92.5(WR<0.5%)[v117.0]+94.0(WR<0.2%)[v118.0]+94.5(WR<0.1%)[v118.0]+95.0(WR<0.05%)[v119.0]+95.5(WR<0.02%)[v120.0]+96.0(WR<0.01%)[v121.0] | SIGNAL_QUALITY=73 | SOVEREIGN_RECOVERY=77 | WATCHDOG_STALL=1800s | PBO_CLEAN=5.0pts |
   G8.5T4:CapitulationReversal(F&G<15+FLIP→+2.5pts/F&G<20+NEG/FLIP-LONG→+1.5pts/F&G>78+POS-SHORT→+2.0pts/counter-trend-LONG→-2.0pts/GCEF:F&G<20+FLIP-SHORT→-2.5pts)[v124.0/v150.0] | G8.5U4:TripleUltimateCrisis(WR<25%+SR<-4.0+DD>47%→-4.0pts/WR<28%+SR<-3.0+DD>42%→-3.0pts/WR<30%+SR<-4.0+DD>47%→-2.5pts/WR<30%+SR<-3.0+DD>44%→-2.0pts[v155.0]/healthy→+1.5pts)[v124.0/v155.0] | G8.5Q4:MaxDD-EV-Compound(DD>47%+WR<28%→-4.0pts/DD>48%+WR<30%→-3.5pts/DD>42%+WR<32%→-2.0pts/+1.5pts)[v121.0/v152.0] | G8.5H3:RecentWR-EmergencyBrake(WR<15%→-3.0/WR<20%→-2.0/WR<25%→-1.5/WR<28%→-1.0/WR>40%→+1.5pts)[v103.0/v153.0] |
   G0.3:ATR-SpikeGuard(-3pts>4%,-1.5pts 3-4%) | G8.5sq:OU/Heston/Kalman/Jump(±6pts) | G8.5q:QuantDinger_MomVol(±3pts) |
@@ -3041,7 +3052,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "177.1"
+UNITY_VERSION                = "178.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -19226,7 +19237,7 @@ class UnitySignalFilter:
             self._last_g85w5_wnz = _w5_wnz
             self._gate_stats["gate_g85w5_wnz"]["pass" if _w5_adj >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85w5_wnz"].append(1 if _w5_adj >= 0 else 0)
-            _record("gate_g85w5_wnz", _w5_adj >= 0)
+            self._record("gate_g85w5_wnz", _w5_adj >= 0)
             if _w5_wnz != 0:
                 self._logger.debug(
                     f"[v142.0 G8.5W5 WNZ] {symbol} "
@@ -19235,7 +19246,7 @@ class UnitySignalFilter:
                     f"qs_z={_w5_qs_z:.2f}({'ext' if _w5_qs_extreme else 'norm'}) "
                     f"aligned_ofi={_w5_ofi_aligned} aligned_qs={_w5_qs_aligned}"
                 )
-            score += _w5_adj
+            quality_score += _w5_adj
         except Exception:
             pass  # G8.5W5 WNZ Winsorization-Guard is non-fatal soft-gate
 
@@ -19296,7 +19307,7 @@ class UnitySignalFilter:
             self._last_g85x5_adf = _x5_adf
             self._gate_stats["gate_g85x5_adf"]["pass" if _x5_adj >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85x5_adf"].append(1 if _x5_adj >= 0 else 0)
-            _record("gate_g85x5_adf", _x5_adj >= 0)
+            self._record("gate_g85x5_adf", _x5_adj >= 0)
             if _x5_adf != 0:
                 self._logger.debug(
                     f"[v142.0 G8.5X5 ADF] {symbol} "
@@ -19304,7 +19315,7 @@ class UnitySignalFilter:
                     f"rho1={_x5_rho1:.3f} xcross={_x5_xcross_rate:.2f} "
                     f"stationary={_x5_stationary} ou={_x5_u5:+d}"
                 )
-            score += _x5_adj
+            quality_score += _x5_adj
         except Exception:
             pass  # G8.5X5 ADF Stationarity-Guard is non-fatal soft-gate
 
@@ -19370,7 +19381,7 @@ class UnitySignalFilter:
             self._last_g85y5_pco = _y5_pco
             self._gate_stats["gate_g85y5_pco"]["pass" if _y5_adj >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85y5_pco"].append(1 if _y5_adj >= 0 else 0)
-            _record("gate_g85y5_pco", _y5_adj >= 0)
+            self._record("gate_g85y5_pco", _y5_adj >= 0)
             if _y5_pco != 0:
                 self._logger.debug(
                     f"[v143.0 G8.5Y5 PCO] {symbol} "
@@ -19378,7 +19389,7 @@ class UnitySignalFilter:
                     f"avg_corr={_avg_corr:.3f} r_qs_ofi={_r_qs_ofi:.2f} "
                     f"r_qs_vpin={_r_qs_vpin:.2f} r_ofi_vpin={_r_ofi_vpin:.2f}"
                 )
-            score += _y5_adj
+            quality_score += _y5_adj
         except Exception:
             pass  # G8.5Y5 PCO Signal-Orthogonality is non-fatal soft-gate
 
@@ -19424,7 +19435,7 @@ class UnitySignalFilter:
             self._last_g85z5_ics = _z5_ics
             self._gate_stats["gate_g85z5_ics"]["pass" if _z5_adj >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85z5_ics"].append(1 if _z5_adj >= 0 else 0)
-            _record("gate_g85z5_ics", _z5_adj >= 0)
+            self._record("gate_g85z5_ics", _z5_adj >= 0)
             if _z5_ics != 0:
                 self._logger.debug(
                     f"[v143.0 G8.5Z5 ICS] {symbol} "
@@ -19432,7 +19443,7 @@ class UnitySignalFilter:
                     f"IC={_z5_ic:.3f} WR={_z5_wr:.1%} "
                     f"FLOAM_IR={_z5_floam_ir:.3f} pco={_z5_pco_sent:+d}"
                 )
-            score += _z5_adj
+            quality_score += _z5_adj
         except Exception:
             pass  # G8.5Z5 ICS Information-Coefficient-Sharpe is non-fatal soft-gate
 
@@ -19473,11 +19484,11 @@ class UnitySignalFilter:
                             f"conf={_aa_conf:.0f}% WR={_aa_wr:.1%} → -1.0pts"
                         )
             if _aa_adj != 0.0:
-                score += _aa_adj
+                quality_score += _aa_adj
             _aa_pass = not _aa_fired
             self._gate_stats["gate_g85aa_cwd"]["pass" if _aa_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85aa_cwd"].append(1 if _aa_pass else 0)
-            _record("gate_g85aa_cwd", _aa_pass)
+            self._record("gate_g85aa_cwd", _aa_pass)
         except Exception:
             pass  # G8.5AA CWD Confidence-WR Divergence is non-fatal soft-gate
 
@@ -19535,11 +19546,11 @@ class UnitySignalFilter:
                                     f"SHORT RSI={_ab_rsi:.1f}<28 WR={_ab_wr:.1%} → -1.5pts"
                                 )
             if _ab_adj != 0.0:
-                score += _ab_adj
+                quality_score += _ab_adj
             _ab_pass = not _ab_fired
             self._gate_stats["gate_g85ab_xrsi"]["pass" if _ab_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ab_xrsi"].append(1 if _ab_pass else 0)
-            _record("gate_g85ab_xrsi", _ab_pass)
+            self._record("gate_g85ab_xrsi", _ab_pass)
         except Exception:
             pass  # G8.5AB XRSI RSI-Extreme-Direction Penalty is non-fatal soft-gate
 
@@ -19582,11 +19593,11 @@ class UnitySignalFilter:
                                 f"(data: LONG avgP=−0.28% structural headwind)"
                             )
             if _ac_adj != 0.0:
-                score += _ac_adj
+                quality_score += _ac_adj
             _ac_pass = not _ac_fired
             self._gate_stats["gate_g85ac_dlb"]["pass" if _ac_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ac_dlb"].append(1 if _ac_pass else 0)
-            _record("gate_g85ac_dlb", _ac_pass)
+            self._record("gate_g85ac_dlb", _ac_pass)
         except Exception:
             pass  # G8.5AC GDLB Direction Long Bias Penalty is non-fatal soft-gate
 
@@ -19640,11 +19651,11 @@ class UnitySignalFilter:
                                     f"WR={_ad_wr:.1%} → -2.0pts (data: avgP=-4.39%, worst SHORT hour)"
                                 )
             if _ad_adj != 0.0:
-                score += _ad_adj
+                quality_score += _ad_adj
             _ad_pass = not _ad_fired
             self._gate_stats["gate_g85ad_gtod"]["pass" if _ad_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ad_gtod"].append(1 if _ad_pass else 0)
-            _record("gate_g85ad_gtod", _ad_pass)
+            self._record("gate_g85ad_gtod", _ad_pass)
         except Exception:
             pass  # G8.5AD GTOD Time-of-Day Direction Penalty is non-fatal soft-gate
 
@@ -19686,23 +19697,23 @@ class UnitySignalFilter:
                 if 1 <= _gcal_dom <= 7:
                     _gcal_adj = 1.0      # month-start alpha — institutional rebalancing flow
                     self._last_g85af_gcal = 1.0
-                    score += _gcal_adj
+                    quality_score += _gcal_adj
                     self._logger.debug(f"📅 [v161.0 G8.5AF GCAL] Month-start alpha: day {_gcal_dom} (+1.0pt)")
                 elif 8 <= _gcal_dom <= 14:
                     _gcal_adj = -0.5     # mid-month onset drag
                     self._last_g85af_gcal = -0.5
-                    score += _gcal_adj
+                    quality_score += _gcal_adj
                 elif 15 <= _gcal_dom <= 21:
                     _gcal_adj = -1.5     # worst fortnight drag
                     self._last_g85af_gcal = -1.5
-                    score += _gcal_adj
+                    quality_score += _gcal_adj
                     self._logger.debug(f"📅 [v161.0 G8.5AF GCAL] Mid-month drag: day {_gcal_dom} (-1.5pt)")
                 else:
                     _gcal_adj = -0.3     # late-month mild drag
                     self._last_g85af_gcal = -0.3
-                    score += _gcal_adj
+                    quality_score += _gcal_adj
             _gcal_fire = abs(self._last_g85af_gcal) >= 0.5
-            _record("gate_g85af_gcal", not _gcal_fire or self._last_g85af_gcal > 0)
+            self._record("gate_g85af_gcal", not _gcal_fire or self._last_g85af_gcal > 0)
         except Exception:
             pass  # GCAL non-fatal soft-gate
 
@@ -19721,7 +19732,7 @@ class UnitySignalFilter:
                 if _gdiv_n >= 55:
                     _gdiv_adj = -2.5
                     self._last_g85ag_gdiv = -2.5
-                    score += _gdiv_adj
+                    quality_score += _gdiv_adj
                     self._logger.warning(
                         f"⚠️ [v161.0 G8.5AG GDIV] Catastrophic symbol diversity: "
                         f"{_gdiv_n} unique syms today ≥55 (data: WR=16.6% vs 31.0% normal) → -2.5pt"
@@ -19729,16 +19740,16 @@ class UnitySignalFilter:
                 elif _gdiv_n >= 50:
                     _gdiv_adj = -1.5
                     self._last_g85ag_gdiv = -1.5
-                    score += _gdiv_adj
+                    quality_score += _gdiv_adj
                 elif _gdiv_n >= GDIV_LIMIT:
                     _gdiv_adj = -0.8
                     self._last_g85ag_gdiv = -0.8
-                    score += _gdiv_adj
+                    quality_score += _gdiv_adj
                 elif _gdiv_n < 40:
                     _gdiv_adj = 0.5     # concentrated session = quality regime
                     self._last_g85ag_gdiv = 0.5
-                    score += _gdiv_adj
-            _record("gate_g85ag_gdiv", self._last_g85ag_gdiv >= -1.5)
+                    quality_score += _gdiv_adj
+            self._record("gate_g85ag_gdiv", self._last_g85ag_gdiv >= -1.5)
         except Exception:
             pass  # GDIV non-fatal soft-gate
 
@@ -19757,14 +19768,14 @@ class UnitySignalFilter:
                 if 11 <= _gseq_n <= 20:
                     _gseq_adj = 1.5
                     self._last_g85ah_gseq = 1.5
-                    score += _gseq_adj
+                    quality_score += _gseq_adj
                     self._logger.debug(f"🎯 [v161.0 G8.5AH GSEQ] Peak window signal #{_gseq_n} (+1.5pt)")
                 elif 21 <= _gseq_n <= 90:
                     pass  # neutral plateau
                 elif 91 <= _gseq_n <= 100:
                     _gseq_adj = -2.5
                     self._last_g85ah_gseq = -2.5
-                    score += _gseq_adj
+                    quality_score += _gseq_adj
                     self._logger.warning(
                         f"⚠️ [v161.0 G8.5AH GSEQ] Kill zone: signal #{_gseq_n} "
                         f"(data: WR=14% EV=-3.4%) → -2.5pt"
@@ -19772,12 +19783,12 @@ class UnitySignalFilter:
                 elif _gseq_n > 100:
                     _gseq_adj = -3.5
                     self._last_g85ah_gseq = -3.5
-                    score += _gseq_adj
+                    quality_score += _gseq_adj
                     self._logger.warning(
                         f"🛑 [v161.0 G8.5AH GSEQ] Meltdown zone: signal #{_gseq_n} "
                         f"(data: WR=12%) → -3.5pt"
                     )
-            _record("gate_g85ah_gseq", self._last_g85ah_gseq >= -2.5)
+            self._record("gate_g85ah_gseq", self._last_g85ah_gseq >= -2.5)
         except Exception:
             pass  # GSEQ non-fatal soft-gate
 
@@ -19801,7 +19812,7 @@ class UnitySignalFilter:
                             # Reversal SHORT after LONG-dominated session — strongest edge
                             _gm3_adj = 1.5
                             self._last_g85ai_gmom3 = 1.5
-                            score += _gm3_adj
+                            quality_score += _gm3_adj
                             self._logger.debug(
                                 f"🎯 [v161.0 G8.5AI GMOM3] Reversal SHORT after {_gm3_longs}×LONG session "
                                 f"(data: WR=28% EV=+1.79%) → +1.5pt"
@@ -19810,17 +19821,17 @@ class UnitySignalFilter:
                             # LONG after LONG-dominance — confirmed kill
                             _gm3_adj = -1.0
                             self._last_g85ai_gmom3 = -1.0
-                            score += _gm3_adj
+                            quality_score += _gm3_adj
                         elif _gm3_shorts >= 2 and _gm3_dir == "SHORT":
                             # SHORT continuation fatigue
                             _gm3_adj = -0.5
                             self._last_g85ai_gmom3 = -0.5
-                            score += _gm3_adj
+                            quality_score += _gm3_adj
                     # Update direction ring (keep last 3)
                     self._v161_dir_ring.append(_gm3_dir)
                     if len(self._v161_dir_ring) > 3:
                         self._v161_dir_ring = self._v161_dir_ring[-3:]
-            _record("gate_g85ai_gmom3", self._last_g85ai_gmom3 >= -1.0)
+            self._record("gate_g85ai_gmom3", self._last_g85ai_gmom3 >= -1.0)
         except Exception:
             pass  # GMOM3 non-fatal soft-gate
 
@@ -19842,7 +19853,7 @@ class UnitySignalFilter:
                 if _gbat_n in (5, 7):
                     _gbat_adj = 2.5
                     self._last_g85aj_gbatch = 2.5
-                    score += _gbat_adj
+                    quality_score += _gbat_adj
                     self._logger.debug(
                         f"🎯 [v161.0 G8.5AJ GBATCH] Elite batch size {_gbat_n} "
                         f"(data: WR+6pp) → +2.5pt"
@@ -19850,7 +19861,7 @@ class UnitySignalFilter:
                 elif _gbat_n in (4, 9, 10):
                     _gbat_adj = -3.0
                     self._last_g85aj_gbatch = -3.0
-                    score += _gbat_adj
+                    quality_score += _gbat_adj
                     self._logger.warning(
                         f"⚠️ [v161.0 G8.5AJ GBATCH] Kill batch size {_gbat_n} "
                         f"(data: WR-8pp) → -3.0pt"
@@ -19858,11 +19869,11 @@ class UnitySignalFilter:
                 elif _gbat_n > 10:
                     _gbat_adj = -4.0
                     self._last_g85aj_gbatch = -4.0
-                    score += _gbat_adj
+                    quality_score += _gbat_adj
                     self._logger.warning(
                         f"🛑 [v161.0 G8.5AJ GBATCH] Ultra-kill batch {_gbat_n} → -4.0pt"
                     )
-            _record("gate_g85aj_gbatch", self._last_g85aj_gbatch >= -3.0)
+            self._record("gate_g85aj_gbatch", self._last_g85aj_gbatch >= -3.0)
         except Exception:
             pass  # GBATCH non-fatal soft-gate
 
@@ -19890,7 +19901,7 @@ class UnitySignalFilter:
                             break
                     if _gsdd_run >= 3:
                         _gsdd_adj = -2.5; self._last_g85ak_gsdd = -2.5
-                        score += _gsdd_adj
+                        quality_score += _gsdd_adj
                         self._logger.warning(
                             f"⚠️ [v163.0 G8.5AK GSDD] Severe same-direction clustering: "
                             f"{_gsdd_run}×{_gsdd_dir} consecutive + WR={_gsdd_wr:.1f}%<30% "
@@ -19898,12 +19909,12 @@ class UnitySignalFilter:
                         )
                     elif _gsdd_run >= 2:
                         _gsdd_adj = -1.5; self._last_g85ak_gsdd = -1.5
-                        score += _gsdd_adj
+                        quality_score += _gsdd_adj
                         self._logger.debug(
                             f"⚠️ [v163.0 G8.5AK GSDD] Same-direction clustering: "
                             f"{_gsdd_run}×{_gsdd_dir} + WR={_gsdd_wr:.1f}%<30% → -1.5pt"
                         )
-            _record("gate_g85ak_gsdd", self._last_g85ak_gsdd >= -1.5)
+            self._record("gate_g85ak_gsdd", self._last_g85ak_gsdd >= -1.5)
         except Exception:
             pass  # GSDD non-fatal soft-gate
 
@@ -19924,7 +19935,7 @@ class UnitySignalFilter:
                     _grex_age  = _grex_now - _grex_last if _grex_last > 0 else 99999.0
                     if _grex_age < 480:  # within 8 minutes
                         _grex_adj = -2.5; self._last_g85al_grex = -2.5
-                        score += _grex_adj
+                        quality_score += _grex_adj
                         self._logger.warning(
                             f"⚠️ [v163.0 G8.5AL GREX] Hot-reactive symbol: "
                             f"{_grex_sym} last seen {_grex_age:.0f}s ago (<480s) "
@@ -19932,7 +19943,7 @@ class UnitySignalFilter:
                         )
                     elif _grex_age < GREX_WIN_SEC:  # within 15 minutes
                         _grex_adj = -1.5; self._last_g85al_grex = -1.5
-                        score += _grex_adj
+                        quality_score += _grex_adj
                         self._logger.debug(
                             f"⚠️ [v163.0 G8.5AL GREX] Reactive-zone symbol: "
                             f"{_grex_sym} last seen {_grex_age:.0f}s ago (<{GREX_WIN_SEC}s) → -1.5pt"
@@ -19946,7 +19957,7 @@ class UnitySignalFilter:
                             k: v for k, v in self._v163_sym_last_ts.items()
                             if v > _grex_cutoff
                         }
-            _record("gate_g85al_grex", self._last_g85al_grex >= -1.5)
+            self._record("gate_g85al_grex", self._last_g85al_grex >= -1.5)
         except Exception:
             pass  # GREX non-fatal soft-gate
 
@@ -19970,7 +19981,7 @@ class UnitySignalFilter:
                     _ghtf_wins5 = sum(1 for v in _ghtf_last5 if v > 0)
                     if _ghtf_wins5 >= GHTF_HOT_MIN and _ghtf_wr > GHTF_HOT_WR:
                         _ghtf_adj = 1.5; self._last_g85am_ghtf = 1.5
-                        score += _ghtf_adj
+                        quality_score += _ghtf_adj
                         self._logger.debug(
                             f"🔥 [v165.0 G8.5AM GHTF] Hot sequence: {_ghtf_wins5}/5 wins "
                             f"WR={_ghtf_wr:.1f}%>{GHTF_HOT_WR}% → +1.5pt"
@@ -19981,7 +19992,7 @@ class UnitySignalFilter:
                     _ghtf_losses3 = sum(1 for v in _ghtf_last3 if v <= 0)
                     if _ghtf_losses3 >= GHTF_COLD_MIN and _ghtf_wr < GHTF_COLD_WR:
                         _ghtf_adj = -2.0; self._last_g85am_ghtf = -2.0
-                        score += _ghtf_adj
+                        quality_score += _ghtf_adj
                         self._logger.warning(
                             f"❄️ [v165.0 G8.5AM GHTF] Cold sequence: {_ghtf_losses3}/3 losses "
                             f"WR={_ghtf_wr:.1f}%<{GHTF_COLD_WR}% → -2.0pt (death-spiral alarm)"
@@ -19993,12 +20004,12 @@ class UnitySignalFilter:
                         _ghtf_losses3 = sum(1 for v in _ghtf_last3 if v <= 0)
                         if _ghtf_losses3 >= GHTF_COLD_MIN and _ghtf_wr < GHTF_COLD_WR:
                             _ghtf_adj = -2.0; self._last_g85am_ghtf = -2.0
-                            score += _ghtf_adj
+                            quality_score += _ghtf_adj
                             self._logger.warning(
                                 f"❄️ [v165.0 G8.5AM GHTF] Cold sequence (5-ring): {_ghtf_losses3}/3 losses "
                                 f"WR={_ghtf_wr:.1f}%<{GHTF_COLD_WR}% → -2.0pt"
                             )
-            _record("gate_g85am_ghtf", self._last_g85am_ghtf >= 0.0)
+            self._record("gate_g85am_ghtf", self._last_g85am_ghtf >= 0.0)
         except Exception:
             pass  # GHTF non-fatal soft-gate
 
@@ -20018,7 +20029,7 @@ class UnitySignalFilter:
                     if _gmap_dir == "LONG" and GMAP_RSI_HIGH <= _gmap_rsi < 72.0:
                         # In the gap below XRSI: RSI 68-72 for LONG in WR<30%
                         _gmap_adj = -1.5; self._last_g85an_gmap = -1.5
-                        score += _gmap_adj
+                        quality_score += _gmap_adj
                         self._logger.debug(
                             f"⚠️ [v165.0 G8.5AN GMAP] LONG @RSI={_gmap_rsi:.1f} (68-72 gap) "
                             f"WR={_gmap_wr:.1f}%<{GMAP_WR_GATE}% → -1.5pt (anti-pattern gap-fill)"
@@ -20026,12 +20037,12 @@ class UnitySignalFilter:
                     elif _gmap_dir == "SHORT" and 28.0 < _gmap_rsi <= GMAP_RSI_LOW:
                         # Symmetric short side: RSI 28-32 for SHORT in WR<30%
                         _gmap_adj = -1.5; self._last_g85an_gmap = -1.5
-                        score += _gmap_adj
+                        quality_score += _gmap_adj
                         self._logger.debug(
                             f"⚠️ [v165.0 G8.5AN GMAP] SHORT @RSI={_gmap_rsi:.1f} (28-32 gap) "
                             f"WR={_gmap_wr:.1f}%<{GMAP_WR_GATE}% → -1.5pt (anti-pattern gap-fill)"
                         )
-            _record("gate_g85an_gmap", self._last_g85an_gmap >= -1.5)
+            self._record("gate_g85an_gmap", self._last_g85an_gmap >= -1.5)
         except Exception:
             pass  # GMAP non-fatal soft-gate
 
@@ -20055,7 +20066,7 @@ class UnitySignalFilter:
                 if _gcal2_wr < GCAL2_WR_GATE and _gcal2_conf > 0:
                     if _gcal2_conf >= GCAL2_CONF_HIGH:
                         _gcal2_adj = -2.0; self._last_g85ao_gcal2 = -2.0
-                        score += _gcal2_adj
+                        quality_score += _gcal2_adj
                         self._logger.warning(
                             f"⚠️ [v166.0 G8.5AO GCAL2] Severe AI overconfidence: "
                             f"LLM conf={_gcal2_conf:.1f}%≥{GCAL2_CONF_HIGH} + WR={_gcal2_wr:.1f}%<{GCAL2_WR_GATE}% "
@@ -20063,13 +20074,13 @@ class UnitySignalFilter:
                         )
                     elif _gcal2_conf >= GCAL2_CONF_MED:
                         _gcal2_adj = -1.5; self._last_g85ao_gcal2 = -1.5
-                        score += _gcal2_adj
+                        quality_score += _gcal2_adj
                         self._logger.debug(
                             f"⚠️ [v166.0 G8.5AO GCAL2] AI overconfidence: "
                             f"LLM conf={_gcal2_conf:.1f}%≥{GCAL2_CONF_MED} + WR={_gcal2_wr:.1f}%<{GCAL2_WR_GATE}% "
                             f"→ -1.5pt (miscalibrated conviction in crisis)"
                         )
-            _record("gate_g85ao_gcal2", self._last_g85ao_gcal2 >= -1.5)
+            self._record("gate_g85ao_gcal2", self._last_g85ao_gcal2 >= -1.5)
         except Exception:
             pass  # GCAL2 non-fatal soft-gate
 
@@ -20094,7 +20105,7 @@ class UnitySignalFilter:
                 if _glen_coh < GLEN_COH_ULTRA and _glen_wr < GLEN_WR_GATE:
                     # Ultra: all 3 factors misaligned + crisis WR
                     _glen_adj = -2.0; self._last_g85ap_glen = -2.0
-                    score += _glen_adj
+                    quality_score += _glen_adj
                     self._logger.warning(
                         f"🔄 [v166.0 G8.5AP GLEN] Loop Checker FAIL: "
                         f"loop_coherence={_glen_coh:.2f}<{GLEN_COH_ULTRA} "
@@ -20104,14 +20115,14 @@ class UnitySignalFilter:
                 elif _glen_coh < GLEN_COH_WEAK and _glen_cold >= 0.67:
                     # Weak: 2/3 misaligned + cold-sequence regime
                     _glen_adj = -1.5; self._last_g85ap_glen = -1.5
-                    score += _glen_adj
+                    quality_score += _glen_adj
                     self._logger.debug(
                         f"🔄 [v166.0 G8.5AP GLEN] Loop Checker WARN: "
                         f"loop_coherence={_glen_coh:.2f}<{GLEN_COH_WEAK} "
                         f"+ cold_seq={_glen_cold:.2f}≥0.67 "
                         f"→ -1.5pt (2-factor incoherence + cold sequence)"
                     )
-            _record("gate_g85ap_glen", self._last_g85ap_glen >= -1.5)
+            self._record("gate_g85ap_glen", self._last_g85ap_glen >= -1.5)
         except Exception:
             pass  # GLEN non-fatal soft-gate
 
@@ -20141,7 +20152,7 @@ class UnitySignalFilter:
                     _grsl_cold  = float(signal_data.get("cold_seq_count", 0.0) or 0.0)
                     if _grsl_slope < GRSL_SLOPE_SVRE and _grsl_wr < 30.0:
                         self._last_g85aq_grsl = -2.0
-                        score += -2.0
+                        quality_score += -2.0
                         self._logger.warning(
                             f"📉 [v167.0 G8.5AQ GRSL] Severe P&L slope: "
                             f"slope={_grsl_slope:.5f}<{GRSL_SLOPE_SVRE} "
@@ -20149,13 +20160,13 @@ class UnitySignalFilter:
                         )
                     elif _grsl_slope < GRSL_SLOPE_MILD and _grsl_wr < 30.0 and _grsl_cold >= 0.5:
                         self._last_g85aq_grsl = -1.5
-                        score += -1.5
+                        quality_score += -1.5
                         self._logger.debug(
                             f"📉 [v167.0 G8.5AQ GRSL] Mild P&L slope: "
                             f"slope={_grsl_slope:.5f}<{GRSL_SLOPE_MILD} "
                             f"WR={_grsl_wr:.1f}%<30% cold={_grsl_cold:.2f}≥0.5 → -1.5pt"
                         )
-            _record("gate_g85aq_grsl", self._last_g85aq_grsl >= -1.5)
+            self._record("gate_g85aq_grsl", self._last_g85aq_grsl >= -1.5)
         except Exception:
             pass  # GRSL non-fatal soft-gate
 
@@ -20185,7 +20196,7 @@ class UnitySignalFilter:
                     # Collapse: recent mean is negative + crisis WR
                     if _gevap_m5 < GEVAP_COLL_EV and _gevap_wr < GEVAP_WR_GATE:
                         self._last_g85ar_gevap = -2.0
-                        score += -2.0
+                        quality_score += -2.0
                         self._logger.warning(
                             f"⚡ [v167.0 G8.5AR GEVAP] EV collapse: "
                             f"ev_ring_r5={_gevap_m5:.4f}R<0 "
@@ -20194,13 +20205,13 @@ class UnitySignalFilter:
                     # Fade: decelerating toward breakeven
                     elif (_gevap_mp - _gevap_m5) > GEVAP_FADE_DELTA and abs(_gevap_ev) < GEVAP_FADE_EV:
                         self._last_g85ar_gevap = -1.5
-                        score += -1.5
+                        quality_score += -1.5
                         self._logger.debug(
                             f"⚡ [v167.0 G8.5AR GEVAP] EV fade: "
                             f"delta={_gevap_mp-_gevap_m5:.4f}R>{GEVAP_FADE_DELTA} "
                             f"EV={_gevap_ev:.4f}R<{GEVAP_FADE_EV} → -1.5pt (EV decelerating toward breakeven)"
                         )
-            _record("gate_g85ar_gevap", self._last_g85ar_gevap >= -1.5)
+            self._record("gate_g85ar_gevap", self._last_g85ar_gevap >= -1.5)
         except Exception:
             pass  # GEVAP non-fatal soft-gate
 
@@ -20232,7 +20243,7 @@ class UnitySignalFilter:
                         _gfrd_adj = -1.5
                 if _gfrd_adj != 0.0:
                     self._last_g85as_gfrd = _gfrd_adj
-                    score += _gfrd_adj
+                    quality_score += _gfrd_adj
                     _tier = "extreme" if abs(_gfrd_adj) >= 2.0 else "moderate"
                     self._logger.warning(
                         f"💸 [v168.0 G8.5AS GFRD] {_tier} funding crowding: "
@@ -20242,7 +20253,7 @@ class UnitySignalFilter:
                         f"💸 [v168.0 G8.5AS GFRD] {_tier} funding crowding: "
                         f"funding={_gfrd_fr*100:.4f}%/8h dir={_gfrd_dir} → {_gfrd_adj:.1f}pt"
                     )
-            _record("gate_g85as_gfrd", self._last_g85as_gfrd >= -1.5)
+            self._record("gate_g85as_gfrd", self._last_g85as_gfrd >= -1.5)
         except Exception:
             pass  # GFRD non-fatal soft-gate
 
@@ -20275,7 +20286,7 @@ class UnitySignalFilter:
                         _gord_adj = -1.5  # crisis only
                 if _gord_adj != 0.0:
                     self._last_g85at_gord = _gord_adj
-                    score += _gord_adj
+                    quality_score += _gord_adj
                     self._logger.warning(
                         f"🌊 [v168.0 G8.5AT GORD] OFI divergence: "
                         f"ofi_z={_gord_ofi:.2f} opposes {_gord_dir} "
@@ -20285,7 +20296,7 @@ class UnitySignalFilter:
                         f"🌊 [v168.0 G8.5AT GORD] OFI crisis divergence: "
                         f"ofi_z={_gord_ofi:.2f} vs {_gord_dir} WR={_gord_wr:.1f}% → {_gord_adj:.1f}pt"
                     )
-            _record("gate_g85at_gord", self._last_g85at_gord >= -1.5)
+            self._record("gate_g85at_gord", self._last_g85at_gord >= -1.5)
         except Exception:
             pass  # GORD non-fatal soft-gate
 
@@ -20313,7 +20324,7 @@ class UnitySignalFilter:
                         _gwfv_adj = -1.5
                 if _gwfv_adj != 0.0:
                     self._last_g85au_gwfv = _gwfv_adj
-                    score += _gwfv_adj
+                    quality_score += _gwfv_adj
                     _case = "1-CPCV-invalid+crisis" if _gwfv_adj <= -2.0 else "2-regime-shift"
                     self._logger.warning(
                         f"📊 [v169.0 G8.5AU GWFV] walk-forward gap CASE-{_case}: "
@@ -20322,7 +20333,7 @@ class UnitySignalFilter:
                         f"📊 [v169.0 G8.5AU GWFV] regime shift: "
                         f"cpcv={_gwfv_cpcv:.3f} WR={_gwfv_wr:.1f}% → {_gwfv_adj:.1f}pt"
                     )
-            _record("gate_g85au_gwfv", self._last_g85au_gwfv >= -1.5)
+            self._record("gate_g85au_gwfv", self._last_g85au_gwfv >= -1.5)
         except Exception:
             pass  # GWFV non-fatal soft-gate
 
@@ -20355,7 +20366,7 @@ class UnitySignalFilter:
                         _gddv_adj = -1.5
                 if _gddv_adj != 0.0:
                     self._last_g85av_gddv = _gddv_adj
-                    score += _gddv_adj
+                    quality_score += _gddv_adj
                     _tier = "severe-collapse" if _gddv_adj <= -2.0 else "moderate-decline"
                     self._logger.warning(
                         f"📉 [v169.0 G8.5AV GDDV] quality {_tier}: "
@@ -20365,7 +20376,7 @@ class UnitySignalFilter:
                         f"📉 [v169.0 G8.5AV GDDV] quality {_tier}: "
                         f"slope={_gddv_slope:.4f} WR={_gddv_wr:.1f}% n={_gddv_n} → {_gddv_adj:.1f}pt"
                     )
-            _record("gate_g85av_gddv", self._last_g85av_gddv >= -1.5)
+            self._record("gate_g85av_gddv", self._last_g85av_gddv >= -1.5)
         except Exception:
             pass  # GDDV non-fatal soft-gate
 
@@ -20389,14 +20400,14 @@ class UnitySignalFilter:
                             _ghrz_adj = -1.5  # structural dead zone regardless of regime
                     if _ghrz_adj != 0.0:
                         self._last_g85aw_ghrz = _ghrz_adj
-                        score += _ghrz_adj
+                        quality_score += _ghrz_adj
                         _ghrz_tier = "crisis-compound" if _ghrz_adj <= -2.0 else "structural"
                         self._logger.debug(
                             f"🕐 [v170.0 G8.5AW GHRZ] dead-zone hour={_ghrz_hour}h UTC "
                             f"({_ghrz_tier}): WR={_ghrz_wr:.1f}% → {_ghrz_adj:.1f}pt "
                             f"(00h/19h dead zone; 52% WR vs 71% peak)"
                         )
-            _record("gate_g85aw_ghrz", self._last_g85aw_ghrz >= -1.5)
+            self._record("gate_g85aw_ghrz", self._last_g85aw_ghrz >= -1.5)
         except Exception:
             pass  # GHRZ non-fatal soft-gate
 
@@ -20425,14 +20436,14 @@ class UnitySignalFilter:
                             _galp_adj = 1.0  # peak session in recovery = mild bonus
                     if _galp_adj != 0.0:
                         self._last_g85ax_galp = _galp_adj
-                        score += _galp_adj
+                        quality_score += _galp_adj
                         _galp_tier = "strong-regime" if _galp_adj >= 1.5 else "recovery"
                         self._logger.debug(
                             f"⚡ [v170.0 G8.5AX GALP] peak session hour={_galp_hour}h UTC "
                             f"({_galp_tier}): WR={_galp_wr:.1f}% IRONS={_galp_irons:.1f} "
                             f"→ +{_galp_adj:.1f}pt (06-09h peak; 71% WR window)"
                         )
-            _record("gate_g85ax_galp", self._last_g85ax_galp >= 0.0)
+            self._record("gate_g85ax_galp", self._last_g85ax_galp >= 0.0)
         except Exception:
             pass  # GALP non-fatal soft-gate
 
@@ -20463,7 +20474,7 @@ class UnitySignalFilter:
                     _gvlr_adj = -2.0  # toxic order flow compound crisis
                 if _gvlr_adj != 0.0:
                     self._last_g85ay_gvlr = _gvlr_adj
-                    score += _gvlr_adj
+                    quality_score += _gvlr_adj
                     _gvlr_tier = ("ultra-clean+OFI" if _gvlr_adj >= 1.5 else
                                   ("clean+OFI" if _gvlr_adj >= 1.0 else "toxic-crisis"))
                     self._logger.debug(
@@ -20471,7 +20482,7 @@ class UnitySignalFilter:
                         f"OFI_z={_gvlr_ofi:.2f} dir={_gvlr_dir:+d} ({_gvlr_tier}) "
                         f"→ {_gvlr_adj:+.1f}pt"
                     )
-            _record("gate_g85ay_gvlr", self._last_g85ay_gvlr >= 0.0)
+            self._record("gate_g85ay_gvlr", self._last_g85ay_gvlr >= 0.0)
         except Exception:
             pass  # GVLR non-fatal soft-gate
 
@@ -20507,7 +20518,7 @@ class UnitySignalFilter:
                         _grlb_adj = -2.0  # underperformer: sym 10pp+ below engine WR
                     if _grlb_adj != 0.0:
                         self._last_g85az_grlb = _grlb_adj
-                        score += _grlb_adj
+                        quality_score += _grlb_adj
                         _grlb_tier = ("struct-alpha" if _grlb_adj >= 1.5 else
                                       ("live-alpha" if _grlb_adj >= 1.0 else
                                        ("struct-hole" if _grlb_adj <= -2.5 else "underperformer")))
@@ -20516,7 +20527,7 @@ class UnitySignalFilter:
                             f"eng_wr={_grlb_eng_wr:.1f}% delta={_grlb_delta:+.1f}pp "
                             f"n={_grlb_n} ({_grlb_tier}) → {_grlb_adj:+.1f}pt"
                         )
-            _record("gate_g85az_grlb", self._last_g85az_grlb >= 0.0)
+            self._record("gate_g85az_grlb", self._last_g85az_grlb >= 0.0)
         except Exception:
             pass  # GRLB non-fatal soft-gate
 
@@ -20561,14 +20572,14 @@ class UnitySignalFilter:
                         _gltb_tier = "mild-SHORT-align"
                     if _gltb_adj != 0.0:
                         self._last_g85ba_gltb = _gltb_adj
-                        score += _gltb_adj
+                        quality_score += _gltb_adj
                         self._logger.debug(
                             f"🔄 [v172.0 G8.5BA GLTB] ring={_gltb_ring[-GLTB_RING_SIZE:]} "
                             f"longs={_gltb_longs}/{_gltb_n} shorts={_gltb_shorts}/{_gltb_n} "
                             f"WR={_gltb_wr:.1f}% consec={_gltb_cold} ({_gltb_tier}) "
                             f"→ {_gltb_adj:+.1f}pt"
                         )
-            _record("gate_g85ba_gltb", self._last_g85ba_gltb >= 0.0)
+            self._record("gate_g85ba_gltb", self._last_g85ba_gltb >= 0.0)
         except Exception:
             pass  # GLTB non-fatal soft-gate
 
@@ -20632,13 +20643,13 @@ class UnitySignalFilter:
                     _gcms_tier = "strong-consensus"
                 if _gcms_adj != 0.0:
                     self._last_g85bb_gcms = _gcms_adj
-                    score += _gcms_adj
+                    quality_score += _gcms_adj
                     self._logger.debug(
                         f"🧩 [v172.0 G8.5BB GCMS] neg={_gcms_neg_count} pos={_gcms_pos_count} "
                         f"WR={_gcms_wr:.1f}% consec={_gcms_cold} ({_gcms_tier}) "
                         f"→ {_gcms_adj:+.1f}pt"
                     )
-            _record("gate_g85bb_gcms", self._last_g85bb_gcms >= 0.0)
+            self._record("gate_g85bb_gcms", self._last_g85bb_gcms >= 0.0)
         except Exception:
             pass  # GCMS non-fatal soft-gate
 
@@ -20684,13 +20695,13 @@ class UnitySignalFilter:
                                 _gdsa_adj  = -1.0
                                 _gdsa_tier = "LONG-crisis-escalation"
                     self._last_g85bc_gdsa = _gdsa_adj
-                    score += _gdsa_adj
+                    quality_score += _gdsa_adj
                     self._logger.debug(
                         f"🎯 [v173.0 G8.5BC GDSA] ring_long={_gdsa_long_n}/{len(_gdsa_ring)} "
                         f"dir={_gdsa_dir} WR={_gdsa_wr:.1f}% hostile={_gdsa_hostile} "
                         f"({_gdsa_tier}) → {_gdsa_adj:+.1f}pt"
                     )
-            _record("gate_g85bc_gdsa", self._last_g85bc_gdsa >= 0.0)
+            self._record("gate_g85bc_gdsa", self._last_g85bc_gdsa >= 0.0)
         except Exception:
             pass  # GDSA non-fatal soft-gate
 
@@ -20736,13 +20747,13 @@ class UnitySignalFilter:
                             _gevl_adj  = +1.0
                             _gevl_tier = "recovery"
                         self._last_g85bd_gevl = _gevl_adj
-                        score += _gevl_adj
+                        quality_score += _gevl_adj
                         self._logger.debug(
                             f"📉 [v173.0 G8.5BD GEVL] slope={_gevl_slope:.5f} "
                             f"n={len(_gevl_vals)} WR={_gevl_wr:.1f}% "
                             f"({_gevl_tier}) → {_gevl_adj:+.1f}pt"
                         )
-            _record("gate_g85bd_gevl", self._last_g85bd_gevl >= 0.0)
+            self._record("gate_g85bd_gevl", self._last_g85bd_gevl >= 0.0)
         except Exception:
             pass  # GEVL non-fatal soft-gate
 
@@ -20784,13 +20795,13 @@ class UnitySignalFilter:
                         _grdc_adj  = +1.0
                         _grdc_tier = "dual-recovery"
                     self._last_g85be_grdc = _grdc_adj
-                    score += _grdc_adj
+                    quality_score += _grdc_adj
                     self._logger.debug(
                         f"🧭 [v174.0 G8.5BE GRDC] recentWR={_grdc_recent_wr:.1f}% "
                         f"allWR={_grdc_all_wr:.1f}% gap={_grdc_gap:+.1f}pp "
                         f"qs_slope={_grdc_qs_slope:+.4f} ({_grdc_tier}) → {_grdc_adj:+.1f}pt"
                     )
-            _record("gate_g85be_grdc", self._last_g85be_grdc >= 0.0)
+            self._record("gate_g85be_grdc", self._last_g85be_grdc >= 0.0)
         except Exception:
             pass  # GRDC non-fatal soft-gate
 
@@ -20808,7 +20819,7 @@ class UnitySignalFilter:
                 _gxwi_qs_ring = list(getattr(self, "_quality_score_ring", []))
                 if len(_gxwi_qs_ring) >= GXWI_MIN_RING:
                     _gxwi_checker = sum(_gxwi_qs_ring) / len(_gxwi_qs_ring)
-                    _gxwi_maker   = float(score)
+                    _gxwi_maker   = float(quality_score)
                     _gxwi_diverge = _gxwi_maker - _gxwi_checker
                     _gxwi_wr      = float(win_rate) if win_rate else 0.0
                     _gxwi_adj     = 0.0
@@ -20823,13 +20834,13 @@ class UnitySignalFilter:
                         _gxwi_adj  = +0.5
                         _gxwi_tier = "maker-checker-aligned"
                     self._last_g85bf_gxwi = _gxwi_adj
-                    score += _gxwi_adj
+                    quality_score += _gxwi_adj
                     self._logger.debug(
                         f"🔀 [v174.0 G8.5BF GXWI] maker={_gxwi_maker:.2f} "
                         f"checker={_gxwi_checker:.2f} diverge={_gxwi_diverge:+.2f} "
                         f"WR={_gxwi_wr:.1f}% ({_gxwi_tier}) → {_gxwi_adj:+.1f}pt"
                     )
-            _record("gate_g85bf_gxwi", self._last_g85bf_gxwi >= 0.0)
+            self._record("gate_g85bf_gxwi", self._last_g85bf_gxwi >= 0.0)
         except Exception:
             pass  # GXWI non-fatal soft-gate
 
@@ -20871,14 +20882,14 @@ class UnitySignalFilter:
                         _gpel_adj  = +1.0
                         _gpel_tier = "locked-high-streak"
                     self._last_g85bg_gpel = _gpel_adj
-                    score += _gpel_adj
+                    quality_score += _gpel_adj
                     if _gpel_adj != 0.0:
                         self._logger.debug(
                             f"🔁 [v175.0 G8.5BG GPEL] low_streak={_gpel_low_streak} "
                             f"high_streak={_gpel_high_streak} ({_gpel_tier}) → {_gpel_adj:+.1f}pt "
                             f"(recurring edge-case permanently escalated, not one-off)"
                         )
-            _record("gate_g85bg_gpel", self._last_g85bg_gpel >= 0.0)
+            self._record("gate_g85bg_gpel", self._last_g85bg_gpel >= 0.0)
         except Exception:
             pass  # GPEL non-fatal soft-gate
 
@@ -20920,14 +20931,14 @@ class UnitySignalFilter:
                         _glcv_adj  = +1.0
                         _glcv_tier = "loop-converging"
                     self._last_g85bh_glcv = _glcv_adj
-                    score += _glcv_adj
+                    quality_score += _glcv_adj
                     if _glcv_adj != 0.0:
                         self._logger.debug(
                             f"🌀 [v175.0 G8.5BH GLCV] var_recent={_glcv_var_recent:.1f} "
                             f"var_prior={_glcv_var_prior:.1f} delta={_glcv_var_delta:+.1f} "
                             f"WR={_glcv_wr:.1f}% ({_glcv_tier}) → {_glcv_adj:+.1f}pt"
                         )
-            _record("gate_g85bh_glcv", self._last_g85bh_glcv >= 0.0)
+            self._record("gate_g85bh_glcv", self._last_g85bh_glcv >= 0.0)
         except Exception:
             pass  # GLCV non-fatal soft-gate
 
