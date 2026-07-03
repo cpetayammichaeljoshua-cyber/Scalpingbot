@@ -1,8 +1,30 @@
 #!/usr/bin/env python3
 """
-Unity Engine v194.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v195.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 176-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ v195.0 improvements [2026-07-03]:
+   Power-mode scan round 4: Overscoring sweep continued — 7 remaining high-weight positive-bonus paths
+   (Gates 1, 3, 4, 6, 7b, GLTB, GCMS) now WR-dampened via _wr_dampen(). Total dampened paths: 40→47.
+   Root cause: v194 sweep covered foundational *low-score* paths (G2/G2.5/G5/ISB). This round targets
+   the *highest-raw-score* structural paths that were incorrectly treated as "objective quality" rather
+   than "consensus bonus" — they are equally miscalibrated when global engine WR is suppressed.
+   1. G1 R:R margin bonus: `min(20.0, rr_margin/range*20)` → _wr_dampen(). Raw +20pts for high R:R
+      is an expected-value signal — but at WR=25%, even strong-R:R signals underperform; dampened.
+   2. G3 AI confidence bonus: `min(20.0, confidence/100*20)` → _wr_dampen(). AI confidence of 95%
+      when live WR=25% means the model is badly miscalibrated (overconfident). Raw +19pts → dampened.
+   3. G4 NN probability bonus: `min(15.0, nn_prob*15)` → _wr_dampen(). NN saying 90% prob when
+      WR=25% → NN overfit or miscalibrated. Was raw +13.5pts; now WR-scaled.
+   4. G6 F&G quality bonus: `fg_quality*7.5*_fg_dir_mult` → _wr_dampen(). Up to +11.25pts raw;
+      regime-alignment is not a validated WR-independent edge in suppressed-WR regimes.
+   5. G7b BS Greeks IV skew: `+2.0` (CALL_SKEW+BUY / PUT_SKEW+SELL) → _wr_dampen(2.0).
+      Options skew is a directional signal, not a quality absolute; dampened at low WR.
+   6. G8.5BA GLTB positive tiers (+1.5 SHORT-alpha / +1.0 mild-SHORT-align) → conditional
+      _wr_dampen() on positive branch only; negative penalty tiers unchanged. GLTB WR gates
+      (GLTB_WR_STRONG=32% / GLTB_WR_CRISIS=30%) guard local ring WR, not global engine WR;
+      global dampener adds cross-scope protection.
+   7. G8.5BB GCMS positive tiers (+2.0 full-consensus / +1.5 strong-consensus) → same conditional
+      _wr_dampen() pattern. GCMS_WR_ULTRA=32% / GCMS_WR_STRONG=30% guard local context only.
  v194.0 improvements [2026-07-03]:
    Power-mode scan round 3: Overscoring sweep — 6 unchecked positive-bonus paths that could inflate
    quality_score without WR-calibration, identified and fixed with _wr_dampen().
@@ -3169,7 +3191,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "194.0"
+UNITY_VERSION                = "195.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -9387,7 +9409,7 @@ class UnitySignalFilter:
                 f"G1_FAIL: weighted R:R={rr:.2f} < {_adaptive_rr:.2f} "
                 f"(adaptive floor at WR={_g1_wr:.0%}) [v11.3]"
             ), 0.0
-        quality_score += min(20.0, (rr - _adaptive_rr) / max(0.01, 3.5 - _adaptive_rr) * 20.0)
+        quality_score += self._wr_dampen(min(20.0, (rr - _adaptive_rr) / max(0.01, 3.5 - _adaptive_rr) * 20.0))  # v195.0: WR-dampened — R:R margin bonus was raw +20pts regardless of live WR
 
         # ── Gate 2 — Swarm consensus ──────────────────────────────────────────
         _no_swarm_data = (consensus == 0.0)
@@ -9561,7 +9583,7 @@ class UnitySignalFilter:
             # falsely report that a 92%-confidence signal failed a 93% threshold even though it
             # actually failed the correct 92% threshold (confidence was even lower).
             return False, f"G3_FAIL: confidence={confidence:.1f}% < {_g3_ai_threshold:.0f}%", 0.0
-        quality_score += min(20.0, (confidence / 100.0) * 20.0)
+        quality_score += self._wr_dampen(min(20.0, (confidence / 100.0) * 20.0))  # v195.0: WR-dampened — AI confidence bonus up to +20pts was unguarded; at WR=25% miscalibrated model → dampen
 
         # ── Gate 4 — Neural network ───────────────────────────────────────────
         if nn_trainer is not None and self._health.is_available("NeuralNetwork"):
@@ -12230,7 +12252,7 @@ class UnitySignalFilter:
             if not passed_g4:
                 return False, f"G4_FAIL: NN win-prob={nn_prob:.2f} < {nn_threshold:.2f}", 0.0
             # v37.0: Full NN quality credit — all bypasses removed, nn_prob always genuinely >= threshold
-            quality_score += min(15.0, nn_prob * 15.0)
+            quality_score += self._wr_dampen(min(15.0, nn_prob * 15.0))  # v195.0: WR-dampened — NN probability bonus up to +15pts; at WR=25% NN at 90% prob is miscalibrated → dampen
         else:
             self._record("gate4", True)
             # v188.0-FIX: absence-bias removed — NN model unavailable → no quality credit (was +7.5).
@@ -12385,7 +12407,7 @@ class UnitySignalFilter:
                     _fg_dir_mult = 1.5   # v42.0: extreme greed → BUY regime-aligned (+50%)
                 elif fg > 70 and direction == "SELL":
                     _fg_dir_mult = 0.65  # v42.0: extreme greed → SELL regime-opposed (-35%)
-                quality_score += fg_quality * 7.5 * _fg_dir_mult
+                quality_score += self._wr_dampen(fg_quality * 7.5 * _fg_dir_mult)  # v195.0: WR-dampened — F&G regime bonus up to +11.25pts raw; regime-alignment is not a validated WR-independent edge
             except Exception:
                 self._record("gate6", True)
                 # v188.0-FIX: absence-bias removed — F&G data error → no quality credit (was +3.75).
@@ -12606,9 +12628,9 @@ class UnitySignalFilter:
                 if _skew is not None and hasattr(_skew, "skew_regime"):
                     _sr = str(_skew.skew_regime).upper()
                     if _sr == "CALL_SKEW" and direction == "BUY":
-                        quality_score += 2.0
+                        quality_score += self._wr_dampen(2.0)   # v195.0: WR-dampened (was raw +2.0)
                     elif _sr == "PUT_SKEW" and direction == "SELL":
-                        quality_score += 2.0
+                        quality_score += self._wr_dampen(2.0)   # v195.0: WR-dampened (was raw +2.0)
                     elif _sr == "PUT_SKEW" and direction == "BUY":
                         quality_score -= 1.5
             except Exception:
@@ -20995,7 +21017,8 @@ class UnitySignalFilter:
                         _gltb_tier = "mild-SHORT-align"
                     if _gltb_adj != 0.0:
                         self._last_g85ba_gltb = _gltb_adj
-                        quality_score += _gltb_adj
+                        # v195.0: positive GLTB bonus WR-dampened; negative penalty unchanged
+                        quality_score += self._wr_dampen(_gltb_adj) if _gltb_adj > 0 else _gltb_adj
                         self._logger.debug(
                             f"🔄 [v172.0 G8.5BA GLTB] ring={_gltb_ring[-GLTB_RING_SIZE:]} "
                             f"longs={_gltb_longs}/{_gltb_n} shorts={_gltb_shorts}/{_gltb_n} "
@@ -21066,7 +21089,8 @@ class UnitySignalFilter:
                     _gcms_tier = "strong-consensus"
                 if _gcms_adj != 0.0:
                     self._last_g85bb_gcms = _gcms_adj
-                    quality_score += _gcms_adj
+                    # v195.0: positive GCMS bonus WR-dampened; negative penalty unchanged
+                    quality_score += self._wr_dampen(_gcms_adj) if _gcms_adj > 0 else _gcms_adj
                     self._logger.debug(
                         f"🧩 [v172.0 G8.5BB GCMS] neg={_gcms_neg_count} pos={_gcms_pos_count} "
                         f"WR={_gcms_wr:.1f}% consec={_gcms_cold} ({_gcms_tier}) "
