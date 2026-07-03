@@ -2481,6 +2481,7 @@ class NeuralSignalTrainer:
         self._opt_threshold    = 0.50   # default; overwritten after each training run
         self._reject_threshold = 0.38   # floor: reject below 38% win prob (raised from 0.35)
         self._boost_threshold  = 0.70   # upper bound (only boost above this)
+        self._last_cpcv_avg:   float = -1.0  # v193.0-FIX: CPCV K=3 fold accuracy (-1.0=never computed); propagated to engine GWFV gate (G8.5AU) and G8.5O3 vote
 
         # Direction-aware calibration offsets.
         # Corrects for BUY-biased training data: the model tends to underestimate
@@ -3666,6 +3667,7 @@ class NeuralSignalTrainer:
                             pass
                     if len(_cpcv_accs) >= 1:
                         _cpcv_avg = float(np.mean(_cpcv_accs))
+                        self._last_cpcv_avg = _cpcv_avg  # v193.0-FIX: persist CPCV result → engine GWFV (G8.5AU) + G8.5O3 gates can now read it; was never stored → both gates always read default -1.0 (permanently inactive since v169.0)
                         _cpcv_gap = float(acc - _cpcv_avg)
                         # v115.0: Near-random model rejection — if CPCV avg < 51% (barely above random
                         # 50% baseline), the model has no meaningful out-of-sample predictive power.

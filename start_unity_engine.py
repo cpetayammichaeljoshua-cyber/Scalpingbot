@@ -1,8 +1,52 @@
 #!/usr/bin/env python3
 """
-Unity Engine v192.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v194.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 168-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 176-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ v194.0 improvements [2026-07-03]:
+   Power-mode scan round 3: Overscoring sweep — 6 unchecked positive-bonus paths that could inflate
+   quality_score without WR-calibration, identified and fixed with _wr_dampen().
+   Root cause: prior dampener sweeps (v179, v189, v191, v192) targeted specific gate families
+   (G8.5CORR / G7 GEX / G8.5U+N4 meta-gates / A3–S3+K4/L4/M4 triple-consensus gates). They did
+   NOT cover the foundational early-path bonuses that fire on every signal — those were considered
+   "structural" but are equally subject to WR-miscalibration in suppressed-WR regimes.
+   1. Swarm consensus quality bonus (G2): `min(20.0, consensus * 20.0)` → wrapped with _wr_dampen().
+      Raw +20pts for 100% consensus is unguarded overscoring; consensus*20 at WR=25% now caps at
+      +14pts (×0.70 ramp). No-swarm-data neutral baseline (10pts) unchanged — not a consensus signal.
+   2. Bookmap/ATAS G2.5 aligned flow bonus: `+5.0/+2.0` → `_wr_dampen(5.0 or 2.0)`.
+      Raw +5pts for STRONG_BUY/STRONG_SELL alignment is pure confluence score — not a validated edge
+      signal independent of WR. At WR=25% now +3.5pts max.
+   3. Volume Confirmation G2.5c: +5.0/+3.0/+2.0/+1.0 → all wrapped with _wr_dampen().
+      Volume ratio is a momentum indicator correlated with swarm/bookmap signals; giving full +5pts
+      regardless of WR inflates scores in regimes where volume is falsely bullish.
+   4. Gate 5 ATAS+Bookmap dual alignment: +10.0 → _wr_dampen(10.0); +5.0 → _wr_dampen(5.0).
+      Dual-analyzer agreement (+10pts) is the highest unchecked bonus in the engine after consensus.
+      At WR=25% caps at +7.0pts (was always +10pts regardless of regime health).
+   5. Intelligence Singularity Bonus (ISB): +5.0 → _wr_dampen(5.0).
+      Dual-SOVEREIGN (Markov+Vibe) is a high-quality signal but still fires in low-WR regimes when
+      SOVEREIGN thresholds themselves may be miscalibrated. Log updated to show WR-adjusted amount.
+   Architecture: banner updated 168-gate → 176-gate (accurate _GATE_DISPLAY_LABELS count post-v191/v192 additions).
+ v193.0 improvements [2026-07-03]:
+   Power-mode scan round 2: CPCV dead-variable fix — 3 gate/feature paths permanently blind since v169.
+   Root cause: `self._cpcv_avg_chance` was designed as the CPCV accuracy propagation channel from
+   trainer → engine, but was NEVER ASSIGNED anywhere in either file. All reads used getattr default
+   -1.0, so every guard `if _cpcv_avg >= 0.0` was false → gates never fired.
+   1. G8.5AU GWFV PromptRefinement-WalkForwardValidation gate: `_cpcv_avg_chance` read
+      → now reads `neural_trainer._last_cpcv_avg` (same attribute already used by G8.5M3 at L16288;
+      confirmed `self.neural_trainer` is the correct reference in UnitySignalFilter).
+   2. G8.5O3 VOETripleConv CPCV vote (vote 2 of 3): same fix — `_cpcv_avg_chance` → `neural_trainer._last_cpcv_avg`.
+   3. NN feature F387 cpcv_wfv_gap: was always 0.0 (unset path); now computes actual CPCV-vs-WR gap.
+   4. neural_signal_trainer.py `__init__`: added `self._last_cpcv_avg = -1.0` initialization.
+   5. neural_signal_trainer.py `train()`: added `self._last_cpcv_avg = _cpcv_avg` immediately after
+      CPCV fold accuracy is computed (before model-reject guard) so value persists across retrains.
+   Why the previous read pattern failed: `self._cpcv_avg_chance` was never initialized in __init__
+   of UnitySignalFilter and never written in _nn_retrain_task; the getattr(self, "_cpcv_avg_chance",
+   -1.0) call was always returning -1.0. The fix uses the trainer's internal _last_cpcv_avg directly
+   (same pattern as G8.5M3 at line 16288 which already worked correctly).
+   Audit: multiparallel scan cleared false-positive flags — _GATE_DISPLAY_LABELS, _SOFT_GATE_KEYS,
+   and _gate_stats_recent all correctly wired for gates V3/W3/X3/Y3/Z3/Q/sq/V2 (scanner had
+   reported missing entries but grep confirmed all present). Kelly ×1.18/×1.25 (Steps 20-21) are
+   intentional guarded boosts (Markov p_ij≥threshold+SR≥-4.0 / HMM EXPANSION P≥0.75+SR≥0.0).
  v192.0 improvements [2026-07-03]:
    Power-mode bug hunt (multiparallel scan): 6 dead-recording fixes + overconsensus dampener
    extension to 20+ triple-consensus meta-gates (A3–S3 + K4/L4/M4 family).
@@ -3125,7 +3169,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "192.0"
+UNITY_VERSION                = "194.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -7201,6 +7245,13 @@ class UnitySignalFilter:
         confidence = float(signal_data.get("confidence", signal_data.get("ai_confidence", 0)) or 0)
         consensus  = float(signal_data.get("consensus",  signal_data.get("swarm_consensus", 0)) or 0)
 
+        # v193.0-FIX: Cache nn_trainer on self so all gate/feature code inside apply()
+        # can read it via getattr(self, "_nn_trainer_ref", None).  nn_trainer is a local
+        # parameter of apply() — gate code deeper in the call stack (check_signals, etc.)
+        # previously read getattr(self, "neural_trainer", None) which was never assigned
+        # → always None → GWFV / G8.5O3 / G8.5M3 CPCV votes and NN F387 always defaulted.
+        self._nn_trainer_ref = nn_trainer  # valid for the duration of this apply() call
+
         # v128.1 STRICT [ZERO-BYPASS]: G3/G4 soft-pass + bypass flags REMOVED.
         # G3 (AI confidence) and G4 (NN win-probability) are hard gates — the consensus
         # soft-pass / UNC-bypass paths that could set these True were removed in v37.0,
@@ -9368,7 +9419,8 @@ class UnitySignalFilter:
         # FIX v5.3: consensus=0 means no swarm data — give neutral 10pt (v5.0 gave 0pt
         # which unfairly penalised non-swarm sources; v5.3 grants a neutral baseline).
         # Full-swarm signals still get up to 20pt proportional to their consensus.
-        quality_score += 10.0 if _no_swarm_data else min(20.0, consensus * 20.0)
+        # v194.0: dampen consensus bonus in low-WR regime (overconsensus fix: raw consensus*20 unguarded)
+        quality_score += 10.0 if _no_swarm_data else self._wr_dampen(min(20.0, consensus * 20.0))
 
         # ── Gate 2.5 — Orderbook Imbalance Veto (v9.6) ────────────────────────
         # Hard-veto signals where Binance L2 order-flow is STRONGLY OPPOSED to
@@ -9407,7 +9459,7 @@ class UnitySignalFilter:
             _bm_dir2 = str(bookmap_result.get("order_flow_direction", "")).upper()
             if (direction == "BUY"  and _bm_dir2 in ("STRONG_BUY",  "BUY")) or \
                (direction == "SELL" and _bm_dir2 in ("STRONG_SELL", "SELL")):
-                quality_score += 5.0 if "STRONG" in _bm_dir2 else 2.0
+                quality_score += self._wr_dampen(5.0 if "STRONG" in _bm_dir2 else 2.0)  # v194.0: dampen confluence bonus
 
         # ── Gate 2.5b — Technical Pattern Recognition bias (v11.0) ───────────
         # PatternRecognizer scores 24 candlestick + 8 chart patterns.
@@ -9432,7 +9484,7 @@ class UnitySignalFilter:
                     )
                     if _aligned:
                         _g25b_adj = min(8.0, abs(_net))
-                        quality_score += _g25b_adj
+                        quality_score += self._wr_dampen(_g25b_adj)   # v194.0: dampen pattern-alignment bonus
                     elif _opposed:
                         _g25b_adj = -min(6.0, abs(_net) * 0.75)
                         quality_score += _g25b_adj
@@ -9457,13 +9509,13 @@ class UnitySignalFilter:
             except Exception:
                 pass
             if _vcr > 3.5:          # 3.5×+ average: extreme institutional surge — v18.93 conviction-spike tier
-                quality_score += 5.0
+                quality_score += self._wr_dampen(5.0)   # v194.0: dampen vol bonus in low-WR regime
             elif _vcr > 2.0:        # 2–3.5×: strong institutional flow confirmed
-                quality_score += 3.0
+                quality_score += self._wr_dampen(3.0)   # v194.0
             elif _vcr > 1.5:        # 1.5–2×: moderate participation boost
-                quality_score += 2.0
+                quality_score += self._wr_dampen(2.0)   # v194.0
             elif _vcr > 1.2:        # 1.2–1.5×: mild confirmation
-                quality_score += 1.0
+                quality_score += self._wr_dampen(1.0)   # v194.0
             elif _vcr < 0.5:        # <50% average: dangerously thin — v18.93 elevated noise penalty
                 quality_score -= 3.0
             elif _vcr < 0.7:        # <70% average: thin volume — elevated noise risk
@@ -11714,7 +11766,7 @@ class UnitySignalFilter:
                         # F387: cpcv_wfv_gap — CPCV score vs WR gap, normalized [-1,+1]
                         # Positive = CPCV higher than live WR (model overpredicts = regime shift)
                         # Negative = CPCV lower (model underpredicts = conservative)
-                        _f387_cpcv = float(getattr(self, "_cpcv_avg_chance", -1.0) or -1.0)
+                        _f387_cpcv = float(getattr(getattr(self, "_nn_trainer_ref", None), "_last_cpcv_avg", -1.0) or -1.0)  # v193.0-FIX: neural_trainer → _nn_trainer_ref (wired); was self._cpcv_avg_chance (never assigned)
                         _f387_wr   = float(signal_data.get("win_rate", 50.0) or 50.0) / 100.0
                         if _f387_cpcv >= 0.0:
                             signal_data["cpcv_wfv_gap"] = max(-1.0, min(1.0, (_f387_cpcv - _f387_wr) * 5.0))
@@ -12275,10 +12327,11 @@ class UnitySignalFilter:
 
         self._record("gate5", passed_g5)
         # Quality bonus: agreement adds up to +10, full agreement adds +10, partial +5
+        # v194.0: dampen in low-WR regime — correlated analyzer agreement is not calibrated edge evidence
         if atas_agrees and bm_agrees:
-            quality_score += 10.0    # both confirm → full alignment bonus
+            quality_score += self._wr_dampen(10.0)   # both confirm → full alignment bonus
         elif atas_agrees or bm_agrees:
-            quality_score += 5.0     # one confirms (other neutral) → partial bonus
+            quality_score += self._wr_dampen(5.0)    # one confirms (other neutral) → partial bonus
         elif atas_dir is None and bm_dir is None:
             pass                     # v187.0-FIX: no analyzer data → truly neutral (0 pts).
             # Previously +3.0 ("was 5.0") rewarded ABSENCE of contradicting evidence —
@@ -16285,8 +16338,8 @@ class UnitySignalFilter:
             elif _m3_svq_raw < 0:
                 _m3_vote2 = -1
             # Vote 3: CPCV walk-forward quality (avg CPCV > 50% = regime is learnable)
-            _m3_cpcv_avg = float(getattr(getattr(self, "neural_trainer", None), "_last_cpcv_avg", 0.50) or 0.50)
-            _m3_vote3 = 1 if _m3_cpcv_avg >= 0.50 else -1
+            _m3_cpcv_avg = float(getattr(getattr(self, "_nn_trainer_ref", None), "_last_cpcv_avg", -1.0) or -1.0)  # v193.0-FIX: neural_trainer → _nn_trainer_ref (wired); default -1.0 not 0.50 (0.50 default caused always-positive vote = overconsensus)
+            _m3_vote3 = 1 if _m3_cpcv_avg >= 0.50 else (-1 if _m3_cpcv_avg >= 0.0 else 0)  # v193.0-FIX: -1.0 (unset) → abstain (0), not -1 vote (was: -1 when unset = always negative vote before fix)
             _m3_net = _m3_vote1 + _m3_vote2 + _m3_vote3
             if _m3_net >= 3:
                 _m3_adj = 2.0
@@ -16395,7 +16448,7 @@ class UnitySignalFilter:
                     elif _o3_rwr < 0.25:
                         _o3_v1 = -1
             # Vote 2: CPCV walk-forward average PBO chance
-            _o3_cpcv_avg = float(getattr(self, "_cpcv_avg_chance", -1.0) or -1.0)
+            _o3_cpcv_avg = float(getattr(getattr(self, "_nn_trainer_ref", None), "_last_cpcv_avg", -1.0) or -1.0)  # v193.0-FIX: neural_trainer → _nn_trainer_ref (wired); was self._cpcv_avg_chance (never assigned)
             if _o3_cpcv_avg >= 0.0:
                 if _o3_cpcv_avg >= 0.50:
                     _o3_v2 = +1
@@ -20681,7 +20734,7 @@ class UnitySignalFilter:
         try:
             self._last_g85au_gwfv = 0.0
             if GWFV_ENABLED:
-                _gwfv_cpcv = float(getattr(self, "_cpcv_avg_chance", -1.0) or -1.0)
+                _gwfv_cpcv = float(getattr(getattr(self, "_nn_trainer_ref", None), "_last_cpcv_avg", -1.0) or -1.0)  # v193.0-FIX: neural_trainer → _nn_trainer_ref (wired); was self._cpcv_avg_chance (never assigned → gate silent since v169.0)
                 _gwfv_wr   = float(win_rate) if win_rate is not None else 100.0
                 _gwfv_adj  = 0.0
                 if _gwfv_cpcv >= 0.0:  # guard: CPCV has been computed
@@ -21506,12 +21559,13 @@ class UnitySignalFilter:
                 (_mk_sov_flag and _isb_cons >= 0.95 and _isb_sr >= -4.0)  # Markov+unanimous (disabled in deep crisis)
             )
             if _isb_fired:
-                quality_score += 5.0   # v18.52: raised +3pts → +5pts (dual-SOVEREIGN convergence warrants stronger uplift)
+                _isb_pts = self._wr_dampen(5.0)   # v194.0: dampen ISB in low-WR; v18.52 raised +3→+5pts
+                quality_score += _isb_pts
                 self._logger.info(
                     f"⚡ [{symbol}] INTELLIGENCE SINGULARITY BONUS v18.52: "
                     f"Markov={'SOV' if _mk_sov_flag else '—'} "
                     f"Vibe={'SOV' if _vibe_sov_flag else '—'} "
-                    f"cons={_isb_cons:.0%} → +5pts (quality={quality_score:.1f})"
+                    f"cons={_isb_cons:.0%} → +{_isb_pts:.2f}pts WR-dampened (quality={quality_score:.1f})"
                 )
         except Exception:
             pass
@@ -34543,7 +34597,7 @@ def main_launcher():
     )
     _logger.info(
         f"📐 30 layers + MiroFishSim(@watched_task) L0.6 OKX-GEX · L0.7 Binance-aggTrade-WS · L0.8 Depth-Slippage · "
-        f"166-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5H-FlowAsymmetry[v77.0]·G8.5I-MicroTrend[v77.0]·G8.5J-HMMTransition[v78.0]·G8.5K-SpreadLiq[v79.0]·G8.5L2-VolPressure[v80.0]·G8.5N2-FundMom[v81.0]·G8.5O2-WREVCoh[v82.0]·G8.5P2-EVCrisis[v83.0]·G8.5Q-TrendMom[v84.0]·G8.5R2-RegimeSent[v84.0]·G8.5S2-WRCrisisRegime[v85.0]·G8.5T2-ExtremeFearRegime[v85.0]·G8.5U2-VoV-Stability[v87.0]·G8.5V2-OBPressure[v88.0]·G8.5W2-DDMomentum[v89.0]·G8.5X2-WRTrajectory[v90.0]·G8.5Y2-HMMVPINCoh[v91.0]·G8.5Z2-RMSSync[v92.0]·G8.5A3-VPCTripleConf[v93.0]·G8.5B3-HOSTripleSync[v94.0]·G8.5C3-VOETripleConv[v95.0]·G8.5D3-RDWTripleRisk[v96.0]·G8.5E3-EFOTriplePressure[v97.0]·G8.5F3-MLCCoherence[v101.0]·G8.5G3-SVQMomentum[v102.0]·G8.5H3-EWBrake[v103.0]·G8.5I3-IRFlorSharpe[v103.0]·G8.5R3-BWOTripleMomentum[v108.0]·G8.5S3-QSCCompositeHealth[v108.0]·G8.5T3-RFWTripleAlign[v109.0]·G8.5U3-KHSTripleSync[v109.0]·G8.5V3-TECTripleEVConf[v110.0]·G8.5W3-MOTTripleSync[v111.0]·G8.5X3-CrisisCompass-DDM-WRT-TripleSafety[v113.0]·G8.5Y3-MCSMetaTripleSync[v113.0]·G8.5Z3-RQTTripleSync[v114.0]·G8.5A4-FVRTripleSync[v114.0]·G8.5B4-RWSentinel[v115.0]·G8.5C4-AEVSentinel[v116.0]·G8.5D4-TFCForecastConf[v117.0]·G8.5E4-TRSRegimeSync[v117.0]·G8.5F4-TPMPatchMomentum[v118.0]·G8.5G4-SVTFCComposite[v118.0]·G8.5H4-TPEPatchEnsemble[v119.0]·G8.5I4-DGCDrawdownGuard[v119.0]·G8.5J4-TFMSMultiScale[v120.0]·G8.5K4-PSRRegimeAlign[v120.0]·G8.5L4-WSDTriple[v120.0]·G8.5M4-OFMicroTriple[v120.0]·G8.5N4-TFCConsensusMeta[v120.0]·G8.5T4-CapReversal[v124.0]·G8.5U4-TUCSentinel[v124.0]·G8.5V4-ERVelocity[v125.0]·G8.5W4-WACCoh[v125.0]·G8.5X4-SVRVelRecovery[v126.0]·G8.5Y4-OWSTrajectorySync[v126.0]·G8.5Z4-ARCAdaptRegimeComp[v127.0]·G8.5A5-SVCSharpeVelConf[v127.0]·G8.5L5-MEVTripleBrake[v136.0]·G8.5M5-OSWTripleMomentum[v137.0]·G8.5N5-FSLTripleSafety[v137.0]·G8.5O5-RSQTripleCoherence[v138.0]·G8.5P5-EWVTripleComposite[v138.0]·G8.5Q5-DVSTripleSafety[v139.0]·G8.5R5-VCFTripleMomentum[v139.0]·G8.5S5-LSQTripleConvergence[v140.0]·G8.5T5-MFRTripleResonance[v140.0]·G8.5U5-OUPMeanReversion[v141.0]·G8.5BE-GRDCRoleDrawdownCoh[v174.0]·G8.5BF-GXWIWorkflowIsolDiv[v174.0]·G8.5BG-GPELPromptEdgeLock[v175.0]·G8.5BH-GLCVLoopConvVelocity[v175.0]·G8.5V5-MFAFloamAlpha[v141.0]·G8.5W5-WNZWinsorGuard[v142.0]·G8.5X5-ADFStationarity[v142.0]·G8.5Y5-PCOFLOAMOrthogonality[v143.0]·G8.5Z5-ICSFLOAMIRGate[v143.0]·G8.5AU-GWFV[v169.0]·G8.5AV-GDDV[v169.0]·G8.5AW-GHRZ[v170.0]·G8.5AX-GALP[v170.0]·G8.5AY-GVLR[v171.0]·G8.5AZ-GRLB[v171.0]·G8.5BA-GLTB[v172.0]·G8.5BB-GCMS[v172.0]·G8.5BC-GDSA[v173.0]·G8.5BD-GEVL[v173.0]·G8.5V·AdaptIRONS) · "
+        f"176-gate filter (G0:EV[depth-walked]·G0.5:Session·G0.8:MinTP1·G1-G10·GCVAR·GMK·G8.5w·G8.5x·G8.5T·G8.5U-5gate·G8.5P[v75FIX]·G8.5R·G8.5S-FLIPx2[v65.0]·G8.5Z[v64.0]·G8.5Y-ATR-VolCompress[v75FIX]·G8.5X-DGRP-Velocity[v66.0]·G8.5A-FundingTrend[v68.0]·G8.5B-OFI-Persist[v72.0]·G8.5C-RegimeCoh[v73.0]·G8.5D-OFI-Vel[v74.0]·G8.5E-CrossCoherence[v75.0]·G8.5F-VWAP-Extension[v76.0]·G8.5G-CUSUM-Breakout[v76.0]·G8.5H-FlowAsymmetry[v77.0]·G8.5I-MicroTrend[v77.0]·G8.5J-HMMTransition[v78.0]·G8.5K-SpreadLiq[v79.0]·G8.5L2-VolPressure[v80.0]·G8.5N2-FundMom[v81.0]·G8.5O2-WREVCoh[v82.0]·G8.5P2-EVCrisis[v83.0]·G8.5Q-TrendMom[v84.0]·G8.5R2-RegimeSent[v84.0]·G8.5S2-WRCrisisRegime[v85.0]·G8.5T2-ExtremeFearRegime[v85.0]·G8.5U2-VoV-Stability[v87.0]·G8.5V2-OBPressure[v88.0]·G8.5W2-DDMomentum[v89.0]·G8.5X2-WRTrajectory[v90.0]·G8.5Y2-HMMVPINCoh[v91.0]·G8.5Z2-RMSSync[v92.0]·G8.5A3-VPCTripleConf[v93.0]·G8.5B3-HOSTripleSync[v94.0]·G8.5C3-VOETripleConv[v95.0]·G8.5D3-RDWTripleRisk[v96.0]·G8.5E3-EFOTriplePressure[v97.0]·G8.5F3-MLCCoherence[v101.0]·G8.5G3-SVQMomentum[v102.0]·G8.5H3-EWBrake[v103.0]·G8.5I3-IRFlorSharpe[v103.0]·G8.5R3-BWOTripleMomentum[v108.0]·G8.5S3-QSCCompositeHealth[v108.0]·G8.5T3-RFWTripleAlign[v109.0]·G8.5U3-KHSTripleSync[v109.0]·G8.5V3-TECTripleEVConf[v110.0]·G8.5W3-MOTTripleSync[v111.0]·G8.5X3-CrisisCompass-DDM-WRT-TripleSafety[v113.0]·G8.5Y3-MCSMetaTripleSync[v113.0]·G8.5Z3-RQTTripleSync[v114.0]·G8.5A4-FVRTripleSync[v114.0]·G8.5B4-RWSentinel[v115.0]·G8.5C4-AEVSentinel[v116.0]·G8.5D4-TFCForecastConf[v117.0]·G8.5E4-TRSRegimeSync[v117.0]·G8.5F4-TPMPatchMomentum[v118.0]·G8.5G4-SVTFCComposite[v118.0]·G8.5H4-TPEPatchEnsemble[v119.0]·G8.5I4-DGCDrawdownGuard[v119.0]·G8.5J4-TFMSMultiScale[v120.0]·G8.5K4-PSRRegimeAlign[v120.0]·G8.5L4-WSDTriple[v120.0]·G8.5M4-OFMicroTriple[v120.0]·G8.5N4-TFCConsensusMeta[v120.0]·G8.5T4-CapReversal[v124.0]·G8.5U4-TUCSentinel[v124.0]·G8.5V4-ERVelocity[v125.0]·G8.5W4-WACCoh[v125.0]·G8.5X4-SVRVelRecovery[v126.0]·G8.5Y4-OWSTrajectorySync[v126.0]·G8.5Z4-ARCAdaptRegimeComp[v127.0]·G8.5A5-SVCSharpeVelConf[v127.0]·G8.5L5-MEVTripleBrake[v136.0]·G8.5M5-OSWTripleMomentum[v137.0]·G8.5N5-FSLTripleSafety[v137.0]·G8.5O5-RSQTripleCoherence[v138.0]·G8.5P5-EWVTripleComposite[v138.0]·G8.5Q5-DVSTripleSafety[v139.0]·G8.5R5-VCFTripleMomentum[v139.0]·G8.5S5-LSQTripleConvergence[v140.0]·G8.5T5-MFRTripleResonance[v140.0]·G8.5U5-OUPMeanReversion[v141.0]·G8.5BE-GRDCRoleDrawdownCoh[v174.0]·G8.5BF-GXWIWorkflowIsolDiv[v174.0]·G8.5BG-GPELPromptEdgeLock[v175.0]·G8.5BH-GLCVLoopConvVelocity[v175.0]·G8.5V5-MFAFloamAlpha[v141.0]·G8.5W5-WNZWinsorGuard[v142.0]·G8.5X5-ADFStationarity[v142.0]·G8.5Y5-PCOFLOAMOrthogonality[v143.0]·G8.5Z5-ICSFLOAMIRGate[v143.0]·G8.5AU-GWFV[v169.0]·G8.5AV-GDDV[v169.0]·G8.5AW-GHRZ[v170.0]·G8.5AX-GALP[v170.0]·G8.5AY-GVLR[v171.0]·G8.5AZ-GRLB[v171.0]·G8.5BA-GLTB[v172.0]·G8.5BB-GCMS[v172.0]·G8.5BC-GDSA[v173.0]·G8.5BD-GEVL[v173.0]·G8.5V·AdaptIRONS) [v194.0: +_wr_dampen on G2/G2.5/G2.5b/G2.5c/G5/ISB bonuses]) · "
         f"G5-SoftVeto(dual-only-hardblock) · ATR-VolPenalty · HTF-Align(1H+5/4H+8) · AdaptiveIRONS(WR-driven) · "
         f"5-bucket RL · Kelly · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · Agency · UTBot · PerSymbol · "
         f"Cycle={CYCLE_SLEEP_MIN}-{CYCLE_SLEEP_MAX}s · HealthServer(/healthz+/readyz+/layers+/gates+/metrics+/symbols+/irons) · "
