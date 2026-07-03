@@ -1,8 +1,31 @@
 #!/usr/bin/env python3
 """
-Unity Engine v197.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v198.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 176-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ v198.0 improvements [2026-07-03]:
+   Power-mode scan round 7: Overscoring sweep — final pass over the remaining variable-based
+   `quality_score += _xxx_adj` bonus/penalty paths (as opposed to raw-literal `+= N` paths covered
+   in v189-v197). 126 sites across every G8.5 gate generation (v18.72 HMM regime through v140.0
+   quality-tier gates: HMM/VPIN/Kalman/Dispersion/PCA/CSM/IV quality adjustments, G8.5w-z MTF/liq-
+   cascade/TurboVec/BTC-cross/HMM-GEX/spread-stress/autocorr/ATR-compress family, G8.5A-V2 funding/
+   OFI/regime/coherence/VWAP/CUSUM/flow-asymmetry/microtrend family, G8.5P2-V2 EV-crisis/trend/
+   sentiment/WR-crisis/extreme-fear/VoV/OB-pressure family, and the S5/T5/U5/V5 triple-confluence
+   tier) now route through self._wr_dampen(), which is a safe no-op for negative values — so
+   penalty branches are unaffected and only the positive/bonus branches are WR-scaled. This closes
+   the overscoring sweep started v178.0: total self._wr_dampen() call sites 92→218.
+   Also: gate_ofi (GOFI, v9.7 Order-Flow Imbalance) had valid _record()/_GATE_DISPLAY_LABELS wiring
+   since v53.0 but was NEVER given a boot-time _gate_stats/_gate_stats_recent pre-init entry — relied
+   solely on the setdefault() fallback inside _record() (safe, no crash, but boot-time gate_stats_
+   summary()/health endpoint was incomplete until GOFI's first live fire). Added pre-init entry for
+   analytics completeness, matching every other gate's pattern. Audited the other 20 setdefault-only
+   gates (gate_blacklist, gate_ev, gate_gclh, gate_gdcr, session gates, etc.) — all have valid display
+   labels and this lazy-init pattern is the documented v9.0 crash-guard design, not a bug; left as-is.
+   Cross-checked _gate_stats vs _GATE_DISPLAY_LABELS vs _SOFT_GATE_KEYS vs _gate_stats_recent for any
+   further v182/v184-pattern dead-record gaps: none found (154 gate_stats entries, 154 _gate_stats_
+   recent entries, 0 orphaned _record() keys beyond the known setdefault-only set). Verified
+   self._kelly_ceil (v130.0 fix) is still correctly resolved-then-published before all Kelly Step
+   88-105 readers. AST-verified clean; engine restarted, confirmed clean multi-cycle boot with 0 errors.
  v197.0 improvements [2026-07-03]:
    Power-mode scan round 6: Overscoring sweep continued — 24 remaining unconditional positive-bonus
    paths across the G8.5 microstructure/confluence gate family (portfolio-optimizer weight, momentum/
@@ -3230,7 +3253,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "197.0"
+UNITY_VERSION                = "198.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -6121,6 +6144,16 @@ class UnitySignalFilter:
         # v18.38: Markov Chain Entry Gate — P(X^{n+1}=j|X^n=i)=p_ij ≥ 0.87
         # Injected via set_markov_gate() after UnityEngine initialises the gate.
         self._markov_gate: Optional["UnityMarkovChainGate"] = None
+        # v198.0: gate_ofi (GOFI, v9.7 Order-Flow Imbalance Z-score) had a
+        # _GATE_DISPLAY_LABELS entry and _record() call sites since v53.0 but was
+        # NEVER given a boot-time _gate_stats / _gate_stats_recent pre-init entry —
+        # relied entirely on the setdefault() fallback inside _record(). Not a crash
+        # risk (setdefault guards it), but the boot-time gate_stats_summary() and
+        # /gates endpoint were incomplete until the first signal fired GOFI at least
+        # once. Pre-initializing here for analytics completeness/consistency with
+        # every other gate.
+        self._gate_stats["gate_ofi"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_ofi"] = deque(maxlen=self._gate_stats_window_n)
         # v18.38: gate_markov added to stats tracking
         self._gate_stats["gate_markov"] = {"pass": 0, "fail": 0}
         self._gate_stats_recent["gate_markov"] = deque(maxlen=self._gate_stats_window_n)
@@ -9548,7 +9581,7 @@ class UnitySignalFilter:
                         quality_score += self._wr_dampen(_g25b_adj)   # v194.0: dampen pattern-alignment bonus
                     elif _opposed:
                         _g25b_adj = -min(6.0, abs(_net) * 0.75)
-                        quality_score += _g25b_adj
+                        quality_score += self._wr_dampen(_g25b_adj)  # v198.0: WR-dampened
             except Exception:
                 pass   # never let pattern errors kill gate processing
         self._record("gate_g25b", _g25b_adj >= 0)  # v180.0: neutral/positive=pass, opposed=fail
@@ -12709,7 +12742,7 @@ class UnitySignalFilter:
                 # v14.0: extra floor when per-symbol WR<20% (catastrophic track record)
                 _g8_floor = -15.0 if sym_wr < 0.20 else -12.0
                 _q_adj = max(_g8_floor, _delta_wr * 34.3)   # -0..-12 or -15 by WR severity
-            quality_score += _q_adj
+            quality_score += self._wr_dampen(_q_adj)  # v198.0: WR-dampened
             if _q_adj <= -6.0:
                 self._logger.debug(
                     f"G8_DYN: {symbol} WR={sym_wr:.0%} → quality {_q_adj:+.1f}pts "
@@ -12966,7 +12999,7 @@ class UnitySignalFilter:
             try:
                 _hmm_regime_str, _hmm_p_exp, _hmm_quality_adj = _hmm_ref.get_regime()
                 if _hmm_quality_adj != 0.0:
-                    quality_score += _hmm_quality_adj
+                    quality_score += self._wr_dampen(_hmm_quality_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5e HMM v18.72] {symbol} regime={_hmm_regime_str} "
                         f"P(exp)={_hmm_p_exp:.2f} → {_hmm_quality_adj:+.1f}pts"
@@ -13072,7 +13105,7 @@ class UnitySignalFilter:
                         f"[G8.5f VPIN v18.75] {symbol} SEVERE pct={_vpin_pct:.3f}≥0.95 → extra -9pts"
                     )
                 if _vpin_quality_adj != 0.0:
-                    quality_score += _vpin_quality_adj
+                    quality_score += self._wr_dampen(_vpin_quality_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5f VPIN v18.75] {symbol} VPIN={_vpin_val:.3f} "
                         f"pct={_vpin_pct:.2f} toxic={_vpin_toxic} → {_vpin_quality_adj:+.1f}pts"
@@ -13103,7 +13136,7 @@ class UnitySignalFilter:
             try:
                 _kf_quality_adj, _kf_kelly, _kf_active = _kf_ref.get_signal_for(symbol, direction)
                 if _kf_active and _kf_quality_adj != 0.0:
-                    quality_score += _kf_quality_adj
+                    quality_score += self._wr_dampen(_kf_quality_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5g Kalman v18.72] {symbol} pairs quality {_kf_quality_adj:+.1f}pts"
                     )
@@ -13119,7 +13152,7 @@ class UnitySignalFilter:
             try:
                 _disp_regime, _disp_quality_adj, _disp_avg_corr = _disp_ref.get_signal(symbol)
                 if _disp_quality_adj != 0.0:
-                    quality_score += _disp_quality_adj
+                    quality_score += self._wr_dampen(_disp_quality_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5h Dispersion v18.72] {symbol} regime={_disp_regime} "
                         f"avg_corr={_disp_avg_corr:.3f} → {_disp_quality_adj:+.1f}pts"
@@ -13136,7 +13169,7 @@ class UnitySignalFilter:
             try:
                 _pca_quality_adj, _pca_z, _pca_active = _pca_ref.get_signal(symbol, direction)
                 if _pca_active and _pca_quality_adj != 0.0:
-                    quality_score += _pca_quality_adj
+                    quality_score += self._wr_dampen(_pca_quality_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5i PCA v18.72] {symbol} residual_z={_pca_z:.2f} "
                         f"→ {_pca_quality_adj:+.1f}pts"
@@ -13153,7 +13186,7 @@ class UnitySignalFilter:
             try:
                 _csm_quality_adj, _csm_z, _csm_active = _csm_ref.get_signal(symbol, direction)
                 if _csm_active and _csm_quality_adj != 0.0:
-                    quality_score += _csm_quality_adj
+                    quality_score += self._wr_dampen(_csm_quality_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5j CSM v18.72] {symbol} z={_csm_z:.2f} "
                         f"→ {_csm_quality_adj:+.1f}pts"
@@ -13172,7 +13205,7 @@ class UnitySignalFilter:
             try:
                 _iv_regime, _iv_quality_adj, _iv_kelly = _iv_ref.get_signal(symbol)
                 if _iv_quality_adj != 0.0:
-                    quality_score += _iv_quality_adj
+                    quality_score += self._wr_dampen(_iv_quality_adj)  # v198.0: WR-dampened
                     _iv_pass = _iv_quality_adj >= 0.0
                     self._logger.debug(
                         f"[G8.5k IVCrush v18.72] {symbol} regime={_iv_regime} "
@@ -13288,7 +13321,7 @@ class UnitySignalFilter:
                     _sq_adj = max(-6.0, min(6.0, _sq_adj))
                     _sq_adj_outer = _sq_adj  # v181.0: lift into outer scope for _record
                     if _sq_adj != 0.0:
-                        quality_score += _sq_adj
+                        quality_score += self._wr_dampen(_sq_adj)  # v198.0: WR-dampened
                         self._logger.info(
                             f"[G8.5sq StochQuant v19.0] {symbol} "
                             f"OU={_ou_reg}(z={_ou_z:+.2f}) "
@@ -13352,7 +13385,7 @@ class UnitySignalFilter:
                     _q_adj = -1.5   # counter-momentum entry
                 _q_adj = max(-3.0, min(3.0, _q_adj))
                 if _q_adj != 0.0:
-                    quality_score += _q_adj
+                    quality_score += self._wr_dampen(_q_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5q QuantDinger v21.2] {symbol} "
                         f"vol={_q_vol_ratio:.2f} rsi={_q_rsi:.1f} dir={_q_direction} "
@@ -13427,7 +13460,7 @@ class UnitySignalFilter:
                         _fr_adj = -1.0
                 _fr_adj = max(-2.0, min(2.0, _fr_adj))
                 if _fr_adj != 0.0:
-                    quality_score += _fr_adj
+                    quality_score += self._wr_dampen(_fr_adj)  # v198.0: WR-dampened
                     _fr_pass = _fr_adj >= 0.0
                     self._logger.debug(
                         f"[G8.5r FundingRate v21.3] {symbol} "
@@ -13513,7 +13546,7 @@ class UnitySignalFilter:
                         _g85w_adj = -0.8
                     _g85w_adj = max(-2.5, min(2.5, _g85w_adj))
                     if _g85w_adj != 0.0:
-                        quality_score += _g85w_adj
+                        quality_score += self._wr_dampen(_g85w_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5w MTF-Momentum v51.0] {symbol} "
                         f"dir={_g85w_dir} short={_g85w_short*100:.3f}% "
@@ -13586,7 +13619,7 @@ class UnitySignalFilter:
                         _g85x_adj = -2.0 if _g85x_str else -1.0
                 _g85x_adj = max(-2.0, min(2.0, _g85x_adj))
                 if _g85x_adj != 0.0:
-                    quality_score += _g85x_adj
+                    quality_score += self._wr_dampen(_g85x_adj)  # v198.0: WR-dampened
                 self._logger.debug(
                     f"[G8.5x LiqCascade v51.0] {symbol} "
                     f"net_liq={_g85x_net_liq} mag={_g85x_liq_mag:.2f} "
@@ -13648,7 +13681,7 @@ class UnitySignalFilter:
                     # Ruthless scoring: 3→+2.5, 2→+1.0, 1→−1.0, 0→−2.5
                     _g85t_score_map = {3: 2.5, 2: 1.0, 1: -1.0, 0: -2.5}
                     _g85t_adj   = _g85t_score_map[_g85t_n]
-                    quality_score += _g85t_adj
+                    quality_score += self._wr_dampen(_g85t_adj)  # v198.0: WR-dampened
                     _g85t_fired = True
                     self._logger.debug(
                         f"[G8.5T TurboVec v57.0] {symbol} dir={_g85t_dir} "
@@ -13698,7 +13731,7 @@ class UnitySignalFilter:
                         _g85p_adj = 1.5
                     else:
                         _g85p_adj = -1.5
-                    quality_score += _g85p_adj
+                    quality_score += self._wr_dampen(_g85p_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5P BTC-Align v60.0] {symbol} {_g85p_dir} "
                         f"BTC fast={_g85p_fast_ma:.2f} slow={_g85p_slow_ma:.2f} "
@@ -13765,7 +13798,7 @@ class UnitySignalFilter:
                         _g85r_adj   = -1.5   # dual bullish opposition
                         _g85r_fired = True
                 if _g85r_fired:
-                    quality_score += _g85r_adj
+                    quality_score += self._wr_dampen(_g85r_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5R HMM-GEX Coherence v62.0] {symbol} {_g85r_dir} "
                         f"HMM={_g85r_hmm_str} "
@@ -13833,7 +13866,7 @@ class UnitySignalFilter:
                                 _g85z_adj = 1.5 if _g85z_buy else -1.0
                         # else: |AC| ≤ 0.15 → random walk, gate silent (_g85z_adj=0)
                         if _g85z_adj != 0.0:
-                            quality_score += _g85z_adj
+                            quality_score += self._wr_dampen(_g85z_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"[G8.5Z AutoCorr v64.0] {symbol} {_g85z_dir} "
                             f"AC={_g85z_ac:.3f} recent={_g85z_recent*100:.3f}% "
@@ -13951,7 +13984,7 @@ class UnitySignalFilter:
                     _g85u_wr     = _g85u_wr_raw / 100.0 if _g85u_wr_raw > 1.0 else _g85u_wr_raw
                     _g85u_wr_mult = max(0.70, min(1.0, 0.70 + ((_g85u_wr - 0.25) / 0.15) * 0.30))
                     _g85u_adj    *= _g85u_wr_mult
-                quality_score += _g85u_adj
+                quality_score += self._wr_dampen(_g85u_adj)  # v198.0: WR-dampened
                 self._logger.debug(
                     f"[G8.5U MomConsensus v68.0-5gate] {symbol} "
                     f"pos={_g85u_n_pos}/{_g85u_n_data} "
@@ -14057,7 +14090,7 @@ class UnitySignalFilter:
                     )
                     if _fr_escalating_against:
                         _g85a_adj = -2.0
-                        quality_score += _g85a_adj
+                        quality_score += self._wr_dampen(_g85a_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"[G8.5A FundingTrend v68.0] {symbol} FR_delta={_fr_delta*100:+.4f}% "
                             f"dir={_g85a_dir} latest={_fr_latest*100:+.4f}% "
@@ -14065,7 +14098,7 @@ class UnitySignalFilter:
                         )
                     elif _fr_decrowing_aligned:
                         _g85a_adj = +1.5
-                        quality_score += _g85a_adj
+                        quality_score += self._wr_dampen(_g85a_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"[G8.5A FundingTrend v68.0] {symbol} FR_delta={_fr_delta*100:+.4f}% "
                             f"dir={_g85a_dir} latest={_fr_latest*100:+.4f}% "
@@ -14108,21 +14141,21 @@ class UnitySignalFilter:
                 _b_n        = len(_b_readings)
                 if _b_aligned == _b_n:         # all readings aligned with direction
                     _g85b_adj = +2.0
-                    quality_score += _g85b_adj
+                    quality_score += self._wr_dampen(_g85b_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5B OFI-Persist v72.0] {symbol} {_b_n}/{_b_n} OFI readings "
                         f"aligned dir={direction} → +2.0pts persistent-flow-confirm"
                     )
                 elif _b_aligned == 0:           # all readings opposed to direction
                     _g85b_adj = -2.0
-                    quality_score += _g85b_adj
+                    quality_score += self._wr_dampen(_g85b_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5B OFI-Persist v72.0] {symbol} 0/{_b_n} OFI readings "
                         f"aligned dir={direction} → -2.0pts persistent-flow-headwind"
                     )
                 elif _b_aligned >= 2 and _b_n >= 3:   # 2/3 aligned — mild confirmation
                     _g85b_adj = +0.5
-                    quality_score += _g85b_adj
+                    quality_score += self._wr_dampen(_g85b_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"[G8.5B OFI-Persist v72.0] {symbol} {_b_aligned}/{_b_n} OFI "
                         f"readings aligned dir={direction} → +0.5pts mild-flow-confirm"
@@ -14209,7 +14242,7 @@ class UnitySignalFilter:
                         _g85c_adj   = -1.0
                         _g85c_fired = True
                     if _g85c_adj != 0.0:
-                        quality_score += _g85c_adj
+                        quality_score += self._wr_dampen(_g85c_adj)  # v198.0: WR-dampened
                         # v74.0: Store adj on self so G9 Flow-Persistence Stack bonus can
                         # detect dual-confirm (±2.0) without passing local vars up the call.
                         self._last_g85c_adj = _g85c_adj
@@ -14283,7 +14316,7 @@ class UnitySignalFilter:
                             _g85d_fired  = True
                         # else: decelerating z already opposing direction — neutral
                     if _g85d_adj != 0.0:
-                        quality_score += _g85d_adj
+                        quality_score += self._wr_dampen(_g85d_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"[G8.5D OFI-Vel v74.0] {_g85d_sym} "
                             f"z0={_g85d_z0:.2f}→z1={_g85d_z1:.2f} "
@@ -14919,7 +14952,7 @@ class UnitySignalFilter:
                     # Ultra-crisis: EV deeply negative — ruthless quality penalty
                     _p2_adj = -3.0
                     self._last_g85p2_ev_crisis = -1
-                    quality_score += _p2_adj
+                    quality_score += self._wr_dampen(_p2_adj)  # v198.0: WR-dampened
                     _p2_fired = True
                     self._logger.debug(
                         f"📉 [v83.0 G8.5P2] EV-Crisis ULTRA: "
@@ -14928,7 +14961,7 @@ class UnitySignalFilter:
                 elif _p2_ev < -0.20:
                     # Standard crisis: EV negative — moderate quality penalty
                     _p2_adj = -1.5
-                    quality_score += _p2_adj
+                    quality_score += self._wr_dampen(_p2_adj)  # v198.0: WR-dampened
                     _p2_fired = True
                     self._logger.debug(
                         f"📉 [v83.0 G8.5P2] EV-Crisis STANDARD: "
@@ -15063,7 +15096,7 @@ class UnitySignalFilter:
                     f"FundMom={_r2_fmp} WR={_r2_wrev} → +1.5pts"
                 )
             if _r2_adj != 0.0:
-                quality_score += _r2_adj
+                quality_score += self._wr_dampen(_r2_adj)  # v198.0: WR-dampened
             # Compound EV-ultra-crisis penalty (additive)
             if _r2_evcris == -1 and _r2_adj <= 0.0:
                 quality_score -= 1.0
@@ -15124,7 +15157,7 @@ class UnitySignalFilter:
                     f"WR={_s2_wr:.1%} < 35% → -1.5pts"
                 )
             if _s2_adj != 0.0:
-                quality_score += _s2_adj
+                quality_score += self._wr_dampen(_s2_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5S2 WinRateCrisisRegime is non-fatal soft-gate
         self._record("gate_g85s2_wrcrisis", _s2_fired)
@@ -15204,7 +15237,7 @@ class UnitySignalFilter:
                     f"F&G={_t2_fg:.0f} dir={_t2_dir} → {_t2_adj:+.1f}pts"
                 )
             if _t2_adj != 0.0:
-                quality_score += _t2_adj
+                quality_score += self._wr_dampen(_t2_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5T2 ExtremeFearRegime is non-fatal soft-gate
         self._record("gate_g85t2_fearreg", _t2_fired)
@@ -15258,7 +15291,7 @@ class UnitySignalFilter:
                             f"sym={_u2_sym} CV={_u2_cv:.3f} n={len(_u2_window)} → {_u2_adj:+.1f}pts"
                         )
             if _u2_adj != 0.0:
-                quality_score += _u2_adj
+                quality_score += self._wr_dampen(_u2_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5U2 VoV-StabilityRegime is non-fatal soft-gate
         self._record("gate_g85u2_vov", _u2_fired)
@@ -15311,7 +15344,7 @@ class UnitySignalFilter:
                     f"aligned={_v2_aligned} → {_v2_adj:+.1f}pts"
                 )
             if _v2_adj != 0.0:
-                quality_score += _v2_adj
+                quality_score += self._wr_dampen(_v2_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5V2 OBPressure-Imbalance is non-fatal soft-gate
         self._record("gate_g85v2_obp", _v2_fired)
@@ -15343,7 +15376,7 @@ class UnitySignalFilter:
                     # Ultra-extreme deep ruin: DD>48% + Sharpe worse than -4.0 [v154.0]
                     _w2_adj = -4.0
                     self._last_g85w2_ddm = -1
-                    quality_score += _w2_adj
+                    quality_score += self._wr_dampen(_w2_adj)  # v198.0: WR-dampened
                     _w2_fired = True
                     self._logger.debug(
                         f"📉 [v154.0 G8.5W2] DDMomentum ULTRA-EXTREME: "
@@ -15354,7 +15387,7 @@ class UnitySignalFilter:
                     # Ultra-ruin sentinel: MaxDD extreme + Sharpe deeply negative
                     _w2_adj = -3.0
                     self._last_g85w2_ddm = -1
-                    quality_score += _w2_adj
+                    quality_score += self._wr_dampen(_w2_adj)  # v198.0: WR-dampened
                     _w2_fired = True
                     self._logger.debug(
                         f"📉 [v89.0 G8.5W2] DDMomentum ULTRA-RUIN: "
@@ -15365,7 +15398,7 @@ class UnitySignalFilter:
                     # Deep drawdown warning: substantial DD + Sharpe deeply negative
                     _w2_adj = -2.0
                     self._last_g85w2_ddm = -1
-                    quality_score += _w2_adj
+                    quality_score += self._wr_dampen(_w2_adj)  # v198.0: WR-dampened
                     _w2_fired = True
                     self._logger.debug(
                         f"📉 [v89.0 G8.5W2] DDMomentum DEEP-DD: "
@@ -15376,7 +15409,7 @@ class UnitySignalFilter:
                     # Moderate drawdown caution: elevated DD + Sharpe negative
                     _w2_adj = -1.5
                     self._last_g85w2_ddm = -1
-                    quality_score += _w2_adj
+                    quality_score += self._wr_dampen(_w2_adj)  # v198.0: WR-dampened
                     _w2_fired = True
                     self._logger.debug(
                         f"📉 [v89.0 G8.5W2] DDMomentum CAUTION: "
@@ -15387,7 +15420,7 @@ class UnitySignalFilter:
                     # Healthy regime: low DD + Sharpe near-positive → quality bonus
                     _w2_adj = 1.5
                     self._last_g85w2_ddm = 1
-                    quality_score += _w2_adj
+                    quality_score += self._wr_dampen(_w2_adj)  # v198.0: WR-dampened
                     _w2_fired = True
                     self._logger.debug(
                         f"✅ [v89.0 G8.5W2] DDMomentum HEALTHY: "
@@ -15442,7 +15475,7 @@ class UnitySignalFilter:
                         # Strongly deteriorating: recent WR >8pp below all-time
                         _x2_adj = -2.0
                         self._last_g85x2_wrt = -1
-                        quality_score += _x2_adj
+                        quality_score += self._wr_dampen(_x2_adj)  # v198.0: WR-dampened
                         _x2_fired = True
                         self._logger.debug(
                             f"📉 [v90.0 G8.5X2] WRTrajectory DETERIORATING: "
@@ -15453,7 +15486,7 @@ class UnitySignalFilter:
                         # Mild deterioration warning
                         _x2_adj = -1.0
                         self._last_g85x2_wrt = -1
-                        quality_score += _x2_adj
+                        quality_score += self._wr_dampen(_x2_adj)  # v198.0: WR-dampened
                         _x2_fired = True
                         self._logger.debug(
                             f"⚠️ [v90.0 G8.5X2] WRTrajectory MILD-WARN: "
@@ -15464,7 +15497,7 @@ class UnitySignalFilter:
                         # Recovering momentum: recent WR >8pp above all-time
                         _x2_adj = 2.0
                         self._last_g85x2_wrt = 1
-                        quality_score += _x2_adj
+                        quality_score += self._wr_dampen(_x2_adj)  # v198.0: WR-dampened
                         _x2_fired = True
                         self._logger.debug(
                             f"✅ [v90.0 G8.5X2] WRTrajectory RECOVERING: "
@@ -15566,7 +15599,7 @@ class UnitySignalFilter:
                         f"HMM={_y2_hmm_regime} VPIN_pct={_y2_vpin_pct:.3f} -> -1.5pts"
                     )
                 if _y2_adj != 0.0:
-                    quality_score += _y2_adj
+                    quality_score += self._wr_dampen(_y2_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5Y2 HMM-VPIN-Coherence is non-fatal soft-gate
         self._record("gate_g85y2_hvc", _y2_fired)
@@ -15639,7 +15672,7 @@ class UnitySignalFilter:
                             f"⚠️  [v92.0 G8.5Z2] RMS DUAL-RESIST: {_z2_opposed}/3 oppose dir={_z2_sig_dir} -> -1.5pts"
                         )
                     if _z2_adj != 0.0:
-                        quality_score += _z2_adj
+                        quality_score += self._wr_dampen(_z2_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5Z2 RegimeMomentumSync is non-fatal soft-gate
         self._record("gate_g85z2_rms", _z2_fired)
@@ -16094,7 +16127,7 @@ class UnitySignalFilter:
                             f"Sharpe={_g3_sharpe:.2f}<-2.0 → -1.5pts"
                         )
             if _g3_adj != 0.0:
-                quality_score += _g3_adj
+                quality_score += self._wr_dampen(_g3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5G3 SharpeVelocity-QualityMomentum is non-fatal soft-gate
         self._record("gate_g85g3_svq", _g3_fired)
@@ -16162,7 +16195,7 @@ class UnitySignalFilter:
                         f"({_h3_wins10}W/{10-_h3_wins10}L) → +1.5pts"
                     )
             if _h3_adj != 0.0:
-                quality_score += _h3_adj
+                quality_score += self._wr_dampen(_h3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5H3 RecentWR-EmergencyBrake is non-fatal soft-gate
         self._record("gate_g85h3_ewb", _h3_fired)
@@ -16216,7 +16249,7 @@ class UnitySignalFilter:
                     f"Sharpe={_i3_sr:.2f} → +1.0pts"
                 )
             if _i3_adj != 0.0:
-                quality_score += _i3_adj
+                quality_score += self._wr_dampen(_i3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5I3 IRONSFloor-Sharpe Compound is non-fatal soft-gate
         self._record("gate_g85i3_ifm", _i3_fired)
@@ -16275,7 +16308,7 @@ class UnitySignalFilter:
                         _j3_fired = True
                         self._last_g85j3_ltc = -1
             if _j3_adj != 0.0:
-                quality_score += _j3_adj
+                quality_score += self._wr_dampen(_j3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5J3 LLM-Technical-Coherence is non-fatal soft-gate
         self._record("gate_g85j3_ltc", _j3_fired)
@@ -16309,7 +16342,7 @@ class UnitySignalFilter:
                 _k3_fired = True
                 self._last_g85k3_ssc = 1
             if _k3_adj != 0.0:
-                quality_score += _k3_adj
+                quality_score += self._wr_dampen(_k3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5K3 StreakSession-Compound is non-fatal soft-gate
         self._record("gate_g85k3_ssc", _k3_fired)
@@ -16359,7 +16392,7 @@ class UnitySignalFilter:
                 _l3_fired = True
                 self._last_g85l3_cc = 1
             if _l3_adj != 0.0:
-                quality_score += _l3_adj
+                quality_score += self._wr_dampen(_l3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5L3 CrisisConsensus-Compound is non-fatal soft-gate
         self._record("gate_g85l3_cc", _l3_fired)
@@ -16419,7 +16452,7 @@ class UnitySignalFilter:
                 _m3_fired = True
                 self._last_g85m3_tqp = -1
             if _m3_adj != 0.0:
-                quality_score += _m3_adj
+                quality_score += self._wr_dampen(_m3_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # G8.5M3 TrendQuality-Persistence is non-fatal soft-gate
         self._record("gate_g85m3_tqp", _m3_fired)
@@ -18141,7 +18174,7 @@ class UnitySignalFilter:
                         _t4_adj = -2.5
                         _t4_cap = -1
             self._last_g85t4_cap = _t4_cap
-            quality_score += _t4_adj
+            quality_score += self._wr_dampen(_t4_adj)  # v198.0: WR-dampened
             _t4_pass = 1 if _t4_adj >= 0.0 else 0
             self._gate_stats["gate_g85t4_cap"]["pass"] += _t4_pass
             self._gate_stats["gate_g85t4_cap"]["fail"] += (1 - _t4_pass)
@@ -18200,7 +18233,7 @@ class UnitySignalFilter:
                 _u4_adj = 1.5
                 _u4_tuc = 1
             self._last_g85u4_tuc = _u4_tuc
-            quality_score += _u4_adj
+            quality_score += self._wr_dampen(_u4_adj)  # v198.0: WR-dampened
             _u4_pass = 1 if _u4_adj >= 0.0 else 0
             self._gate_stats["gate_g85u4_tuc"]["pass"] += _u4_pass
             self._gate_stats["gate_g85u4_tuc"]["fail"] += (1 - _u4_pass)
@@ -18501,7 +18534,7 @@ class UnitySignalFilter:
                 _b5_evpv = -1; _b5_adj = -2.0; _b5_pass = False
             else:
                 _b5_evpv = 0; _b5_adj = 0.0; _b5_pass = True
-            quality_score += _b5_adj
+            quality_score += self._wr_dampen(_b5_adj)  # v198.0: WR-dampened
             self._last_g85b5_evpv = _b5_evpv
             self._gate_stats["gate_g85b5_evpv"]["pass" if _b5_pass else "fail"] += 1
             _b5_ring2 = self._gate_stats_recent.get("gate_g85b5_evpv")
@@ -18538,7 +18571,7 @@ class UnitySignalFilter:
                 _c5_tsqc = -1; _c5_adj = -2.0; _c5_pass = False
             else:
                 _c5_tsqc = 0; _c5_adj = 0.0; _c5_pass = True
-            quality_score += _c5_adj
+            quality_score += self._wr_dampen(_c5_adj)  # v198.0: WR-dampened
             self._last_g85c5_tsqc = _c5_tsqc
             self._gate_stats["gate_g85c5_tsqc"]["pass" if _c5_pass else "fail"] += 1
             _c5_ring2 = self._gate_stats_recent.get("gate_g85c5_tsqc")
@@ -18578,7 +18611,7 @@ class UnitySignalFilter:
                 _d5_ekc = -1; _d5_adj = -1.0; _d5_pass = False
             else:
                 _d5_ekc = 0; _d5_adj = 0.0; _d5_pass = True
-            quality_score += _d5_adj
+            quality_score += self._wr_dampen(_d5_adj)  # v198.0: WR-dampened
             self._last_g85d5_ekc = _d5_ekc
             self._gate_stats["gate_g85d5_ekc"]["pass" if _d5_pass else "fail"] += 1
             _d5_ring2 = self._gate_stats_recent.get("gate_g85d5_ekc")
@@ -18622,7 +18655,7 @@ class UnitySignalFilter:
                 _e5_msc = -1; _e5_adj = -1.0; _e5_pass = False
             else:
                 _e5_msc = 0; _e5_adj = 0.0; _e5_pass = True
-            quality_score += _e5_adj
+            quality_score += self._wr_dampen(_e5_adj)  # v198.0: WR-dampened
             self._last_g85e5_msc = _e5_msc
             self._gate_stats["gate_g85e5_msc"]["pass" if _e5_pass else "fail"] += 1
             _e5_ring2 = self._gate_stats_recent.get("gate_g85e5_msc")
@@ -18681,7 +18714,7 @@ class UnitySignalFilter:
                 _f5_irq = -1; _f5_adj = -1.0; _f5_pass = False
             else:
                 _f5_irq = 0;  _f5_adj = 0.0;  _f5_pass = True
-            quality_score += _f5_adj
+            quality_score += self._wr_dampen(_f5_adj)  # v198.0: WR-dampened
             self._last_g85f5_irq = _f5_irq
             self._gate_stats["gate_g85f5_irq"]["pass" if _f5_pass else "fail"] += 1
             _f5_ring2 = self._gate_stats_recent.get("gate_g85f5_irq")
@@ -18739,7 +18772,7 @@ class UnitySignalFilter:
                 _g5_rfc = -1; _g5_adj = -1.0; _g5_pass = False
             else:
                 _g5_rfc = 0;  _g5_adj = 0.0;  _g5_pass = True
-            quality_score += _g5_adj
+            quality_score += self._wr_dampen(_g5_adj)  # v198.0: WR-dampened
             self._last_g85g5_rfc = _g5_rfc
             self._gate_stats["gate_g85g5_rfc"]["pass" if _g5_pass else "fail"] += 1
             _g5_ring2 = self._gate_stats_recent.get("gate_g85g5_rfc")
@@ -18800,7 +18833,7 @@ class UnitySignalFilter:
                 _h5_wrs = -1; _h5_adj = -1.0; _h5_pass = False
             else:
                 _h5_wrs = 0;  _h5_adj = 0.0;  _h5_pass = True
-            quality_score += _h5_adj
+            quality_score += self._wr_dampen(_h5_adj)  # v198.0: WR-dampened
             self._last_g85h5_wrs = _h5_wrs
             self._gate_stats["gate_g85h5_wrs"]["pass" if _h5_pass else "fail"] += 1
             _h5_ring2 = self._gate_stats_recent.get("gate_g85h5_wrs")
@@ -18856,7 +18889,7 @@ class UnitySignalFilter:
                 _i5_ovm = -1; _i5_adj = -1.0; _i5_pass = False
             else:
                 _i5_ovm = 0;  _i5_adj = 0.0;  _i5_pass = True
-            quality_score += _i5_adj
+            quality_score += self._wr_dampen(_i5_adj)  # v198.0: WR-dampened
             self._last_g85i5_ovm = _i5_ovm
             self._gate_stats["gate_g85i5_ovm"]["pass" if _i5_pass else "fail"] += 1
             _i5_ring2 = self._gate_stats_recent.get("gate_g85i5_ovm")
@@ -18909,7 +18942,7 @@ class UnitySignalFilter:
                     _j5_emc = -1; _j5_adj = -1.0; _j5_pass = False
                 else:
                     _j5_emc = 0;  _j5_adj = 0.0;  _j5_pass = True
-            quality_score += _j5_adj
+            quality_score += self._wr_dampen(_j5_adj)  # v198.0: WR-dampened
             self._last_g85j5_emc = _j5_emc
             self._gate_stats["gate_g85j5_emc"]["pass" if _j5_pass else "fail"] += 1
             _j5_ring2 = self._gate_stats_recent.get("gate_g85j5_emc")
@@ -18962,7 +18995,7 @@ class UnitySignalFilter:
                 _k5_qfc = -1; _k5_adj = -1.0; _k5_pass = False
             else:
                 _k5_qfc = 0;  _k5_adj = 0.0;  _k5_pass = True
-            quality_score += _k5_adj
+            quality_score += self._wr_dampen(_k5_adj)  # v198.0: WR-dampened
             self._last_g85k5_qfc = _k5_qfc
             self._gate_stats["gate_g85k5_qfc"]["pass" if _k5_pass else "fail"] += 1
             _k5_ring2 = self._gate_stats_recent.get("gate_g85k5_qfc")
@@ -19018,7 +19051,7 @@ class UnitySignalFilter:
                     _l5_mev = -1; _l5_adj = -1.0; _l5_pass = False
                 else:
                     _l5_mev = 0;  _l5_adj = 0.0;  _l5_pass = True
-            quality_score += _l5_adj
+            quality_score += self._wr_dampen(_l5_adj)  # v198.0: WR-dampened
             self._last_g85l5_mev = _l5_mev
             self._gate_stats["gate_g85l5_mev"]["pass" if _l5_pass else "fail"] += 1
             _l5_ring2 = self._gate_stats_recent.get("gate_g85l5_mev")
@@ -19071,7 +19104,7 @@ class UnitySignalFilter:
             elif _m5_neg == 2:       _m5_osw = -2; _m5_adj = -2.5; _m5_pass = False
             elif _m5_neg == 1:       _m5_osw = -1; _m5_adj = -1.0; _m5_pass = False
             else:                    _m5_osw = 0;  _m5_adj =  0.0; _m5_pass = True
-            quality_score += _m5_adj
+            quality_score += self._wr_dampen(_m5_adj)  # v198.0: WR-dampened
             self._last_g85m5_osw = _m5_osw
             self._gate_stats["gate_g85m5_osw"]["pass" if _m5_pass else "fail"] += 1
             _m5_ring2 = self._gate_stats_recent.get("gate_g85m5_osw")
@@ -19125,7 +19158,7 @@ class UnitySignalFilter:
             elif _n5_neg == 2:       _n5_fsl = -2; _n5_adj = -2.0; _n5_pass = False
             elif _n5_neg == 1:       _n5_fsl = -1; _n5_adj = -1.0; _n5_pass = False
             else:                    _n5_fsl = 0;  _n5_adj =  0.0; _n5_pass = True
-            quality_score += _n5_adj
+            quality_score += self._wr_dampen(_n5_adj)  # v198.0: WR-dampened
             self._last_g85n5_fsl = _n5_fsl
             self._gate_stats["gate_g85n5_fsl"]["pass" if _n5_pass else "fail"] += 1
             _n5_ring2 = self._gate_stats_recent.get("gate_g85n5_fsl")
@@ -19184,7 +19217,7 @@ class UnitySignalFilter:
             elif _o5_neg == 2:       _o5_rsq = -2; _o5_adj = -2.0; _o5_pass = False
             elif _o5_neg == 1:       _o5_rsq = -1; _o5_adj = -1.0; _o5_pass = False
             else:                    _o5_rsq = 0;  _o5_adj =  0.0; _o5_pass = True
-            quality_score += _o5_adj
+            quality_score += self._wr_dampen(_o5_adj)  # v198.0: WR-dampened
             self._last_g85o5_rsq = _o5_rsq
             self._gate_stats["gate_g85o5_rsq"]["pass" if _o5_pass else "fail"] += 1
             _o5_ring2 = self._gate_stats_recent.get("gate_g85o5_rsq")
@@ -19238,7 +19271,7 @@ class UnitySignalFilter:
             elif _p5_neg == 2:       _p5_ewv = -2; _p5_adj = -2.0; _p5_pass = False
             elif _p5_neg == 1:       _p5_ewv = -1; _p5_adj = -1.0; _p5_pass = False
             else:                    _p5_ewv = 0;  _p5_adj =  0.0; _p5_pass = True
-            quality_score += _p5_adj
+            quality_score += self._wr_dampen(_p5_adj)  # v198.0: WR-dampened
             self._last_g85p5_ewv = _p5_ewv
             self._gate_stats["gate_g85p5_ewv"]["pass" if _p5_pass else "fail"] += 1
             _p5_ring2 = self._gate_stats_recent.get("gate_g85p5_ewv")
@@ -19279,7 +19312,7 @@ class UnitySignalFilter:
             elif _q5_neg == 2:       _q5_dvs = -2; _q5_adj = -2.0; _q5_pass = False
             elif _q5_neg == 1:       _q5_dvs = -1; _q5_adj = -1.0; _q5_pass = False
             else:                    _q5_dvs = 0;  _q5_adj =  0.0; _q5_pass = True
-            quality_score += _q5_adj
+            quality_score += self._wr_dampen(_q5_adj)  # v198.0: WR-dampened
             self._last_g85q5_dvs = _q5_dvs
             self._gate_stats["gate_g85q5_dvs"]["pass" if _q5_pass else "fail"] += 1
             _q5_ring2 = self._gate_stats_recent.get("gate_g85q5_dvs")
@@ -19324,7 +19357,7 @@ class UnitySignalFilter:
             elif _r5_neg == 2:       _r5_vcf = -2; _r5_adj = -2.0; _r5_pass = False
             elif _r5_neg == 1:       _r5_vcf = -1; _r5_adj = -1.0; _r5_pass = False
             else:                    _r5_vcf = 0;  _r5_adj =  0.0; _r5_pass = True
-            quality_score += _r5_adj
+            quality_score += self._wr_dampen(_r5_adj)  # v198.0: WR-dampened
             self._last_g85r5_vcf = _r5_vcf
             self._gate_stats["gate_g85r5_vcf"]["pass" if _r5_pass else "fail"] += 1
             _r5_ring2 = self._gate_stats_recent.get("gate_g85r5_vcf")
@@ -19371,7 +19404,7 @@ class UnitySignalFilter:
                 _s5_lsq = 1
                 _s5_adj_s5 = 1.0
             self._last_g85s5_lsq = _s5_lsq
-            quality_score += _s5_adj_s5
+            quality_score += self._wr_dampen(_s5_adj_s5)  # v198.0: WR-dampened
             self._gate_stats["gate_g85s5_lsq"]["pass" if _s5_adj_s5 >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85s5_lsq"].append(1 if _s5_adj_s5 >= 0 else 0)
             self._logger.debug(
@@ -19418,7 +19451,7 @@ class UnitySignalFilter:
                 _t5_mfr = 1
                 _t5_adj_t5 = 1.0
             self._last_g85t5_mfr = _t5_mfr
-            quality_score += _t5_adj_t5
+            quality_score += self._wr_dampen(_t5_adj_t5)  # v198.0: WR-dampened
             self._gate_stats["gate_g85t5_mfr"]["pass" if _t5_adj_t5 >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85t5_mfr"].append(1 if _t5_adj_t5 >= 0 else 0)
             self._logger.debug(
@@ -19476,7 +19509,7 @@ class UnitySignalFilter:
                     _u5_oup = 1
                     _u5_adj_u5 = 1.0
             self._last_g85u5_oup = _u5_oup
-            quality_score += _u5_adj_u5
+            quality_score += self._wr_dampen(_u5_adj_u5)  # v198.0: WR-dampened
             self._gate_stats["gate_g85u5_oup"]["pass" if _u5_adj_u5 >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85u5_oup"].append(1 if _u5_adj_u5 >= 0 else 0)
             self._logger.debug(
@@ -19548,7 +19581,7 @@ class UnitySignalFilter:
                 _v5_mfa = 1
                 _v5_adj_v5 = 1.0
             self._last_g85v5_mfa = _v5_mfa
-            quality_score += _v5_adj_v5
+            quality_score += self._wr_dampen(_v5_adj_v5)  # v198.0: WR-dampened
             self._gate_stats["gate_g85v5_mfa"]["pass" if _v5_adj_v5 >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85v5_mfa"].append(1 if _v5_adj_v5 >= 0 else 0)
             self._logger.debug(
@@ -19615,7 +19648,7 @@ class UnitySignalFilter:
                     f"qs_z={_w5_qs_z:.2f}({'ext' if _w5_qs_extreme else 'norm'}) "
                     f"aligned_ofi={_w5_ofi_aligned} aligned_qs={_w5_qs_aligned}"
                 )
-            quality_score += _w5_adj
+            quality_score += self._wr_dampen(_w5_adj)  # v198.0: WR-dampened
         except Exception:
             self._record("gate_g85w5_wnz", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
@@ -19684,7 +19717,7 @@ class UnitySignalFilter:
                     f"rho1={_x5_rho1:.3f} xcross={_x5_xcross_rate:.2f} "
                     f"stationary={_x5_stationary} ou={_x5_u5:+d}"
                 )
-            quality_score += _x5_adj
+            quality_score += self._wr_dampen(_x5_adj)  # v198.0: WR-dampened
         except Exception:
             self._record("gate_g85x5_adf", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
@@ -19758,7 +19791,7 @@ class UnitySignalFilter:
                     f"avg_corr={_avg_corr:.3f} r_qs_ofi={_r_qs_ofi:.2f} "
                     f"r_qs_vpin={_r_qs_vpin:.2f} r_ofi_vpin={_r_ofi_vpin:.2f}"
                 )
-            quality_score += _y5_adj
+            quality_score += self._wr_dampen(_y5_adj)  # v198.0: WR-dampened
         except Exception:
             self._record("gate_g85y5_pco", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
@@ -19812,7 +19845,7 @@ class UnitySignalFilter:
                     f"IC={_z5_ic:.3f} WR={_z5_wr:.1%} "
                     f"FLOAM_IR={_z5_floam_ir:.3f} pco={_z5_pco_sent:+d}"
                 )
-            quality_score += _z5_adj
+            quality_score += self._wr_dampen(_z5_adj)  # v198.0: WR-dampened
         except Exception:
             self._record("gate_g85z5_ics", True)  # v192.0-FIX: _record was inside try (v190 missed this gate); neutral on exception → always records
 
@@ -19914,7 +19947,7 @@ class UnitySignalFilter:
                 _corr_adj = _corr_fair_total - _corr_naive_total  # negative-magnitude clawback
                 if abs(_corr_adj) >= 0.1:
                     _corr_fired = True
-                    quality_score += _corr_adj
+                    quality_score += self._wr_dampen(_corr_adj)  # v198.0: WR-dampened
             self._gate_stats["gate_g85corr_fcd"]["pass" if _corr_adj >= 0 else "fail"] += 1
             self._gate_stats_recent["gate_g85corr_fcd"].append(1 if _corr_adj >= 0 else 0)
             self._record("gate_g85corr_fcd", _corr_adj >= 0)
@@ -19965,7 +19998,7 @@ class UnitySignalFilter:
                             f"conf={_aa_conf:.0f}% WR={_aa_wr:.1%} → -1.0pts"
                         )
             if _aa_adj != 0.0:
-                quality_score += _aa_adj
+                quality_score += self._wr_dampen(_aa_adj)  # v198.0: WR-dampened
             _aa_pass = not _aa_fired
             self._gate_stats["gate_g85aa_cwd"]["pass" if _aa_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85aa_cwd"].append(1 if _aa_pass else 0)
@@ -20028,7 +20061,7 @@ class UnitySignalFilter:
                                     f"SHORT RSI={_ab_rsi:.1f}<28 WR={_ab_wr:.1%} → -1.5pts"
                                 )
             if _ab_adj != 0.0:
-                quality_score += _ab_adj
+                quality_score += self._wr_dampen(_ab_adj)  # v198.0: WR-dampened
             _ab_pass = not _ab_fired
             self._gate_stats["gate_g85ab_xrsi"]["pass" if _ab_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ab_xrsi"].append(1 if _ab_pass else 0)
@@ -20076,7 +20109,7 @@ class UnitySignalFilter:
                                 f"(data: LONG avgP=−0.28% structural headwind)"
                             )
             if _ac_adj != 0.0:
-                quality_score += _ac_adj
+                quality_score += self._wr_dampen(_ac_adj)  # v198.0: WR-dampened
             _ac_pass = not _ac_fired
             self._gate_stats["gate_g85ac_dlb"]["pass" if _ac_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ac_dlb"].append(1 if _ac_pass else 0)
@@ -20135,7 +20168,7 @@ class UnitySignalFilter:
                                     f"WR={_ad_wr:.1%} → -2.0pts (data: avgP=-4.39%, worst SHORT hour)"
                                 )
             if _ad_adj != 0.0:
-                quality_score += _ad_adj
+                quality_score += self._wr_dampen(_ad_adj)  # v198.0: WR-dampened
             _ad_pass = not _ad_fired
             self._gate_stats["gate_g85ad_gtod"]["pass" if _ad_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ad_gtod"].append(1 if _ad_pass else 0)
@@ -20181,21 +20214,21 @@ class UnitySignalFilter:
                 if 1 <= _gcal_dom <= 7:
                     _gcal_adj = 1.0      # month-start alpha — institutional rebalancing flow
                     self._last_g85af_gcal = 1.0
-                    quality_score += _gcal_adj
+                    quality_score += self._wr_dampen(_gcal_adj)  # v198.0: WR-dampened
                     self._logger.debug(f"📅 [v161.0 G8.5AF GCAL] Month-start alpha: day {_gcal_dom} (+1.0pt)")
                 elif 8 <= _gcal_dom <= 14:
                     _gcal_adj = -0.5     # mid-month onset drag
                     self._last_g85af_gcal = -0.5
-                    quality_score += _gcal_adj
+                    quality_score += self._wr_dampen(_gcal_adj)  # v198.0: WR-dampened
                 elif 15 <= _gcal_dom <= 21:
                     _gcal_adj = -1.5     # worst fortnight drag
                     self._last_g85af_gcal = -1.5
-                    quality_score += _gcal_adj
+                    quality_score += self._wr_dampen(_gcal_adj)  # v198.0: WR-dampened
                     self._logger.debug(f"📅 [v161.0 G8.5AF GCAL] Mid-month drag: day {_gcal_dom} (-1.5pt)")
                 else:
                     _gcal_adj = -0.3     # late-month mild drag
                     self._last_g85af_gcal = -0.3
-                    quality_score += _gcal_adj
+                    quality_score += self._wr_dampen(_gcal_adj)  # v198.0: WR-dampened
             _gcal_fire = abs(self._last_g85af_gcal) >= 0.5
         except Exception:
             pass  # GCAL non-fatal soft-gate
@@ -20216,7 +20249,7 @@ class UnitySignalFilter:
                 if _gdiv_n >= 55:
                     _gdiv_adj = -2.5
                     self._last_g85ag_gdiv = -2.5
-                    quality_score += _gdiv_adj
+                    quality_score += self._wr_dampen(_gdiv_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"⚠️ [v161.0 G8.5AG GDIV] Catastrophic symbol diversity: "
                         f"{_gdiv_n} unique syms today ≥55 (data: WR=16.6% vs 31.0% normal) → -2.5pt"
@@ -20224,15 +20257,15 @@ class UnitySignalFilter:
                 elif _gdiv_n >= 50:
                     _gdiv_adj = -1.5
                     self._last_g85ag_gdiv = -1.5
-                    quality_score += _gdiv_adj
+                    quality_score += self._wr_dampen(_gdiv_adj)  # v198.0: WR-dampened
                 elif _gdiv_n >= GDIV_LIMIT:
                     _gdiv_adj = -0.8
                     self._last_g85ag_gdiv = -0.8
-                    quality_score += _gdiv_adj
+                    quality_score += self._wr_dampen(_gdiv_adj)  # v198.0: WR-dampened
                 elif _gdiv_n < 40:
                     _gdiv_adj = 0.5     # concentrated session = quality regime
                     self._last_g85ag_gdiv = 0.5
-                    quality_score += _gdiv_adj
+                    quality_score += self._wr_dampen(_gdiv_adj)  # v198.0: WR-dampened
         except Exception:
             pass  # GDIV non-fatal soft-gate
         self._record("gate_g85ag_gdiv", self._last_g85ag_gdiv >= -1.5)
@@ -20252,14 +20285,14 @@ class UnitySignalFilter:
                 if 11 <= _gseq_n <= 20:
                     _gseq_adj = 1.5
                     self._last_g85ah_gseq = 1.5
-                    quality_score += _gseq_adj
+                    quality_score += self._wr_dampen(_gseq_adj)  # v198.0: WR-dampened
                     self._logger.debug(f"🎯 [v161.0 G8.5AH GSEQ] Peak window signal #{_gseq_n} (+1.5pt)")
                 elif 21 <= _gseq_n <= 90:
                     pass  # neutral plateau
                 elif 91 <= _gseq_n <= 100:
                     _gseq_adj = -2.5
                     self._last_g85ah_gseq = -2.5
-                    quality_score += _gseq_adj
+                    quality_score += self._wr_dampen(_gseq_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"⚠️ [v161.0 G8.5AH GSEQ] Kill zone: signal #{_gseq_n} "
                         f"(data: WR=14% EV=-3.4%) → -2.5pt"
@@ -20267,7 +20300,7 @@ class UnitySignalFilter:
                 elif _gseq_n > 100:
                     _gseq_adj = -3.5
                     self._last_g85ah_gseq = -3.5
-                    quality_score += _gseq_adj
+                    quality_score += self._wr_dampen(_gseq_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"🛑 [v161.0 G8.5AH GSEQ] Meltdown zone: signal #{_gseq_n} "
                         f"(data: WR=12%) → -3.5pt"
@@ -20296,7 +20329,7 @@ class UnitySignalFilter:
                             # Reversal SHORT after LONG-dominated session — strongest edge
                             _gm3_adj = 1.5
                             self._last_g85ai_gmom3 = 1.5
-                            quality_score += _gm3_adj
+                            quality_score += self._wr_dampen(_gm3_adj)  # v198.0: WR-dampened
                             self._logger.debug(
                                 f"🎯 [v161.0 G8.5AI GMOM3] Reversal SHORT after {_gm3_longs}×LONG session "
                                 f"(data: WR=28% EV=+1.79%) → +1.5pt"
@@ -20305,12 +20338,12 @@ class UnitySignalFilter:
                             # LONG after LONG-dominance — confirmed kill
                             _gm3_adj = -1.0
                             self._last_g85ai_gmom3 = -1.0
-                            quality_score += _gm3_adj
+                            quality_score += self._wr_dampen(_gm3_adj)  # v198.0: WR-dampened
                         elif _gm3_shorts >= 2 and _gm3_dir == "SHORT":
                             # SHORT continuation fatigue
                             _gm3_adj = -0.5
                             self._last_g85ai_gmom3 = -0.5
-                            quality_score += _gm3_adj
+                            quality_score += self._wr_dampen(_gm3_adj)  # v198.0: WR-dampened
                     # Update direction ring (keep last 3)
                     self._v161_dir_ring.append(_gm3_dir)
                     if len(self._v161_dir_ring) > 3:
@@ -20337,7 +20370,7 @@ class UnitySignalFilter:
                 if _gbat_n in (5, 7):
                     _gbat_adj = 2.5
                     self._last_g85aj_gbatch = 2.5
-                    quality_score += _gbat_adj
+                    quality_score += self._wr_dampen(_gbat_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"🎯 [v161.0 G8.5AJ GBATCH] Elite batch size {_gbat_n} "
                         f"(data: WR+6pp) → +2.5pt"
@@ -20345,7 +20378,7 @@ class UnitySignalFilter:
                 elif _gbat_n in (4, 9, 10):
                     _gbat_adj = -3.0
                     self._last_g85aj_gbatch = -3.0
-                    quality_score += _gbat_adj
+                    quality_score += self._wr_dampen(_gbat_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"⚠️ [v161.0 G8.5AJ GBATCH] Kill batch size {_gbat_n} "
                         f"(data: WR-8pp) → -3.0pt"
@@ -20353,7 +20386,7 @@ class UnitySignalFilter:
                 elif _gbat_n > 10:
                     _gbat_adj = -4.0
                     self._last_g85aj_gbatch = -4.0
-                    quality_score += _gbat_adj
+                    quality_score += self._wr_dampen(_gbat_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"🛑 [v161.0 G8.5AJ GBATCH] Ultra-kill batch {_gbat_n} → -4.0pt"
                     )
@@ -20385,7 +20418,7 @@ class UnitySignalFilter:
                             break
                     if _gsdd_run >= 3:
                         _gsdd_adj = -2.5; self._last_g85ak_gsdd = -2.5
-                        quality_score += _gsdd_adj
+                        quality_score += self._wr_dampen(_gsdd_adj)  # v198.0: WR-dampened
                         self._logger.warning(
                             f"⚠️ [v163.0 G8.5AK GSDD] Severe same-direction clustering: "
                             f"{_gsdd_run}×{_gsdd_dir} consecutive + WR={_gsdd_wr:.1f}%<30% "
@@ -20393,7 +20426,7 @@ class UnitySignalFilter:
                         )
                     elif _gsdd_run >= 2:
                         _gsdd_adj = -1.5; self._last_g85ak_gsdd = -1.5
-                        quality_score += _gsdd_adj
+                        quality_score += self._wr_dampen(_gsdd_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"⚠️ [v163.0 G8.5AK GSDD] Same-direction clustering: "
                             f"{_gsdd_run}×{_gsdd_dir} + WR={_gsdd_wr:.1f}%<30% → -1.5pt"
@@ -20419,7 +20452,7 @@ class UnitySignalFilter:
                     _grex_age  = _grex_now - _grex_last if _grex_last > 0 else 99999.0
                     if _grex_age < 480:  # within 8 minutes
                         _grex_adj = -2.5; self._last_g85al_grex = -2.5
-                        quality_score += _grex_adj
+                        quality_score += self._wr_dampen(_grex_adj)  # v198.0: WR-dampened
                         self._logger.warning(
                             f"⚠️ [v163.0 G8.5AL GREX] Hot-reactive symbol: "
                             f"{_grex_sym} last seen {_grex_age:.0f}s ago (<480s) "
@@ -20427,7 +20460,7 @@ class UnitySignalFilter:
                         )
                     elif _grex_age < GREX_WIN_SEC:  # within 15 minutes
                         _grex_adj = -1.5; self._last_g85al_grex = -1.5
-                        quality_score += _grex_adj
+                        quality_score += self._wr_dampen(_grex_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"⚠️ [v163.0 G8.5AL GREX] Reactive-zone symbol: "
                             f"{_grex_sym} last seen {_grex_age:.0f}s ago (<{GREX_WIN_SEC}s) → -1.5pt"
@@ -20465,7 +20498,7 @@ class UnitySignalFilter:
                     _ghtf_wins5 = sum(1 for v in _ghtf_last5 if v > 0)
                     if _ghtf_wins5 >= GHTF_HOT_MIN and _ghtf_wr > GHTF_HOT_WR:
                         _ghtf_adj = 1.5; self._last_g85am_ghtf = 1.5
-                        quality_score += _ghtf_adj
+                        quality_score += self._wr_dampen(_ghtf_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"🔥 [v165.0 G8.5AM GHTF] Hot sequence: {_ghtf_wins5}/5 wins "
                             f"WR={_ghtf_wr:.1f}%>{GHTF_HOT_WR}% → +1.5pt"
@@ -20476,7 +20509,7 @@ class UnitySignalFilter:
                     _ghtf_losses3 = sum(1 for v in _ghtf_last3 if v <= 0)
                     if _ghtf_losses3 >= GHTF_COLD_MIN and _ghtf_wr < GHTF_COLD_WR:
                         _ghtf_adj = -2.0; self._last_g85am_ghtf = -2.0
-                        quality_score += _ghtf_adj
+                        quality_score += self._wr_dampen(_ghtf_adj)  # v198.0: WR-dampened
                         self._logger.warning(
                             f"❄️ [v165.0 G8.5AM GHTF] Cold sequence: {_ghtf_losses3}/3 losses "
                             f"WR={_ghtf_wr:.1f}%<{GHTF_COLD_WR}% → -2.0pt (death-spiral alarm)"
@@ -20488,7 +20521,7 @@ class UnitySignalFilter:
                         _ghtf_losses3 = sum(1 for v in _ghtf_last3 if v <= 0)
                         if _ghtf_losses3 >= GHTF_COLD_MIN and _ghtf_wr < GHTF_COLD_WR:
                             _ghtf_adj = -2.0; self._last_g85am_ghtf = -2.0
-                            quality_score += _ghtf_adj
+                            quality_score += self._wr_dampen(_ghtf_adj)  # v198.0: WR-dampened
                             self._logger.warning(
                                 f"❄️ [v165.0 G8.5AM GHTF] Cold sequence (5-ring): {_ghtf_losses3}/3 losses "
                                 f"WR={_ghtf_wr:.1f}%<{GHTF_COLD_WR}% → -2.0pt"
@@ -20513,7 +20546,7 @@ class UnitySignalFilter:
                     if _gmap_dir == "LONG" and GMAP_RSI_HIGH <= _gmap_rsi < 72.0:
                         # In the gap below XRSI: RSI 68-72 for LONG in WR<30%
                         _gmap_adj = -1.5; self._last_g85an_gmap = -1.5
-                        quality_score += _gmap_adj
+                        quality_score += self._wr_dampen(_gmap_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"⚠️ [v165.0 G8.5AN GMAP] LONG @RSI={_gmap_rsi:.1f} (68-72 gap) "
                             f"WR={_gmap_wr:.1f}%<{GMAP_WR_GATE}% → -1.5pt (anti-pattern gap-fill)"
@@ -20521,7 +20554,7 @@ class UnitySignalFilter:
                     elif _gmap_dir == "SHORT" and 28.0 < _gmap_rsi <= GMAP_RSI_LOW:
                         # Symmetric short side: RSI 28-32 for SHORT in WR<30%
                         _gmap_adj = -1.5; self._last_g85an_gmap = -1.5
-                        quality_score += _gmap_adj
+                        quality_score += self._wr_dampen(_gmap_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"⚠️ [v165.0 G8.5AN GMAP] SHORT @RSI={_gmap_rsi:.1f} (28-32 gap) "
                             f"WR={_gmap_wr:.1f}%<{GMAP_WR_GATE}% → -1.5pt (anti-pattern gap-fill)"
@@ -20550,7 +20583,7 @@ class UnitySignalFilter:
                 if _gcal2_wr < GCAL2_WR_GATE and _gcal2_conf > 0:
                     if _gcal2_conf >= GCAL2_CONF_HIGH:
                         _gcal2_adj = -2.0; self._last_g85ao_gcal2 = -2.0
-                        quality_score += _gcal2_adj
+                        quality_score += self._wr_dampen(_gcal2_adj)  # v198.0: WR-dampened
                         self._logger.warning(
                             f"⚠️ [v166.0 G8.5AO GCAL2] Severe AI overconfidence: "
                             f"LLM conf={_gcal2_conf:.1f}%≥{GCAL2_CONF_HIGH} + WR={_gcal2_wr:.1f}%<{GCAL2_WR_GATE}% "
@@ -20558,7 +20591,7 @@ class UnitySignalFilter:
                         )
                     elif _gcal2_conf >= GCAL2_CONF_MED:
                         _gcal2_adj = -1.5; self._last_g85ao_gcal2 = -1.5
-                        quality_score += _gcal2_adj
+                        quality_score += self._wr_dampen(_gcal2_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"⚠️ [v166.0 G8.5AO GCAL2] AI overconfidence: "
                             f"LLM conf={_gcal2_conf:.1f}%≥{GCAL2_CONF_MED} + WR={_gcal2_wr:.1f}%<{GCAL2_WR_GATE}% "
@@ -20589,7 +20622,7 @@ class UnitySignalFilter:
                 if _glen_coh < GLEN_COH_ULTRA and _glen_wr < GLEN_WR_GATE:
                     # Ultra: all 3 factors misaligned + crisis WR
                     _glen_adj = -2.0; self._last_g85ap_glen = -2.0
-                    quality_score += _glen_adj
+                    quality_score += self._wr_dampen(_glen_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"🔄 [v166.0 G8.5AP GLEN] Loop Checker FAIL: "
                         f"loop_coherence={_glen_coh:.2f}<{GLEN_COH_ULTRA} "
@@ -20599,7 +20632,7 @@ class UnitySignalFilter:
                 elif _glen_coh < GLEN_COH_WEAK and _glen_cold >= 0.67:
                     # Weak: 2/3 misaligned + cold-sequence regime
                     _glen_adj = -1.5; self._last_g85ap_glen = -1.5
-                    quality_score += _glen_adj
+                    quality_score += self._wr_dampen(_glen_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"🔄 [v166.0 G8.5AP GLEN] Loop Checker WARN: "
                         f"loop_coherence={_glen_coh:.2f}<{GLEN_COH_WEAK} "
@@ -20727,7 +20760,7 @@ class UnitySignalFilter:
                         _gfrd_adj = -1.5
                 if _gfrd_adj != 0.0:
                     self._last_g85as_gfrd = _gfrd_adj
-                    quality_score += _gfrd_adj
+                    quality_score += self._wr_dampen(_gfrd_adj)  # v198.0: WR-dampened
                     _tier = "extreme" if abs(_gfrd_adj) >= 2.0 else "moderate"
                     self._logger.warning(
                         f"💸 [v168.0 G8.5AS GFRD] {_tier} funding crowding: "
@@ -20770,7 +20803,7 @@ class UnitySignalFilter:
                         _gord_adj = -1.5  # crisis only
                 if _gord_adj != 0.0:
                     self._last_g85at_gord = _gord_adj
-                    quality_score += _gord_adj
+                    quality_score += self._wr_dampen(_gord_adj)  # v198.0: WR-dampened
                     self._logger.warning(
                         f"🌊 [v168.0 G8.5AT GORD] OFI divergence: "
                         f"ofi_z={_gord_ofi:.2f} opposes {_gord_dir} "
@@ -20808,7 +20841,7 @@ class UnitySignalFilter:
                         _gwfv_adj = -1.5
                 if _gwfv_adj != 0.0:
                     self._last_g85au_gwfv = _gwfv_adj
-                    quality_score += _gwfv_adj
+                    quality_score += self._wr_dampen(_gwfv_adj)  # v198.0: WR-dampened
                     _case = "1-CPCV-invalid+crisis" if _gwfv_adj <= -2.0 else "2-regime-shift"
                     self._logger.warning(
                         f"📊 [v169.0 G8.5AU GWFV] walk-forward gap CASE-{_case}: "
@@ -20850,7 +20883,7 @@ class UnitySignalFilter:
                         _gddv_adj = -1.5
                 if _gddv_adj != 0.0:
                     self._last_g85av_gddv = _gddv_adj
-                    quality_score += _gddv_adj
+                    quality_score += self._wr_dampen(_gddv_adj)  # v198.0: WR-dampened
                     _tier = "severe-collapse" if _gddv_adj <= -2.0 else "moderate-decline"
                     self._logger.warning(
                         f"📉 [v169.0 G8.5AV GDDV] quality {_tier}: "
@@ -20884,7 +20917,7 @@ class UnitySignalFilter:
                             _ghrz_adj = -1.5  # structural dead zone regardless of regime
                     if _ghrz_adj != 0.0:
                         self._last_g85aw_ghrz = _ghrz_adj
-                        quality_score += _ghrz_adj
+                        quality_score += self._wr_dampen(_ghrz_adj)  # v198.0: WR-dampened
                         _ghrz_tier = "crisis-compound" if _ghrz_adj <= -2.0 else "structural"
                         self._logger.debug(
                             f"🕐 [v170.0 G8.5AW GHRZ] dead-zone hour={_ghrz_hour}h UTC "
@@ -20920,7 +20953,7 @@ class UnitySignalFilter:
                             _galp_adj = 1.0  # peak session in recovery = mild bonus
                     if _galp_adj != 0.0:
                         self._last_g85ax_galp = _galp_adj
-                        quality_score += _galp_adj
+                        quality_score += self._wr_dampen(_galp_adj)  # v198.0: WR-dampened
                         _galp_tier = "strong-regime" if _galp_adj >= 1.5 else "recovery"
                         self._logger.debug(
                             f"⚡ [v170.0 G8.5AX GALP] peak session hour={_galp_hour}h UTC "
@@ -20958,7 +20991,7 @@ class UnitySignalFilter:
                     _gvlr_adj = -2.0  # toxic order flow compound crisis
                 if _gvlr_adj != 0.0:
                     self._last_g85ay_gvlr = _gvlr_adj
-                    quality_score += _gvlr_adj
+                    quality_score += self._wr_dampen(_gvlr_adj)  # v198.0: WR-dampened
                     _gvlr_tier = ("ultra-clean+OFI" if _gvlr_adj >= 1.5 else
                                   ("clean+OFI" if _gvlr_adj >= 1.0 else "toxic-crisis"))
                     self._logger.debug(
@@ -21002,7 +21035,7 @@ class UnitySignalFilter:
                         _grlb_adj = -2.0  # underperformer: sym 10pp+ below engine WR
                     if _grlb_adj != 0.0:
                         self._last_g85az_grlb = _grlb_adj
-                        quality_score += _grlb_adj
+                        quality_score += self._wr_dampen(_grlb_adj)  # v198.0: WR-dampened
                         _grlb_tier = ("struct-alpha" if _grlb_adj >= 1.5 else
                                       ("live-alpha" if _grlb_adj >= 1.0 else
                                        ("struct-hole" if _grlb_adj <= -2.5 else "underperformer")))
@@ -21181,7 +21214,7 @@ class UnitySignalFilter:
                                 _gdsa_adj  = -1.0
                                 _gdsa_tier = "LONG-crisis-escalation"
                     self._last_g85bc_gdsa = _gdsa_adj
-                    quality_score += _gdsa_adj
+                    quality_score += self._wr_dampen(_gdsa_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"🎯 [v173.0 G8.5BC GDSA] ring_long={_gdsa_long_n}/{len(_gdsa_ring)} "
                         f"dir={_gdsa_dir} WR={_gdsa_wr:.1f}% hostile={_gdsa_hostile} "
@@ -21233,7 +21266,7 @@ class UnitySignalFilter:
                             _gevl_adj  = +1.0
                             _gevl_tier = "recovery"
                         self._last_g85bd_gevl = _gevl_adj
-                        quality_score += _gevl_adj
+                        quality_score += self._wr_dampen(_gevl_adj)  # v198.0: WR-dampened
                         self._logger.debug(
                             f"📉 [v173.0 G8.5BD GEVL] slope={_gevl_slope:.5f} "
                             f"n={len(_gevl_vals)} WR={_gevl_wr:.1f}% "
@@ -21281,7 +21314,7 @@ class UnitySignalFilter:
                         _grdc_adj  = +1.0
                         _grdc_tier = "dual-recovery"
                     self._last_g85be_grdc = _grdc_adj
-                    quality_score += _grdc_adj
+                    quality_score += self._wr_dampen(_grdc_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"🧭 [v174.0 G8.5BE GRDC] recentWR={_grdc_recent_wr:.1f}% "
                         f"allWR={_grdc_all_wr:.1f}% gap={_grdc_gap:+.1f}pp "
@@ -21320,7 +21353,7 @@ class UnitySignalFilter:
                         _gxwi_adj  = +0.5
                         _gxwi_tier = "maker-checker-aligned"
                     self._last_g85bf_gxwi = _gxwi_adj
-                    quality_score += _gxwi_adj
+                    quality_score += self._wr_dampen(_gxwi_adj)  # v198.0: WR-dampened
                     self._logger.debug(
                         f"🔀 [v174.0 G8.5BF GXWI] maker={_gxwi_maker:.2f} "
                         f"checker={_gxwi_checker:.2f} diverge={_gxwi_diverge:+.2f} "
@@ -21368,7 +21401,7 @@ class UnitySignalFilter:
                         _gpel_adj  = +1.0
                         _gpel_tier = "locked-high-streak"
                     self._last_g85bg_gpel = _gpel_adj
-                    quality_score += _gpel_adj
+                    quality_score += self._wr_dampen(_gpel_adj)  # v198.0: WR-dampened
                     if _gpel_adj != 0.0:
                         self._logger.debug(
                             f"🔁 [v175.0 G8.5BG GPEL] low_streak={_gpel_low_streak} "
@@ -21417,7 +21450,7 @@ class UnitySignalFilter:
                         _glcv_adj  = +1.0
                         _glcv_tier = "loop-converging"
                     self._last_g85bh_glcv = _glcv_adj
-                    quality_score += _glcv_adj
+                    quality_score += self._wr_dampen(_glcv_adj)  # v198.0: WR-dampened
                     if _glcv_adj != 0.0:
                         self._logger.debug(
                             f"🌀 [v175.0 G8.5BH GLCV] var_recent={_glcv_var_recent:.1f} "
