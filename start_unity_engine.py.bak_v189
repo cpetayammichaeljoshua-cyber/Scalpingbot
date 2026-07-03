@@ -1,25 +1,8 @@
 #!/usr/bin/env python3
 """
-Unity Engine v190.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v180.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 166-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
- v190.0 improvements [2026-07-03]:
-   CRITICAL-FIX-v190.0: 95 gates had self._record() INSIDE the try/except block — the exact
-   same silent dead-gate pattern as v178.0. When any exception occurred inside the gate's try
-   block (TypeError, AttributeError, NaN, missing key), the exception was swallowed by
-   `except Exception: pass` BEFORE _record() could execute, leaving the gate permanently
-   invisible to /gates analytics, gate_stats_summary(), and gate_bottleneck_str(). The
-   affected gates spanned every gate family: G8.5A–G8.5U2 (gates 37-55), G8.5V2–G8.5Z2
-   (gates 56-59), G8.5A3–G8.5A4 (gates 61-87), G8.5AA–G8.5AF/AG/AH/AI/AJ/AK/AL
-   (gates 138-144), pre-gates (gate_mark_div, gate_vev, gate_cvar), and gate_markov.
-   Fix: surgical Python transformation moved all 95 self._record() calls to AFTER the
-   except/pass block (at the except indentation level), ensuring _record() always fires
-   regardless of whether the try block raised an exception. The Markov gate received a
-   special fix: added _mk_record_val sentinel initialized to True before the try, updated
-   inside the try (_mk_delta > 0), and called once outside — eliminating both the empty
-   else-body syntax error and the double-recording bug. AST-verified (ast.parse clean).
-   Impact: all 95 gates are now guaranteed to register every evaluation cycle in analytics.
-   This is the second mass dead-gate fix after v178.0 (36 gates). [v190.0]
  v175.0 improvements [2026-07-03]:
    1. G8.5BG GPEL Prompt-Edge-Lock Streak Gate (165th gate, -2.0/-1.0/+1.0pts) [v175.0]:
       Technique 4 (Prompt Refinement / The Loop): rather than reacting to a single bad
@@ -3076,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "190.0"
+UNITY_VERSION                = "189.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -7606,9 +7589,9 @@ class UnitySignalFilter:
                         )
                         return (False, f"GDOW: {_gdow_reason}", 0.0)
                 self._last_g85ae_gdow = 0
+                self._record("gate_g85ae_gdow", True)
             except Exception:
-                pass  # GDOW non-fatal; _record fires below for all non-blocking paths
-            self._record("gate_g85ae_gdow", True)
+                self._record("gate_g85ae_gdow", True)
         else:
             self._record("gate_g85ae_gdow", True)
 
@@ -7760,9 +7743,9 @@ class UnitySignalFilter:
                         f"insufficient [v18.0]",
                         0.0,
                     )
+                self._record("gate_mark_div", True)
             except Exception:
                 pass
-            self._record("gate_mark_div", True)
 
         # ── v18.3 Pre-Gate F — Vectorized EV Pre-Screener ────────────────────────
         # Numpy vectorized cost model eliminates symbols whose structural EV
@@ -7805,9 +7788,9 @@ class UnitySignalFilter:
                         f"{_vev_edge_bps:.1f}bps) [v18.3]",
                         0.0,
                     )
+                self._record("gate_vev", True)
             except Exception:
                 pass  # screener unavailable → pass-through (never blocks trading)
-            self._record("gate_vev", True)
 
         # ── v18.6 Pre-Gate G — Sovereign CVaR Portfolio Gate ─────────────────────
         # Hard-veto any new signal when the portfolio's aggregate 99th-percentile
@@ -7831,9 +7814,9 @@ class UnitySignalFilter:
                             f"SOVEREIGN_CVAR_BLOCK [v18.6]: {_cvar_gate.reason}",
                             0.0,
                         )
+                    self._record("gate_cvar", True)
             except Exception:
                 pass  # sovereign_rm unavailable → pass-through (never blocks trading)
-            self._record("gate_cvar", True)
 
         # v6.3: additional fields for ATR volatility regime + HTF alignment
         _atr       = float(signal_data.get("atr", 0) or 0)
@@ -7882,7 +7865,6 @@ class UnitySignalFilter:
         # (quality floor) and Gate 10 (IRONS floor) to decide final pass/fail.
         # Cold-start safe: when n_obs < MARKOV_CHAIN_MIN_OBS, returns 0.0 delta.
         _mk_sov_flag = False   # v18.42: Markov SOVEREIGN flag for ISB convergence
-        _mk_record_val = True  # v190.0-FIX: sentinel outside try so _record always fires
         if self._markov_gate is not None and symbol and direction:
             try:
                 # v18.55 DEATH-SPIRAL FIX: compute global Bayesian WR and pass to
@@ -7907,12 +7889,11 @@ class UnitySignalFilter:
                             f"🔗 [{symbol}] MARKOV SOVEREIGN CONFIRMED: "
                             f"{_mk_reason}"
                         )
-                    _mk_record_val = _mk_delta > 0  # v190.0-FIX: store for _record outside try
+                    self._record("gate_markov", _mk_delta > 0)
                 else:
-                    pass  # delta=0: soft-gate silent — _mk_record_val stays True
+                    self._record("gate_markov", True)
             except Exception as _mk_exc:
                 self._logger.debug(f"[MarkovGate] non-fatal: {_mk_exc}")
-            self._record("gate_markov", _mk_record_val)  # v190.0-FIX: always fires
 
         # ── v18.51: Extract GEX regime early — used by HFT dual-dir cooldown ────
         _gex_regime_early = ""
@@ -13328,9 +13309,9 @@ class UnitySignalFilter:
             # v53.0 FIX: moved outside the dir guard — previously only fired for valid
             # directions ("BUY"/"SELL"/etc.); if direction was missing/invalid, _record()
             # was never called → G8.5w showed 0% evaluations as false bottleneck #1.
+            self._record("gate_g85w", _g85w_fired)
         except Exception:
             pass
-        self._record("gate_g85w", _g85w_fired)
 
         # ── Gate 8.5x — Liquidation Cascade Direction (v49.0) ───────────────
         # Liquidation direction from Binance forceOrder WS (L0.425) provides a
@@ -13396,9 +13377,9 @@ class UnitySignalFilter:
                     f"dir={_g85x_dir} str={_g85x_str} → {_g85x_adj:+.1f}pts [v51.0]"
                 )
             # v51.0: record to gate_stats so gate appears in analytics/health
+            self._record("gate_g85x", _g85x_fired)
         except Exception:
             pass
-        self._record("gate_g85x", _g85x_fired)
 
         # ── Gate 8.5T — TurboVec Vectorized 3-Timeframe Momentum [v57.0] ─────
         # Inspired by RyanCodrai/turbovec: vectorized batch computation of
@@ -13458,9 +13439,9 @@ class UnitySignalFilter:
                         f"3TF=[{_g85t_short*100:.2f}%,{_g85t_med*100:.2f}%,{_g85t_long*100:.2f}%] "
                         f"n={_g85t_n}/3 → {_g85t_adj:+.1f}pts [Fib3/8/21]"
                     )
+            self._record("gate_g85t", _g85t_fired)
         except Exception:
             pass
-        self._record("gate_g85t", _g85t_fired)
 
         # ── Gate 8.5U — v68.0: MOVED to after G8.5Z and G8.5Y ────────────────
         # G8.5U is a 5-gate meta-consensus that requires G8.5Z + G8.5Y live values.
@@ -13507,9 +13488,9 @@ class UnitySignalFilter:
                         f"BTC fast={_g85p_fast_ma:.2f} slow={_g85p_slow_ma:.2f} "
                         f"bull={_g85p_btc_bull} → {_g85p_adj:+.1f}pts"
                     )
+            self._record("gate_g85p", _g85p_fired)
         except Exception:
             pass
-        self._record("gate_g85p", _g85p_fired)
 
         # ── Gate 8.5R — HMM-GEX Regime Coherence (v62.0) ────────────────────
         # Joint confirmation: when the HMM regime direction AND BTC GEX net
@@ -13752,9 +13733,9 @@ class UnitySignalFilter:
                     f"z={_g85z_adj:+.1f} y={_g85y_adj:+.1f} "
                     f"→ {_g85u_adj:+.1f}pts"
                 )
+            self._record("gate_g85u", _g85u_fired)
         except Exception:
             pass
-        self._record("gate_g85u", _g85u_fired)
 
         # ── Gate 8.5X — DGRP Velocity Gate (v66.0) ───────────────────────────
         # Measures the velocity of the GEX Dealer-GRP composite score (DGRP) over
@@ -13864,9 +13845,9 @@ class UnitySignalFilter:
                             f"dir={_g85a_dir} latest={_fr_latest*100:+.4f}% "
                             f"→ +1.5pts de-crowding-aligned"
                         )
+            self._record("gate_g85a", _g85a_fired)
         except Exception:
             pass  # G8.5A FundingTrend is non-fatal soft-gate
-        self._record("gate_g85a", _g85a_fired)
 
         # ── Gate 8.5B — OFI Persistence Direction (v72.0) ────────────────────
         # Tracks per-symbol order-flow imbalance (OFI) direction over 3 consecutive
@@ -13920,9 +13901,9 @@ class UnitySignalFilter:
                         f"[G8.5B OFI-Persist v72.0] {symbol} {_b_aligned}/{_b_n} OFI "
                         f"readings aligned dir={direction} → +0.5pts mild-flow-confirm"
                     )
+            self._record("gate_g85b", _g85b_fired)
         except Exception:
             pass  # G8.5B OFI Persistence is non-fatal soft-gate
-        self._record("gate_g85b", _g85b_fired)
 
         # ── Gate 8.5C — Regime-Coherence Dual HMM+GEX Confirm (v73.0) ───────
         # Checks that BOTH the HMM regime state machine AND the BTC dealer GEX net
@@ -14015,9 +13996,9 @@ class UnitySignalFilter:
                         )
                 except Exception:
                     pass
+            self._record("gate_g85c", _g85c_fired)
         except Exception:
             pass  # G8.5C Regime-Coherence is non-fatal soft-gate
-        self._record("gate_g85c", _g85c_fired)
 
         # ── Gate 8.5D — OFI Velocity (signed acceleration, v74.0) ────────────
         # Tracks the signed rate-of-change (velocity) of the per-symbol OFI
@@ -14083,9 +14064,9 @@ class UnitySignalFilter:
                             f"vel={_g85d_velocity:+.2f} dir={_g85d_dir_u} "
                             f"→ {_g85d_adj:+.1f}pts"
                         )
+            self._record("gate_g85d", _g85d_fired)
         except Exception:
             pass  # G8.5D OFI-Velocity is non-fatal soft-gate
-        self._record("gate_g85d", _g85d_fired)
 
         # ── Gate 8.5E — Quant Cross-Signal Coherence (v75.0) ─────────────────
         # Meta-gate measuring agreement among 3 independent quantitative systems:
@@ -14182,9 +14163,9 @@ class UnitySignalFilter:
                             f"0/3 votes aligned (all 3 systems oppose) → −1.5pts institutional headwind"
                         )
                     # 1/3: gate silent (0 pts — mixed signal)
+            self._record("gate_g85e", _g85e_fired)
         except Exception:
             pass  # G8.5E Cross-Signal Coherence is non-fatal soft-gate
-        self._record("gate_g85e", _g85e_fired)
 
         # ── Gate 8.5F — VWAP-Extension Direction Adjuster (v76.0) ────────────
         # Measures how far the current price has moved from the Anchored VWAP
@@ -14251,9 +14232,9 @@ class UnitySignalFilter:
                             f"dist={_g85f_avwap:+.1f}bps (40-80bps against dir) → −1.0pts mild headwind"
                         )
                     # else: <40bps against — near VWAP equilibrium, silent
+            self._record("gate_g85f", _g85f_fired)
         except Exception:
             pass  # G8.5F VWAP-Extension is non-fatal soft-gate
-        self._record("gate_g85f", _g85f_fired)
 
         # ── Gate 8.5G — CUSUM-Breakout Statistical Confirmation (v76.0) ──────
         # Leverages the de Prado symmetric CUSUM event filter already running in
@@ -14317,9 +14298,9 @@ class UnitySignalFilter:
                                 f"CUSUM active ofi_z={_g85g_ofi_z:+.2f} opposed → −1.5pts adverse selection risk"
                             )
                     # |ofi_z| < 0.3: CUSUM active but direction ambiguous — gate silent
+            self._record("gate_g85g", _g85g_fired)
         except Exception:
             pass  # G8.5G CUSUM-Breakout is non-fatal soft-gate
-        self._record("gate_g85g", _g85g_fired)
 
         # ── Gate 8.5H — Bid-Ask Flow Asymmetry (v77.0) ───────────────────────
         # Dual-source adverse-selection detector: cross-product of OFI z-score
@@ -14389,9 +14370,9 @@ class UnitySignalFilter:
                     else:
                         self._last_g85h_ofi_aligned = 0
                 # |ofi_z| < 0.5: noise envelope — gate silent
+            self._record("gate_g85h", _g85h_fired)
         except Exception:
             pass  # G8.5H FlowAsymmetry is non-fatal soft-gate
-        self._record("gate_g85h", _g85h_fired)
 
         # ── Gate 8.5I — Close-Microtrend Slope (v77.0) ───────────────────────
         # Linear regression slope of the last 10 one-minute closes from the
@@ -14443,9 +14424,9 @@ class UnitySignalFilter:
                             f"[G8.5I MicroTrend v77.0] {symbol} {direction} "
                             f"slope={_g85i_slope:+.6f} ({_g85i_n} closes) OPPOSED → −1.5pts"
                         )
+            self._record("gate_g85i", _g85i_fired)
         except Exception:
             pass  # G8.5I MicroTrend is non-fatal soft-gate
-        self._record("gate_g85i", _g85i_fired)
 
         # ── Gate 8.5J — HMM Volatility Regime Transition (v78.0) ─────────────
         # Reads the hmm_expansion_prob already injected at F79 in signal_data.
@@ -14512,9 +14493,9 @@ class UnitySignalFilter:
                             f"P_exp={_g85j_hmm_prob:.3f} δ={_g85j_delta:+.3f} ADVERSE TRANSITION → −2.0pts"
                         )
                     # else: neutral range or mixed → no adjustment
+            self._record("gate_g85j_hmm", _g85j_fired)
         except Exception:
             pass  # G8.5J HMM Regime Transition is non-fatal soft-gate
-        self._record("gate_g85j_hmm", _g85j_fired)
 
         # ── G8.5K — Spread-Regime Liquidity gate (v79.0) ─────────────────────
         # Compares current bid-ask spread ratio to a 30-sample per-symbol ring.
@@ -14555,9 +14536,9 @@ class UnitySignalFilter:
                         f"📊 [v79.0 G8.5K] SPREAD-LIQUID {symbol} "
                         f"ratio={_g85k_spread_ratio:.3f} <=25th({_g85k_pct25:.3f}) → +1.5pts"
                     )
+            self._record("gate_g85k_spread", _g85k_fired)
         except Exception:
             pass  # G8.5K Spread-Regime Liquidity is non-fatal soft-gate
-        self._record("gate_g85k_spread", _g85k_fired)
 
         # ── G8.5L2 — VolumePressure-Regime gate (v80.0) ──────────────────────
         # Detects institutional volume pressure aligned or opposed to real-time OFI direction.
@@ -14596,9 +14577,9 @@ class UnitySignalFilter:
                         f"📊 [v80.0 G8.5L2] VOL-OFI ALIGNED {symbol} "
                         f"vol={_g85l2_vol_ratio:.2f}× ofi_z={_g85l2_ofi_z:.2f} dir={direction} → +1.5pts"
                     )
+            self._record("gate_g85l2_vpr", _g85l2_fired)
         except Exception:
             pass  # G8.5L2 VolumePressure-Regime is non-fatal soft-gate
-        self._record("gate_g85l2_vpr", _g85l2_fired)
 
         # ── G8.5N2 — FundingMomentum-Persistence gate (v81.0) ────────────────
         # Detects when the funding rate trend (rolling 3-reading delta) is
@@ -14636,9 +14617,9 @@ class UnitySignalFilter:
                         f"[G8.5N2-FMP] FundingMomentum ALIGNED "
                         f"fr_trend={_g85n2_trend:.6f} dir={direction} → +1.5pts"
                     )
+            self._record("gate_g85n2_fmp", _g85n2_fired)
         except Exception:
             pass  # G8.5N2 FundingMomentum-Persistence is non-fatal soft-gate
-        self._record("gate_g85n2_fmp", _g85n2_fired)
 
         # ── G8.5O2 — WinRate-EV Coherence gate (v82.0) ──────────────────────
         # Uses global session win rate and consecutive-loss streak to adjust
@@ -14682,9 +14663,9 @@ class UnitySignalFilter:
                         f"[G8.5O2-WREVCoh] ConsecLoss streak "
                         f"consec={_g85o2_consec} → −1.0pts"
                     )
+            self._record("gate_g85o2_evcoherence", _g85o2_fired)
         except Exception:
             pass  # G8.5O2 WinRate-EV Coherence is non-fatal soft-gate
-        self._record("gate_g85o2_evcoherence", _g85o2_fired)
 
         # ── G8.5P2 — EV-Crisis Quality Gate (v83.0) ──────────────────────────
         # Zero-API-call soft-gate. Reads self.expected_value_r (lifetime EV per
@@ -14735,9 +14716,9 @@ class UnitySignalFilter:
                         f"📉 [v83.0 G8.5P2] EV-Crisis COMPOUND: "
                         f"MaxDD={_p2_dd:.1f}%+EV={_p2_ev:+.3f}R → −1.0pts"
                     )
+            self._record("gate_g85p2_evcrisis", _p2_fired)
         except Exception:
             pass  # G8.5P2 EV-Crisis is non-fatal soft-gate
-        self._record("gate_g85p2_evcrisis", _p2_fired)
 
         # ── G8.5Q — TrendMomentum-Persistence Gate (v84.0) ───────────────────
         # Zero-API-call soft-gate combining 3 momentum persistence signals:
@@ -14806,9 +14787,9 @@ class UnitySignalFilter:
                             f"📉 [v84.0 G8.5Q] TrendMomPersist OPPOSED: "
                             f"{_q_votes_opposed}/{_q_votes_total} opposed → -2.0pts"
                         )
+            self._record("gate_g85q_trendmom", _q_fired)
         except Exception:
             pass  # G8.5Q is a non-fatal soft-gate
-        self._record("gate_g85q_trendmom", _q_fired)
 
         # ── G8.5R2 — RegimeSentiment-Composite Gate (v84.0) ──────────────────
         # Zero-API-call soft-gate synthesising 3 existing regime sentiment signals:
@@ -14864,9 +14845,9 @@ class UnitySignalFilter:
                 self._logger.debug(
                     f"📉 [v84.0 G8.5R2] RegimeSentiment EV-ULTRA-CRISIS compound: −1.0pts"
                 )
+            self._record("gate_g85r2_regimesent", _r2_fired)
         except Exception:
             pass  # G8.5R2 RegimeSentiment-Composite is non-fatal soft-gate
-        self._record("gate_g85r2_regimesent", _r2_fired)
 
         # ── G8.5S2 — WinRate-CrisisRegime Gate (v85.0) ───────────────────────
         # Zero-API-call soft-gate: maps the Bayesian-blended session WR to a
@@ -14918,9 +14899,9 @@ class UnitySignalFilter:
                 )
             if _s2_adj != 0.0:
                 quality_score += _s2_adj
+            self._record("gate_g85s2_wrcrisis", _s2_fired)
         except Exception:
             pass  # G8.5S2 WinRateCrisisRegime is non-fatal soft-gate
-        self._record("gate_g85s2_wrcrisis", _s2_fired)
 
         # ── G8.5T2 — ExtremeFear-Regime Gate (v85.0) ─────────────────────────
         # Zero-API-call soft-gate: applies a directional quality bias when the
@@ -14998,9 +14979,9 @@ class UnitySignalFilter:
                 )
             if _t2_adj != 0.0:
                 quality_score += _t2_adj
+            self._record("gate_g85t2_fearreg", _t2_fired)
         except Exception:
             pass  # G8.5T2 ExtremeFearRegime is non-fatal soft-gate
-        self._record("gate_g85t2_fearreg", _t2_fired)
 
         # ── G8.5U2 — Vol-of-Vol Stability Regime Gate (v87.0) ────────────────
         # Zero-API-call soft-gate: computes Volatility-of-Volatility (VoV) —
@@ -15052,9 +15033,9 @@ class UnitySignalFilter:
                         )
             if _u2_adj != 0.0:
                 quality_score += _u2_adj
+            self._record("gate_g85u2_vov", _u2_fired)
         except Exception:
             pass  # G8.5U2 VoV-StabilityRegime is non-fatal soft-gate
-        self._record("gate_g85u2_vov", _u2_fired)
 
         # ── Gate 8.5V2 — OrderBook Pressure Imbalance (v88.0) ────────────────
         # Zero-API-call soft-gate: reads already-cached WS orderbook state
@@ -15105,9 +15086,9 @@ class UnitySignalFilter:
                 )
             if _v2_adj != 0.0:
                 quality_score += _v2_adj
+            self._record("gate_g85v2_obp", _v2_fired)
         except Exception:
             pass  # G8.5V2 OBPressure-Imbalance is non-fatal soft-gate
-        self._record("gate_g85v2_obp", _v2_fired)
 
         # ── G8.5W2 — DrawdownMomentum-Sentinel Gate (v89.0) ──────────────────
         # Zero-API-call soft-gate. Reads self.max_drawdown_pct (session MaxDD %)
@@ -15187,9 +15168,9 @@ class UnitySignalFilter:
                         f"MaxDD={_w2_dd:.1f}%<20% AND Sharpe={_w2_sr:+.2f}>-1.0 "
                         f"→ {_w2_adj:+.1f}pts"
                     )
+            self._record("gate_g85w2_ddm", _w2_fired)
         except Exception:
             pass  # G8.5W2 DrawdownMomentum-Sentinel is non-fatal soft-gate
-        self._record("gate_g85w2_ddm", _w2_fired)
 
         # ── G8.5X2 — WinRateTrajectory Gate (v90.0) ──────────────────────────
         # Zero-API-call soft-gate comparing recent booster RL-ring WR vs all-time WR.
@@ -15264,9 +15245,9 @@ class UnitySignalFilter:
                             f"recent={_x2_recent_wr:.1%} alltime={_x2_at_wr:.1%} "
                             f"delta={_x2_delta:+.1%} -> {_x2_adj:+.1f}pts"
                         )
+            self._record("gate_g85x2_wrt", _x2_fired)
         except Exception:
             pass  # G8.5X2 is a non-fatal soft-gate
-        self._record("gate_g85x2_wrt", _x2_fired)
 
         # ── G8.5Y2 — HMM-VPIN-Coherence Gate (v91.0) ────────────────────────
         # Dual-source institutional-flow coherence gate: HMM regime state + VPIN toxicity.
@@ -15360,9 +15341,9 @@ class UnitySignalFilter:
                     )
                 if _y2_adj != 0.0:
                     quality_score += _y2_adj
+            self._record("gate_g85y2_hvc", _y2_fired)
         except Exception:
             pass  # G8.5Y2 HMM-VPIN-Coherence is non-fatal soft-gate
-        self._record("gate_g85y2_hvc", _y2_fired)
 
         # ── G8.5Z2 — Regime-Momentum-Sync Gate (v92.0) ──────────────────────
         # Triple-source zero-API confluence: HMM regime direction + OFI z-score
@@ -15433,9 +15414,9 @@ class UnitySignalFilter:
                         )
                     if _z2_adj != 0.0:
                         quality_score += _z2_adj
+            self._record("gate_g85z2_rms", _z2_fired)
         except Exception:
             pass  # G8.5Z2 RegimeMomentumSync is non-fatal soft-gate
-        self._record("gate_g85z2_rms", _z2_fired)
 
         # ── G8.5A3 — VPIN-OFI-Funding Triple-Confluence Gate (v93.0) ─────────
         # Zero-API cross-validation gate that independently combines three
@@ -15515,9 +15496,9 @@ class UnitySignalFilter:
                         )
                     if _a3_adj != 0.0:
                         quality_score += _a3_adj
+            self._record("gate_g85a3_vpc", _a3_fired)
         except Exception:
             pass  # G8.5A3 VPIN-OFI-Funding Triple-Confluence is non-fatal soft-gate
-        self._record("gate_g85a3_vpc", _a3_fired)
 
         # ── G8.5B3 — HMM-OFI-Spread Triple-Sync Gate (v94.0) ────────────────
         # Zero-API soft-gate that cross-validates three independently-computed
@@ -15586,9 +15567,9 @@ class UnitySignalFilter:
                         )
                     if _b3_adj != 0.0:
                         quality_score += _b3_adj
+            self._record("gate_g85b3_hos", _b3_fired)
         except Exception:
             pass  # G8.5B3 HMM-OFI-Spread Triple-Sync is non-fatal soft-gate
-        self._record("gate_g85b3_hos", _b3_fired)
 
         # ── G8.5C3 — VolumeFlow-OFI-EV Triple-Convergence Gate (v95.0) ──────
         # Zero-API soft-gate that cross-validates three independently-sourced
@@ -15653,9 +15634,9 @@ class UnitySignalFilter:
                         )
                     if _c3_adj != 0.0:
                         quality_score += _c3_adj
+            self._record("gate_g85c3_voe", _c3_fired)
         except Exception:
             pass  # G8.5C3 VolumeFlow-OFI-EV Triple-Convergence is non-fatal soft-gate
-        self._record("gate_g85c3_voe", _c3_fired)
 
         # ── G8.5D3 — Regime-Drawdown-WinRate Triple-Risk Gate (v96.0) ────────
         # Zero-API soft-gate that cross-validates three independently-computed
@@ -15712,9 +15693,9 @@ class UnitySignalFilter:
                     )
                 if _d3_adj != 0.0:
                     quality_score += _d3_adj
+            self._record("gate_g85d3_rdw", _d3_fired)
         except Exception:
             pass  # G8.5D3 Regime-Drawdown-WinRate Triple-Risk is non-fatal soft-gate
-        self._record("gate_g85d3_rdw", _d3_fired)
 
         # ── Gate 8.5E3 — EV-FundMom-OFI Triple-Pressure (v97.0) ──────────────
         # 3-source cross-validation: EV quality tier, FundingMomentum-Persistence,
@@ -15767,9 +15748,9 @@ class UnitySignalFilter:
                     )
                 if _e3_adj != 0.0:
                     quality_score += _e3_adj
+            self._record("gate_g85e3_efo", _e3_fired)
         except Exception:
             pass  # G8.5E3 EV-FundMom-OFI Triple-Pressure is non-fatal soft-gate
-        self._record("gate_g85e3_efo", _e3_fired)
 
         # ── Gate 8.5F3 — MultiLayer-Coherence (v101.0) ───────────────────────
         # 66th gate (±2.0/+1.0pts): cross-validates the three independent prediction
@@ -15825,9 +15806,9 @@ class UnitySignalFilter:
                 self._last_g85f3_mlc = 0   # v102.0 FIX: neutral — no adjustment
             if _f3_adj != 0.0:
                 quality_score += _f3_adj
+            self._record("gate_g85f3_mlc", _f3_fired)
         except Exception:
             pass  # G8.5F3 MultiLayer-Coherence is non-fatal soft-gate
-        self._record("gate_g85f3_mlc", _f3_fired)
 
         # ── v102.0 Gate 8.5G3 — SharpeVelocity-QualityMomentum (67th gate) ──
         # Zero-API zero-call soft-gate: cross-validates WinRate-Trajectory (G8.5X2)
@@ -15888,9 +15869,9 @@ class UnitySignalFilter:
                         )
             if _g3_adj != 0.0:
                 quality_score += _g3_adj
+            self._record("gate_g85g3_svq", _g3_fired)
         except Exception:
             pass  # G8.5G3 SharpeVelocity-QualityMomentum is non-fatal soft-gate
-        self._record("gate_g85g3_svq", _g3_fired)
 
         # ── Gate 8.5H3 — RecentWR-EmergencyBrake (v103.0/v153.0) ────────────
         # Crisis-detection gate using booster._pnl_ring to compute recent-10-trade
@@ -15956,9 +15937,9 @@ class UnitySignalFilter:
                     )
             if _h3_adj != 0.0:
                 quality_score += _h3_adj
+            self._record("gate_g85h3_ewb", _h3_fired)
         except Exception:
             pass  # G8.5H3 RecentWR-EmergencyBrake is non-fatal soft-gate
-        self._record("gate_g85h3_ewb", _h3_fired)
 
         # ── Gate 8.5I3 — IRONSFloor-Sharpe Compound (v103.0) ────────────────
         # Compound gate cross-validating adaptive IRONS floor (WR-regime indicator)
@@ -16010,9 +15991,9 @@ class UnitySignalFilter:
                 )
             if _i3_adj != 0.0:
                 quality_score += _i3_adj
+            self._record("gate_g85i3_ifm", _i3_fired)
         except Exception:
             pass  # G8.5I3 IRONSFloor-Sharpe Compound is non-fatal soft-gate
-        self._record("gate_g85i3_ifm", _i3_fired)
 
         # ── Gate 8.5J3 — LLM-Technical-Coherence (v104.0) ───────────────────
         # Cross-validates the LLM-generated action (BUY/SELL) against 3 independent
@@ -16069,9 +16050,9 @@ class UnitySignalFilter:
                         self._last_g85j3_ltc = -1
             if _j3_adj != 0.0:
                 quality_score += _j3_adj
+            self._record("gate_g85j3_ltc", _j3_fired)
         except Exception:
             pass  # G8.5J3 LLM-Technical-Coherence is non-fatal soft-gate
-        self._record("gate_g85j3_ltc", _j3_fired)
 
         # ── Gate 8.5K3 — StreakSession-Compound (v104.0) ─────────────────────
         # Compounds consecutive loss/win streaks with UTC session quality.
@@ -16103,9 +16084,9 @@ class UnitySignalFilter:
                 self._last_g85k3_ssc = 1
             if _k3_adj != 0.0:
                 quality_score += _k3_adj
+            self._record("gate_g85k3_ssc", _k3_fired)
         except Exception:
             pass  # G8.5K3 StreakSession-Compound is non-fatal soft-gate
-        self._record("gate_g85k3_ssc", _k3_fired)
 
         # ── Gate 8.5L3 — CrisisConsensus-Compound (v105.0) ───────────────────
         # Compounds three independent crisis indicators into a single ruthless filter.
@@ -16153,9 +16134,9 @@ class UnitySignalFilter:
                 self._last_g85l3_cc = 1
             if _l3_adj != 0.0:
                 quality_score += _l3_adj
+            self._record("gate_g85l3_cc", _l3_fired)
         except Exception:
             pass  # G8.5L3 CrisisConsensus-Compound is non-fatal soft-gate
-        self._record("gate_g85l3_cc", _l3_fired)
 
         # ── Gate 8.5M3 — TrendQuality-Persistence (v105.0) ───────────────────
         # Aggregates three independent directional-momentum votes into a persistence signal.
@@ -16213,9 +16194,9 @@ class UnitySignalFilter:
                 self._last_g85m3_tqp = -1
             if _m3_adj != 0.0:
                 quality_score += _m3_adj
+            self._record("gate_g85m3_tqp", _m3_fired)
         except Exception:
             pass  # G8.5M3 TrendQuality-Persistence is non-fatal soft-gate
-        self._record("gate_g85m3_tqp", _m3_fired)
 
         # ── Gate 8.5N3 — OFI-HMM-MICROTREND Triple-Sync (v106.0) ────────────
         # Zero-API triple cross-validation combining three independent momentum
@@ -16266,9 +16247,9 @@ class UnitySignalFilter:
             self._last_g85n3_irc = _n3_irc_out
             if _n3_adj != 0.0:
                 quality_score += _n3_adj
+            self._record("gate_g85n3_irc", _n3_fired)
         except Exception:
             pass  # G8.5N3 OFI-HMM-MicroTrend TripleSync is non-fatal soft-gate
-        self._record("gate_g85n3_irc", _n3_fired)
 
         # ── Gate 8.5O3 — WINRATE-CPCV-NNQUALITY Coherence (v106.0) ──────────
         # Meta-quality gate cross-validating three independent quality signals
@@ -16346,9 +16327,9 @@ class UnitySignalFilter:
             self._last_g85o3_wnq = _o3_wnq_out
             if _o3_adj != 0.0:
                 quality_score += _o3_adj
+            self._record("gate_g85o3_wnq", _o3_fired)
         except Exception:
             pass  # G8.5O3 WinRate-CPCV-NNQuality Coherence is non-fatal soft-gate
-        self._record("gate_g85o3_wnq", _o3_fired)
 
         # ── Gate 8.5P3 — FundMomentum-OFI-WRCrisis Triple-Resonance (v107.0) ─
         # 76th gate. Zero-API-call soft-gate: reads 3 pre-computed sentinel values.
@@ -16380,9 +16361,9 @@ class UnitySignalFilter:
             self._last_g85p3_fos = _p3_out
             if _p3_adj != 0.0:
                 quality_score += _p3_adj
+            self._record("gate_g85p3_fos", _p3_fired)
         except Exception:
             pass  # G8.5P3 FundMomentum-OFI-WRCrisis is non-fatal soft-gate
-        self._record("gate_g85p3_fos", _p3_fired)
 
         # ── Gate 8.5Q3 — RegimeSentiment-WinRateEV-EFO Triple-Coherence (v107.0) ─
         # 77th gate. Zero-API-call soft-gate: reads 3 pre-computed sentinel values.
@@ -16412,9 +16393,9 @@ class UnitySignalFilter:
             self._last_g85q3_rke = _q3_out
             if _q3_adj != 0.0:
                 quality_score += _q3_adj
+            self._record("gate_g85q3_rke", _q3_fired)
         except Exception:
             pass  # G8.5Q3 RegimeSentiment-WREV-EFO is non-fatal soft-gate
-        self._record("gate_g85q3_rke", _q3_fired)
 
         # ── Gate 8.5R3 — BTC-WRTraj-OFI Triple-Momentum (v108.0) ─────────────
         # 78th gate. Zero-API-call soft-gate: reads 3 pre-computed sentinel values.
@@ -16440,9 +16421,9 @@ class UnitySignalFilter:
             self._last_g85r3_bwo = _r3_out
             if _r3_adj != 0.0:
                 quality_score += _r3_adj
+            self._record("gate_g85r3_bwo", _r3_fired)
         except Exception:
             pass  # G8.5R3 BTC-WRTraj-OFI TripleMomentum is non-fatal soft-gate
-        self._record("gate_g85r3_bwo", _r3_fired)
 
         # ── Gate 8.5S3 — Quality-Sharpe-Coherence Composite-Health (v108.0) ──
         # 79th gate. Zero-API-call soft-gate: reads 3 pre-computed sentinel values.
@@ -16468,9 +16449,9 @@ class UnitySignalFilter:
             self._last_g85s3_qsc = _s3_out
             if _s3_adj != 0.0:
                 quality_score += _s3_adj
+            self._record("gate_g85s3_qsc", _s3_fired)
         except Exception:
             pass  # G8.5S3 Quality-Sharpe-Coherence CompositeHealth is non-fatal soft-gate
-        self._record("gate_g85s3_qsc", _s3_fired)
 
         # ── Gate G8.5T3 — RegimeFlow-OFI-WR Triple-Alignment (v109.0) ───────
         # 80th gate. Zero-API-call soft-gate: cross-validates 3 pre-computed regime/flow/WR
@@ -16510,9 +16491,9 @@ class UnitySignalFilter:
                     quality_score -= 1.5
                     self._last_g85t3_rfw = -1
                     _t3_fired = True
+            self._record("gate_g85t3_rfw", _t3_fired)
         except Exception:
             pass  # G8.5T3 RegimeFlow-OFI-WR TripleAlignment is non-fatal soft-gate
-        self._record("gate_g85t3_rfw", _t3_fired)
 
         # ── Gate G8.5U3 — Kalman-HMM-Spread Triple-Sync (v109.0) ────────────
         # 81st gate. Zero-API-call soft-gate: cross-validates 3 pre-computed OFI/HMM/trend
@@ -16554,9 +16535,9 @@ class UnitySignalFilter:
                     quality_score -= 1.5
                     self._last_g85u3_khs = -1
                     _u3_fired = True
+            self._record("gate_g85u3_khs", _u3_fired)
         except Exception:
             pass  # G8.5U3 Kalman-HMM-Spread TripleSync is non-fatal soft-gate
-        self._record("gate_g85u3_khs", _u3_fired)
 
         # ── Gate G8.5V3 — TripleEV-Confidence-Persistence (v110.0) ──────────
         # 82nd gate. Zero-API-call soft-gate: cross-validates 3 pre-computed EV/confidence/
@@ -16593,9 +16574,9 @@ class UnitySignalFilter:
                 quality_score -= 1.5
                 self._last_g85v3_tec = -1
                 _v3_fired = True
+            self._record("gate_g85v3_tec", _v3_fired)
         except Exception:
             pass  # G8.5V3 TripleEV-Confidence-Persistence is non-fatal soft-gate
-        self._record("gate_g85v3_tec", _v3_fired)
 
         # ── Gate G8.5W3 — MomentumStack-OFI-MicroTrend Triple-Sync (v111.0) ──
         # 83rd gate. Zero-API-call soft-gate: cross-validates 3 pre-computed momentum
@@ -16632,9 +16613,9 @@ class UnitySignalFilter:
                 quality_score -= 1.5
                 self._last_g85w3_mot = -1
                 _w3_fired = True
+            self._record("gate_g85w3_mot", _w3_fired)
         except Exception:
             pass  # G8.5W3 MomentumStack-OFI-MicroTrend Triple-Sync is non-fatal soft-gate
-        self._record("gate_g85w3_mot", _w3_fired)
 
         # ── Gate G8.5X3 — CrisisCompass-DDM-WRT Triple-Safety (v113.0) ──
         # 84th gate. Zero-API-call soft-gate: cross-validates 3 pre-computed crisis/risk
@@ -16671,9 +16652,9 @@ class UnitySignalFilter:
                 quality_score -= 1.5
                 self._last_g85x3_cds = -1
                 _x3_fired = True
+            self._record("gate_g85x3_cds", _x3_fired)
         except Exception:
             pass  # G8.5X3 CrisisCompass-DDM-WRT Triple-Safety is non-fatal soft-gate
-        self._record("gate_g85x3_cds", _x3_fired)
 
         # ── Gate G8.5Y3 — MomentumCoh-TripleSync Meta-Gate (v113.0) ──
         # 85th gate. Zero-API-call soft-gate: cross-validates 3 pre-computed momentum-stack
@@ -16711,9 +16692,9 @@ class UnitySignalFilter:
                 quality_score -= 1.5
                 self._last_g85y3_mcs = -1
                 _y3_fired = True
+            self._record("gate_g85y3_mcs", _y3_fired)
         except Exception:
             pass  # G8.5Y3 MomentumCoh-TripleSync Meta-Gate is non-fatal soft-gate
-        self._record("gate_g85y3_mcs", _y3_fired)
 
         # ── Gate G8.5Z3 — RegimeCrisisQuality-TripleSync (v114.0) ──
         # 86th gate. Zero-API-call soft-gate: cross-validates 3 pre-computed regime/crisis
@@ -16750,9 +16731,9 @@ class UnitySignalFilter:
                 quality_score -= 1.5
                 self._last_g85z3_rqt = -1
                 _z3_fired = True
+            self._record("gate_g85z3_rqt", _z3_fired)
         except Exception:
             pass  # G8.5Z3 RegimeCrisisQuality-TripleSync is non-fatal soft-gate
-        self._record("gate_g85z3_rqt", _z3_fired)
 
         # ── Gate G8.5A4 — FlowVolumeRegime-TripleSync (v114.0) ──
         # 87th gate. Zero-API-call soft-gate: cross-validates 3 pre-computed flow/volume
@@ -16789,9 +16770,9 @@ class UnitySignalFilter:
                 quality_score -= 1.5
                 self._last_g85a4_fvr = -1
                 _a4_fired = True
+            self._record("gate_g85a4_fvr", _a4_fired)
         except Exception:
             pass  # G8.5A4 FlowVolumeRegime-TripleSync is non-fatal soft-gate
-        self._record("gate_g85a4_fvr", _a4_fired)
 
         # ── Gate G8.5B4 — RollingWR-Momentum-Sentinel (v115.0) ─────────────────
         # Zero-API-call gate using the booster's PnL ring to detect rolling WR momentum.
@@ -19723,7 +19704,6 @@ class UnitySignalFilter:
         #   -1.0pts: confidence ≥90 + WR<25% (ultra-crisis: AI still high-conf at DD>49%)
         # Cold-start safe: skips when booster._pnl_ring has < 20 outcomes.
         # Stores _last_g85aa_cwd (-2/-1/0) for reference [v157.0].
-        _aa_pass = True  # v190.0-FIX: default before try so _record never raises UnboundLocalError
         try:
             _aa_fired = False
             _aa_adj   = 0.0
@@ -19752,9 +19732,9 @@ class UnitySignalFilter:
             _aa_pass = not _aa_fired
             self._gate_stats["gate_g85aa_cwd"]["pass" if _aa_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85aa_cwd"].append(1 if _aa_pass else 0)
+            self._record("gate_g85aa_cwd", _aa_pass)
         except Exception:
             pass  # G8.5AA CWD Confidence-WR Divergence is non-fatal soft-gate
-        self._record("gate_g85aa_cwd", _aa_pass)
 
         # ── G8.5AB — XRSI: RSI Extreme Direction Penalty (v158.0) ───────────
         # Zero-API soft-gate targeting the confirmed negative pocket from live trade
@@ -19771,7 +19751,6 @@ class UnitySignalFilter:
         # WR guard: WR≥35% → skip penalty (momentum continuation valid in strong trends).
         # Cold-start safe: skips when booster._pnl_ring has < 20 outcomes.
         # Stores _last_g85ab_xrsi (-3/-2/0) for reference [v158.0].
-        _ab_pass = True  # v190.0-FIX: default before try so _record never raises UnboundLocalError
         try:
             _ab_fired = False
             _ab_adj   = 0.0
@@ -19815,9 +19794,9 @@ class UnitySignalFilter:
             _ab_pass = not _ab_fired
             self._gate_stats["gate_g85ab_xrsi"]["pass" if _ab_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ab_xrsi"].append(1 if _ab_pass else 0)
+            self._record("gate_g85ab_xrsi", _ab_pass)
         except Exception:
             pass  # G8.5AB XRSI RSI-Extreme-Direction Penalty is non-fatal soft-gate
-        self._record("gate_g85ab_xrsi", _ab_pass)
 
         # ── G8.5AC — GDLB: Direction Long Bias Penalty (v159.0) ─────────────
         # DATA-CONFIRMED structural edge from 16,305 terminal signals (full channel history):
@@ -19832,7 +19811,6 @@ class UnitySignalFilter:
         # Cold-start safe: requires booster._pnl_ring ≥ 30 outcomes.
         # Cross-validates with G8.5AB XRSI: both hit simultaneously on LONG+overbought = −2.5pts.
         # Stores _last_g85ac_dlb (-2/-1/0) for reference [v159.0].
-        _ac_pass = True  # v190.0-FIX: default before try so _record never raises UnboundLocalError
         try:
             _ac_fired = False
             _ac_adj   = 0.0
@@ -19863,9 +19841,9 @@ class UnitySignalFilter:
             _ac_pass = not _ac_fired
             self._gate_stats["gate_g85ac_dlb"]["pass" if _ac_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ac_dlb"].append(1 if _ac_pass else 0)
+            self._record("gate_g85ac_dlb", _ac_pass)
         except Exception:
             pass  # G8.5AC GDLB Direction Long Bias Penalty is non-fatal soft-gate
-        self._record("gate_g85ac_dlb", _ac_pass)
 
         # ── G8.5AD — GTOD: Time-of-Day Direction Penalty (v160.0) ───────────
         # Zero-API soft-gate targeting confirmed worst Direction×Hour pockets from
@@ -19878,7 +19856,6 @@ class UnitySignalFilter:
         # WR guard: WR≥35% → skip all (trending market can override microstructure bias).
         # Cold-start safe: skips when booster._pnl_ring < 20 outcomes.
         # Stores _last_g85ad_gtod (-3/-2/0) for reference [v160.0].
-        _ad_pass = True  # v190.0-FIX: default before try so _record never raises UnboundLocalError
         try:
             _ad_fired = False
             _ad_adj   = 0.0
@@ -19922,9 +19899,9 @@ class UnitySignalFilter:
             _ad_pass = not _ad_fired
             self._gate_stats["gate_g85ad_gtod"]["pass" if _ad_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85ad_gtod"].append(1 if _ad_pass else 0)
+            self._record("gate_g85ad_gtod", _ad_pass)
         except Exception:
             pass  # G8.5AD GTOD Time-of-Day Direction Penalty is non-fatal soft-gate
-        self._record("gate_g85ad_gtod", _ad_pass)
 
         # ── v161.0: Daily state reset (UTC-day boundary) ─────────────────────
         # Resets _v161_daily_signal_n, _v161_unique_syms, _v161_dir_ring, _v161_batch_ts
@@ -19980,9 +19957,9 @@ class UnitySignalFilter:
                     self._last_g85af_gcal = -0.3
                     quality_score += _gcal_adj
             _gcal_fire = abs(self._last_g85af_gcal) >= 0.5
+            self._record("gate_g85af_gcal", not _gcal_fire or self._last_g85af_gcal > 0)
         except Exception:
             pass  # GCAL non-fatal soft-gate
-        self._record("gate_g85af_gcal", not _gcal_fire or self._last_g85af_gcal > 0)
 
         # ── v161.0 G8.5AG — GDIV: Symbol Diversity Alarm ─────────────────────
         # Data: catastrophic days avg 52.5 unique symbols WR=16.6% vs profitable 44.0 syms WR=31.0%.
@@ -20016,9 +19993,9 @@ class UnitySignalFilter:
                     _gdiv_adj = 0.5     # concentrated session = quality regime
                     self._last_g85ag_gdiv = 0.5
                     quality_score += _gdiv_adj
+            self._record("gate_g85ag_gdiv", self._last_g85ag_gdiv >= -1.5)
         except Exception:
             pass  # GDIV non-fatal soft-gate
-        self._record("gate_g85ag_gdiv", self._last_g85ag_gdiv >= -1.5)
 
         # ── v161.0 G8.5AH — GSEQ: Intraday Sequence Position ────────────────
         # Data: intraday signal sequence dramatically predicts quality.
@@ -20055,9 +20032,9 @@ class UnitySignalFilter:
                         f"🛑 [v161.0 G8.5AH GSEQ] Meltdown zone: signal #{_gseq_n} "
                         f"(data: WR=12%) → -3.5pt"
                     )
+            self._record("gate_g85ah_gseq", self._last_g85ah_gseq >= -2.5)
         except Exception:
             pass  # GSEQ non-fatal soft-gate
-        self._record("gate_g85ah_gseq", self._last_g85ah_gseq >= -2.5)
 
         # ── v161.0 G8.5AI — GMOM3: 3-Signal Session Direction Momentum ───────
         # Data: strongest session-level edge in 17k-trade dataset.
@@ -20098,9 +20075,9 @@ class UnitySignalFilter:
                     self._v161_dir_ring.append(_gm3_dir)
                     if len(self._v161_dir_ring) > 3:
                         self._v161_dir_ring = self._v161_dir_ring[-3:]
+            self._record("gate_g85ai_gmom3", self._last_g85ai_gmom3 >= -1.0)
         except Exception:
             pass  # GMOM3 non-fatal soft-gate
-        self._record("gate_g85ai_gmom3", self._last_g85ai_gmom3 >= -1.0)
 
         # ── v161.0 G8.5AJ — GBATCH: Batch Size Signal Cluster ────────────────
         # Data: rapid-fire signal batches have dramatically different WR by batch size.
@@ -20140,9 +20117,9 @@ class UnitySignalFilter:
                     self._logger.warning(
                         f"🛑 [v161.0 G8.5AJ GBATCH] Ultra-kill batch {_gbat_n} → -4.0pt"
                     )
+            self._record("gate_g85aj_gbatch", self._last_g85aj_gbatch >= -3.0)
         except Exception:
             pass  # GBATCH non-fatal soft-gate
-        self._record("gate_g85aj_gbatch", self._last_g85aj_gbatch >= -3.0)
 
         # ── v163.0 G8.5AK — GSDD: Same-Direction-Drawdown Penalty ──────────
         # Data: in WR<30% regimes, consecutive same-direction signals amplify drawdown
@@ -20181,9 +20158,9 @@ class UnitySignalFilter:
                             f"⚠️ [v163.0 G8.5AK GSDD] Same-direction clustering: "
                             f"{_gsdd_run}×{_gsdd_dir} + WR={_gsdd_wr:.1f}%<30% → -1.5pt"
                         )
+            self._record("gate_g85ak_gsdd", self._last_g85ak_gsdd >= -1.5)
         except Exception:
             pass  # GSDD non-fatal soft-gate
-        self._record("gate_g85ak_gsdd", self._last_g85ak_gsdd >= -1.5)
 
         # ── v163.0 G8.5AL — GREX: Recent-Symbol-Reuse Penalty ──────────────
         # Data: same-symbol re-entry within 15min has WR 6pp lower (reactive-market noise).
@@ -20224,9 +20201,9 @@ class UnitySignalFilter:
                             k: v for k, v in self._v163_sym_last_ts.items()
                             if v > _grex_cutoff
                         }
+            self._record("gate_g85al_grex", self._last_g85al_grex >= -1.5)
         except Exception:
             pass  # GREX non-fatal soft-gate
-        self._record("gate_g85al_grex", self._last_g85al_grex >= -1.5)
 
         # ── v165.0 G8.5AM — GHTF: Hot/Cold Trend Flow Momentum ──────────────
         # Data-anchor: 17k InsiderTactics signal analysis shows that sequential
@@ -20276,9 +20253,9 @@ class UnitySignalFilter:
                                 f"❄️ [v165.0 G8.5AM GHTF] Cold sequence (5-ring): {_ghtf_losses3}/3 losses "
                                 f"WR={_ghtf_wr:.1f}%<{GHTF_COLD_WR}% → -2.0pt"
                             )
+            self._record("gate_g85am_ghtf", self._last_g85am_ghtf >= 0.0)
         except Exception:
             pass  # GHTF non-fatal soft-gate
-        self._record("gate_g85am_ghtf", self._last_g85am_ghtf >= 0.0)
 
         # ── v165.0 G8.5AN — GMAP: Momentum Anti-Pattern RSI Gap-Fill ────────
         # Data-anchor: XRSI (v158) fires at RSI>72/RSI<28 in WR<35%.
@@ -20309,9 +20286,9 @@ class UnitySignalFilter:
                             f"⚠️ [v165.0 G8.5AN GMAP] SHORT @RSI={_gmap_rsi:.1f} (28-32 gap) "
                             f"WR={_gmap_wr:.1f}%<{GMAP_WR_GATE}% → -1.5pt (anti-pattern gap-fill)"
                         )
+            self._record("gate_g85an_gmap", self._last_g85an_gmap >= -1.5)
         except Exception:
             pass  # GMAP non-fatal soft-gate
-        self._record("gate_g85an_gmap", self._last_g85an_gmap >= -1.5)
 
         # ── v166.0 G8.5AO — GCAL2: AI Confidence Calibration (147th gate) ──
         # Workflow Isolation (Technique 6): Python Checker audits LLM Maker confidence.
@@ -20347,9 +20324,9 @@ class UnitySignalFilter:
                             f"LLM conf={_gcal2_conf:.1f}%≥{GCAL2_CONF_MED} + WR={_gcal2_wr:.1f}%<{GCAL2_WR_GATE}% "
                             f"→ -1.5pt (miscalibrated conviction in crisis)"
                         )
+            self._record("gate_g85ao_gcal2", self._last_g85ao_gcal2 >= -1.5)
         except Exception:
             pass  # GCAL2 non-fatal soft-gate
-        self._record("gate_g85ao_gcal2", self._last_g85ao_gcal2 >= -1.5)
 
         # ── v166.0 G8.5AP — GLEN: Loop Engineering Narrow-Edge Checker ──────
         # Loop Engineering (Technique 5): TRUE autonomous Maker→Checker loop.
@@ -20389,9 +20366,9 @@ class UnitySignalFilter:
                         f"+ cold_seq={_glen_cold:.2f}≥0.67 "
                         f"→ -1.5pt (2-factor incoherence + cold sequence)"
                     )
+            self._record("gate_g85ap_glen", self._last_g85ap_glen >= -1.5)
         except Exception:
             pass  # GLEN non-fatal soft-gate
-        self._record("gate_g85ap_glen", self._last_g85ap_glen >= -1.5)
 
         # ── v167.0 G8.5AQ — GRSL: P&L Return Slope (149th gate) ─────────────
         # Loop Engineering (Technique 5): computes linear regression slope of the
@@ -20433,9 +20410,9 @@ class UnitySignalFilter:
                             f"slope={_grsl_slope:.5f}<{GRSL_SLOPE_MILD} "
                             f"WR={_grsl_wr:.1f}%<30% cold={_grsl_cold:.2f}≥0.5 → -1.5pt"
                         )
+            self._record("gate_g85aq_grsl", self._last_g85aq_grsl >= -1.5)
         except Exception:
             pass  # GRSL non-fatal soft-gate
-        self._record("gate_g85aq_grsl", self._last_g85aq_grsl >= -1.5)
 
         # ── v167.0 G8.5AR — GEVAP: EV Velocity Anti-Pattern (150th gate) ────
         # Extended Thinking proxy (Technique 3): instead of waiting for EV to go
@@ -20478,9 +20455,9 @@ class UnitySignalFilter:
                             f"delta={_gevap_mp-_gevap_m5:.4f}R>{GEVAP_FADE_DELTA} "
                             f"EV={_gevap_ev:.4f}R<{GEVAP_FADE_EV} → -1.5pt (EV decelerating toward breakeven)"
                         )
+            self._record("gate_g85ar_gevap", self._last_g85ar_gevap >= -1.5)
         except Exception:
             pass  # GEVAP non-fatal soft-gate
-        self._record("gate_g85ar_gevap", self._last_g85ar_gevap >= -1.5)
 
         # ── v168.0 G8.5AS — GFRD: Funding Rate Direction Mismatch (151st gate)
         # XML Delimiters (Technique 2): funding_rate is a structured data field already
@@ -20520,9 +20497,9 @@ class UnitySignalFilter:
                         f"💸 [v168.0 G8.5AS GFRD] {_tier} funding crowding: "
                         f"funding={_gfrd_fr*100:.4f}%/8h dir={_gfrd_dir} → {_gfrd_adj:.1f}pt"
                     )
+            self._record("gate_g85as_gfrd", self._last_g85as_gfrd >= -1.5)
         except Exception:
             pass  # GFRD non-fatal soft-gate
-        self._record("gate_g85as_gfrd", self._last_g85as_gfrd >= -1.5)
 
         # ── v168.0 G8.5AT — GORD: OFI Direction Divergence (152nd gate) ──────
         # Workflow Isolation (Technique 6): OFI order-flow data acts as the Checker
@@ -20563,9 +20540,9 @@ class UnitySignalFilter:
                         f"🌊 [v168.0 G8.5AT GORD] OFI crisis divergence: "
                         f"ofi_z={_gord_ofi:.2f} vs {_gord_dir} WR={_gord_wr:.1f}% → {_gord_adj:.1f}pt"
                     )
+            self._record("gate_g85at_gord", self._last_g85at_gord >= -1.5)
         except Exception:
             pass  # GORD non-fatal soft-gate
-        self._record("gate_g85at_gord", self._last_g85at_gord >= -1.5)
 
         # ── v169.0 G8.5AU — GWFV: Walk-Forward Validation Gap (153rd gate) ──
         # Prompt Refinement (Technique 4): the system permanently encodes the lesson that
@@ -20600,9 +20577,9 @@ class UnitySignalFilter:
                         f"📊 [v169.0 G8.5AU GWFV] regime shift: "
                         f"cpcv={_gwfv_cpcv:.3f} WR={_gwfv_wr:.1f}% → {_gwfv_adj:.1f}pt"
                     )
+            self._record("gate_g85au_gwfv", self._last_g85au_gwfv >= -1.5)
         except Exception:
             pass  # GWFV non-fatal soft-gate
-        self._record("gate_g85au_gwfv", self._last_g85au_gwfv >= -1.5)
 
         # ── v169.0 G8.5AV — GDDV: Drawdown Velocity via Quality Slope (154th gate)
         # Extended Thinking (Technique 3): multi-step reasoning about trajectory, not
@@ -20643,9 +20620,9 @@ class UnitySignalFilter:
                         f"📉 [v169.0 G8.5AV GDDV] quality {_tier}: "
                         f"slope={_gddv_slope:.4f} WR={_gddv_wr:.1f}% n={_gddv_n} → {_gddv_adj:.1f}pt"
                     )
+            self._record("gate_g85av_gddv", self._last_g85av_gddv >= -1.5)
         except Exception:
             pass  # GDDV non-fatal soft-gate
-        self._record("gate_g85av_gddv", self._last_g85av_gddv >= -1.5)
 
         # ── v170.0 G8.5AW — GHRZ: Hour Regime Zero Gate (155th gate) ────────
         # Data: 12,231 SignalTactics USDM signals confirm 00h UTC=52% WR and 19h UTC=52% WR
@@ -20674,9 +20651,9 @@ class UnitySignalFilter:
                             f"({_ghrz_tier}): WR={_ghrz_wr:.1f}% → {_ghrz_adj:.1f}pt "
                             f"(00h/19h dead zone; 52% WR vs 71% peak)"
                         )
+            self._record("gate_g85aw_ghrz", self._last_g85aw_ghrz >= -1.5)
         except Exception:
             pass  # GHRZ non-fatal soft-gate
-        self._record("gate_g85aw_ghrz", self._last_g85aw_ghrz >= -1.5)
 
         # ── v170.0 G8.5AX — GALP: Alpha Session Convergence Plus (156th gate)
         # Data: 06-09h UTC = 67-71% WR in 12,231 signals = peak structural performance window.
@@ -20710,9 +20687,9 @@ class UnitySignalFilter:
                             f"({_galp_tier}): WR={_galp_wr:.1f}% IRONS={_galp_irons:.1f} "
                             f"→ +{_galp_adj:.1f}pt (06-09h peak; 71% WR window)"
                         )
+            self._record("gate_g85ax_galp", self._last_g85ax_galp >= 0.0)
         except Exception:
             pass  # GALP non-fatal soft-gate
-        self._record("gate_g85ax_galp", self._last_g85ax_galp >= 0.0)
 
         # ── v171.0 G8.5AY — GVLR: VPIN Ultra-Low Regime Bonus (157th gate) ──
         # Maker gate — reads live VPIN microstructure state vs OFI alignment.
@@ -20749,9 +20726,9 @@ class UnitySignalFilter:
                         f"OFI_z={_gvlr_ofi:.2f} dir={_gvlr_dir:+d} ({_gvlr_tier}) "
                         f"→ {_gvlr_adj:+.1f}pt"
                     )
+            self._record("gate_g85ay_gvlr", self._last_g85ay_gvlr >= 0.0)
         except Exception:
             pass  # GVLR non-fatal soft-gate
-        self._record("gate_g85ay_gvlr", self._last_g85ay_gvlr >= 0.0)
 
         # ── v171.0 G8.5AZ — GRLB: Relative Live Bottleneck Sentinel (158th gate)
         # Checker gate — Workflow Isolation: Maker generates signal, Checker validates
@@ -20794,9 +20771,9 @@ class UnitySignalFilter:
                             f"eng_wr={_grlb_eng_wr:.1f}% delta={_grlb_delta:+.1f}pp "
                             f"n={_grlb_n} ({_grlb_tier}) → {_grlb_adj:+.1f}pt"
                         )
+            self._record("gate_g85az_grlb", self._last_g85az_grlb >= 0.0)
         except Exception:
             pass  # GRLB non-fatal soft-gate
-        self._record("gate_g85az_grlb", self._last_g85az_grlb >= 0.0)
 
         # ── v172.0 G8.5BA — GLTB: Loop-Thinking Directional Bias Sentinel (159th gate) ──
         # Technique 5: Loop Engineering — an autonomous self-evaluating loop that checks
@@ -20846,9 +20823,9 @@ class UnitySignalFilter:
                             f"WR={_gltb_wr:.1f}% consec={_gltb_cold} ({_gltb_tier}) "
                             f"→ {_gltb_adj:+.1f}pt"
                         )
+            self._record("gate_g85ba_gltb", self._last_g85ba_gltb >= 0.0)
         except Exception:
             pass  # GLTB non-fatal soft-gate
-        self._record("gate_g85ba_gltb", self._last_g85ba_gltb >= 0.0)
 
         # ── v172.0 G8.5BB — GCMS: Checker Meta-Score Synthesis Gate (160th gate) ──
         # Technique 6: Workflow Isolation — Maker/Checker architecture at the meta level.
@@ -20916,9 +20893,9 @@ class UnitySignalFilter:
                         f"WR={_gcms_wr:.1f}% consec={_gcms_cold} ({_gcms_tier}) "
                         f"→ {_gcms_adj:+.1f}pt"
                     )
+            self._record("gate_g85bb_gcms", self._last_g85bb_gcms >= 0.0)
         except Exception:
             pass  # GCMS non-fatal soft-gate
-        self._record("gate_g85bb_gcms", self._last_g85bb_gcms >= 0.0)
 
         # ── v173.0 G8.5BC — GDSA: Direction-Selective Alpha Gate (161st gate) ──
         # Technique 5 (Loop Engineering extended): uses the GLTB 10-signal direction
@@ -20968,9 +20945,9 @@ class UnitySignalFilter:
                         f"dir={_gdsa_dir} WR={_gdsa_wr:.1f}% hostile={_gdsa_hostile} "
                         f"({_gdsa_tier}) → {_gdsa_adj:+.1f}pt"
                     )
+            self._record("gate_g85bc_gdsa", self._last_g85bc_gdsa >= 0.0)
         except Exception:
             pass  # GDSA non-fatal soft-gate
-        self._record("gate_g85bc_gdsa", self._last_g85bc_gdsa >= 0.0)
 
         # ── v173.0 G8.5BD — GEVL: EV Loss Velocity Gate (162nd gate) ────────
         # Technique 4 (Prompt Refinement as structural loop): the canonical v172.0
@@ -21020,9 +20997,9 @@ class UnitySignalFilter:
                             f"n={len(_gevl_vals)} WR={_gevl_wr:.1f}% "
                             f"({_gevl_tier}) → {_gevl_adj:+.1f}pt"
                         )
+            self._record("gate_g85bd_gevl", self._last_g85bd_gevl >= 0.0)
         except Exception:
             pass  # GEVL non-fatal soft-gate
-        self._record("gate_g85bd_gevl", self._last_g85bd_gevl >= 0.0)
 
         # ── v174.0 G8.5BE — GRDC: Role-Defined Drawdown Coherence Gate (163rd gate) ──
         # Technique 1 (Role Definition) + Technique 3 (Extended Thinking): a senior
@@ -21068,9 +21045,9 @@ class UnitySignalFilter:
                         f"allWR={_grdc_all_wr:.1f}% gap={_grdc_gap:+.1f}pp "
                         f"qs_slope={_grdc_qs_slope:+.4f} ({_grdc_tier}) → {_grdc_adj:+.1f}pt"
                     )
+            self._record("gate_g85be_grdc", self._last_g85be_grdc >= 0.0)
         except Exception:
             pass  # GRDC non-fatal soft-gate
-        self._record("gate_g85be_grdc", self._last_g85be_grdc >= 0.0)
 
         # ── v174.0 G8.5BF — GXWI: XML-Workflow Isolation Divergence Gate (164th gate) ──
         # Technique 2 (XML Delimiters) + Technique 6 (Workflow Isolation): separates the
@@ -21107,9 +21084,9 @@ class UnitySignalFilter:
                         f"checker={_gxwi_checker:.2f} diverge={_gxwi_diverge:+.2f} "
                         f"WR={_gxwi_wr:.1f}% ({_gxwi_tier}) → {_gxwi_adj:+.1f}pt"
                     )
+            self._record("gate_g85bf_gxwi", self._last_g85bf_gxwi >= 0.0)
         except Exception:
             pass  # GXWI non-fatal soft-gate
-        self._record("gate_g85bf_gxwi", self._last_g85bf_gxwi >= 0.0)
 
         # ── v175.0 G8.5BG — GPEL: Prompt-Edge-Lock Streak Gate (165th gate) ──
         # Technique 4 (Prompt Refinement / The Loop): rather than reacting to a single
@@ -21156,9 +21133,9 @@ class UnitySignalFilter:
                             f"high_streak={_gpel_high_streak} ({_gpel_tier}) → {_gpel_adj:+.1f}pt "
                             f"(recurring edge-case permanently escalated, not one-off)"
                         )
+            self._record("gate_g85bg_gpel", self._last_g85bg_gpel >= 0.0)
         except Exception:
             pass  # GPEL non-fatal soft-gate
-        self._record("gate_g85bg_gpel", self._last_g85bg_gpel >= 0.0)
 
         # ── v175.0 G8.5BH — GLCV: Loop-Convergence-Velocity Gate (166th gate) ──
         # Technique 5 (Loop Engineering): treats the last N cycles of quality_score_ring
@@ -21205,9 +21182,9 @@ class UnitySignalFilter:
                             f"var_prior={_glcv_var_prior:.1f} delta={_glcv_var_delta:+.1f} "
                             f"WR={_glcv_wr:.1f}% ({_glcv_tier}) → {_glcv_adj:+.1f}pt"
                         )
+            self._record("gate_g85bh_glcv", self._last_g85bh_glcv >= 0.0)
         except Exception:
             pass  # GLCV non-fatal soft-gate
-        self._record("gate_g85bh_glcv", self._last_g85bh_glcv >= 0.0)
 
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
