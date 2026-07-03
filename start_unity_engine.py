@@ -3041,7 +3041,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "176.0"
+UNITY_VERSION                = "177.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -5423,6 +5423,35 @@ class UnityMarkovChainGate:
         except Exception:
             return 0.5, 0
 
+    @staticmethod
+    def _wilson_lower_bound(p_hat: float, n: int, z: float = 1.645) -> float:
+        """v177.0 OVERSCORING FIX: Wilson score lower confidence bound.
+
+        At small n, raw sample proportion p_hat is a noisy, overconfident
+        estimator — e.g. n=3 with 3/3 wins gives p_hat=1.0 (binomial σ≈19%),
+        which previously cleared the MARKOV_CHAIN_THRESHOLD=0.87 and granted
+        the full +16pt SOVEREIGN quality bonus off pure small-sample luck in
+        a coarse 4-bucket state space (LONG/SHORT × MAJOR/ALT). Since +16pts
+        alone clears the G9=73 floor from a base score as low as 57, this was
+        a direct overscoring vector: noise, not genuine multi-factor evidence,
+        was driving pass/fail decisions.
+
+        Wilson lower bound replaces the raw proportion for threshold checks:
+        it converges to p_hat as n grows, but conservatively discounts small
+        samples (n=3, 3/3 wins → lower bound ≈0.53, not 1.0). z=1.645 is the
+        one-sided 95% confidence z-score.
+        """
+        if n <= 0:
+            return 0.0
+        try:
+            z2 = z * z
+            denom = 1.0 + z2 / n
+            center = p_hat + z2 / (2.0 * n)
+            adj = z * math.sqrt(max(0.0, (p_hat * (1.0 - p_hat) / n) + (z2 / (4.0 * n * n))))
+            return max(0.0, (center - adj) / denom)
+        except Exception:
+            return 0.0
+
     def quality_adjustment(self, symbol: str, direction: str, global_wr: float = 0.50) -> Tuple[float, str]:
         """Return (quality_delta, reason_str) for UnitySignalFilter.apply().
 
@@ -5450,14 +5479,21 @@ class UnityMarkovChainGate:
             p_ij, n_obs = self.transition_probability(symbol, direction)
             if n_obs < MARKOV_CHAIN_MIN_OBS:
                 return 0.0, f"MARKOV_COLDSTART: n={n_obs}<{MARKOV_CHAIN_MIN_OBS} (pass-through) [v18.38]"
-            if p_ij >= MARKOV_CHAIN_THRESHOLD:
+            # v177.0 OVERSCORING FIX: gate on the Wilson lower confidence bound,
+            # not the raw sample proportion. p_ij alone lets n=3/3=100% (a coin-flip
+            # streak in a 4-bucket coarse state space) masquerade as p_ij=1.0 and
+            # claim the full +16pt SOVEREIGN bonus — enough by itself to clear the
+            # G9=73 floor from a base quality as low as 57. p_lb converges to p_ij
+            # as evidence accumulates but discounts small-sample luck.
+            p_lb = self._wilson_lower_bound(p_ij, n_obs)
+            if p_lb >= MARKOV_CHAIN_THRESHOLD:
                 return MARKOV_BOOST_PTS, (
-                    f"MARKOV_SOVEREIGN: p_ij={p_ij:.3f}≥{MARKOV_CHAIN_THRESHOLD} "
-                    f"n={n_obs} → ENTRY CONFIRMED [v18.38]"
+                    f"MARKOV_SOVEREIGN: p_ij={p_ij:.3f} p_lb={p_lb:.3f}≥{MARKOV_CHAIN_THRESHOLD} "
+                    f"n={n_obs} → ENTRY CONFIRMED [v18.38/v177.0-Wilson]"
                 )
-            if p_ij >= 0.70:
+            if p_lb >= 0.70:
                 return MARKOV_MILD_PTS, (
-                    f"MARKOV_STRONG: p_ij={p_ij:.3f}≥0.70 n={n_obs} [v18.38]"
+                    f"MARKOV_STRONG: p_ij={p_ij:.3f} p_lb={p_lb:.3f}≥0.70 n={n_obs} [v18.38/v177.0-Wilson]"
                 )
             # v18.55 DEATH-SPIRAL FIX: dynamic penalty threshold relative to global WR.
             # Old: hard-coded 0.50 → at WR=30%, p_ij≈0.30 < 0.50 → -10pts on EVERY signal.
@@ -5485,7 +5521,12 @@ class UnityMarkovChainGate:
                 n = len(ring)
                 if n >= MARKOV_CHAIN_MIN_OBS:
                     p = sum(ring) / n
-                    sovereign = "⚡" if p >= MARKOV_CHAIN_THRESHOLD else ""
+                    # v177.0 OVERSCORING FIX: dashboard ⚡ now reflects the same
+                    # Wilson lower-bound gate used for actual scoring, so the
+                    # display can no longer show SOVEREIGN off a raw 3/3 streak
+                    # (n=3 no longer displays ⚡ unless p_lb also clears 0.87).
+                    p_lb = self._wilson_lower_bound(p, n)
+                    sovereign = "⚡" if p_lb >= MARKOV_CHAIN_THRESHOLD else ""
                     parts.append(f"{key}:{p:.2f}({n}){sovereign}")
             return " | ".join(parts) if parts else "cold-start"
         except Exception:
