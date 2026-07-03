@@ -1,9 +1,29 @@
 #!/usr/bin/env python3
 """
-Unity Engine v198.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v200.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 176-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
- v198.0 improvements [2026-07-03]:
+ v200.0 improvements [2026-07-03]:
+   Power-mode scan round 8: Overscoring completeness pass — 7 remaining raw positive bonus paths
+   identified and WR-dampened. Sites 218→225. Fixes:
+   1. G8-EvIT (IT_HIGH_EV_BONUS +1.0pt): High-EV symbol bonus was raw since v18.62 — now _wr_dampen().
+   2. G8-LargeNEV (IT_LARGE_N_POSEV_BONUS +0.5pt): Large-N positive-EV micro-bonus raw since v18.66 — now _wr_dampen().
+   3. G8-DirIT ×2 (IT_DIR_ALIGNMENT_BONUS +1.5pt each): BUY/SELL directional alignment bonuses raw since
+      v18.61 — both sites now _wr_dampen(). These were the only un-dampened IT-layer bonuses (ALPHA and
+      BORDERLINE were already WR-dampened in v199.0).
+   4. G8.5-PBO CLEAN bonus (5.0pts): Walk-forward CLEAN bonus was a raw 5.0pt addition since v20.0. This
+      is one of the largest single positive-path bonuses in the engine. Now _wr_dampen(5.0) at computation
+      site so the _pbo_clean_bonus variable already holds the dampened value for both the score addition
+      and the log label.
+   5. G8.5f-VPIN CLEAN-FLOW bonus (_vpin_clean_bonus +2.0pt): Added v18.87 but never WR-dampened — now
+      _wr_dampen(2.0).
+   6. G8.5V VibeAgentPool delta (positive path): Multi-agent consensus positive delta up to +5.0pts
+      (VIBE_SOVEREIGN_PTS) was raw since v18.40. Negative penalties are passed through unchanged
+      (safe — _wr_dampen is a no-op for pts≤0). ISB (+5.0pts) at the next block was already dampened
+      via self._wr_dampen(5.0) in v194.0 — confirmed not double-counted.
+   Total _wr_dampen() call sites: 218→225. Sweep now covers all identified positive-score paths.
+   Python AST verified clean; no _record→record or bare-score regressions.
+ v199.0 improvements [2026-07-03]:
    Power-mode scan round 7: Overscoring sweep — final pass over the remaining variable-based
    `quality_score += _xxx_adj` bonus/penalty paths (as opposed to raw-literal `+= N` paths covered
    in v189-v197). 126 sites across every G8.5 gate generation (v18.72 HMM regime through v140.0
@@ -3254,7 +3274,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "199.0"
+UNITY_VERSION                = "200.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -12808,33 +12828,37 @@ class UnitySignalFilter:
             )
         # v18.62: IT High-EV bonus — convex payoff even at <50% WR
         if symbol and symbol in IT_HIGH_EV_SYMBOLS and symbol not in ALPHA_SYMBOLS_IT and symbol not in ALPHA_SYMBOLS_IT_BORDERLINE:
-            quality_score += IT_HIGH_EV_BONUS
+            _it_hev_pts = self._wr_dampen(IT_HIGH_EV_BONUS)  # v200.0: compute once into local → no drift between score and log
+            quality_score += _it_hev_pts
             self._logger.debug(
                 f"[G8-EvIT v18.62] {symbol} HIGH-EV → "
-                f"+{IT_HIGH_EV_BONUS:.1f}pts (IT positive EV, convex payoff)"
+                f"+{_it_hev_pts:.2f}pts (raw={IT_HIGH_EV_BONUS:.1f} WR-dampened v200.0)"
             )
         # v18.66: IT Large-N Positive-EV micro-bonus — n≥40, positive EV below HIGH-EV threshold
         if (symbol and symbol in IT_LARGE_N_POSEV_SYMBOLS
                 and symbol not in ALPHA_SYMBOLS_IT
                 and symbol not in ALPHA_SYMBOLS_IT_BORDERLINE
                 and symbol not in IT_HIGH_EV_SYMBOLS):
-            quality_score += IT_LARGE_N_POSEV_BONUS
+            _it_lnev_pts = self._wr_dampen(IT_LARGE_N_POSEV_BONUS)  # v200.0: compute once into local
+            quality_score += _it_lnev_pts
             self._logger.debug(
                 f"[G8-LargeNEV v18.66] {symbol} LARGE-N-POSEV → "
-                f"+{IT_LARGE_N_POSEV_BONUS:.1f}pts (IT n≥40, positive EV, below HIGH-EV threshold)"
+                f"+{_it_lnev_pts:.2f}pts (raw={IT_LARGE_N_POSEV_BONUS:.1f} WR-dampened v200.0)"
             )
         # Directional alignment bonus — BUY=LONG edge, SELL=SHORT edge from IT dataset
         if symbol and direction == "BUY" and symbol in IT_DIR_LONG:
-            quality_score += IT_DIR_ALIGNMENT_BONUS
+            _it_dir_pts = self._wr_dampen(IT_DIR_ALIGNMENT_BONUS)  # v200.0: compute once into local
+            quality_score += _it_dir_pts
             self._logger.debug(
                 f"[G8-DirIT v18.61] {symbol} BUY matches IT LONG edge "
-                f"({IT_DIR_LONG[symbol]:.0f}% long WR) → +{IT_DIR_ALIGNMENT_BONUS:.1f}pts"
+                f"({IT_DIR_LONG[symbol]:.0f}% long WR) → +{_it_dir_pts:.2f}pts (raw={IT_DIR_ALIGNMENT_BONUS:.1f} WR-dampened v200.0)"
             )
         elif symbol and direction == "SELL" and symbol in IT_DIR_SHORT:
-            quality_score += IT_DIR_ALIGNMENT_BONUS
+            _it_dir_pts = self._wr_dampen(IT_DIR_ALIGNMENT_BONUS)  # v200.0: compute once into local
+            quality_score += _it_dir_pts
             self._logger.debug(
                 f"[G8-DirIT v18.61] {symbol} SELL matches IT SHORT edge "
-                f"({IT_DIR_SHORT[symbol]:.0f}% short WR) → +{IT_DIR_ALIGNMENT_BONUS:.1f}pts"
+                f"({IT_DIR_SHORT[symbol]:.0f}% short WR) → +{_it_dir_pts:.2f}pts (raw={IT_DIR_ALIGNMENT_BONUS:.1f} WR-dampened v200.0)"
             )
 
         # ── Gate 8.5 — Dynamic-backtest quality bias (v9.9.1 Apex-#5) ─────────
@@ -12868,7 +12892,7 @@ class UnitySignalFilter:
                         # strategy is not in-sample overfitted (WFR≥0.50, PBO<0.55, DSR>0).
                         _pbo_clean_bonus = 0.0
                         if _pbo_lbl == "CLEAN" and _wfr >= 0.55 and _dsr > 0.0:
-                            _pbo_clean_bonus = 5.0   # v20.0: 3.5→5.0pts — 4-step institutional validation CLEAN (IS-Excellence + IS-Permutation + Walk-Forward + WF-Permutation all pass); this is 4× more rigorous than old PBO-only CLEAN; WFR≥0.55 on all 4 steps means p<0.05 of chance = genuine non-overfitted edge; +1.5pt increase proportional to the stronger validation standard; at WR=30% a 4-step CLEAN is a high-conviction positive prior for live edge
+                            _pbo_clean_bonus = self._wr_dampen(5.0)  # v200.0: WR-dampened (was raw 5.0pts — v20.0: 3.5→5.0; 4-step institutional validation: IS-Excellence+IS-Permutation+Walk-Forward+WF-Permutation)
                             quality_score += _pbo_clean_bonus
                         _pbo_bonus_tag = (
                             f" +PBO_CLEAN={_pbo_clean_bonus:+.1f}pts" if _pbo_clean_bonus else ""
@@ -13144,11 +13168,11 @@ class UnitySignalFilter:
                 # +2pts for confirmed clean order flow (pct < 20th percentile, non-toxic).
                 # Guard: not_toxic flag must be clear (get_signal sets toxic=True at >90th pct).
                 if _vpin_pct < 0.20 and not _vpin_toxic:
-                    _vpin_clean_bonus = 2.0
+                    _vpin_clean_bonus = self._wr_dampen(2.0)  # v200.0: WR-dampened (was raw 2.0pts)
                     quality_score += _vpin_clean_bonus
                     self._logger.debug(
                         f"[G8.5f VPIN v18.87] {symbol} CLEAN-FLOW pct={_vpin_pct:.3f}<0.20 "
-                        f"→ +{_vpin_clean_bonus:.0f}pts microstructure bonus [v18.87]"
+                        f"→ +{_vpin_clean_bonus:.1f}pts microstructure bonus [WR-dampened v200.0]"
                     )
             except Exception:
                 pass
@@ -21646,13 +21670,16 @@ class UnitySignalFilter:
                     signal_data, direction, gex_snapshot
                 )
                 if _vibe_delta != 0.0:
-                    quality_score += _vibe_delta
+                    _vibe_applied = self._wr_dampen(_vibe_delta)  # v200.0: compute once — WR-dampened positive path; no-op for negatives
+                    quality_score += _vibe_applied
                     _vibe_log = (
                         self._logger.info
                         if abs(_vibe_delta) >= VibeAgentPool.VIBE_SOVEREIGN_PTS
                         else self._logger.debug
                     )
-                    _vibe_log(f"🤖 [{symbol}] {_vibe_reason}")
+                    # v200.0: log the actually-applied dampened delta alongside the reason (fixes log/score mismatch at low WR)
+                    _vibe_damp_note = f" [applied={_vibe_applied:+.2f}pts raw={_vibe_delta:+.2f}pts WR-dampened]" if abs(_vibe_applied - _vibe_delta) > 0.01 else ""
+                    _vibe_log(f"🤖 [{symbol}] {_vibe_reason}{_vibe_damp_note}")
                     if _vibe_delta >= VibeAgentPool.VIBE_SOVEREIGN_PTS:
                         _vibe_sov_flag = True   # v18.42: flag for Intelligence Singularity Bonus
             except Exception as _vibe_exc:
