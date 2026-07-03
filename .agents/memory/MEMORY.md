@@ -1,3 +1,4 @@
+- [Unity Engine v185.0 console compaction](unity-engine-v185.md) — 5 display fixes: RL Risk/SwarmBT/health/GCLH-GSLK labels/Markov; W=84 box inner=80 chars rule
 - [Unity Engine v184.0 dead-gate fix](unity-engine-v184.md) — G8.5Y5-PCO+G8.5Z5-ICS missing _gate_stats_recent since v143.0; parity-check pattern documented
 - [Unity Engine v184.0 dead-gate fix](unity-engine-v184.md) — G8.5Y5-PCO+G8.5Z5-ICS missing _gate_stats_recent since v143.0; parity check pattern documented
 - [Unity Engine v183.0 three-bug fix](unity-engine-v183.md) — G3 error msg (ai_threshold→_g3_ai_threshold); GCLH trigger+early-exit (0.285→0.30, v151 changelog never applied to code); NN n<30 random split→temporal split (look-ahead bias)
