@@ -3289,6 +3289,18 @@ GXWI_MIN_RING        = 5        # minimum quality_score_ring samples before gate
 GXWI_DIVERGE_HI      = 3.0      # score-vs-checker-baseline gap for full penalty
 GXWI_DIVERGE_LO      = 1.5      # score-vs-checker-baseline gap for mild penalty
 GXWI_ALIGN_BAND      = 0.5      # |divergence| within this band = aligned bonus
+GPEL_ENABLED         = os.getenv("UNITY_GPEL", "1").strip().lower() not in ("0","false","no","off","")
+GPEL_MIN_RING        = 5        # minimum quality_score_ring samples before gate fires
+GPEL_LOW_THRESH      = 55.0     # quality_score below this counts as a "low" streak sample
+GPEL_HIGH_THRESH     = 75.0     # quality_score above this counts as a "high" streak sample
+GPEL_LOCK_STREAK     = 3        # trailing consecutive low/high samples to trigger the full-tier lock
+GPEL_LEAN_STREAK     = 2        # trailing consecutive low samples to trigger the lean-tier penalty
+GLCV_ENABLED         = os.getenv("UNITY_GLCV", "1").strip().lower() not in ("0","false","no","off","")
+GLCV_MIN_RING        = 10       # minimum quality_score_ring samples before gate fires (needs 2 windows of 5)
+GLCV_WINDOW          = 5        # window size for recent-vs-prior variance comparison
+GLCV_VAR_DELTA_HI    = 60.0     # variance-delta (recent - prior) for full-tier divergence penalty
+GLCV_VAR_DELTA_LO    = 25.0     # variance-delta for mild-tier divergence penalty
+GLCV_VAR_DELTA_CONV  = -25.0    # variance-delta (negative = shrinking) for convergence bonus
 
 UNITY_CONSOLE_REFRESH_SEC    = 30    # dashboard refresh interval
 
@@ -6331,6 +6343,8 @@ class UnitySignalFilter:
         self._last_g85ax_galp:  float = 0.0  # v170.0: +1.5=peak-session+strong-regime, +1.0=peak-session+mild-regime, 0=neutral; Kelly Step 151
         self._last_g85ay_gvlr:  float = 0.0  # v171.0: +1.5=ultra-clean-VPIN+OFI-aligned, +1.0=clean+OFI-aligned, -2.0=toxic+WR-crisis, 0=neutral; Kelly Step 152
         self._last_g85az_grlb:  float = 0.0  # v171.0: +1.5=sym-alpha>10pp-above-global, +1.0=sym-alpha>5pp, -2.0=sym-hole>10pp-below, -2.5=struct-hole>20pp-below, 0=neutral; Kelly Step 153
+        self._last_g85bg_gpel:  float = 0.0  # v175.0: -2.0=locked-low-streak(≥3), -1.0=lean-low-streak(≥2), +1.0=locked-high-streak(≥3), 0=neutral; Kelly Step 160
+        self._last_g85bh_glcv:  float = 0.0  # v175.0: -2.0=loop-diverging-crisis, -1.0=loop-diverging-mild, +1.0=loop-converging, 0=neutral; Kelly Step 161
         # v163.0: Per-symbol rapid-reuse tracking (GREX gate)
         self._v163_sym_last_ts: dict  = {}   # {symbol: last_eval_ts} for GREX window tracking
         # v161.0: Daily tracking state (UTC-day reset)
@@ -20713,6 +20727,104 @@ class UnitySignalFilter:
             _record("gate_g85bf_gxwi", self._last_g85bf_gxwi >= 0.0)
         except Exception:
             pass  # GXWI non-fatal soft-gate
+
+        # ── v175.0 G8.5BG — GPEL: Prompt-Edge-Lock Streak Gate (165th gate) ──
+        # Technique 4 (Prompt Refinement / The Loop): rather than reacting to a single
+        # bad quality_score reading and correcting it once, this gate detects a RECURRING
+        # failure/success pattern in quality_score_ring and permanently escalates the
+        # penalty/bonus the longer that pattern persists — mirroring "edit the prompt to
+        # handle the edge case for good" instead of a one-off fix. A single low reading is
+        # noise; three-in-a-row is a locked-in structural edge case worth hard-penalizing.
+        # Sentinel: _last_g85bg_gpel — read by Kelly Step 160.
+        # Env: UNITY_GPEL=0 to disable.
+        try:
+            self._last_g85bg_gpel = 0.0
+            if GPEL_ENABLED:
+                _gpel_ring = list(getattr(self, "_quality_score_ring", []))
+                if len(_gpel_ring) >= GPEL_MIN_RING:
+                    _gpel_low_streak  = 0
+                    for _gpel_v in reversed(_gpel_ring):
+                        if _gpel_v < GPEL_LOW_THRESH:
+                            _gpel_low_streak += 1
+                        else:
+                            break
+                    _gpel_high_streak = 0
+                    for _gpel_v in reversed(_gpel_ring):
+                        if _gpel_v > GPEL_HIGH_THRESH:
+                            _gpel_high_streak += 1
+                        else:
+                            break
+                    _gpel_adj  = 0.0
+                    _gpel_tier = "neutral"
+                    if _gpel_low_streak >= GPEL_LOCK_STREAK:
+                        _gpel_adj  = -2.0
+                        _gpel_tier = "locked-low-streak"
+                    elif _gpel_low_streak >= GPEL_LEAN_STREAK:
+                        _gpel_adj  = -1.0
+                        _gpel_tier = "lean-low-streak"
+                    elif _gpel_high_streak >= GPEL_LOCK_STREAK:
+                        _gpel_adj  = +1.0
+                        _gpel_tier = "locked-high-streak"
+                    self._last_g85bg_gpel = _gpel_adj
+                    score += _gpel_adj
+                    if _gpel_adj != 0.0:
+                        self._logger.debug(
+                            f"🔁 [v175.0 G8.5BG GPEL] low_streak={_gpel_low_streak} "
+                            f"high_streak={_gpel_high_streak} ({_gpel_tier}) → {_gpel_adj:+.1f}pt "
+                            f"(recurring edge-case permanently escalated, not one-off)"
+                        )
+            _record("gate_g85bg_gpel", self._last_g85bg_gpel >= 0.0)
+        except Exception:
+            pass  # GPEL non-fatal soft-gate
+
+        # ── v175.0 G8.5BH — GLCV: Loop-Convergence-Velocity Gate (166th gate) ──
+        # Technique 5 (Loop Engineering): treats the last N cycles of quality_score_ring
+        # as an autonomous evaluate-iterate loop and measures whether that loop is
+        # CONVERGING (variance shrinking cycle-over-cycle — the system is stabilizing on
+        # a coherent read of the market) or DIVERGING (variance growing — the loop is
+        # oscillating / thrashing between conflicting reads, a sign the signal itself is
+        # unreliable right now). Diverging loop + weak WR → penalty; converging loop +
+        # healthy WR → small trust bonus.
+        # Sentinel: _last_g85bh_glcv — read by Kelly Step 161.
+        # Env: UNITY_GLCV=0 to disable.
+        try:
+            self._last_g85bh_glcv = 0.0
+            if GLCV_ENABLED:
+                _glcv_ring = list(getattr(self, "_quality_score_ring", []))
+                if len(_glcv_ring) >= GLCV_MIN_RING:
+                    _glcv_recent = _glcv_ring[-GLCV_WINDOW:]
+                    _glcv_prior  = _glcv_ring[-(2 * GLCV_WINDOW):-GLCV_WINDOW]
+                    def _glcv_variance(_vals):
+                        if len(_vals) < 2:
+                            return 0.0
+                        _m = sum(_vals) / len(_vals)
+                        return sum((_v - _m) ** 2 for _v in _vals) / len(_vals)
+                    _glcv_var_recent = _glcv_variance(_glcv_recent)
+                    _glcv_var_prior  = _glcv_variance(_glcv_prior) if len(_glcv_prior) >= 2 else _glcv_var_recent
+                    _glcv_var_delta  = _glcv_var_recent - _glcv_var_prior
+                    _glcv_wr  = float(win_rate) if win_rate is not None else 100.0
+                    _glcv_adj  = 0.0
+                    _glcv_tier = "neutral"
+                    if _glcv_var_delta >= GLCV_VAR_DELTA_HI and _glcv_wr < 30.0:
+                        _glcv_adj  = -2.0
+                        _glcv_tier = "loop-diverging-crisis"
+                    elif _glcv_var_delta >= GLCV_VAR_DELTA_LO and _glcv_wr < 35.0:
+                        _glcv_adj  = -1.0
+                        _glcv_tier = "loop-diverging-mild"
+                    elif _glcv_var_delta <= GLCV_VAR_DELTA_CONV and _glcv_wr >= 30.0:
+                        _glcv_adj  = +1.0
+                        _glcv_tier = "loop-converging"
+                    self._last_g85bh_glcv = _glcv_adj
+                    score += _glcv_adj
+                    if _glcv_adj != 0.0:
+                        self._logger.debug(
+                            f"🌀 [v175.0 G8.5BH GLCV] var_recent={_glcv_var_recent:.1f} "
+                            f"var_prior={_glcv_var_prior:.1f} delta={_glcv_var_delta:+.1f} "
+                            f"WR={_glcv_wr:.1f}% ({_glcv_tier}) → {_glcv_adj:+.1f}pt"
+                        )
+            _record("gate_g85bh_glcv", self._last_g85bh_glcv >= 0.0)
+        except Exception:
+            pass  # GLCV non-fatal soft-gate
 
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
