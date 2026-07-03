@@ -2720,6 +2720,7 @@ assert MIN_LEVERAGE <= MAX_LEVERAGE
 
 # ── Kelly Criterion ───────────────────────────────────────────────────────────
 KELLY_MAX_FRACTION    = 0.08     # cap Kelly at 8% of capital per trade (v18.85: 0.25→0.08 — RISK FIX: at WR=30.2% Sharpe=-4.87 MaxDD=49.37% the 25% cap was allowing catastrophic drawdowns; institutional full-Kelly at 30% WR = (0.30×2.20−0.70)/2.20 = −0.018 (negative! so raw Kelly=0); 8% is an empirical institutional maximum for live futures trading in negative-Sharpe regime — preserves capital while engine recovers)
+KELLY_MIN_FRACTION    = 0.001    # floor Kelly at 0.1% of capital per trade (v199.0: was referenced at ~56 self._kelly_floor clamp sites but never defined anywhere — an undefined-name/AttributeError silently swallowed by try/except, dead floor-clamp since introduction; 0.001 matches the pre-existing getattr(...,"_kelly_floor",0.001) fallback used elsewhere in the file)
 KELLY_HALF_KELLY      = True     # use half-Kelly for safety
 
 # ── v129.0 — Walk-forward-validated Session + Volume Kelly DE-SIZE ───────────
@@ -7315,6 +7316,31 @@ class UnitySignalFilter:
         _mult = max(0.70, min(1.0, 0.70 + ((_wr - 0.25) / 0.15) * 0.30))
         return pts * _mult
 
+    def _live_wr_pct(self) -> Optional[float]:
+        """v199.0: safe live win-rate accessor, 0-100 scale, or None if unavailable.
+
+        CRITICAL FIX: ~20 gates introduced across v163.0-v170.0 (GSDD, GHTF, GMAP,
+        GCAL2, GLEN, GRSL, GEVAP, GORD, GWFV, GDDV, GHRZ, GALP, GVLR, GRLB, GLTB,
+        GCMS, GDSA, GEVL, GXWI, GLCV + NN features F370/F374/F375) referenced a
+        bare `win_rate` name that was NEVER a local variable, parameter, or global
+        in this scope — every single evaluation raised NameError, silently
+        swallowed by the enclosing `except Exception: pass`, meaning these WR-crisis
+        penalty/bonus gates have been 100% dead (zero quality_score effect, zero
+        _record() calls beyond the pre-except default) since their introduction.
+        Use this accessor (mirrors the pattern already correct in _wr_dampen()
+        and G4/GCLH/GDCR/GMDR) instead of the bare name.
+        """
+        _b = getattr(self, "_booster", None)
+        if _b is None:
+            return None
+        _wr = getattr(_b, "win_rate", None)
+        return float(_wr) if _wr is not None else None
+
+    def _live_wr_frac(self) -> Optional[float]:
+        """v199.0: safe live win-rate accessor, [0,1] fraction, or None if unavailable."""
+        _pct = self._live_wr_pct()
+        return (_pct / 100.0) if _pct is not None else None
+
     def apply(
         self,
         signal_data:     Dict[str, Any],
@@ -8356,7 +8382,7 @@ class UnitySignalFilter:
                 _fund_rate_8h = (_fund_ws if _fund_ws != 0.0
                                  else _live_funding_rates.get(symbol, 0.0001))
                 if _fund_rate_8h != 0.0 and entry > 0:
-                    _tp1_raw   = float(item.get("tp1", 0.0) or 0.0)
+                    _tp1_raw   = float(tp1 or 0.0)
                     _tp1_dist  = abs(_tp1_raw - entry) / entry if _tp1_raw > 0 else 0.0
                     _atr_rate  = (_atr / entry / 2.0) if (_atr and entry > 0) else max(_tp1_dist / 2.0, 1e-9)
                     _hold_h    = min(4.0, max(0.5, _tp1_dist / max(1e-9, _atr_rate)))
@@ -10179,7 +10205,7 @@ class UnitySignalFilter:
                         signal_data.setdefault("vol_persist_composite", _v84_f118)
                         # F119: ofi_regime_quality — OFI persist direction + OFI velocity composite [-1,+1]
                         # Uses the existing OFI persist ring majority vote direction
-                        _v84_ofi_ring = _ofi_persist_ring.get(symbol, None)
+                        _v84_ofi_ring = self._ofi_persist_ring.get(symbol, None)
                         _v84_ofi_dir  = 0.0
                         if _v84_ofi_ring is not None and len(_v84_ofi_ring) >= 2:
                             _v84_ofi_dir = float(sum(_v84_ofi_ring)) / max(1, len(_v84_ofi_ring))
@@ -11692,7 +11718,7 @@ class UnitySignalFilter:
                         # [1] OFI direction vs signal direction [2] WR vs EV [3] RSI vs direction
                         _f370_dir   = (signal_data.get("direction") or signal_data.get("action") or "").upper()
                         _f370_ofi   = float(signal_data.get("ofi_z") or 0.0)
-                        _f370_wr    = float(win_rate) if win_rate is not None else 0.3
+                        _f370_wr    = (self._live_wr_frac() if self._live_wr_frac() is not None else 0.3)
                         _f370_ev    = float(signal_data.get("ev_ratio") or signal_data.get("expected_value") or 0.0)
                         _f370_rsi   = float(signal_data.get("rsi") or signal_data.get("rsi_14") or 50.0)
                         _f370_votes = 0
@@ -11734,12 +11760,12 @@ class UnitySignalFilter:
                         # F374: loop_coh_x_wr — loop_coherence weighted by WR crisis depth [0,1]
                         # When WR<30%: weight = 1-(30-WR)/30; fully crisis (WR=0%) = weight 0 penalty
                         _f374_coh   = float(signal_data.get("loop_coherence", 0.5) or 0.5)
-                        _f374_wr    = float(win_rate) if win_rate is not None else 0.3
+                        _f374_wr    = (self._live_wr_frac() if self._live_wr_frac() is not None else 0.3)
                         _f374_wr_n  = max(0.0, min(1.0, _f374_wr / 30.0))  # 0=crisis, 1=>=30% WR
                         signal_data["loop_coh_x_wr"] = _f374_coh * _f374_wr_n
                         # F375: regime_alignment_4f — 4-factor regime alignment [0,1]
                         # Counts: WR>30% + EV>0 + SR>0 + OFI aligned → 0-4 positive factors / 4
-                        _f375_wr    = float(win_rate) if win_rate is not None else 0.0
+                        _f375_wr    = (self._live_wr_frac() if self._live_wr_frac() is not None else 0.0)
                         _f375_ev    = float(signal_data.get("ev_ratio") or signal_data.get("expected_value") or 0.0)
                         _f375_sr    = float(signal_data.get("sharpe_ratio") or signal_data.get("sharpe") or 0.0)
                         _f375_ofi   = float(signal_data.get("ofi_z") or 0.0)
@@ -12069,7 +12095,7 @@ class UnitySignalFilter:
                     _f414_qs_ring = list(getattr(self, "_quality_score_ring", []))
                     if len(_f414_qs_ring) >= GXWI_MIN_RING:
                         _f414_checker = sum(_f414_qs_ring) / len(_f414_qs_ring)
-                        _f414_maker   = float(score) if "score" in dir() else 0.0
+                        _f414_maker   = float(quality_score)
                         _f414_div     = _f414_maker - _f414_checker
                     else:
                         _f414_div = 0.0
@@ -20404,7 +20430,7 @@ class UnitySignalFilter:
         try:
             self._last_g85ak_gsdd = 0.0
             if GSDD_ENABLED:
-                _gsdd_wr  = float(win_rate) if win_rate is not None else 100.0
+                _gsdd_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _gsdd_dir = (direction or "").upper()
                 _gsdd_ring = list(getattr(self, "_v161_dir_ring", []))  # last ≤3 dirs (GMOM3 ring)
                 if _gsdd_dir and _gsdd_wr < 30.0 and len(_gsdd_ring) >= 2:
@@ -20489,7 +20515,7 @@ class UnitySignalFilter:
         try:
             self._last_g85am_ghtf = 0.0
             if GHTF_ENABLED:
-                _ghtf_wr  = float(win_rate) if win_rate is not None else 100.0
+                _ghtf_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _ghtf_bst = getattr(self, "_booster", None)
                 _ghtf_ring = list(getattr(_ghtf_bst, "_pnl_ring", []) or [])
                 if len(_ghtf_ring) >= 5:
@@ -20539,7 +20565,7 @@ class UnitySignalFilter:
         try:
             self._last_g85an_gmap = 0.0
             if GMAP_ENABLED:
-                _gmap_wr  = float(win_rate) if win_rate is not None else 100.0
+                _gmap_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _gmap_dir = (direction or "").upper()
                 _gmap_rsi = float(signal_data.get("rsi") or signal_data.get("rsi_14") or 50.0)
                 if _gmap_wr < GMAP_WR_GATE and _gmap_dir:
@@ -20574,7 +20600,7 @@ class UnitySignalFilter:
         try:
             self._last_g85ao_gcal2 = 0.0
             if GCAL2_ENABLED:
-                _gcal2_wr   = float(win_rate) if win_rate is not None else 100.0
+                _gcal2_wr   = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _gcal2_conf = float(
                     signal_data.get("confidence") or
                     signal_data.get("ai_confidence") or
@@ -20614,7 +20640,7 @@ class UnitySignalFilter:
         try:
             self._last_g85ap_glen = 0.0
             if GLEN_ENABLED:
-                _glen_wr  = float(win_rate) if win_rate is not None else 100.0
+                _glen_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 # Read loop_coherence (F370) from signal_data (injected by NN F366-F370 block)
                 _glen_coh = float(signal_data.get("loop_coherence", 0.5) or 0.5)
                 # Read cold_seq_count (F368) from signal_data (injected by NN F366-F370 block)
@@ -20665,7 +20691,7 @@ class UnitySignalFilter:
                     _grsl_sx2  = sum(x * x for x in _grsl_xs)
                     _grsl_denom = (_grsl_n * _grsl_sx2 - _grsl_sx ** 2)
                     _grsl_slope = (_grsl_n * _grsl_sxy - _grsl_sx * _grsl_sy) / (_grsl_denom + 1e-12)
-                    _grsl_wr    = float(win_rate) if win_rate is not None else 100.0
+                    _grsl_wr    = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                     _grsl_cold  = float(signal_data.get("cold_seq_count", 0.0) or 0.0)
                     if _grsl_slope < GRSL_SLOPE_SVRE and _grsl_wr < 30.0:
                         self._last_g85aq_grsl = -2.0
@@ -20708,7 +20734,7 @@ class UnitySignalFilter:
                     _gevap_p10  = _gevap_ring[-15:-5] if len(_gevap_ring) >= 15 else _gevap_ring[:-5]
                     _gevap_m5   = sum(_gevap_r5)   / len(_gevap_r5)
                     _gevap_mp   = sum(_gevap_p10)  / len(_gevap_p10) if _gevap_p10 else _gevap_m5
-                    _gevap_wr   = float(win_rate) if win_rate is not None else 100.0
+                    _gevap_wr   = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                     _gevap_ev   = float(signal_data.get("ev_ratio") or signal_data.get("expected_value") or 1.0)
                     # Collapse: recent mean is negative + crisis WR
                     if _gevap_m5 < GEVAP_COLL_EV and _gevap_wr < GEVAP_WR_GATE:
@@ -20787,7 +20813,7 @@ class UnitySignalFilter:
             if GORD_ENABLED:
                 _gord_ofi = float(signal_data.get("ofi_z") or 0.0)
                 _gord_dir = (signal_data.get("direction") or signal_data.get("action") or "").upper()
-                _gord_wr  = float(win_rate) if win_rate is not None else 100.0
+                _gord_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _gord_adj = 0.0
                 if _gord_dir in ("LONG", "BUY"):
                     # OFI < 0 opposes LONG (sellers dominating flow)
@@ -20829,7 +20855,7 @@ class UnitySignalFilter:
             self._last_g85au_gwfv = 0.0
             if GWFV_ENABLED:
                 _gwfv_cpcv = float(getattr(getattr(self, "_nn_trainer_ref", None), "_last_cpcv_avg", -1.0) or -1.0)  # v193.0-FIX: neural_trainer → _nn_trainer_ref (wired); was self._cpcv_avg_chance (never assigned → gate silent since v169.0)
-                _gwfv_wr   = float(win_rate) if win_rate is not None else 100.0
+                _gwfv_wr   = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _gwfv_adj  = 0.0
                 if _gwfv_cpcv >= 0.0:  # guard: CPCV has been computed
                     if _gwfv_cpcv < GWFV_CPCV_BAD and _gwfv_wr < GWFV_WR_CRISIS:
@@ -20867,7 +20893,7 @@ class UnitySignalFilter:
             if GDDV_ENABLED:
                 _gddv_ring = list(self._quality_score_ring)
                 _gddv_n    = len(_gddv_ring)
-                _gddv_wr   = float(win_rate) if win_rate is not None else 100.0
+                _gddv_wr   = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _gddv_adj  = 0.0
                 if _gddv_n >= 3:
                     # Pure-Python linreg slope over quality_score_ring
@@ -20904,7 +20930,7 @@ class UnitySignalFilter:
         try:
             self._last_g85aw_ghrz = 0.0
             if GHRZ_ENABLED:
-                _ghrz_wr    = float(win_rate) if win_rate is not None else 100.0
+                _ghrz_wr    = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _ghrz_total = int(getattr(self, "_wins", 0)) + int(getattr(self, "_losses", 0))
                 if _ghrz_total >= GHRZ_MIN_TRADES:
                     import time as _ghrz_time
@@ -20938,7 +20964,7 @@ class UnitySignalFilter:
         try:
             self._last_g85ax_galp = 0.0
             if GALP_ENABLED:
-                _galp_wr    = float(win_rate) if win_rate is not None else 100.0
+                _galp_wr    = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                 _galp_total = int(getattr(self, "_wins", 0)) + int(getattr(self, "_losses", 0))
                 _galp_irons = float(getattr(self, "last_irons_score", 0.0) or 0.0)
                 _galp_floor = float(getattr(self, "_irons_min", 0.0) or 0.0)
@@ -20978,7 +21004,7 @@ class UnitySignalFilter:
             _gvlr_vpin_ref = getattr(self, "_vpin_model", None)
             if _gvlr_vpin_ref is not None and getattr(_gvlr_vpin_ref, "is_ready", False):
                 _gvlr_vpin_val, _gvlr_vpin_pct, _, _gvlr_vpin_toxic = _gvlr_vpin_ref.get_signal()
-                _gvlr_wr   = float(win_rate) if win_rate is not None else 50.0
+                _gvlr_wr   = (self._live_wr_pct() if self._live_wr_pct() is not None else 50.0)
                 _gvlr_ofi  = float(signal_data.get("ofi_z", 0.0) if isinstance(signal_data, dict) else 0.0)
                 _gvlr_dir  = (1 if str(signal_data.get("action", signal_data.get("direction", "BUY")) if isinstance(signal_data, dict) else "BUY").upper() in ("BUY", "LONG") else -1)
                 _gvlr_ofi_aligned = (_gvlr_ofi > 0.3 and _gvlr_dir == 1) or (_gvlr_ofi < -0.3 and _gvlr_dir == -1)
@@ -21022,7 +21048,7 @@ class UnitySignalFilter:
                 _grlb_n   = int(getattr(_grlb_tracker, "trade_count", lambda s: 0)(_grlb_sym) or 0)
                 if _grlb_n >= 8:
                     _grlb_sym_wr  = float(getattr(_grlb_tracker, "win_rate", lambda s: 0.5)(_grlb_sym) or 0.5) * 100.0
-                    _grlb_eng_wr  = float(win_rate) if win_rate is not None else 50.0
+                    _grlb_eng_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 50.0)
                     _grlb_delta   = _grlb_sym_wr - _grlb_eng_wr
                     _grlb_adj     = 0.0
                     if _grlb_delta >= 10.0 and _grlb_n >= 15:
@@ -21071,7 +21097,7 @@ class UnitySignalFilter:
                     _gltb_longs  = _gltb_ring.count("LONG")
                     _gltb_shorts = _gltb_ring.count("SHORT")
                     _gltb_n      = len(_gltb_ring)
-                    _gltb_wr     = float(win_rate) if win_rate is not None else 50.0
+                    _gltb_wr     = (self._live_wr_pct() if self._live_wr_pct() is not None else 50.0)
                     _gltb_cold   = int(getattr(self, "_consec_losses", 0) or 0)
                     _gltb_adj    = 0.0
                     _gltb_tier   = ""
@@ -21140,7 +21166,7 @@ class UnitySignalFilter:
                 ]
                 _gcms_neg_count = sum(1 for v in _gcms_sentinels if v < 0.0)
                 _gcms_pos_count = sum(1 for v in _gcms_sentinels if v > 0.0)
-                _gcms_wr   = float(win_rate) if win_rate is not None else 50.0
+                _gcms_wr   = (self._live_wr_pct() if self._live_wr_pct() is not None else 50.0)
                 _gcms_cold = int(getattr(self, "_consec_losses", 0) or 0)
                 _gcms_adj  = 0.0
                 _gcms_tier = ""
@@ -21194,7 +21220,7 @@ class UnitySignalFilter:
                 if len(_gdsa_ring) >= GLTB_MIN_RING:
                     _gdsa_long_n   = _gdsa_ring.count("LONG")
                     _gdsa_dir      = str(direction or "").upper().strip()
-                    _gdsa_wr       = float(win_rate) if win_rate else 0.0
+                    _gdsa_wr       = (self._live_wr_pct() if self._live_wr_pct() else 0.0)
                     _gdsa_hostile  = _gdsa_long_n >= GDSA_HOSTILE_N
                     _gdsa_adj      = 0.0
                     _gdsa_tier     = "neutral"
@@ -21253,7 +21279,7 @@ class UnitySignalFilter:
                         _gevl_num   = sum((xi - _gevl_xbar) * (yi - _gevl_ybar) for xi, yi in zip(_gevl_x, _gevl_vals))
                         _gevl_den   = sum((xi - _gevl_xbar) ** 2 for xi in _gevl_x)
                         _gevl_slope = (_gevl_num / _gevl_den) if _gevl_den > 1e-12 else 0.0
-                        _gevl_wr    = float(win_rate) if win_rate else 0.0
+                        _gevl_wr    = (self._live_wr_pct() if self._live_wr_pct() else 0.0)
                         _gevl_adj   = 0.0
                         _gevl_tier  = "neutral"
                         if _gevl_slope < GEVL_SLOPE_COLLAPSE and _gevl_wr < GEVL_WR_CRISIS:
@@ -21340,7 +21366,7 @@ class UnitySignalFilter:
                     _gxwi_checker = sum(_gxwi_qs_ring) / len(_gxwi_qs_ring)
                     _gxwi_maker   = float(quality_score)
                     _gxwi_diverge = _gxwi_maker - _gxwi_checker
-                    _gxwi_wr      = float(win_rate) if win_rate else 0.0
+                    _gxwi_wr      = (self._live_wr_pct() if self._live_wr_pct() else 0.0)
                     _gxwi_adj     = 0.0
                     _gxwi_tier    = "neutral"
                     if _gxwi_diverge > GXWI_DIVERGE_HI and _gxwi_wr < 30.0:
@@ -21437,7 +21463,7 @@ class UnitySignalFilter:
                     _glcv_var_recent = _glcv_variance(_glcv_recent)
                     _glcv_var_prior  = _glcv_variance(_glcv_prior) if len(_glcv_prior) >= 2 else _glcv_var_recent
                     _glcv_var_delta  = _glcv_var_recent - _glcv_var_prior
-                    _glcv_wr  = float(win_rate) if win_rate is not None else 100.0
+                    _glcv_wr  = (self._live_wr_pct() if self._live_wr_pct() is not None else 100.0)
                     _glcv_adj  = 0.0
                     _glcv_tier = "neutral"
                     if _glcv_var_delta >= GLCV_VAR_DELTA_HI and _glcv_wr < 30.0:
@@ -22854,6 +22880,14 @@ class UnityProfitBooster:
         # (51 clamp sites).  Initialised here (cold-start default = KELLY_MAX_FRACTION)
         # and refreshed each cycle in _update_kelly so the clamps finally take effect.
         self._kelly_ceil: float = KELLY_MAX_FRACTION
+        # v199.0-FIX: same AttributeError-swallow pattern as self._kelly_ceil above,
+        # but for the FLOOR side — self._kelly_floor is read raw (no getattr fallback)
+        # at ~56 clamp sites (Kelly Steps 38+ liquidity/regime/GDSA/etc de-size floors)
+        # but was NEVER assigned anywhere, so every one of those `max(self._kelly_floor, ...)`
+        # calls raised AttributeError, silently swallowed by the enclosing try/except,
+        # meaning the floor half of ~56 Kelly position-sizing clamps has been a dead
+        # no-op since introduction. Initialised here (cold-start default = KELLY_MIN_FRACTION).
+        self._kelly_floor: float = KELLY_MIN_FRACTION
         # v18.51: Markov gate portfolio stats cache (updated once per Kelly cycle).
         # _markov_sovereign_ratio: fraction of active Markov states at SOVEREIGN tier.
         # 0.0 = cold/no SOVEREIGN states; 1.0 = all active states SOVEREIGN.
@@ -28209,14 +28243,14 @@ class UnityProfitBooster:
                 )
             elif _k156_gdsa <= -1.5:
                 _k156_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.87, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.87, self._kelly_floor)
                 self._logger.debug(
                     f"[v173.0 Step156 GDSA] LONG-severe-escalation → Kelly ×0.87 "
                     f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k156_gdsa <= -1.0:
                 _k156_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, self._kelly_floor)
                 self._logger.debug(
                     f"[v173.0 Step156 GDSA] LONG-crisis-escalation → Kelly ×0.90 "
                     f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28235,14 +28269,14 @@ class UnityProfitBooster:
             _k157_gevl = float(getattr(self, "_last_g85bd_gevl", 0.0) or 0.0)
             if _k157_gevl <= -2.0:
                 _k157_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.82, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.82, self._kelly_floor)
                 self._logger.debug(
                     f"[v173.0 Step157 GEVL] EV-collapse → Kelly ×0.82 "
                     f"({_k157_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k157_gevl <= -1.5:
                 _k157_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.88, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.88, self._kelly_floor)
                 self._logger.debug(
                     f"[v173.0 Step157 GEVL] EV-drift → Kelly ×0.88 "
                     f"({_k157_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28269,14 +28303,14 @@ class UnityProfitBooster:
             _k158_grdc = float(getattr(self, "_last_g85be_grdc", 0.0) or 0.0)
             if _k158_grdc <= -2.0:
                 _k158_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.80, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.80, self._kelly_floor)
                 self._logger.debug(
                     f"[v174.0 Step158 GRDC] dual-decay → Kelly ×0.80 "
                     f"({_k158_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k158_grdc <= -1.0:
                 _k158_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, self._kelly_floor)
                 self._logger.debug(
                     f"[v174.0 Step158 GRDC] single-decay-lean → Kelly ×0.90 "
                     f"({_k158_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28304,14 +28338,14 @@ class UnityProfitBooster:
             _k159_gxwi = float(getattr(self, "_last_g85bf_gxwi", 0.0) or 0.0)
             if _k159_gxwi <= -1.5:
                 _k159_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.83, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.83, self._kelly_floor)
                 self._logger.debug(
                     f"[v174.0 Step159 GXWI] maker-overconfident-full → Kelly ×0.83 "
                     f"({_k159_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k159_gxwi <= -1.0:
                 _k159_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.91, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.91, self._kelly_floor)
                 self._logger.debug(
                     f"[v174.0 Step159 GXWI] maker-overconfident-mild → Kelly ×0.91 "
                     f"({_k159_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28339,14 +28373,14 @@ class UnityProfitBooster:
             _k160_gpel = float(getattr(self, "_last_g85bg_gpel", 0.0) or 0.0)
             if _k160_gpel <= -2.0:
                 _k160_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.78, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.78, self._kelly_floor)
                 self._logger.debug(
                     f"[v175.0 Step160 GPEL] locked-low-streak → Kelly ×0.78 "
                     f"({_k160_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k160_gpel <= -1.0:
                 _k160_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, self._kelly_floor)
                 self._logger.debug(
                     f"[v175.0 Step160 GPEL] lean-low-streak → Kelly ×0.90 "
                     f"({_k160_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28374,14 +28408,14 @@ class UnityProfitBooster:
             _k161_glcv = float(getattr(self, "_last_g85bh_glcv", 0.0) or 0.0)
             if _k161_glcv <= -2.0:
                 _k161_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.80, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.80, self._kelly_floor)
                 self._logger.debug(
                     f"[v175.0 Step161 GLCV] loop-diverging-crisis → Kelly ×0.80 "
                     f"({_k161_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k161_glcv <= -1.0:
                 _k161_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, KELLY_MIN_FRACTION)
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.90, self._kelly_floor)
                 self._logger.debug(
                     f"[v175.0 Step161 GLCV] loop-diverging-mild → Kelly ×0.90 "
                     f"({_k161_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -33127,7 +33161,7 @@ class UnityEngine:
                 # so the threshold reflects real recent performance.
                 if self.booster is not None and _db_total >= 10:
                     try:
-                        _ring_rows = _wcon_n.execute("""
+                        _ring_rows = _wsql.connect(_db_path).execute("""
                             SELECT outcome, pnl_pct FROM trades
                             WHERE outcome IS NOT NULL AND (
                                 outcome IN ('TP1','TP2','TP3','SL') OR
