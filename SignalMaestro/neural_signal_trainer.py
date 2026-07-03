@@ -3399,12 +3399,21 @@ class NeuralSignalTrainer:
                 y_va       = y_all[_va_idx]
                 sw_tr      = _sw_raw[_tr_idx]
             else:
-                idx = np.random.permutation(n)
-                split = max(10, int(n * 0.85))
-                X_tr_raw, y_tr = X_all[idx[:split]],  y_all[idx[:split]]
-                X_va_raw, y_va = X_all[idx[split:]],   y_all[idx[split:]]
-                sw_tr = _sw_raw[idx[:split]]
-                _va_idx = list(idx[split:].tolist())   # compat: direction calibration uses _va_idx
+                # v183.0-FIX: was np.random.permutation (look-ahead bias — future trades
+                # could appear in training set, past in validation).  Even at n<30 the data
+                # is time-ordered oldest→newest; using random permutation mixes future labels
+                # into training, inflating validation accuracy and masking overfitting.
+                # Fix: use the same temporal split logic as the n≥30 path but with a larger
+                # validation fraction (25%) since fewer samples demand a wider OOS window.
+                # No embargo applied at n<30 (too few samples to absorb boundary waste).
+                _va_n_small  = max(3, int(n * 0.25))
+                _tr_n_small  = n - _va_n_small
+                _tr_idx_s    = list(range(0, _tr_n_small))
+                _va_idx_s    = list(range(_tr_n_small, n))
+                X_tr_raw, y_tr = X_all[_tr_idx_s], y_all[_tr_idx_s]
+                X_va_raw, y_va = X_all[_va_idx_s], y_all[_va_idx_s]
+                sw_tr          = _sw_raw[_tr_idx_s]
+                _va_idx        = _va_idx_s   # compat: direction calibration uses _va_idx
 
             # FIX 4: Fit z-score normaliser on TRAINING data only to prevent
             # validation/test data leakage into the normalisation statistics.

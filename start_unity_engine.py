@@ -1215,7 +1215,7 @@ gates look "alive" on dashboards while their actual filtering/scoring effect was
 references across all 36 blocks (lines 19182-20931), verified with a scoped diff (no other
 code touched) and a full `ast.parse` syntax check. This is very likely the primary reason
 live WR stayed ~29% despite v142-v177 "improvements" — none of that logic ever executed.
-[v181.0] | v182.0-ANALYTICS-WIRING-FIX: 12 gates from v165.0–v170.0 (G8.5AM/AN/AO/AP/AQ/AR/AS/AT/AU/AV/AW/AX) were missing from _gate_stats boot-time init, _GATE_DISPLAY_LABELS, and _SOFT_GATE_KEYS since introduction. Root cause: the v163.0 gate-stats block (gate_g85ak/al) was followed immediately by the v171.0 block — the v165-v170 batch was never inserted. Consequence: (1) gate_stats_summary() showed raw dict keys ("gate_g85am_ghtf") instead of short labels ("G8.5AM") because _GATE_DISPLAY_LABELS had no entry; (2) gate_bottleneck_str() classified all 12 as hard-gates (not in _SOFT_GATE_KEYS) — they appeared as #1-#3 fake bottlenecks at every evaluation, masking real tunable bottlenecks (G0/G4/G0.5); (3) boot-time gate_stats_summary was incomplete (missing 12 entries until first signal fired _record()'s setdefault fallback). Gates were recording correctly (setdefault guard in _record prevents crash) but analytics were corrupted. Fix: added 12 _gate_stats+_gate_stats_recent entries (v165-v170 block), 10 _GATE_DISPLAY_LABELS entries (AM–AV; AW/AX were already present), 10 _SOFT_GATE_KEYS entries (AM–AV; AW/AX already present). AST-verified. v181→v182 [v178.0] | v181.0-MULTI-BUG-FIX: (1) G8.5CORR overconsensus dampener expanded: added 15 missing sentinels — _last_g85a5_svc (v127 SVC gate was absent from clawback since introduction) + 14 v169-v175 score-adjuster gates (GWFV/GDDV/GHRZ/GALP/GVLR/GRLB/GLTB/GCMS/GDSA/GEVL/GRDC/GXWI/GPEL/GLCV). All store float ±values; int() cast produces ±1/0 votes correctly. Dampener now covers 80 sentinels (was 65). (2) G8.5V VibePool _record inside try: if get_vibe_consensus raised an exception (model timeout, JSON parse error) the self._record("gate_vibe",...) was silently skipped → gate appeared as "0 evaluated" in analytics despite firing every signal. Fixed: _vibe_delta=0.0 initialized OUTSIDE the if-block; single self._record("gate_vibe", _vibe_delta>=0) called OUTSIDE the try/except. (3) G8.5sq StochasticQuant + G8.5q QuantDinger: both soft-quality-adjuster gates (±6pt/±3pt quality caps) had NO self._record(), NO _gate_stats init, NO _GATE_DISPLAY_LABELS, NO _SOFT_GATE_KEYS entry — completely invisible to gate analytics since introduction. Fixed: _sq_adj_outer/_q_adj safe-default vars outside try; self._record() after except; full _gate_stats+_gate_stats_recent+display+soft_keys wiring. (4) IRONS docstring (update_adaptive_irons) corrected from v147.0 stale values (base=75, WR<20%=78) to current v152.0 values (base=77, WR<18%=80, WR18-20%=79, WR<25%=78.5, WR30-45%=72). (5) Gate 10 boot banner: WR<20%→80 was wrong (that's WR<18% tier); fixed to WR18-20%→79|WR<18%→80 which matches the two-tier code. v180→v181 [v180.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
+[v182.0] | v183.0-THREE-BUG-FIX: (1) Gate 3 error message: failure log reported ai_threshold (original, e.g. 93%) instead of _g3_ai_threshold (direction-regime-relief-adjusted, e.g. 92%) — when F&G<35+SELL or F&G>65+BUY relief fires, the message falsely claimed "confidence < 93%" while the real gate used 92%; now uses _g3_ai_threshold in the f-string. (2) GCLH trigger + early-exit threshold mismatch: v151.0 changelog documented "28.5%→30%" but the actual code never updated — both the trigger condition (_gclh_wr_pct_cur < 0.285) and the early-exit guard (_gclh_wr_pct >= 0.285) still used 0.285; fixed both to 0.30 matching the intended v151.0 spec; GCLH now correctly fires at WR<30% (was silently requiring WR<28.5%, 1.5pp too conservative, letting 28.6–29.9% WR signals through the 3-consec-loss block that v151.0 was designed to catch). (3) NN trainer small-dataset look-ahead bias: n<30 fallback used np.random.permutation — randomly assigning future trades to training and past to validation; replaced with the same temporal-ordering as the n≥30 path (oldest 75% → train, newest 25% → validation, no embargo at this scale); prevents validation accuracy inflation and overfitting masking in the NN retrainer. v182→v183 [v181.0] | v182.0-ANALYTICS-WIRING-FIX: 12 gates from v165.0–v170.0 (G8.5AM/AN/AO/AP/AQ/AR/AS/AT/AU/AV/AW/AX) were missing from _gate_stats boot-time init, _GATE_DISPLAY_LABELS, and _SOFT_GATE_KEYS since introduction. Root cause: the v163.0 gate-stats block (gate_g85ak/al) was followed immediately by the v171.0 block — the v165-v170 batch was never inserted. Consequence: (1) gate_stats_summary() showed raw dict keys ("gate_g85am_ghtf") instead of short labels ("G8.5AM") because _GATE_DISPLAY_LABELS had no entry; (2) gate_bottleneck_str() classified all 12 as hard-gates (not in _SOFT_GATE_KEYS) — they appeared as #1-#3 fake bottlenecks at every evaluation, masking real tunable bottlenecks (G0/G4/G0.5); (3) boot-time gate_stats_summary was incomplete (missing 12 entries until first signal fired _record()'s setdefault fallback). Gates were recording correctly (setdefault guard in _record prevents crash) but analytics were corrupted. Fix: added 12 _gate_stats+_gate_stats_recent entries (v165-v170 block), 10 _GATE_DISPLAY_LABELS entries (AM–AV; AW/AX were already present), 10 _SOFT_GATE_KEYS entries (AM–AV; AW/AX already present). AST-verified. v181→v182 [v178.0] | v181.0-MULTI-BUG-FIX: (1) G8.5CORR overconsensus dampener expanded: added 15 missing sentinels — _last_g85a5_svc (v127 SVC gate was absent from clawback since introduction) + 14 v169-v175 score-adjuster gates (GWFV/GDDV/GHRZ/GALP/GVLR/GRLB/GLTB/GCMS/GDSA/GEVL/GRDC/GXWI/GPEL/GLCV). All store float ±values; int() cast produces ±1/0 votes correctly. Dampener now covers 80 sentinels (was 65). (2) G8.5V VibePool _record inside try: if get_vibe_consensus raised an exception (model timeout, JSON parse error) the self._record("gate_vibe",...) was silently skipped → gate appeared as "0 evaluated" in analytics despite firing every signal. Fixed: _vibe_delta=0.0 initialized OUTSIDE the if-block; single self._record("gate_vibe", _vibe_delta>=0) called OUTSIDE the try/except. (3) G8.5sq StochasticQuant + G8.5q QuantDinger: both soft-quality-adjuster gates (±6pt/±3pt quality caps) had NO self._record(), NO _gate_stats init, NO _GATE_DISPLAY_LABELS, NO _SOFT_GATE_KEYS entry — completely invisible to gate analytics since introduction. Fixed: _sq_adj_outer/_q_adj safe-default vars outside try; self._record() after except; full _gate_stats+_gate_stats_recent+display+soft_keys wiring. (4) IRONS docstring (update_adaptive_irons) corrected from v147.0 stale values (base=75, WR<20%=78) to current v152.0 values (base=77, WR<18%=80, WR18-20%=79, WR<25%=78.5, WR30-45%=72). (5) Gate 10 boot banner: WR<20%→80 was wrong (that's WR<18% tier); fixed to WR18-20%→79|WR<18%→80 which matches the two-tier code. v180→v181 [v180.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
 ~59-gate "3-vote Triple/Composite" meta-gate family (G8.5A3..G8.5Z5, v93.0-v143.0) chains
 earlier meta-gate OUTPUTS as inputs to later meta-gates, so the same few true-independent
 primitives (OFI/HMM/GEX/VPIN/funding/WR-trajectory) get re-scored dozens of times as if each
@@ -3059,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "182.0"
+UNITY_VERSION                = "183.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -7284,7 +7284,10 @@ class UnitySignalFilter:
         if _gclh_enabled:
             # Check if currently in GCLH cooldown
             if self._gclh_until > _now_gclh:
-                # Allow early exit if WR has recovered above 28.5% (regime normalised)
+                # Allow early exit if WR has recovered above 30% (regime normalised).
+                # v183.0-FIX: was 0.285 — the v151.0 changelog documented this as
+                # "28.5%→30%" but only updated the trigger comment, not the early-exit
+                # threshold.  Fixed to 0.30 to match the documented trigger level.
                 _gclh_wr_raw = 0.0
                 try:
                     _gclh_wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0)
@@ -7292,7 +7295,7 @@ class UnitySignalFilter:
                     _gclh_wr_raw = 0.0
                 # win_rate returns 0-100 scale (e.g. 29.0 = 29%); normalise to 0-1
                 _gclh_wr_pct = (_gclh_wr_raw / 100.0) if _gclh_wr_raw > 1.0 else _gclh_wr_raw
-                if _gclh_wr_pct >= 0.285:
+                if _gclh_wr_pct >= 0.30:
                     # Regime recovered — cancel GCLH cooldown early
                     self._gclh_until = 0.0
                 else:
@@ -7316,11 +7319,11 @@ class UnitySignalFilter:
                 except Exception:
                     pass
             # v155.0 GCLH ultra-crisis tier: WR<26% + 2 losses → 30min block (fires 1 loss
-            # earlier when WR is in deep crisis below the 28.5% standard threshold).
+            # earlier when WR is in deep crisis below the 30% standard threshold).
             # At WR=25-26% each additional loss has outsized probability given adverse
             # selection has structurally shifted; 2 losses are statistically sufficient.
             _gclh_ultra_trigger = (
-                _gclh_wr_pct_cur < 0.26           # deep crisis (below 28.5% standard)
+                _gclh_wr_pct_cur < 0.26           # deep crisis (below 30% standard threshold)
                 and _gclh_consec >= 2              # 2-loss streak (1 earlier than standard tier)
                 and _gclh_consec < CONSEC_LOSS_HARD_CUTOFF
             )
@@ -7333,8 +7336,10 @@ class UnitySignalFilter:
                     f"({_gclh_consec} consec losses) → 30min hard-block [v155.0]",
                     0.0,
                 )
+            # v183.0-FIX: trigger threshold was 0.285 (28.5%) — the v151.0 changelog
+            # documented "28.5%→30%" but the code was never updated.  Fixed to 0.30.
             _gclh_trigger = (
-                _gclh_wr_pct_cur < 0.285          # confirmed crisis regime (<28.5%)
+                _gclh_wr_pct_cur < 0.30           # confirmed crisis regime (<30%) [v151.0: 28.5%→30%; v183.0-FIX applied]
                 and _gclh_consec >= 3              # 3-loss streak (below hard-cutoff of 4)
                 and _gclh_consec < CONSEC_LOSS_HARD_CUTOFF  # Tier 2 not yet fired
             )
@@ -9402,7 +9407,12 @@ class UnitySignalFilter:
         passed_g3 = confidence >= _g3_ai_threshold
         self._record("gate3", passed_g3)
         if not passed_g3:
-            return False, f"G3_FAIL: confidence={confidence:.1f}% < {ai_threshold:.0f}%", 0.0
+            # v183.0-FIX: report _g3_ai_threshold (relief-adjusted) not ai_threshold (original).
+            # When direction-regime relief fires (F&G<35+SELL or F&G>65+BUY), _g3_ai_threshold is
+            # ai_threshold-1.0 (e.g. 92%) but the old message showed ai_threshold=93%, making logs
+            # falsely report that a 92%-confidence signal failed a 93% threshold even though it
+            # actually failed the correct 92% threshold (confidence was even lower).
+            return False, f"G3_FAIL: confidence={confidence:.1f}% < {_g3_ai_threshold:.0f}%", 0.0
         quality_score += min(20.0, (confidence / 100.0) * 20.0)
 
         # ── Gate 4 — Neural network ───────────────────────────────────────────
