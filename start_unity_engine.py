@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unity Engine v179.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v180.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 166-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
  v175.0 improvements [2026-07-03]:
@@ -1215,7 +1215,7 @@ gates look "alive" on dashboards while their actual filtering/scoring effect was
 references across all 36 blocks (lines 19182-20931), verified with a scoped diff (no other
 code touched) and a full `ast.parse` syntax check. This is very likely the primary reason
 live WR stayed ~29% despite v142-v177 "improvements" — none of that logic ever executed.
-[v178.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
+[v178.0] | v180.0-DEAD-GATE-FIX: G2.5b(PatternRecognition) + G2.5c(VolConfirmation) were silent dead-recording gates since v11.0/v18.19 — both scored quality_score but had NO self._record() call, making them invisible to /gates endpoint, gate_stats_summary(), and gate_bottleneck_str(). Fixed: _g25b_adj tracking var (initialized outside try so _record always fires even if pattern_rec=None); _vcr default=1.0 outside try (guarantees _record fires every cycle on G2.5c). Both wired to _gate_stats init + _GATE_DISPLAY_LABELS + _SOFT_GATE_KEYS. G8.5CORR dampener expanded: 6 missing v119-v120 composite gates (G8.5H4/I4/J4/L4/M4/N4: TimesFM+DD+MultiScale families) were absent from the Wilson/√corr clawback sentinel list — added _last_g85h4_tpe/_last_g85i4_dgc/_last_g85j4_tfms/_last_g85l4_wsd/_last_g85m4_ofm/_last_g85n4_tfc (corr vote logic is sign-only so int-compatible). PersistenceRaceFixed+DeadGatesFixed+CORRExpanded [v180.0] | v179.0-OVERCONSENSUS-FIX: added G8.5CORR Family Correlation Dampener — the
 ~59-gate "3-vote Triple/Composite" meta-gate family (G8.5A3..G8.5Z5, v93.0-v143.0) chains
 earlier meta-gate OUTPUTS as inputs to later meta-gates, so the same few true-independent
 primitives (OFI/HMM/GEX/VPIN/funding/WR-trajectory) get re-scored dozens of times as if each
@@ -3059,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "179.0"
+UNITY_VERSION                = "180.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -5957,6 +5957,11 @@ class UnitySignalFilter:
         self._vibe_pool: Optional["VibeAgentPool"] = None
         self._gate_stats["gate_vibe"] = {"pass": 0, "fail": 0}
         self._gate_stats_recent["gate_vibe"] = deque(maxlen=self._gate_stats_window_n)
+        # v180.0: G2.5b Pattern Recognition bias + G2.5c Volume Confirmation bias — wire _record()
+        self._gate_stats["gate_g25b"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g25b"] = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g25c"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g25c"] = deque(maxlen=self._gate_stats_window_n)
         # v51.0: G8.5w MTF-Momentum + G8.5x LiqCascade-Dir — add to stats tracking so
         # they appear in gate_stats_summary(), gate_bottleneck_str(), and /gates endpoint.
         # pass = gate had sufficient data and evaluated; fail = no data, gate skipped.
@@ -9276,6 +9281,8 @@ class UnitySignalFilter:
         # Net score in [-8, +8]: positive = bullish setup, negative = bearish.
         # Directionally aligned patterns add quality; opposed patterns subtract.
         # No hard-veto: patterns are advisory (noise on short timeframes).
+        # v180.0: wired _record("gate_g25b",...) — was dead-recording (invisible to /gates)
+        _g25b_adj = 0.0   # v180.0: track adjustment for _record; 0=neutral→pass
         _pattern_rec = getattr(self, "_pattern_recognizer", None)
         if _pattern_rec is not None:
             try:
@@ -9291,11 +9298,14 @@ class UnitySignalFilter:
                         (direction == "SELL" and _net > 2.0)
                     )
                     if _aligned:
-                        quality_score += min(8.0, abs(_net))
+                        _g25b_adj = min(8.0, abs(_net))
+                        quality_score += _g25b_adj
                     elif _opposed:
-                        quality_score -= min(6.0, abs(_net) * 0.75)
+                        _g25b_adj = -min(6.0, abs(_net) * 0.75)
+                        quality_score += _g25b_adj
             except Exception:
                 pass   # never let pattern errors kill gate processing
+        self._record("gate_g25b", _g25b_adj >= 0)  # v180.0: neutral/positive=pass, opposed=fail
 
         # ── Gate 2.5c — Volume Confirmation Quality Bias (v18.19) ─────────────
         # Candle volume relative to 20-period average confirms institutional
@@ -9304,6 +9314,8 @@ class UnitySignalFilter:
         # volume_ratio = current_candle_volume / rolling_20bar_mean_volume.
         # Source: passed by fxsusdt_telegram_bot.py OHLCV pre-computation pass.
         # Additive with IRONS vol-confirmation score (independent signal dimension).
+        # v180.0: _vcr default 1.0 (neutral) so _record always fires even on exception
+        _vcr = 1.0  # v180.0: safe default outside try — guarantees _record fires every cycle
         try:
             _vcr = float(signal_data.get("volume_ratio", 1.0) or 1.0)
             try:
@@ -9331,6 +9343,7 @@ class UnitySignalFilter:
                 )
         except Exception:
             pass
+        self._record("gate_g25c", _vcr >= 0.7)  # v180.0: always fires (default _vcr=1.0); <0.7×avg=fail
 
         # ── Gate 3 — AI confidence (RL-adaptive threshold) ────────────────────
         # v37.0 STRICT: G3 soft-pass removed AND G3 drought relaxation removed.
@@ -19496,6 +19509,9 @@ class UnitySignalFilter:
                 "_last_g85v5_mfa", "_last_g85w3_mot", "_last_g85w5_wnz", "_last_g85x3_cds",
                 "_last_g85x5_adf", "_last_g85y3_mcs", "_last_g85y5_pco", "_last_g85z3_rqt",
                 "_last_g85z5_ics",
+                # v180.0: add missing v119-v120 composite gates omitted from original dampener list
+                "_last_g85h4_tpe", "_last_g85i4_dgc", "_last_g85j4_tfms",
+                "_last_g85l4_wsd", "_last_g85m4_ofm", "_last_g85n4_tfc",
             )
             _corr_votes = []
             for _attr in _corr_sentinels:
@@ -21923,6 +21939,8 @@ class UnitySignalFilter:
         "gate1":           "G1",
         "gate2":          "G2",
         "gate_book_imb":  "G2.5",   # v9.6: orderbook imbalance veto (Bookmap)
+        "gate_g25b":      "G2.5b",  # v180.0: Technical Pattern Recognition bias (24-candle+8-chart patterns, ±adj)
+        "gate_g25c":      "G2.5c",  # v180.0: Volume Confirmation Quality Bias (vol_ratio vs 20-bar avg, ±adj)
         "gate3":          "G3",
         "gate4":          "G4",
         "gate5":          "G5",
@@ -22222,6 +22240,8 @@ class UnitySignalFilter:
             "gate_g85y5_pco",          # PCA-Signal-Orthogonality FLOAM-IR Gate +2.0/+1.0/-1.0/-2.0/-3.5pts emergency [v143.0]
             "gate_g85z5_ics",          # Information-Coefficient-Sharpe FLOAM-IR Gate +2.0/+1.0/-1.0/-2.0/-3.5pts emergency [v143.0]
             "gate_g85corr_fcd",        # Triple-X Family Correlation Dampener — Wilson/√corr clawback adjuster — cannot block a signal [v179.0]
+            "gate_g25b",               # Pattern Recognition bias — quality adjuster (±adj, neutral=pass) — cannot block a signal [v180.0]
+            "gate_g25c",               # Volume Confirmation bias — quality adjuster (vol_ratio gate) — cannot block a signal [v180.0]
             "gate_g85aa_cwd",          # Confidence-WR Divergence Penalty -1.5/-1.0pts penalty — cannot block a signal [v157.0]
             "gate_g85ab_xrsi",         # RSI Extreme Direction Penalty -2.5/-1.5pts chase anti-signal (WR<35%) — cannot block a signal [v158.0]
             "gate_g85ac_dlb",          # Direction Long Bias Penalty -1.5/-1.0pts (LONG at WR<32%) — cannot block a signal [v159.0]
