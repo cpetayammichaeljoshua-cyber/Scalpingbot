@@ -3399,7 +3399,15 @@ class NeuralSignalTrainer:
             if n >= 30:   # v61.0: threshold 40→30 — walk-forward starts 10 samples earlier
                 _oos_n     = max(10, int(n * 0.20))   # 20% out-of-sample holdout
                 _train_end = n - _oos_n               # last training index (exclusive)
-                _embargo   = min(3, _train_end // 10) # embargo: up to 3 boundary samples
+                _embargo   = min(5, _train_end // 8)  # v187.0: embargo up to 5 boundary samples
+                # GBT CPCV embargo tightened: min(3,end//10) → min(5,end//8).
+                # Rationale: rolling features (10-bar OFI ring, VPIN, EMA-8, HMM state)
+                # have lookback windows of 8-20 bars. A 3-sample cap provided only ~9-21
+                # minutes of purge at 3-7 min candle resolution — insufficient to break
+                # autocorrelation in the longer-lookback features. New formula:
+                #   n=30 → embargo=3 (was 2); n=50 → embargo=5 (was 3);
+                #   n=100 → embargo=5 (was 3); n=300 → embargo=5 (was 3).
+                # Consistent with the Torch embargo added in v186.0 (_emb_n cap=5).
                 _va_idx    = list(range(_train_end, n))
                 _tr_idx    = list(range(0, _train_end - _embargo))
                 X_tr_raw   = X_all[_tr_idx]
@@ -3637,7 +3645,7 @@ class NeuralSignalTrainer:
                 if n >= 60:
                     _cpcv_accs = []
                     for _sp in [n // 4, n // 2, (3 * n) // 4]:
-                        _purge  = min(3, _sp // 10)
+                        _purge  = min(5, _sp // 8)   # v188.0: sync CPCV K=3 purge with main WF embargo (was min(3,//10) → min(5,//8)); rolling features (OFI ring, VPIN, HMM) need ≥5 boundary samples to break autocorrelation
                         _tr_i   = list(range(0, _sp - _purge))
                         _te_end = min(_sp + max(8, n // 3), n)
                         _te_i   = list(range(_sp, _te_end))
