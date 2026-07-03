@@ -2238,12 +2238,21 @@ class TorchTransformerPredictor:
             self._model.to(device)
 
             n_val = max(4, int(len(X_norm) * 0.15))
-            X_tr, X_va = X_norm[:-n_val], X_norm[-n_val:]
-            y_tr, y_va = y[:-n_val].flatten(), y[-n_val:].flatten()
+            # v186.0-FIX: add embargo at Torch train/val boundary to prevent look-ahead
+            # bias from autocorrelated features spanning the split (same pattern as GBT
+            # walk-forward CV at line ~3393 which uses _embargo=min(3,train_end//10)).
+            # Purge min(5, n_val//4) samples from the END of the training window so that
+            # features computed from lookback windows (OFI ring, VPIN, EMA, etc.) that
+            # straddle the boundary cannot leak future information into training labels.
+            # At n_val=4 → embargo=1; at n_val=20 → embargo=5 (capped).
+            _emb_n = min(5, max(1, n_val // 4))
+            X_tr, X_va = X_norm[:-(n_val + _emb_n)], X_norm[-n_val:]
+            y_tr, y_va = y[:-(n_val + _emb_n)].flatten(), y[-n_val:].flatten()
 
             # v18.92: Build training sample weights tensor (time-decay or uniform)
+            # v186.0: slice uses -(n_val+_emb_n) to match the embargoed train split
             if sample_weight is not None and len(sample_weight) == len(X_norm):
-                _sw_tr = sample_weight[:-n_val].astype("float32")
+                _sw_tr = sample_weight[:-(n_val + _emb_n)].astype("float32")
                 _sw_tr = _sw_tr / float(_sw_tr.mean() + 1e-8)   # normalise mean=1.0
                 sw_tr_t = _torch.tensor(_sw_tr, dtype=_torch.float32)
             else:

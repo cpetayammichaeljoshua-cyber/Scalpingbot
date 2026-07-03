@@ -1,3 +1,4 @@
+- [Unity Engine v186.0 precision bug-fix](unity-engine-v186.md) — Torch embargo+CORR avg_pt 1.75→1.60+CORR 10 missing v163-v168 sentinels (80→90)+SCAN_PARALLEL 114→110
 - [Unity Engine v185.0 console compaction](unity-engine-v185.md) — 5 display fixes: RL Risk/SwarmBT/health/GCLH-GSLK labels/Markov; W=84 box inner=80 chars rule
 - [Unity Engine v184.0 dead-gate fix](unity-engine-v184.md) — G8.5Y5-PCO+G8.5Z5-ICS missing _gate_stats_recent since v143.0; parity-check pattern documented
 - [Unity Engine v184.0 dead-gate fix](unity-engine-v184.md) — G8.5Y5-PCO+G8.5Z5-ICS missing _gate_stats_recent since v143.0; parity check pattern documented
