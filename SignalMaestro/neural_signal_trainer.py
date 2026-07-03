@@ -78,8 +78,8 @@ except ImportError:
 WEIGHTS_PATH       = os.path.join(os.path.dirname(__file__), "nn_weights.json")
 TORCH_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "torch_transformer_weights.pt")
 
-# Transformer tokenisation: reshape 415 features → 83 tokens × 5 dims (415 = 83 × 5) [v174.0: 82×5=410→83×5=415; v173.0: 81×5=405→82×5=410; v172.0: 81×5=405; v171.0: 80×5=400; v170.0: 79×5=395; v143.0: 73×5=365; v141.0: 70×5=350]
-_TORCH_N_TOKENS  = 83   # v174.0: 82→83 (+5 GRDC+WRQSCoherence+GXWI+MakerCheckerDiv+RoleWorkflowComposite features F411-F415)
+# Transformer tokenisation: reshape 420 features → 84 tokens × 5 dims (420 = 84 × 5) [v175.0: 83×5=415→84×5=420; v174.0: 82×5=410→83×5=415; v173.0: 81×5=405→82×5=410; v172.0: 81×5=405; v171.0: 80×5=400; v170.0: 79×5=395; v143.0: 73×5=365; v141.0: 70×5=350]
+_TORCH_N_TOKENS  = 84   # v175.0: 83→84 (+5 GPEL+GPELStreak+GLCV+GLCVVarDelta+LoopPromptComposite features F416-F420)
 _TORCH_TOKEN_DIM = 5   # INPUT_DIM // _TORCH_N_TOKENS  (v17: 100=20×5; v85.0: 125=25×5; v87.0: 130=26×5; v88.0: 135=27×5; v89.0: 140=28×5; v90.0: 145=29×5; v93.0: 160=32×5; v94.0: 165=33×5; v95.0: 170=34×5; v96.0: 175=35×5; v97.0: 180=36×5; v102.0: 185=37×5; v105.0: 200=40×5; v106.0: 205=41×5; v107.0: 210=42×5; v108.0: 215=43×5; v109.0: 220=44×5; v110.0: 225=45×5; v111.0: 230=46×5; v113.0: 235=47×5; v117.0: 255=51×5; v118.0: 260=52×5; v124.0: 285=57×5; v125.0: 290=58×5; v126.0: 295=59×5; v127.0: 300=60×5; v132.0: 305=61×5; v133.0: 310=62×5; v134.0: 315=63×5; v135.0: 320=64×5; v136.0: 325=65×5; v137.0: 330=66×5; v138.0: 335=67×5; v139.0: 340=68×5; v140.0: 345=69×5; v141.0: 350=70×5; v163.0: 365=73×5; v170.0: 395=79×5)
 _TORCH_D_MODEL   = 32  # compact hidden dim for fast CPU training
 
@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 415  # v80 (v174.0): 410 + 5 GRDCgate+WRQSCoherence+GXWIgate+MakerCheckerDiv+RoleWorkflowComposite = 415 [v173.0: 410=82×5; v172.0: 405=81×5; v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5; Weight auto-reset on INPUT_DIM 410→415 mismatch]
+INPUT_DIM          = 420  # v81 (v175.0): 415 + 5 GPELgate+GPELStreak+GLCVgate+GLCVVarDelta+LoopPromptComposite = 420 [v174.0: 415=83×5; v173.0: 410=82×5; v172.0: 405=81×5; v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5; Weight auto-reset on INPUT_DIM 415→420 mismatch]
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1879,6 +1879,29 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(0.0, min(1.0,  _v80_f414)))                                      # 414 maker_checker_div
     _v80_f415 = _safe_float(trade.get("role_workflow_composite", 0.5), 0.5)
     f.append(max(0.0, min(1.0,  _v80_f415)))                                      # 415 role_workflow_composite
+
+    # ── v81 (v175.0): F416-F420 — GPEL+GLCV Prompt-Loop Features ─────────────
+    # GPEL (165th gate): Prompt-Edge-Lock Streak — detects RECURRING low/high
+    #   quality_score_ring streaks and permanently escalates penalty/bonus.
+    # GLCV (166th gate): Loop-Convergence-Velocity — measures whether the
+    #   evaluate-iterate loop (quality_score_ring cycles) is converging or diverging.
+    # Technique 4 (Prompt Refinement / The Loop) + Technique 5 (Loop Engineering).
+    # Zero-padded backward-compat for trades stored before v175.0.
+    # F416: bg_gpel_gate          — GPEL state {-2.0→0.0, -1.0→0.25, 0→0.5, +1.0→1.0} [0,1]
+    # F417: gpel_streak_norm      — low/high streak length normalised [0,1]; 0.5=no streak
+    # F418: bh_glcv_gate          — GLCV state {-2.0→0.0, -1.0→0.25, 0→0.5, +1.0→1.0} [0,1]
+    # F419: glcv_var_delta_norm   — normalised quality_score_ring variance delta [0,1]; 0.5=stable
+    # F420: loop_prompt_composite — mean(F416,F418) meta-composite of both v175 gates
+    _v81_f416 = _safe_float(trade.get("bg_gpel_gate",           0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v81_f416)))                                      # 416 bg_gpel_gate
+    _v81_f417 = _safe_float(trade.get("gpel_streak_norm",       0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v81_f417)))                                      # 417 gpel_streak_norm
+    _v81_f418 = _safe_float(trade.get("bh_glcv_gate",           0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v81_f418)))                                      # 418 bh_glcv_gate
+    _v81_f419 = _safe_float(trade.get("glcv_var_delta_norm",    0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v81_f419)))                                      # 419 glcv_var_delta_norm
+    _v81_f420 = _safe_float(trade.get("loop_prompt_composite",  0.5), 0.5)
+    f.append(max(0.0, min(1.0,  _v81_f420)))                                      # 420 loop_prompt_composite
 
     arr = np.array(f, dtype=np.float32)
     if arr.shape[0] < INPUT_DIM:
