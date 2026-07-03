@@ -1,3 +1,4 @@
+- [Unity Engine v189.0 GEX overconfidence dampener](unity-engine-v189.md) — G7 all 6 bonus paths WR-smoothed (×0.70-1.0 ramp 25%→40%); NEUTRAL/UNKNOWN +3.75→0; NaN-safe WR parse
 - [Unity Engine v188.0 absence-bias + CPCV fix](unity-engine-v188.md) — G4/G6/G7/G8 absence credits (+7.5/+3.75/+1.5/+2.5) removed→0; CPCV K=3 purge min(3,//10)→min(5,//8)
 - [Unity Engine v187.0 scoring/walk-forward fix](unity-engine-v187.md) — G5 no-data +3.0 overcounting→0+GBT CPCV embargo min(3,//10)→min(5,//8)+GBLK docstring stale
 - [Unity Engine v186.0 precision bug-fix](unity-engine-v186.md) — Torch embargo+CORR avg_pt 1.75→1.60+CORR 10 missing v163-v168 sentinels (80→90)+SCAN_PARALLEL 114→110

@@ -3059,7 +3059,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "188.0"
+UNITY_VERSION                = "189.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -12300,11 +12300,31 @@ class UnitySignalFilter:
                         f"G7_MISMATCH [{symbol}]: regime={regime} opposes {direction} "
                         f"(conf={gex_conf:.0f}<{GEX_MIN_CONFIDENCE}) → −18pts quality [v11.3]"
                     )
+                # v189.0: Smooth WR-aware dampener applied to ALL GEX bonus paths.
+                # Rationale: high dealer-flow confidence in a losing regime (WR<30%) is
+                # overconfidence, not conviction. GEX bonuses compress linearly between
+                # WR=25% (×0.70 floor) and WR=40% (×1.0 ceiling) — no hard cliff.
+                # Formula: mult = clamp(0.70 + (WR-0.25)/0.15 × 0.30, 0.70, 1.0)
+                #   WR≤25% → ×0.70 | WR=30% → ×0.80 | WR=35% → ×0.90 | WR≥40% → ×1.00
+                # Safe parsing: strips "%" suffix, handles 0-1 or 0-100 scale, clamps [0,1];
+                # on any failure defaults conservatively to WR=0.30 (partial dampening).
+                try:
+                    _gex_wr_raw = getattr(getattr(self, "_booster", None), "win_rate", 0.0)
+                    _gex_wr = float(str(_gex_wr_raw).strip("%").strip() or 0)
+                    _gex_wr = (_gex_wr / 100.0) if _gex_wr > 1.0 else _gex_wr
+                    _gex_wr = max(0.0, min(1.0, _gex_wr))  # clamp to valid [0,1]
+                    import math as _math
+                    if not _math.isfinite(_gex_wr):   # guard against NaN/Inf after clamp
+                        raise ValueError("non-finite")
+                except Exception:
+                    _gex_wr = 0.30  # conservative default → partial dampening
+                _gex_wr_mult = max(0.70, min(1.0, 0.70 + ((_gex_wr - 0.25) / 0.15) * 0.30))
+
                 if (regime == "POSITIVE" and direction == "BUY") or \
                    (regime == "NEGATIVE" and direction == "SELL"):
                     # v15.0: confidence-weighted GEX alignment bonus
                     # Higher dealer conviction aligned with direction → larger reward.
-                    # conf≥90: ultra-conviction  → +12pts
+                    # conf≥90: ultra-conviction  → +12pts (before WR dampener)
                     # conf≥80: strong conviction → +10pts
                     # conf< 80: standard          → +7.5pts
                     if gex_conf >= 90.0:
@@ -12313,15 +12333,21 @@ class UnitySignalFilter:
                         _gex_align_bonus = 10.0
                     else:
                         _gex_align_bonus = 7.5
+                    _gex_align_bonus *= _gex_wr_mult  # apply smooth WR dampener
                     quality_score += _gex_align_bonus
                     self._logger.debug(
                         f"✅ [{symbol}] GEX align bonus: {regime}+{direction} "
-                        f"conf={gex_conf:.0f} → +{_gex_align_bonus:.1f}pts [v15.0]"
+                        f"conf={gex_conf:.0f} WR={_gex_wr:.0%} wr_mult={_gex_wr_mult:.2f} "
+                        f"→ +{_gex_align_bonus:.1f}pts [v15.0+v189.0-WR-smooth]"
                     )
                 elif "FLIP" in regime:
-                    quality_score += 5.5   # flip zone breakout bonus (v5.2 new)
+                    # v189.0: WR dampener applied to FLIP bonus — FLIP zone in a losing
+                    # regime still overestimates momentum continuation probability.
+                    quality_score += 5.5 * _gex_wr_mult
                 else:
-                    quality_score += 3.75
+                    # v189.0-FIX: NEUTRAL/UNKNOWN GEX regime → 0pts.
+                    # No regime conviction = no quality credit. (was +3.75 absence-bias)
+                    quality_score += 0.0  # NEUTRAL/UNKNOWN → truly neutral
 
                 # ── v8.0 GEX Gamma Zero proximity bonus ─────────────────────
                 # When the entry price is within GEX_GAMMA_ZERO_PROX_PCT of the
@@ -12334,11 +12360,16 @@ class UnitySignalFilter:
                 if _gamma_zero and entry:
                     _gz_dist_pct = abs(entry - _gamma_zero) / entry
                     if _gz_dist_pct <= GEX_GAMMA_ZERO_PROX_PCT:
-                        quality_score += GEX_GAMMA_ZERO_QUALITY_BONUS
+                        # v189.0: WR dampener applied — GZ proximity still informative but
+                        # over-credited in low-WR regimes. Floor at ×0.80 (lighter than
+                        # alignment bonus floor ×0.70 — GZ is price-level, not confidence).
+                        _gz_prox_mult = max(0.80, _gex_wr_mult)
+                        quality_score += GEX_GAMMA_ZERO_QUALITY_BONUS * _gz_prox_mult
                         self._logger.debug(
                             f"🎯 [{symbol}] Gamma Zero proximity: entry={entry:.4f} "
                             f"GZ={_gamma_zero:.4f} dist={_gz_dist_pct:.3%} "
-                            f"→ +{GEX_GAMMA_ZERO_QUALITY_BONUS:.0f}pts"
+                            f"WR={_gex_wr:.0%} mult={_gz_prox_mult:.2f} "
+                            f"→ +{GEX_GAMMA_ZERO_QUALITY_BONUS * _gz_prox_mult:.1f}pts"
                         )
 
                 # ── v8.0 VOL TRIGGER directional alignment bonus ─────────────
@@ -12350,17 +12381,21 @@ class UnitySignalFilter:
                          getattr(gex_snapshot, "vt_up", 0)) or 0)
                 _vt_dn = float(getattr(gex_snapshot, "vol_trigger_dn",
                          getattr(gex_snapshot, "vt_dn", 0)) or 0)
+                # v189.0: Vol trigger bonuses also WR-dampened (floor ×0.80).
+                _vt_mult = max(0.80, _gex_wr_mult)
                 if direction == "BUY" and _vt_up and entry >= _vt_up:
-                    quality_score += GEX_VOL_TRIGGER_QUALITY_BONUS
+                    quality_score += GEX_VOL_TRIGGER_QUALITY_BONUS * _vt_mult
                     self._logger.debug(
                         f"📈 [{symbol}] VOL TRIGGER UP aligned: entry={entry:.4f} "
-                        f">= VT_UP={_vt_up:.4f} → +{GEX_VOL_TRIGGER_QUALITY_BONUS:.0f}pts"
+                        f">= VT_UP={_vt_up:.4f} WR={_gex_wr:.0%} "
+                        f"→ +{GEX_VOL_TRIGGER_QUALITY_BONUS * _vt_mult:.1f}pts"
                     )
                 elif direction == "SELL" and _vt_dn and entry <= _vt_dn:
-                    quality_score += GEX_VOL_TRIGGER_QUALITY_BONUS
+                    quality_score += GEX_VOL_TRIGGER_QUALITY_BONUS * _vt_mult
                     self._logger.debug(
                         f"📉 [{symbol}] VOL TRIGGER DN aligned: entry={entry:.4f} "
-                        f"<= VT_DN={_vt_dn:.4f} → +{GEX_VOL_TRIGGER_QUALITY_BONUS:.0f}pts"
+                        f"<= VT_DN={_vt_dn:.4f} WR={_gex_wr:.0%} "
+                        f"→ +{GEX_VOL_TRIGGER_QUALITY_BONUS * _vt_mult:.1f}pts"
                     )
 
                 # ── v8.0 Prompt 2: GEX Zero-Crossing hybrid strategy tag ────────
@@ -12390,19 +12425,23 @@ class UnitySignalFilter:
                         # Mean-reversion: BUY below GZ or SELL above GZ
                         if (direction == "BUY" and _gz_signed_dist < 0) or \
                            (direction == "SELL" and _gz_signed_dist > 0):
-                            quality_score += 3.0
+                            # v189.0: WR dampener applied (floor ×0.80 — price-level signal).
+                            _gz_mr_bonus = 3.0 * max(0.80, _gex_wr_mult)
+                            quality_score += _gz_mr_bonus
                             self._logger.debug(
                                 f"↩️  [{symbol}] GEX MEAN_REVERT: entry{'<' if _gz_signed_dist < 0 else '>'}GZ "
-                                f"({_gz_signed_dist:+.3%}) in FLIP ZONE → +3pts"
+                                f"({_gz_signed_dist:+.3%}) FLIP ZONE WR={_gex_wr:.0%} → +{_gz_mr_bonus:.1f}pts"
                             )
                     elif not _gz_close and abs(_gz_signed_dist) <= GEX_GAMMA_ZERO_PROX_PCT * 3:
                         # Trend-follow: price just crossed GZ — enter in crossing direction
                         if (direction == "BUY" and _gz_signed_dist > 0) or \
                            (direction == "SELL" and _gz_signed_dist < 0):
-                            quality_score += 4.0
+                            # v189.0: WR dampener applied (floor ×0.80 — price-level signal).
+                            _gz_tf_bonus = 4.0 * max(0.80, _gex_wr_mult)
+                            quality_score += _gz_tf_bonus
                             self._logger.debug(
                                 f"📐 [{symbol}] GEX TREND_FOLLOW: entry crossed GZ "
-                                f"({_gz_signed_dist:+.3%}) → momentum spike → +4pts"
+                                f"({_gz_signed_dist:+.3%}) WR={_gex_wr:.0%} → +{_gz_tf_bonus:.1f}pts"
                             )
 
             except Exception as e:
