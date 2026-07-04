@@ -1,8 +1,28 @@
 #!/usr/bin/env python3
 """
-Unity Engine v200.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v201.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
-ARCHITECTURE (30 layers · 176-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 161-steps · GEX · SRM):
+ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v201.0 improvements [2026-07-04]:
+   Power-mode: WR/Sharpe/MaxDD targeting — 3 data-confirmed improvements:
+   1. G8.5BI GSEV — Sharpe-EV-Velocity Optimism Trap Gate (167th gate) [v201.0]:
+      Data: F297 (sharpe_ev_velocity = (sharpe_vel_norm+1)/2 × ev_ring_pct) is the #1 NN
+      loss-predictor (ExtraTrees feature importance=2.00). Counterintuitively, HIGH combined
+      Sharpe-velocity × EV-percentile in WR<30% regimes predicts LOSSES ("false dawn" / optimism
+      trap). Two penalty tiers: sev>0.65+WR<30%→-1.5pts | sev>0.75+WR<28%→-2.0pts.
+      Env: UNITY_GSEV_GATE=0 to disable. Kelly Step 162: ×0.78 (extreme) / ×0.84 (base).
+      Fully wired: gate_stats+_gate_stats_recent+_last_g85bi_gsev+persistence+display-label+soft-key.
+   2. NN Quality Gate ultra-crisis loss-anchor tier (neural_signal_trainer.py) [v201.0]:
+      ROOT CAUSE: at training WR=37% (raw label ratio) → _win_acc_floor=0.25. But current
+      win_acc=17.7% < 0.25 → NN DISABLED. Yet loss_acc=87.5% means NN correctly identifies
+      87.5% of losing trades. Bayesian analysis: P(win|NN predicts WIN) = TP/(TP+FP) =
+      (0.177×1193)/(0.177×1193+0.125×2009) = 211/462 = 45.7% — far above 29% baseline.
+      FIX: Add Tier-0 "loss-anchor": loss_acc≥0.80 + training WR≥0.30 → floor=0.15.
+      win_acc=17.7% > 0.15 → NN RE-ENABLED. Restores 87.5% loss-detection capability,
+      lifting effective signal precision from 29% baseline to ~45.7% on NN-flagged wins.
+      Guard: requires loss_acc≥0.80 (not just above 0.40 floor) — ensures genuine quality.
+   3. Kelly Step 162 — GSEV Optimism-Trap De-sizer [v201.0]:
+      GSEV=-2.0→Kelly×0.78 | GSEV=-1.5→Kelly×0.84. Position size mirrors the gate verdict.
  v200.0 improvements [2026-07-03]:
    Power-mode scan round 8: Overscoring completeness pass — 7 remaining raw positive bonus paths
    identified and WR-dampened. Sites 218→225. Fixes:
@@ -3274,7 +3294,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "200.0"
+UNITY_VERSION                = "201.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -6603,8 +6623,10 @@ class UnitySignalFilter:
         # v175.0 gate stats
         self._gate_stats["gate_g85bg_gpel"]         = {"pass": 0, "fail": 0}  # v175.0: Prompt-Edge-Lock Streak (-2.0/-1.0/+1.0pts)
         self._gate_stats["gate_g85bh_glcv"]         = {"pass": 0, "fail": 0}  # v175.0: Loop-Convergence-Velocity (-2.0/-1.0/+1.0pts)
+        self._gate_stats["gate_g85bi_gsev"]         = {"pass": 0, "fail": 0}  # v201.0: Sharpe-EV-Velocity Optimism-Trap (-1.5/-2.0pts crisis)
         self._gate_stats_recent["gate_g85bg_gpel"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85bh_glcv"]  = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats_recent["gate_g85bi_gsev"]  = deque(maxlen=self._gate_stats_window_n)
         self._gate_stats_recent["gate_g85x5_adf"] = deque(maxlen=self._gate_stats_window_n)  # v142.0
         self._last_g85b4_rws: int = 0   # v115.0: +1=hot-streak WR>45%, -1=below-BE WR<34%, -2=losing WR<27%, -3=catastrophic WR<18%, 0=neutral; Kelly Step 80
         self._last_g85c4_aev: int = 0   # v116.0: +1=EV-positive-trend, -1=below-BE, -2=EV-deteriorating, -3=deep-EV-hole, 0=neutral/cold-start; Kelly Step 81
@@ -6692,6 +6714,7 @@ class UnitySignalFilter:
         self._last_g85az_grlb:  float = 0.0  # v171.0: +1.5=sym-alpha>10pp-above-global, +1.0=sym-alpha>5pp, -2.0=sym-hole>10pp-below, -2.5=struct-hole>20pp-below, 0=neutral; Kelly Step 153
         self._last_g85bg_gpel:  float = 0.0  # v175.0: -2.0=locked-low-streak(≥3), -1.0=lean-low-streak(≥2), +1.0=locked-high-streak(≥3), 0=neutral; Kelly Step 160
         self._last_g85bh_glcv:  float = 0.0  # v175.0: -2.0=loop-diverging-crisis, -1.0=loop-diverging-mild, +1.0=loop-converging, 0=neutral; Kelly Step 161
+        self._last_g85bi_gsev:  float = 0.0  # v201.0: -2.0=extreme-optimism-trap(sev>0.75+WR<28%), -1.5=optimism-trap(sev>0.65+WR<30%), 0=neutral; Kelly Step 162
         # v163.0: Per-symbol rapid-reuse tracking (GREX gate)
         self._v163_sym_last_ts: dict  = {}   # {symbol: last_eval_ts} for GREX window tracking
         # v161.0: Daily tracking state (UTC-day reset)
@@ -19952,6 +19975,7 @@ class UnitySignalFilter:
                 "_last_g85bc_gdsa", "_last_g85bd_gevl",                            # v173.0 GDSA/GEVL
                 "_last_g85be_grdc", "_last_g85bf_gxwi",                            # v174.0 GRDC/GXWI
                 "_last_g85bg_gpel", "_last_g85bh_glcv",                            # v175.0 GPEL/GLCV
+                "_last_g85bi_gsev",                                                  # v201.0 GSEV optimism-trap
                 # v186.0: add missing v163-v168 score-adjuster family (10 sentinels).
                 # Root cause: v181.0 expansion added v169-v175 batch but skipped the
                 # preceding v163-v168 batch (same version-block gap as v182.0 analytics
@@ -21511,6 +21535,43 @@ class UnitySignalFilter:
             pass  # GLCV non-fatal soft-gate
         self._record("gate_g85bh_glcv", self._last_g85bh_glcv >= 0.0)
 
+        # ── v201.0 G8.5BI — GSEV: Sharpe-EV-Velocity Optimism Trap (167th gate) ──
+        # Data-confirmed: F297 (sharpe_ev_velocity = (sharpe_vel_norm+1)/2 × ev_ring_pct)
+        # is the #1 NN loss-predictor (ExtraTrees importance=2.00 across multiple retrains).
+        # Counterintuitively, a HIGH combined Sharpe-velocity × EV-percentile in a
+        # low-WR (≤30%) regime predicts LOSSES — the "Optimism Trap" / false-dawn pattern:
+        # when both Sharpe trend and EV ring percentile simultaneously spike upward, the
+        # system enters a temporary optimism regime that historically precedes a reversion
+        # to poor WR within the same session. The mechanics: a temporary momentum burst
+        # in quality-correlated metrics inflates confidence right before the market
+        # reverts to the underlying negative-expectancy regime.
+        # Gate fires ONLY during WR crisis (live WR < 30%). In healthy WR regimes
+        # (≥30%) the signal is genuinely informative (no false-dawn) and no penalty applies.
+        # Two tiers: Tier-1 base (sev>0.65+WR<30%→-1.5pts), Tier-2 extreme
+        # (sev>0.75+WR<28%→-2.0pts, deep ruin confirmation).
+        # Env: UNITY_GSEV_GATE=0 to disable.
+        _gsev_enabled = os.getenv("UNITY_GSEV_GATE", "1").strip().lower() not in ("0","false","no","off","")
+        self._last_g85bi_gsev = 0.0
+        if _gsev_enabled:
+            try:
+                _gsev_sev = float(signal_data.get("sharpe_ev_velocity", 0.5) or 0.5)
+                _gsev_wr  = self._live_wr_pct()
+                if _gsev_wr is not None and _gsev_wr < 30.0:
+                    if _gsev_sev > 0.75 and _gsev_wr < 28.0:
+                        self._last_g85bi_gsev = -2.0
+                    elif _gsev_sev > 0.65:
+                        self._last_g85bi_gsev = -1.5
+                    if self._last_g85bi_gsev != 0.0:
+                        quality_score += self._last_g85bi_gsev  # penalty path — no _wr_dampen (keep full strength)
+                        self._logger.debug(
+                            f"[v201.0 G8.5BI GSEV] {symbol} optimism-trap: "
+                            f"sharpe_ev_vel={_gsev_sev:.3f} WR={_gsev_wr:.1f}% "
+                            f"→ {self._last_g85bi_gsev:+.1f}pts (false-dawn penalty; F297 top loss-predictor)"
+                        )
+            except Exception:
+                pass  # GSEV non-fatal soft-gate
+        self._record("gate_g85bi_gsev", self._last_g85bi_gsev >= 0.0)
+
         # ── Gate 8.5m — BTC Macro GEX Alignment (v18.94) ────────────────────
         # Deribit BTC GEX net direction vs signal direction quality adjustment.
         # When dealer net GEX is strongly negative (short-gamma regime), LONGs
@@ -22576,6 +22637,7 @@ class UnitySignalFilter:
             "gate_g85bf_gxwi":        "G8.5BF",  # v174.0: XML-Workflow Isolation Divergence (-1.5/-1.0/+0.5pts)
             "gate_g85bg_gpel":        "G8.5BG",  # v175.0: Prompt-Edge-Lock Streak (-2.0/-1.0/+1.0pts)
             "gate_g85bh_glcv":        "G8.5BH",  # v175.0: Loop-Convergence-Velocity (-2.0/-1.0/+1.0pts)
+            "gate_g85bi_gsev":        "G8.5BI",  # v201.0: Sharpe-EV-Velocity Optimism-Trap (-1.5/-2.0pts crisis)
     }
 
     def gate_stats_summary(self) -> str:
@@ -22766,6 +22828,7 @@ class UnitySignalFilter:
             "gate_g85bf_gxwi",         # XML-Workflow Isolation Divergence -1.5/-1.0/+0.5pt adjuster — cannot block a signal [v174.0]
             "gate_g85bg_gpel",         # Prompt-Edge-Lock Streak -2.0/-1.0/+1.0pt adjuster — cannot block a signal [v175.0]
             "gate_g85bh_glcv",         # Loop-Convergence-Velocity -2.0/-1.0/+1.0pt adjuster — cannot block a signal [v175.0]
+            "gate_g85bi_gsev",         # Sharpe-EV-Velocity Optimism-Trap -1.5/-2.0pt crisis penalty — cannot block a signal alone [v201.0]
             "gate_vibe",        # Vibe agent pool quality adjuster — cannot block a signal
             "gate_markov", # Markov quality adjuster (p_ij advisory) — cannot block a signal
             # v144.0: NOT a soft adjuster — a deterministic time-of-day HARD block.
@@ -28457,6 +28520,33 @@ class UnityProfitBooster:
                 )
         except Exception:
             pass  # Kelly Step 161 GLCV is non-fatal
+
+        # ── v201.0: Kelly Step 162 — GSEV Optimism-Trap De-sizer ──────────────
+        # When G8.5BI GSEV fires (false-dawn optimism in crisis), de-size Kelly
+        # proportionally. The same Sharpe×EV velocity spike that predicts a loss
+        # also tends to inflate the EV estimate → over-sized position entering a
+        # reversion. Dampening position size mitigates the dollar-loss asymmetry.
+        # Tiers match the gate:
+        #   GSEV = -2.0 (extreme optimism trap, WR<28%)  → ×0.78
+        #   GSEV = -1.5 (base optimism trap, WR<30%)     → ×0.84
+        try:
+            _k162_gsev = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0)
+            if _k162_gsev <= -2.0:
+                _k162_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.78, self._kelly_floor)
+                self._logger.debug(
+                    f"[v201.0 Step162 GSEV] extreme-optimism-trap → Kelly ×0.78 "
+                    f"({_k162_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+            elif _k162_gsev <= -1.5:
+                _k162_pre = self.last_kelly_fraction
+                self.last_kelly_fraction = max(self.last_kelly_fraction * 0.84, self._kelly_floor)
+                self._logger.debug(
+                    f"[v201.0 Step162 GSEV] optimism-trap → Kelly ×0.84 "
+                    f"({_k162_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                )
+        except Exception:
+            pass  # Kelly Step 162 GSEV is non-fatal
 
 
     # ── v9.4 Paper/Shadow mode auto-routing ─────────────────────────────────

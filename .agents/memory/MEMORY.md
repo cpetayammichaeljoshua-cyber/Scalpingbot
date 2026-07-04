@@ -1,3 +1,4 @@
+- [Unity Engine v201.0 — WR/Sharpe/MaxDD targeted improvements](unity-engine-v201.md) — G8.5BI GSEV (167th gate, F297 optimism-trap); NN loss-anchor tier (win_acc floor 0.25→0.15 at loss_acc≥80%); Kelly Step 162
 - [Unity Engine v200.0 overscoring sweep — round 8 final pass](unity-engine-v200.md) — 7 IT/PBO/VPIN/Vibe positive paths WR-dampened; local-var pattern for logs; G8.5V dampened-vs-raw log note; sites 218→225
 - [Unity Engine v199.0 overscoring dampener completeness pass](unity-engine-v199.md) — 9 straggler positive bonuses WR-dampened; explorer-audit false positives documented (kelly_ceil already fixed, GSDD/GHTF not double-record)
 - [Unity Engine v198.0 overscoring sweep completion](unity-engine-v198.md) — all 126 remaining variable `_xxx_adj` bonus sites bulk-wrapped (safe: wr_dampen no-ops negatives); sweep started v178 now closed; sites 92→218

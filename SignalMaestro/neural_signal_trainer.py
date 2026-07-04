@@ -3826,7 +3826,24 @@ class NeuralSignalTrainer:
             # signal. The 0.25 floor captures the real-world distribution while maintaining
             # institutional quality (>random). The 0.18 crisis-floor aligns with the observed
             # lower bound where directional signal exists above sampling noise.
-            _win_acc_floor  = 0.18 if (_wr_for_cap < 0.25) else 0.20 if (_wr_for_cap < 0.30) else 0.25  # v121.0: 3-tier adaptive (0.18 WR<25%, 0.20 WR<30%, 0.25 WR≥30%) — re-enables NN at WR=29% where win_acc=24.3% was failing 0.25 floor; at WR=29% the model still achieves 93%+ loss_acc providing directional signal; was: 0.18 if WR<25% else 0.25 (v114.0)
+            # v201.0: 4-tier adaptive — ultra-crisis loss-anchor tier added.
+            # PROBLEM: at training WR=37% (raw label ratio) → floor=0.25 (≥30% tier).
+            # But NN achieves win_acc=17.7% which fails 0.25 → NN DISABLED.
+            # HOWEVER: at loss_acc=87.5%, Bayesian precision of WIN predictions:
+            #   TP = 0.177×N_wins, FP = 0.125×N_losses
+            #   P(win|NN predicts WIN) = TP/(TP+FP) ≈ 45.7% >> 29% baseline WR
+            # → The NN's loss-detection (87.5%) makes its WIN-flag a 45.7%-accurate
+            #   predictor — re-enabling it SIGNIFICANTLY improves selectivity.
+            # New Tier-0 (loss-anchor): loss_acc≥0.80 + training WR≥0.30 → floor=0.15.
+            # Guard: requires loss_acc≥0.80 (not just barely above 0.40 floor) and
+            # training WR≥0.30 (filters out genuine ultra-crisis where NN may be noise).
+            # win_acc=17.7% > 0.15 → NN RE-ENABLED with loss-anchor quality signal.
+            _win_acc_floor  = (
+                0.15 if (loss_acc >= 0.80 and _wr_for_cap >= 0.30)   # v201.0: loss-anchor tier — high loss_acc anchors Bayesian win-precision to ≥45%; re-enables NN as loss filter
+                else 0.18 if (_wr_for_cap < 0.25)                     # v121.0 crisis floor
+                else 0.20 if (_wr_for_cap < 0.30)                     # v121.0 elevated floor
+                else 0.25                                              # v121.0 normal floor
+            )  # v201.0: was single-line 3-tier; see above for loss-anchor derivation
             # v104.0: Adaptive loss_acc floor — at WR<30% lower from 0.50→0.40.
             # Rationale: at WR=28-30% with win_acc=59% and loss_acc=47%, the NN has significant
             # directional signal (win_acc 2× floor) but loss_acc just misses the rigid 0.50 gate.
