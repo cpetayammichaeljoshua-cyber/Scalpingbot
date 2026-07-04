@@ -1,3 +1,4 @@
+- [Unity Engine v206.0 — G9 FlowStack abs() overscoring bug](unity-engine-v206.md) — abs(_last_g85c_adj)>=2.0 fired stack bonus when G8.5C=-2.0 (max conflict); fix: remove abs(), positive-only
 - [Unity Engine v205.0 — SOFT_GATE_KEYS gap + swarm no-data dampener + banner fixes](unity-engine-v205.md) — gate_g85m/n missing from _SOFT_GATE_KEYS (bottleneck analytics corrupted); swarm +10 no-data raw→WR-dampened; banners 166-gate→167/Steps1-149→Steps1-162
 - [Unity Engine v204.0 — CORR sentinel gap + 3 undampened bias paths](unity-engine-v204.md) — gate_g85m/n missing from CORR sentinel (91→93); DBT/_sim/_fac positive biases now WR-dampened
 - [Unity Engine v203.0 — dead gate + GEX floor + Markov dampener fixes](unity-engine-v203.md) — gate_g85m/g85n dead since v18.94/v18.95; GEX sub-bonus floors 0.80→0.70; Markov positive delta now WR-dampened

@@ -3368,7 +3368,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "205.0"
+UNITY_VERSION                = "206.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -22360,15 +22360,18 @@ class UnitySignalFilter:
                 _g9_dir_sign  = 1 if (direction or "").upper() == "BUY" else -1
                 _g9_ofi_align = sum(1 for r in _g9_ofi_ring if r == _g9_dir_sign)
                 if _g9_ofi_align == 3:
-                    # G8.5C check: both HMM and GEX dual-confirm (g85c_adj must equal ±2.0)
-                    # We detect this by checking if the G8.5C gate fired at maximum
-                    # strength — use the stored _g85c_adj from this same evaluation
-                    if abs(getattr(self, "_last_g85c_adj", 0.0)) >= 2.0:
+                    # G8.5C check: both HMM and GEX dual-confirm in the SAME direction (+2.0 only).
+                    # v206.0-FIX: was abs(g85c_adj) >= 2.0 which incorrectly fired when
+                    # G8.5C = -2.0 (both HMM+GEX OPPOSE direction = maximum conflict).
+                    # A conflict between OFI and regime/GEX is NOT confluence — awarding
+                    # +1.0pt stack bonus on a maximal-negative G8.5C was overscoring.
+                    # Fix: remove abs() → only the positive dual-confirm case (+2.0) earns bonus.
+                    if getattr(self, "_last_g85c_adj", 0.0) >= 2.0:
                         _g9_stack_bonus = 1.0
                         quality_score += self._wr_dampen(_g9_stack_bonus)  # v199.0: WR-dampened
                         self._logger.debug(
                             f"⚡ [G9-FlowStack v74.0] {_g9_sb_sym} OFI3/3 + "
-                            f"RegimeCoh dual-confirm → +1.0pt stack bonus "
+                            f"RegimeCoh positive dual-confirm (+2.0) → +1.0pt stack bonus "
                             f"(quality now {quality_score:.1f})"
                         )
         except Exception:
