@@ -93,7 +93,7 @@ HURST_FEATURE_COUNT = 1  # v6 (HurstRegime): R/S-derived trending vs mean-revert
 EWMA_VOL_FEATURE_COUNT = 1  # v7 (EWMA-Vol): RiskMetrics λ=0.94 vol expansion/contraction signal
 SKEW_FEATURE_COUNT = 1  # v8 (RealSkew): Neuberger 2012 model-free realized skewness — third moment
 GEX_FEATURE_COUNT  = 5  # v9 (GEX): BTC GEX regime/conf/net/flip-count/proximity — institutional dealer positioning
-INPUT_DIM          = 420  # v81 (v175.0): 415 + 5 GPELgate+GPELStreak+GLCVgate+GLCVVarDelta+LoopPromptComposite = 420 [v174.0: 415=83×5; v173.0: 410=82×5; v172.0: 405=81×5; v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5; Weight auto-reset on INPUT_DIM 415→420 mismatch]
+INPUT_DIM          = 420  # v81 (v175.0): 415+5=420 (84×5). v202.0 BUG FIX: F281-F320 (40 features) were missing from build_features — array positions [280-379] held F321-F420 instead of [320-419]; zeros padded [380-419]. All 40 features now correctly inserted; feature layout: F1-F280 [0-279] + F281-F320 [280-319] + F321-F420 [320-419] = 420, zero padding eliminated. NN weights cleared and retrained. [v174.0: 415=83×5; v173.0: 410=82×5; v172.0: 405=81×5; v171.0: 400=80×5; v170.0: 395=79×5; v163.0: 365=73×5]
 
 # Agent order — all 10 votes used as features (FLOOPAgent added in v5.0 — INPUT_DIM 41→42)
 # IMPORTANT: Adding FLOOPAgent here changes W1 shape from (41,128) to (42,128).
@@ -1704,6 +1704,144 @@ def build_features(trade: Dict) -> "np.ndarray":
     f.append(max(-1.0, min(1.0, _v53_f279)))                                      # 279 ofi_persist_n
     _v53_f280 = _safe_float(trade.get("dd_norm",        0.0), 0.0)
     f.append(max(-1.0, min(0.0, _v53_f280)))                                      # 280 dd_norm (-maxdd/50)
+
+    # ── v54 (v124.0): F281-F285 — FearGreedNorm + TUCSentinel + CapReversal + QualityVelocity + TripleCrisisN ──
+    # F281: fg_norm          — Fear & Greed normalized [0,1] (0=extreme fear, 1=extreme greed)
+    # F282: tuc_sentinel     — G8.5U4 triple-crisis direction {-1,0,+1} as float
+    # F283: cap_reversal     — G8.5T4 capitulation reversal direction {-1,0,+1}
+    # F284: quality_velocity — recent quality_score trend: improving→+1 / deteriorating→-1 / flat→0
+    # F285: triple_crisis_n  — compound crisis level: -1=extreme / 0=neutral / +1=healthy
+    _v54_f281 = _safe_float(trade.get("fg_norm",           0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v54_f281)))                                      # 281 fg_norm
+    _v54_f282 = _safe_float(trade.get("tuc_sentinel",      0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v54_f282)))                                      # 282 tuc_sentinel
+    _v54_f283 = _safe_float(trade.get("cap_reversal",      0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v54_f283)))                                      # 283 cap_reversal
+    _v54_f284 = _safe_float(trade.get("quality_velocity",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v54_f284)))                                      # 284 quality_velocity
+    _v54_f285 = _safe_float(trade.get("triple_crisis_n",   0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v54_f285)))                                      # 285 triple_crisis_n
+
+    # ── v55 (v125.0): F286-F290 — EV Recovery + PnL Ring + WR-10 + EV Std + Filter Coherence ──
+    # F286: ev_recovery_rate  — normalized slope of booster ev_ring [-1,+1] (improving vs collapsing)
+    # F287: pnl_ring_mean     — mean of recent-20 pnl outcomes (+1/-1) [-1,+1]
+    # F288: wr_10trade_recent — fraction of wins in most recent 10 pnl_ring entries [0,1]
+    # F289: ev_ring_std_norm  — volatility of recent EV readings [0,1] (0=stable, 1=chaotic)
+    # F290: filter_coherence  — recent quality score ring mean normalized [0,1]
+    _v55_f286 = _safe_float(trade.get("ev_recovery_rate",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v55_f286)))                                      # 286 ev_recovery_rate
+    _v55_f287 = _safe_float(trade.get("pnl_ring_mean",     0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v55_f287)))                                      # 287 pnl_ring_mean
+    _v55_f288 = _safe_float(trade.get("wr_10trade_recent", 0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v55_f288)))                                      # 288 wr_10trade_recent
+    _v55_f289 = _safe_float(trade.get("ev_ring_std_norm",  0.0), 0.0)
+    f.append(max(0.0,  min(1.0,  _v55_f289)))                                      # 289 ev_ring_std_norm
+    _v55_f290 = _safe_float(trade.get("filter_coherence",  0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v55_f290)))                                      # 290 filter_coherence
+
+    # ── v56 (v126.0): F291-F295 — QualitySlope + OFI-Vol Sync + EV Percentile + PnL Stability + WR Momentum ──
+    # F291: quality_slope_norm — linreg slope of recent quality_score_ring [-1,+1]
+    # F292: ofi_vol_sync       — |ofi_ring_mean| × vol_ratio sync [0,1] (high = OFI+vol aligned)
+    # F293: ev_ring_percentile — current EV's rank in recent ev_ring [0,1]
+    # F294: pnl_stability      — 1 - variance of last-20 pnl outcomes [0,1] (1=stable, 0=chaotic)
+    # F295: wr_momentum_tier   — G8.5W4 WAC WR acceleration tier {0.25/0.5/0.625/0.75}
+    _v56_f291 = _safe_float(trade.get("quality_slope_norm", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v56_f291)))                                      # 291 quality_slope_norm
+    _v56_f292 = _safe_float(trade.get("ofi_vol_sync",       0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v56_f292)))                                      # 292 ofi_vol_sync
+    _v56_f293 = _safe_float(trade.get("ev_ring_percentile", 0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v56_f293)))                                      # 293 ev_ring_percentile
+    _v56_f294 = _safe_float(trade.get("pnl_stability",      0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v56_f294)))                                      # 294 pnl_stability
+    _v56_f295 = _safe_float(trade.get("wr_momentum_tier",   0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v56_f295)))                                      # 295 wr_momentum_tier
+
+    # ── v57 (v127.0): F296-F300 — HMM Regime + SharpeEV Velocity + ARC Consensus + OFI Persist + SVC Confluence ──
+    # F296: hmm_regime_norm      — HMM regime normalised {-1→0.0, 0→0.5, 1→1.0} [0,1]
+    # F297: sharpe_ev_velocity   — (sharpe_vel_norm+1)/2 × ev_ring_percentile [0,1]
+    #                              ExtraTrees importance=2.00 — top loss-predictor (v201.0).
+    #                              HIGH value in WR<30% regime = "Optimism Trap" / false-dawn signal.
+    # F298: arc_consensus_norm   — G8.5Z4 ARC Adaptive-Regime {-1→0.25, 0→0.5, 1→0.75, 2→1.0}
+    # F299: ofi_persistence_norm — abs mean of booster OFI ring, clipped [0,1]
+    # F300: svc_confluence_norm  — G8.5A5 SVC Sharpe-Velocity {-1→0.2, 0→0.5, 1→0.75, 2→1.0}
+    _v57_f296 = _safe_float(trade.get("hmm_regime_norm",      0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v57_f296)))                                      # 296 hmm_regime_norm
+    _v57_f297 = _safe_float(trade.get("sharpe_ev_velocity",   0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v57_f297)))                                      # 297 sharpe_ev_velocity [top loss-predictor F297]
+    _v57_f298 = _safe_float(trade.get("arc_consensus_norm",   0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v57_f298)))                                      # 298 arc_consensus_norm
+    _v57_f299 = _safe_float(trade.get("ofi_persistence_norm", 0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v57_f299)))                                      # 299 ofi_persistence_norm
+    _v57_f300 = _safe_float(trade.get("svc_confluence_norm",  0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v57_f300)))                                      # 300 svc_confluence_norm
+
+    # ── v58 (v132.0): F301-F305 — EKC Coherence + EVPV×SVC Cross + TSQC Norm + MSC Gate + Sentinel Vote ──
+    # F301: d5_ekc_gate       — G8.5D5 EV-Kelly-CPCV-Coherence {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F302: d5_evpv_svc_cross — EVPV × SVC cross-product [-1,+1] (EV+quality co-directional)
+    # F303: d5_tsqc_norm      — TripleSignalQuality-Convergence {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F304: e5_msc_gate       — G8.5E5 Multi-Sentinel-Consensus {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F305: e5_sentinel_vote  — fraction of 4 sentinels (RWS+AEV+EVPV+TSQC) positive [0,1]
+    _v58_f301 = _safe_float(trade.get("d5_ekc_gate",        0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v58_f301)))                                      # 301 d5_ekc_gate
+    _v58_f302 = _safe_float(trade.get("d5_evpv_svc_cross",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v58_f302)))                                      # 302 d5_evpv_svc_cross
+    _v58_f303 = _safe_float(trade.get("d5_tsqc_norm",       0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v58_f303)))                                      # 303 d5_tsqc_norm
+    _v58_f304 = _safe_float(trade.get("e5_msc_gate",        0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v58_f304)))                                      # 304 e5_msc_gate
+    _v58_f305 = _safe_float(trade.get("e5_sentinel_vote",   0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v58_f305)))                                      # 305 e5_sentinel_vote
+
+    # ── v59 (v133.0): F306-F310 — IRQ Gate + RFC Gate + IRONS Delta + HMM×OFI Cross + Vol Ratio Norm ──
+    # F306: f5_irq_gate       — G8.5F5 IRONS-Quality-Regime {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F307: f5_rfc_gate       — G8.5G5 Regime-Flow-Conviction {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F308: f5_irons_wr_delta — IRONS score recent-10 vs all-time delta, scaled [-1,+1]
+    # F309: f5_hmm_ofi_cross  — HMM state sign × OFI z-score sign cross-product [-1,+1]
+    # F310: f5_vol_ratio_norm — volume_ratio normalised [0,1] capped at 3.0
+    _v59_f306 = _safe_float(trade.get("f5_irq_gate",       0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v59_f306)))                                      # 306 f5_irq_gate
+    _v59_f307 = _safe_float(trade.get("f5_rfc_gate",       0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v59_f307)))                                      # 307 f5_rfc_gate
+    _v59_f308 = _safe_float(trade.get("f5_irons_wr_delta", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v59_f308)))                                      # 308 f5_irons_wr_delta
+    _v59_f309 = _safe_float(trade.get("f5_hmm_ofi_cross",  0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v59_f309)))                                      # 309 f5_hmm_ofi_cross
+    _v59_f310 = _safe_float(trade.get("f5_vol_ratio_norm", 0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v59_f310)))                                      # 310 f5_vol_ratio_norm
+
+    # ── v60 (v134.0): F311-F315 — WRS Gate + OVM Gate + WR Recent Delta + VPIN Percentile + Vol Momentum ──
+    # F311: h5_wrs_gate        — G8.5H5 WinRate-Drawdown-Sharpe {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F312: h5_ovm_gate        — G8.5I5 OFI-VPIN-Volume {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F313: h5_wr_recent_delta — recent-20 WR vs all-time WR delta, scaled to [-1,+1]
+    # F314: h5_vpin_percentile — VPIN value normalised [0,1] (0=clean, 1=toxic)
+    # F315: h5_vol_momentum    — vol_ratio momentum normalised [0,1], centred at 1.0
+    _v60_f311 = _safe_float(trade.get("h5_wrs_gate",        0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v60_f311)))                                      # 311 h5_wrs_gate
+    _v60_f312 = _safe_float(trade.get("h5_ovm_gate",        0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v60_f312)))                                      # 312 h5_ovm_gate
+    _v60_f313 = _safe_float(trade.get("h5_wr_recent_delta", 0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v60_f313)))                                      # 313 h5_wr_recent_delta
+    _v60_f314 = _safe_float(trade.get("h5_vpin_percentile", 0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v60_f314)))                                      # 314 h5_vpin_percentile
+    _v60_f315 = _safe_float(trade.get("h5_vol_momentum",    0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v60_f315)))                                      # 315 h5_vol_momentum
+
+    # ── v61 (v135.0): F316-F320 — EMC Gate + EV Ring Mean + MaxDD Severity + QFC Gate + IRONS Floor ──
+    # F316: j5_emc_gate        — G8.5J5 EV-MaxDD-Correlation {-2→0.0,-1→0.15,0→0.5,1→0.75,2→1.0}
+    # F317: j5_ev_ring_mean    — EV ring mean R-multiple, scaled to [-1,+1] (÷0.50 clamped)
+    # F318: j5_maxdd_severity  — MaxDD as fraction [0,1] (0=no DD, 1=100% wipeout)
+    # F319: k5_qfc_gate        — G8.5K5 Quality-Floor-Conviction {-1→0.0, 0→0.5, 1→0.75, 2→1.0}
+    # F320: k5_irons_floor_pct — IRONS adaptive floor as % of scale [0,1] (50→0.0, 92→1.0)
+    _v61_f316 = _safe_float(trade.get("j5_emc_gate",        0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v61_f316)))                                      # 316 j5_emc_gate
+    _v61_f317 = _safe_float(trade.get("j5_ev_ring_mean",    0.0), 0.0)
+    f.append(max(-1.0, min(1.0,  _v61_f317)))                                      # 317 j5_ev_ring_mean
+    _v61_f318 = _safe_float(trade.get("j5_maxdd_severity",  0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v61_f318)))                                      # 318 j5_maxdd_severity
+    _v61_f319 = _safe_float(trade.get("k5_qfc_gate",        0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v61_f319)))                                      # 319 k5_qfc_gate
+    _v61_f320 = _safe_float(trade.get("k5_irons_floor_pct", 0.5), 0.5)
+    f.append(max(0.0,  min(1.0,  _v61_f320)))                                      # 320 k5_irons_floor_pct
 
     # ── v62 (v136.0): F321-F325 — MEV Triple-Brake Safety Features ─────────────
     # F321: l5_mev_gate      — G8.5L5 MaxDD-EV-VPIN Triple-Brake gate {0.0/0.15/0.5/0.75/1.0}
