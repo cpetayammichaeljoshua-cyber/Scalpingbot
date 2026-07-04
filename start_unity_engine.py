@@ -1,8 +1,58 @@
 #!/usr/bin/env python3
 """
-Unity Engine v202.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v204.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v204.0 improvements [2026-07-04]:
+   BUG FIX BATCH — CORR sentinel gap, DBT/MiroFish/Factor bias overscoring [v204.0]:
+   1. G8.5CORR sentinel gap — gate_g85m and gate_g85n missing from CORR overconsensus dampener [v204.0]:
+      gate_g85m (BTC Macro GEX, v18.94) and gate_g85n (Multi-Asset FLIP ZONE, v18.95) were added
+      in v203.0 with score-delta sentinel pattern (_g85m_q_before/_g85n_q_before local vars) but had
+      NO persistent self._last_g85m_score / self._last_g85n_score attributes — so they could never
+      contribute to the G8.5CORR Family Correlation Dampener vote count.  When BTC is in a GEX flip
+      zone AND multi-asset flip zone AND GSEV fires AND other gates agree, the overconsensus clawback
+      was under-counting active votes by up to 2 (gate_g85m can add +2.0pts; gate_g85n ±2.0pts).
+      Fix: added self._last_g85m_score / self._last_g85n_score float sentinels (init 0.0); store
+      _g85m_net_score / _g85n_net_score into them after each gate evaluation; added both to the
+      _corr_sentinels tuple.  CORR sentinel count: 91 → 93.
+   2. DBT quality_bias raw addition — positive backtest bias undampened [v204.0]:
+      G8.5 DynBacktest: `quality_score += _bias` applied the raw vectorised-backtest quality bias
+      without WR-dampening.  Positive _bias values (e.g. +3.0 to +5.0pts when the backtester sees
+      a strong bull pattern) were passed through at full strength even when live WR < 30%.
+      The adjacent PBO-CLEAN bonus was already WR-dampened (v200.0) but the primary _bias was not.
+      Fix: `quality_score += self._wr_dampen(_bias) if _bias > 0 else _bias`
+   3. MiroFish swarm simulation bias undampened [v204.0]:
+      G8.5_MFISH `quality_score += _sim_bias` was a raw addition with no WR-dampen guard.
+      The 10-agent proxy-backtest bias can reach +3.0pts — awarded at full strength even at WR<30%.
+      Fix: `quality_score += self._wr_dampen(_sim_bias) if _sim_bias > 0 else _sim_bias`
+   4. Factor IC/IR bias undampened [v204.0]:
+      G8.5b_FACTOR `quality_score += _fac_bias` was a raw addition with no WR-dampen guard.
+      Strong factor signal (+3.0pts) was awarded full strength even when the live WR was in crisis.
+      Fix: `quality_score += self._wr_dampen(_fac_bias) if _fac_bias > 0 else _fac_bias`
+
+ v203.0 improvements [2026-07-04]:
+   BUG FIX BATCH — dead gates, GEX dampener floor, Markov overscoring [v203.0]:
+   1. gate_g85m DEAD GATE fix (BTC Macro GEX, v18.94):
+      Gate scored quality_score at lines ~21634/21662/21669/21677/21683/21690/21696 since
+      v18.94 but had ZERO analytics wiring: no _gate_stats init, no _gate_stats_recent init,
+      no _record() call, not in _GATE_DISPLAY_LABELS. Invisible to /gates, gate_bottleneck,
+      and gate_stats_summary(). Fix: added _gate_stats + _gate_stats_recent init; added
+      score-delta sentinel (_g85m_q_before) + _record("gate_g85m", net>=0) after try/except;
+      added to _GATE_DISPLAY_LABELS as "G8.5m".
+   2. gate_g85n DEAD GATE fix (Multi-Asset FLIP ZONE, v18.95):
+      Same pattern: penalized at line ~21736 but completely invisible to analytics.
+      Fix: identical wiring pattern as gate_g85m using score-delta sentinel.
+   3. GEX bonus floor tightened 0.80→0.70 for GZ-prox, VT, GZ-MR, GZ-TF paths [v203.0]:
+      _gz_prox_mult and _vt_mult used `max(0.80, _gex_wr_mult)` — floor ABOVE the 0.70 already
+      established for _gex_wr_mult (GEX alignment bonus). At WR=25%, alignment bonus is ×0.70
+      but GZ/VT bonuses were ×0.80 — inconsistent. Tightened: remove the max(0.80,...) wrapper
+      so all 4 GEX sub-bonus paths share the same ×0.70 floor at WR≤25%. Dampening magnitude
+      ~14% more at WR=25% for these paths, consistent with v189.0 GEX WR-smoothing design.
+   4. Markov SOVEREIGN positive delta WR-dampened [v203.0]:
+      `quality_score += _mk_delta` was completely undampened — positive Markov SOVEREIGN bonuses
+      (+MARKOV_BOOST_PTS, up to +16pts before v177.0 Wilson fix) fired raw in low-WR regimes.
+      Fix: `_mk_delta > 0 → _wr_dampen(_mk_delta)`, negatives pass through unchanged. The log
+      now shows the applied (dampened) value alongside the raw delta when they differ.
  v202.0 improvements [2026-07-04]:
    CRITICAL BUG FIX: NN feature vector gap F281-F320 (40 missing features) [v202.0]:
    ROOT CAUSE: neural_signal_trainer.py build_features() jumped directly from F280 to F321,
@@ -3318,7 +3368,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "202.0"
+UNITY_VERSION                = "204.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -6226,6 +6276,12 @@ class UnitySignalFilter:
         self._vibe_pool: Optional["VibeAgentPool"] = None
         self._gate_stats["gate_vibe"] = {"pass": 0, "fail": 0}
         self._gate_stats_recent["gate_vibe"] = deque(maxlen=self._gate_stats_window_n)
+        # v203.0: gate_g85m (BTC Macro GEX, v18.94) + gate_g85n (Multi-Asset FLIP ZONE, v18.95)
+        # Both scored quality_score since v18.94/v18.95 but had zero analytics wiring (dead gates).
+        self._gate_stats["gate_g85m"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g85m"] = deque(maxlen=self._gate_stats_window_n)
+        self._gate_stats["gate_g85n"] = {"pass": 0, "fail": 0}
+        self._gate_stats_recent["gate_g85n"] = deque(maxlen=self._gate_stats_window_n)
         # v180.0: G2.5b Pattern Recognition bias + G2.5c Volume Confirmation bias — wire _record()
         self._gate_stats["gate_g25b"] = {"pass": 0, "fail": 0}
         self._gate_stats_recent["gate_g25b"] = deque(maxlen=self._gate_stats_window_n)
@@ -6739,6 +6795,8 @@ class UnitySignalFilter:
         self._last_g85bg_gpel:  float = 0.0  # v175.0: -2.0=locked-low-streak(≥3), -1.0=lean-low-streak(≥2), +1.0=locked-high-streak(≥3), 0=neutral; Kelly Step 160
         self._last_g85bh_glcv:  float = 0.0  # v175.0: -2.0=loop-diverging-crisis, -1.0=loop-diverging-mild, +1.0=loop-converging, 0=neutral; Kelly Step 161
         self._last_g85bi_gsev:  float = 0.0  # v201.0: -2.0=extreme-optimism-trap(sev>0.75+WR<28%), -1.5=optimism-trap(sev>0.65+WR<30%), 0=neutral; Kelly Step 162
+        self._last_g85m_score:  float = 0.0  # v204.0: net quality delta applied by gate_g85m (BTC Macro GEX) each eval; stored for CORR sentinel vote-counting; sign-only: +1=bullish/0=neutral/-1=penalty
+        self._last_g85n_score:  float = 0.0  # v204.0: net quality delta applied by gate_g85n (Multi-Asset FLIP ZONE) each eval; stored for CORR sentinel vote-counting
         # v163.0: Per-symbol rapid-reuse tracking (GREX gate)
         self._v163_sym_last_ts: dict  = {}   # {symbol: last_eval_ts} for GREX window tracking
         # v161.0: Daily tracking state (UTC-day reset)
@@ -8203,9 +8261,13 @@ class UnitySignalFilter:
                     _mk_global_wr = _mk_ba / max(1.0, _mk_ba + _mk_bb)
                 _mk_delta, _mk_reason = self._markov_gate.quality_adjustment(symbol, direction, _mk_global_wr)
                 if _mk_delta != 0.0:
-                    quality_score += _mk_delta
+                    # v203.0: WR-dampen positive Markov bonus; penalties pass through unchanged
+                    _mk_applied = self._wr_dampen(_mk_delta) if _mk_delta > 0 else _mk_delta
+                    quality_score += _mk_applied
+                    _mk_damp_note = (f" [applied={_mk_applied:+.2f} raw={_mk_delta:+.2f} WR-dampened]"
+                                     if _mk_delta > 0 and abs(_mk_applied - _mk_delta) > 0.01 else "")
                     self._logger.debug(
-                        f"🔗 [{symbol}] Markov: {_mk_reason} Δ={_mk_delta:+.1f}pts"
+                        f"🔗 [{symbol}] Markov: {_mk_reason} Δ={_mk_delta:+.1f}pts{_mk_damp_note}"
                     )
                     # SOVEREIGN confirmation log at INFO level for operator visibility
                     if _mk_delta >= MARKOV_BOOST_PTS:
@@ -12689,9 +12751,9 @@ class UnitySignalFilter:
                     _gz_dist_pct = abs(entry - _gamma_zero) / entry
                     if _gz_dist_pct <= GEX_GAMMA_ZERO_PROX_PCT:
                         # v189.0: WR dampener applied — GZ proximity still informative but
-                        # over-credited in low-WR regimes. Floor at ×0.80 (lighter than
-                        # alignment bonus floor ×0.70 — GZ is price-level, not confidence).
-                        _gz_prox_mult = max(0.80, _gex_wr_mult)
+                        # over-credited in low-WR regimes. v203.0: floor tightened 0.80→0.70
+                        # to match main GEX alignment bonus (all GEX sub-paths now consistent).
+                        _gz_prox_mult = _gex_wr_mult  # v203.0: was max(0.80, _gex_wr_mult); now 0.70 floor matches alignment path
                         quality_score += GEX_GAMMA_ZERO_QUALITY_BONUS * _gz_prox_mult
                         self._logger.debug(
                             f"🎯 [{symbol}] Gamma Zero proximity: entry={entry:.4f} "
@@ -12709,8 +12771,8 @@ class UnitySignalFilter:
                          getattr(gex_snapshot, "vt_up", 0)) or 0)
                 _vt_dn = float(getattr(gex_snapshot, "vol_trigger_dn",
                          getattr(gex_snapshot, "vt_dn", 0)) or 0)
-                # v189.0: Vol trigger bonuses also WR-dampened (floor ×0.80).
-                _vt_mult = max(0.80, _gex_wr_mult)
+                # v189.0: Vol trigger bonuses also WR-dampened. v203.0: floor 0.80→0.70 (matches alignment path).
+                _vt_mult = _gex_wr_mult  # v203.0: was max(0.80, _gex_wr_mult)
                 if direction == "BUY" and _vt_up and entry >= _vt_up:
                     quality_score += GEX_VOL_TRIGGER_QUALITY_BONUS * _vt_mult
                     self._logger.debug(
@@ -12753,8 +12815,8 @@ class UnitySignalFilter:
                         # Mean-reversion: BUY below GZ or SELL above GZ
                         if (direction == "BUY" and _gz_signed_dist < 0) or \
                            (direction == "SELL" and _gz_signed_dist > 0):
-                            # v189.0: WR dampener applied (floor ×0.80 — price-level signal).
-                            _gz_mr_bonus = 3.0 * max(0.80, _gex_wr_mult)
+                            # v189.0: WR dampener applied. v203.0: floor 0.80→0.70 (matches alignment path).
+                            _gz_mr_bonus = 3.0 * _gex_wr_mult  # v203.0: was 3.0 * max(0.80, _gex_wr_mult)
                             quality_score += _gz_mr_bonus
                             self._logger.debug(
                                 f"↩️  [{symbol}] GEX MEAN_REVERT: entry{'<' if _gz_signed_dist < 0 else '>'}GZ "
@@ -12764,8 +12826,8 @@ class UnitySignalFilter:
                         # Trend-follow: price just crossed GZ — enter in crossing direction
                         if (direction == "BUY" and _gz_signed_dist > 0) or \
                            (direction == "SELL" and _gz_signed_dist < 0):
-                            # v189.0: WR dampener applied (floor ×0.80 — price-level signal).
-                            _gz_tf_bonus = 4.0 * max(0.80, _gex_wr_mult)
+                            # v189.0: WR dampener applied. v203.0: floor 0.80→0.70 (matches alignment path).
+                            _gz_tf_bonus = 4.0 * _gex_wr_mult  # v203.0: was 4.0 * max(0.80, _gex_wr_mult)
                             quality_score += _gz_tf_bonus
                             self._logger.debug(
                                 f"📐 [{symbol}] GEX TREND_FOLLOW: entry crossed GZ "
@@ -12926,7 +12988,7 @@ class UnitySignalFilter:
                 _n_trades = getattr(_r, "n_trades", 0) if _r is not None else 0
                 if _n_trades >= _dbt_min_trades:
                     if _bias != 0.0:
-                        quality_score += _bias
+                        quality_score += self._wr_dampen(_bias) if _bias > 0 else _bias  # v204.0: WR-dampen positive DBT bias (was raw addition since v9.9.1)
                         _gate85_applied = True
                         # v18.20: PBO always-log — extract anti-overfitting metrics for
                         # every backtest signal, not only when bias is negative.
@@ -12963,7 +13025,7 @@ class UnitySignalFilter:
                 try:
                     _sim_bias = float(_msim.get_quality_bias(symbol))
                     if _sim_bias != 0.0:
-                        quality_score += _sim_bias
+                        quality_score += self._wr_dampen(_sim_bias) if _sim_bias > 0 else _sim_bias  # v204.0: WR-dampen positive sim bias (was raw addition since v10.0)
                         self._logger.debug(
                             f"G8.5_MFISH: {symbol} swarm_sim bias → {_sim_bias:+.1f}pts"
                         )
@@ -13005,7 +13067,7 @@ class UnitySignalFilter:
             try:
                 _fac_bias = _fac_ana.get_quality_bias(symbol)
                 if _fac_bias != 0.0:
-                    quality_score += _fac_bias
+                    quality_score += self._wr_dampen(_fac_bias) if _fac_bias > 0 else _fac_bias  # v204.0: WR-dampen positive factor bias (was raw addition since v11.0)
                     self._logger.debug(
                         f"G8.5b_FACTOR: {symbol} factor bias → {_fac_bias:+.1f}pts"
                     )
@@ -20000,6 +20062,7 @@ class UnitySignalFilter:
                 "_last_g85be_grdc", "_last_g85bf_gxwi",                            # v174.0 GRDC/GXWI
                 "_last_g85bg_gpel", "_last_g85bh_glcv",                            # v175.0 GPEL/GLCV
                 "_last_g85bi_gsev",                                                  # v201.0 GSEV optimism-trap
+                "_last_g85m_score", "_last_g85n_score",                             # v204.0 BTC-MacroGEX / Multi-Asset-FLIP score-delta sentinels
                 # v186.0: add missing v163-v168 score-adjuster family (10 sentinels).
                 # Root cause: v181.0 expansion added v169-v175 batch but skipped the
                 # preceding v163-v168 batch (same version-block gap as v182.0 analytics
@@ -20038,7 +20101,7 @@ class UnitySignalFilter:
                                      # under-clipping overconsensus (naive_total too high → smaller
                                      # clawback magnitude); 1.60 produces correct dampening strength
                 _corr_naive_total = _corr_avg_pt * (_corr_pos - _corr_neg)
-                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family (90-sentinel pool post-v186.0)
+                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family (93-sentinel pool post-v204.0)
                 _corr_effective_n = _corr_n / (1.0 + _corr_rho * max(_corr_n - 1, 0))
                 _corr_discount = (_corr_effective_n / _corr_n) ** 0.5
                 _corr_fair_total = _corr_naive_total * _corr_discount
@@ -21611,6 +21674,7 @@ class UnitySignalFilter:
         #   net < −$500M + SHORT:      +1.5pts (dealer short-gamma supports SHORT)
         #   net > +$500M + LONG:       +1.5pts (dealer long-gamma supports LONG)
         #   net > +$500M + SHORT:      −2.0pts (dealer long-gamma opposes SHORT)
+        _g85m_q_before = quality_score  # v203.0: score-delta sentinel for _record
         try:
             _g85m_sym = (symbol or "").upper()
             if _g85m_sym not in ("BTCUSDT", "ETHUSDT"):
@@ -21701,6 +21765,11 @@ class UnitySignalFilter:
         except Exception:
             pass
 
+        # v203.0: record gate_g85m net quality adjustment — score-delta sentinel
+        _g85m_net_score = quality_score - _g85m_q_before  # net pts applied by this gate (positive=bullish, negative=penalized)
+        self._last_g85m_score = _g85m_net_score  # v204.0: persist for G8.5CORR overconsensus dampener vote-count
+        self._record("gate_g85m", _g85m_net_score >= 0.0)  # v203.0-FIX: was dead gate since v18.94
+
         # ── Gate 8.5n — Multi-Asset FLIP ZONE Macro Penalty (v18.95) ─────────
         # When 2 or more of the three major Deribit GEX assets (BTC/ETH/SOL) are
         # simultaneously in FLIP ZONE, the entire crypto market is in coordinated
@@ -21713,6 +21782,7 @@ class UnitySignalFilter:
         # Guards: at least 2 snapshots must be < 120s old; conf ≥ 25 on each.
         # v18.96: _multiflip_count exposed outside try-block for G9 compound floor.
         _multiflip_count: int = 0   # v18.96: used by G9 floor compound
+        _g85n_q_before = quality_score  # v203.0: score-delta sentinel for _record
         try:
             _g85n_snaps = getattr(self, "_engine_gex_snapshots", None)
             if _g85n_snaps is not None:
@@ -21740,6 +21810,10 @@ class UnitySignalFilter:
                     )
         except Exception:
             pass
+        # v203.0: record gate_g85n net quality adjustment — score-delta sentinel
+        _g85n_net_score = quality_score - _g85n_q_before  # net pts applied by this gate
+        self._last_g85n_score = _g85n_net_score  # v204.0: persist for G8.5CORR overconsensus dampener vote-count
+        self._record("gate_g85n", _g85n_net_score >= 0.0)  # v203.0-FIX: was dead gate since v18.95
 
         # ── Gate 8.5V — Vibe-Trading Multi-Agent Consensus (v18.40) ──────────
         # Three specialized agents (Trend, Flow, Macro) evaluate the signal from
@@ -22508,6 +22582,8 @@ class UnitySignalFilter:
         "gate_cvar":      "GCVAR",  # v18.44: Pre-Gate G CVaR tail-risk gate
         "gate_markov":    "GMK",    # v18.44: Pre-Gate M Markov Chain (p_ij≥0.87)
         "gate_vibe":      "G8.5V",  # v18.44: Gate 8.5V Vibe-Trading agent pool
+        "gate_g85m":      "G8.5m",  # v203.0-FIX: BTC Macro GEX dealer-flow (v18.94) — was dead gate since creation; ±2.0/±3.5pts flip-dir; ±1.5/±2.0pts GEX net regime
+        "gate_g85n":      "G8.5n",  # v203.0-FIX: Multi-Asset FLIP ZONE macro penalty (v18.95) — was dead gate since creation; 2+/3 assets FLIP ZONE → -2.0pts
         "gate_g85w":      "G8.5w",  # v51.0: MTF-Momentum quality adjuster (±2.5pts)
         "gate_g85x":      "G8.5x",  # v51.0: LiqCascade-Direction quality adjuster (±2.0pts)
         "gate_g85t":      "G8.5T",  # v57.0: TurboVec vectorized 3-TF momentum (±2.5pts)

@@ -1,3 +1,5 @@
+- [Unity Engine v204.0 — CORR sentinel gap + 3 undampened bias paths](unity-engine-v204.md) — gate_g85m/n missing from CORR sentinel (91→93); DBT/_sim/_fac positive biases now WR-dampened
+- [Unity Engine v203.0 — dead gate + GEX floor + Markov dampener fixes](unity-engine-v203.md) — gate_g85m/g85n dead since v18.94/v18.95; GEX sub-bonus floors 0.80→0.70; Markov positive delta now WR-dampened
 - [Unity Engine v202.0 — F281-F320 trainer feature gap fix](unity-engine-v202.md) — 40 features missing from neural_signal_trainer.py since v136.0; F321-F420 at wrong positions; F297 (top loss-predictor) always zero in training; fixed + weights cleared
 - [Unity Engine v201.0 — WR/Sharpe/MaxDD targeted improvements](unity-engine-v201.md) — G8.5BI GSEV (167th gate, F297 optimism-trap); NN loss-anchor tier (win_acc floor 0.25→0.15 at loss_acc≥80%); Kelly Step 162
 - [Unity Engine v200.0 overscoring sweep — round 8 final pass](unity-engine-v200.md) — 7 IT/PBO/VPIN/Vibe positive paths WR-dampened; local-var pattern for logs; G8.5V dampened-vs-raw log note; sites 218→225
