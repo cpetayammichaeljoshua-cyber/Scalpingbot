@@ -1,3 +1,4 @@
+- [Unity Engine v208.0 — inline WR-mult ramp sync + H4/I4/J4 dampening](unity-engine-v208.md) — 3 inline copies of old ramp (0.25→0.40) fixed to match v207.0 _wr_dampen (0.30→0.45); H4/I4/J4 positive paths undampened since v119-v120
 - [Unity Engine v207.0 — _wr_dampen ramp tightening](unity-engine-v207.md) — ramp start 0.25→0.30; floor now at WR≤30% (was ≤25%); reduces all 230 positive bonus sites ~8% at live WR=29%
 - [Unity Engine v206.0 — G9 FlowStack abs() overscoring bug](unity-engine-v206.md) — abs(_last_g85c_adj)>=2.0 fired stack bonus when G8.5C=-2.0 (max conflict); fix: remove abs(), positive-only
 - [Unity Engine v205.0 — SOFT_GATE_KEYS gap + swarm no-data dampener + banner fixes](unity-engine-v205.md) — gate_g85m/n missing from _SOFT_GATE_KEYS (bottleneck analytics corrupted); swarm +10 no-data raw→WR-dampened; banners 166-gate→167/Steps1-149→Steps1-162

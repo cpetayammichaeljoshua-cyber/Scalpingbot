@@ -3368,7 +3368,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "207.0"
+UNITY_VERSION                = "209.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -12720,7 +12720,7 @@ class UnitySignalFilter:
                         raise ValueError("non-finite")
                 except Exception:
                     _gex_wr = 0.30  # conservative default → partial dampening
-                _gex_wr_mult = max(0.70, min(1.0, 0.70 + ((_gex_wr - 0.25) / 0.15) * 0.30))
+                _gex_wr_mult = max(0.70, min(1.0, 0.70 + ((_gex_wr - 0.30) / 0.15) * 0.30))  # v208.0: ramp 0.30→0.45 (matches _wr_dampen v207.0)
 
                 if (regime == "POSITIVE" and direction == "BUY") or \
                    (regime == "NEGATIVE" and direction == "SELL"):
@@ -14153,7 +14153,7 @@ class UnitySignalFilter:
                 if _g85u_adj > 0.0:
                     _g85u_wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
                     _g85u_wr     = _g85u_wr_raw / 100.0 if _g85u_wr_raw > 1.0 else _g85u_wr_raw
-                    _g85u_wr_mult = max(0.70, min(1.0, 0.70 + ((_g85u_wr - 0.25) / 0.15) * 0.30))
+                    _g85u_wr_mult = max(0.70, min(1.0, 0.70 + ((_g85u_wr - 0.30) / 0.15) * 0.30))  # v208.0: ramp 0.30→0.45 (matches _wr_dampen v207.0)
                     _g85u_adj    *= _g85u_wr_mult
                 quality_score += self._wr_dampen(_g85u_adj)  # v198.0: WR-dampened
                 self._logger.debug(
@@ -17737,7 +17737,7 @@ class UnitySignalFilter:
                     _h4_adj, _h4_tpe, _h4_conf = -1.5, -1, min(1.0, _h4_opposed / 5.0)
                 else:
                     _h4_adj, _h4_tpe, _h4_conf = 0.0, 0, 0.0
-                quality_score               += _h4_adj
+                quality_score               += (self._wr_dampen(_h4_adj) if _h4_adj > 0.0 else _h4_adj)  # v208.0: WR-dampen positive only
                 self._last_g85h4_tpe         = _h4_tpe
                 self._last_g85h4_conf        = _h4_conf
                 _h4_pass = (_h4_tpe >= 0)
@@ -17784,7 +17784,7 @@ class UnitySignalFilter:
                 _i4_adj, _i4_dgc = +1.5, +1
             else:
                 _i4_adj, _i4_dgc = 0.0, 0
-            quality_score              += _i4_adj
+            quality_score              += (self._wr_dampen(_i4_adj) if _i4_adj > 0.0 else _i4_adj)  # v208.0: WR-dampen positive only
             self._last_g85i4_dgc        = _i4_dgc
             _i4_pass = (_i4_dgc >= 0)
             self._gate_stats["gate_g85i4_dgc"]["pass" if _i4_pass else "fail"] += 1
@@ -17848,7 +17848,7 @@ class UnitySignalFilter:
                     _j4_adj, _j4_tfms, _j4_conf = -1.5, -1, _j4_opposed / 7.0
                 else:
                     _j4_adj, _j4_tfms, _j4_conf = 0.0, 0, 0.0
-                quality_score                += _j4_adj
+                quality_score                += (self._wr_dampen(_j4_adj) if _j4_adj > 0.0 else _j4_adj)  # v208.0: WR-dampen positive only
                 self._last_g85j4_tfms         = _j4_tfms
                 self._last_g85j4_tfms_conf    = _j4_conf
                 _j4_pass = (_j4_tfms >= 0)
@@ -18072,7 +18072,7 @@ class UnitySignalFilter:
             if _n4_adj > 0.0:
                 _n4_wr_raw  = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
                 _n4_wr      = _n4_wr_raw / 100.0 if _n4_wr_raw > 1.0 else _n4_wr_raw
-                _n4_wr_mult = max(0.70, min(1.0, 0.70 + ((_n4_wr - 0.25) / 0.15) * 0.30))
+                _n4_wr_mult = max(0.70, min(1.0, 0.70 + ((_n4_wr - 0.30) / 0.15) * 0.30))  # v208.0: ramp 0.30→0.45 (matches _wr_dampen v207.0)
                 _n4_adj    *= _n4_wr_mult
             quality_score          += _n4_adj
             self._last_g85n4_tfc   = _n4_tfc
@@ -18109,7 +18109,7 @@ class UnitySignalFilter:
                     _o4_adj, _o4_ev_vel = +1.5, +1   # EV velocity improving
                 elif _o4_delta < -0.05:
                     _o4_adj, _o4_ev_vel = -2.0, -1   # EV velocity worsening
-            quality_score             += _o4_adj
+            quality_score             += (self._wr_dampen(_o4_adj) if _o4_adj > 0.0 else _o4_adj)  # v209.0: WR-dampen positive only
             self._last_g85o4_ev_vel    = _o4_ev_vel
             _o4_pass = (_o4_ev_vel >= 0)
             self._gate_stats["gate_g85o4_ev_vel"]["pass" if _o4_pass else "fail"] += 1
@@ -18142,7 +18142,7 @@ class UnitySignalFilter:
                 _p4_adj, _p4_wra = -2.0, -1    # WR catastrophic OR dual-crisis
             elif _p4_wrt == -1 and _p4_aev <= -1:
                 _p4_adj, _p4_wra = -1.5, -1    # Single dual-decline
-            quality_score          += _p4_adj
+            quality_score          += (self._wr_dampen(_p4_adj) if _p4_adj > 0.0 else _p4_adj)  # v209.0: WR-dampen positive only
             self._last_g85p4_wra   = _p4_wra
             _p4_pass = (_p4_wra >= 0)
             self._gate_stats["gate_g85p4_wra"]["pass" if _p4_pass else "fail"] += 1
@@ -18182,7 +18182,7 @@ class UnitySignalFilter:
                 _q4_adj, _q4_mec = -2.0, -1    # Deep compound crisis
             elif _q4_dd < 25.0 and _q4_wr > 0.38:
                 _q4_adj, _q4_mec = +1.5, +1    # Healthy compound regime
-            quality_score          += _q4_adj
+            quality_score          += (self._wr_dampen(_q4_adj) if _q4_adj > 0.0 else _q4_adj)  # v209.0: WR-dampen positive only
             self._last_g85q4_mec   = _q4_mec
             _q4_pass = (_q4_mec >= 0)
             self._gate_stats["gate_g85q4_mec"]["pass" if _q4_pass else "fail"] += 1
@@ -18224,7 +18224,7 @@ class UnitySignalFilter:
                 _r4_adj, _r4_sow = -2.0, -1   # Strong triple resonance negative
             elif _r4_total == -1:
                 _r4_adj, _r4_sow = -1.5, -1   # Weak negative resonance
-            quality_score          += _r4_adj
+            quality_score          += (self._wr_dampen(_r4_adj) if _r4_adj > 0.0 else _r4_adj)  # v209.0: WR-dampen positive only
             self._last_g85r4_sow   = _r4_sow
             _r4_pass = (_r4_sow >= 0)
             self._gate_stats["gate_g85r4_sow"]["pass" if _r4_pass else "fail"] += 1
@@ -18259,7 +18259,7 @@ class UnitySignalFilter:
                 _s4_adj, _s4_sqc = -2.0, -1   # Dual crisis compound
             elif _s4_dd < 20.0 and _s4_wr > 0.40 and _s4_sr > -0.5:
                 _s4_adj, _s4_sqc = +1.5, +1   # Three-way healthy coherence
-            quality_score          += _s4_adj
+            quality_score          += (self._wr_dampen(_s4_adj) if _s4_adj > 0.0 else _s4_adj)  # v209.0: WR-dampen positive only
             self._last_g85s4_sqc   = _s4_sqc
             _s4_pass = (_s4_sqc >= 0)
             self._gate_stats["gate_g85s4_sqc"]["pass" if _s4_pass else "fail"] += 1
@@ -18453,7 +18453,7 @@ class UnitySignalFilter:
                     _v4_adj, _v4_erv_v = -2.0, -1
                 else:
                     _v4_adj, _v4_erv_v = 0.0, 0
-            quality_score          += _v4_adj
+            quality_score          += (self._wr_dampen(_v4_adj) if _v4_adj > 0.0 else _v4_adj)  # v209.0: WR-dampen positive only
             self._last_g85v4_erv   = _v4_erv_v
             _v4_pass = (_v4_erv_v >= 0)
             self._gate_stats["gate_g85v4_erv"]["pass" if _v4_pass else "fail"] += 1
@@ -18498,7 +18498,7 @@ class UnitySignalFilter:
                     _w4_adj, _w4_wac = -2.0, -1
                 else:
                     _w4_adj, _w4_wac = 0.0, 0
-            quality_score          += _w4_adj
+            quality_score          += (self._wr_dampen(_w4_adj) if _w4_adj > 0.0 else _w4_adj)  # v209.0: WR-dampen positive only
             self._last_g85w4_wac   = _w4_wac
             _w4_pass = (_w4_wac >= 0)
             self._gate_stats["gate_g85w4_wac"]["pass" if _w4_pass else "fail"] += 1
@@ -18539,7 +18539,7 @@ class UnitySignalFilter:
                     _x4_adj, _x4_svr = +1.0, +1
                 elif _x4_slope < -2.0:
                     _x4_adj, _x4_svr = -2.0, -1
-            quality_score          += _x4_adj
+            quality_score          += (self._wr_dampen(_x4_adj) if _x4_adj > 0.0 else _x4_adj)  # v209.0: WR-dampen positive only
             self._last_g85x4_svr   = _x4_svr
             _x4_pass = (_x4_svr >= 0)
             self._gate_stats["gate_g85x4_svr"]["pass" if _x4_pass else "fail"] += 1
@@ -18576,7 +18576,7 @@ class UnitySignalFilter:
                     _y4_adj, _y4_ows = +1.0, +1
                 elif (not _y4_ofi_aligned) and _y4_wac <= -1:
                     _y4_adj, _y4_ows = -2.0, -1
-            quality_score          += _y4_adj
+            quality_score          += (self._wr_dampen(_y4_adj) if _y4_adj > 0.0 else _y4_adj)  # v209.0: WR-dampen positive only
             self._last_g85y4_ows   = _y4_ows
             _y4_pass = (_y4_ows >= 0)
             self._gate_stats["gate_g85y4_ows"]["pass" if _y4_pass else "fail"] += 1
@@ -18624,7 +18624,7 @@ class UnitySignalFilter:
                     _z4_adj, _z4_arc = +1.0, +1
                 elif _z4_neg == 3:
                     _z4_adj, _z4_arc = -2.0, -1
-            quality_score          += _z4_adj
+            quality_score          += (self._wr_dampen(_z4_adj) if _z4_adj > 0.0 else _z4_adj)  # v209.0: WR-dampen positive only
             self._last_g85z4_arc   = _z4_arc
             _z4_pass = (_z4_arc >= 0)
             self._gate_stats["gate_g85z4_arc"]["pass" if _z4_pass else "fail"] += 1
@@ -18659,7 +18659,7 @@ class UnitySignalFilter:
                 _a5_adj, _a5_svc = +1.0, +1
             elif _a5_sharpe_neg and _a5_qual_neg:
                 _a5_adj, _a5_svc = -2.0, -1
-            quality_score          += _a5_adj
+            quality_score          += (self._wr_dampen(_a5_adj) if _a5_adj > 0.0 else _a5_adj)  # v209.0: WR-dampen positive only
             self._last_g85a5_svc   = _a5_svc
             _a5_pass = (_a5_svc >= 0)
             self._gate_stats["gate_g85a5_svc"]["pass" if _a5_pass else "fail"] += 1
