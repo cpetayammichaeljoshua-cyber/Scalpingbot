@@ -1,9 +1,37 @@
 #!/usr/bin/env python3
 """
-Unity Engine v210.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v212.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
- v210.0 improvements [2026-07-05]:
+ v212.0 improvements [2026-07-05]:
+   BUG FIX — 10 additional double-record gates [v212.0]:
+   Same root-cause as v211.0 (CORR): pre-existing direct _gate_stats/_gate_stats_recent update
+   block never removed when self._record() was added outside the try block. Affected gates:
+   AA (CWD), AB (XRSI), AC (GDLB), AD (GTOD) — all had 2 duplicate lines inside try block.
+   IVCRUSH (G8.5k) and FUNDING (G8.5r) — had 4-line setdefault+direct-update block redundant
+   with self._record() (which already includes the v9.0 setdefault guard).
+   W5 (WNZ), X5 (ADF), Y5 (PCO), Z5 (ICS) — 2 duplicate direct-update lines before _record().
+   Consequence: all 10 gates were double-counting pass/fail in _gate_stats and double-appending
+   to _gate_stats_recent — inflating analytics by 2× and corrupting bottleneck diagnostics.
+   Fix: removed all duplicate direct-update blocks; self._record() is the single recording path.
+   Total double-record gates eliminated across v211.0+v212.0: 11 (CORR + 10 above).
+   AST-verified. v211→v212.
+
+ v211.0 improvements [2026-07-05]:
+   BUG FIX — G8.5CORR double-record analytics inflation [v211.0]:
+   1. G8.5CORR gate double-record: self._record("gate_g85corr_fcd",...) was called AND
+      self._gate_stats["gate_g85corr_fcd"][...] += 1 + _gate_stats_recent.append() were ALSO
+      called every evaluation — inflating pass/fail counts and _gate_stats_recent ring by 2×.
+      Root cause: v192.0-FIX added self._record() outside the try block to ensure the gate always
+      records on exception, but the pre-existing direct _gate_stats/_gate_stats_recent update block
+      (which predated the v192.0 refactor) was never removed. Consequence: CORR analytics (pass/fail
+      rate, recent-window WR, bottleneck ranking) were computed from 2× the actual evaluation count,
+      making the gate appear to have 2× the activation frequency it actually had. Fix: removed the
+      two duplicate direct-update lines; self._record() alone is now the single recording path.
+   Also: stale _corr_rho comment "93-sentinel pool post-v204.0" corrected to "105-sentinel pool
+   post-v210.0" after the v210.0 CORR sentinel expansion.
+   AST-verified. v210→v211.
+
    BUG FIX — G8.5CORR sentinel gap for v121.0-v127.0 gate era [v210.0]:
    1. G8.5CORR sentinel gap — 10 gates (O4/P4/Q4/R4/S4/V4/W4/X4/Y4/Z4) from the v121.0-v127.0 era
       missing from G8.5CORR Family Correlation Dampener since introduction [v210.0]:
@@ -3394,7 +3422,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "210.0"
+UNITY_VERSION                = "212.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -13410,11 +13438,7 @@ class UnitySignalFilter:
                     )
             except Exception:
                 pass  # G8.5k IVCrush is non-fatal soft-gate
-        self._gate_stats.setdefault("gate_g85k_ivcrush", {"pass": 0, "fail": 0})
-        self._gate_stats["gate_g85k_ivcrush"]["pass" if _iv_pass else "fail"] += 1
-        self._gate_stats_recent.setdefault("gate_g85k_ivcrush", deque(maxlen=self._gate_stats_window_n))
-        self._gate_stats_recent["gate_g85k_ivcrush"].append(1 if _iv_pass else 0)
-        self._record("gate_g85k_ivcrush", _iv_pass)
+        self._record("gate_g85k_ivcrush", _iv_pass)  # v212.0-FIX: removed 4-line setdefault+direct-update block; self._record() already does setdefault (v9.0 guard) + pass/fail increment + ring append
 
         # ── Gate 8.5sq — StochasticQuant OU/Heston/Kalman/Jump (v19.0) ──────
         # Institutional stochastic-calculus quality gate using the live-calibrated
@@ -13667,11 +13691,7 @@ class UnitySignalFilter:
                     )
         except Exception:
             pass  # G8.5r FundingRate is non-fatal soft-gate
-        self._gate_stats.setdefault("gate_g85r_funding", {"pass": 0, "fail": 0})
-        self._gate_stats["gate_g85r_funding"]["pass" if _fr_pass else "fail"] += 1
-        self._gate_stats_recent.setdefault("gate_g85r_funding", deque(maxlen=self._gate_stats_window_n))
-        self._gate_stats_recent["gate_g85r_funding"].append(1 if _fr_pass else 0)
-        self._record("gate_g85r_funding", _fr_pass)
+        self._record("gate_g85r_funding", _fr_pass)  # v212.0-FIX: removed 4-line setdefault+direct-update block; self._record() already does setdefault (v9.0 guard) + pass/fail increment + ring append
 
         # v58.0/v68.0: Pre-initialize soft-gate adj/fired sentinels so G8.5U consensus
         # meta-gate can safely read them regardless of exception paths in each gate.
@@ -19834,9 +19854,7 @@ class UnitySignalFilter:
                     _w5_wnz = 1
                     _w5_adj = +1.0
             self._last_g85w5_wnz = _w5_wnz
-            self._gate_stats["gate_g85w5_wnz"]["pass" if _w5_adj >= 0 else "fail"] += 1
-            self._gate_stats_recent["gate_g85w5_wnz"].append(1 if _w5_adj >= 0 else 0)
-            self._record("gate_g85w5_wnz", _w5_adj >= 0)
+            self._record("gate_g85w5_wnz", _w5_adj >= 0)  # v212.0-FIX: removed duplicate direct update
             if _w5_wnz != 0:
                 self._logger.debug(
                     f"[v142.0 G8.5W5 WNZ] {symbol} "
@@ -19904,9 +19922,7 @@ class UnitySignalFilter:
                     _x5_adf = 1
                     _x5_adj = +1.0
             self._last_g85x5_adf = _x5_adf
-            self._gate_stats["gate_g85x5_adf"]["pass" if _x5_adj >= 0 else "fail"] += 1
-            self._gate_stats_recent["gate_g85x5_adf"].append(1 if _x5_adj >= 0 else 0)
-            self._record("gate_g85x5_adf", _x5_adj >= 0)
+            self._record("gate_g85x5_adf", _x5_adj >= 0)  # v212.0-FIX: removed duplicate direct update
             if _x5_adf != 0:
                 self._logger.debug(
                     f"[v142.0 G8.5X5 ADF] {symbol} "
@@ -19978,9 +19994,7 @@ class UnitySignalFilter:
                 elif _avg_corr < 0.30:
                     _y5_pco = 1;   _y5_adj = +1.0   # orthogonal multi-factor
             self._last_g85y5_pco = _y5_pco
-            self._gate_stats["gate_g85y5_pco"]["pass" if _y5_adj >= 0 else "fail"] += 1
-            self._gate_stats_recent["gate_g85y5_pco"].append(1 if _y5_adj >= 0 else 0)
-            self._record("gate_g85y5_pco", _y5_adj >= 0)
+            self._record("gate_g85y5_pco", _y5_adj >= 0)  # v212.0-FIX: removed duplicate direct update
             if _y5_pco != 0:
                 self._logger.debug(
                     f"[v143.0 G8.5Y5 PCO] {symbol} "
@@ -20032,9 +20046,7 @@ class UnitySignalFilter:
                 elif _z5_ic > 0.10:
                     _z5_ics = 1;   _z5_adj = +1.0  # solid IC (WR>55%)
             self._last_g85z5_ics = _z5_ics
-            self._gate_stats["gate_g85z5_ics"]["pass" if _z5_adj >= 0 else "fail"] += 1
-            self._gate_stats_recent["gate_g85z5_ics"].append(1 if _z5_adj >= 0 else 0)
-            self._record("gate_g85z5_ics", _z5_adj >= 0)
+            self._record("gate_g85z5_ics", _z5_adj >= 0)  # v212.0-FIX: removed duplicate direct update
             if _z5_ics != 0:
                 self._logger.debug(
                     f"[v143.0 G8.5Z5 ICS] {symbol} "
@@ -20148,7 +20160,7 @@ class UnitySignalFilter:
                                      # under-clipping overconsensus (naive_total too high → smaller
                                      # clawback magnitude); 1.60 produces correct dampening strength
                 _corr_naive_total = _corr_avg_pt * (_corr_pos - _corr_neg)
-                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family (93-sentinel pool post-v204.0)
+                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family (105-sentinel pool post-v210.0)
                 _corr_effective_n = _corr_n / (1.0 + _corr_rho * max(_corr_n - 1, 0))
                 _corr_discount = (_corr_effective_n / _corr_n) ** 0.5
                 _corr_fair_total = _corr_naive_total * _corr_discount
@@ -20156,9 +20168,7 @@ class UnitySignalFilter:
                 if abs(_corr_adj) >= 0.1:
                     _corr_fired = True
                     quality_score += self._wr_dampen(_corr_adj)  # v198.0: WR-dampened
-            self._gate_stats["gate_g85corr_fcd"]["pass" if _corr_adj >= 0 else "fail"] += 1
-            self._gate_stats_recent["gate_g85corr_fcd"].append(1 if _corr_adj >= 0 else 0)
-            self._record("gate_g85corr_fcd", _corr_adj >= 0)
+            self._record("gate_g85corr_fcd", _corr_adj >= 0)  # v211.0-FIX: removed duplicate direct _gate_stats/_gate_stats_recent update; v192.0 added self._record() outside try but left the pre-existing direct update — causing every CORR evaluation to double-count in _gate_stats and double-append to _gate_stats_recent, inflating pass/fail analytics by 2×
             if _corr_fired:
                 self._logger.debug(
                     f"[v179.0 G8.5CORR FamilyCorrDampener] {symbol} "
@@ -20208,11 +20218,9 @@ class UnitySignalFilter:
             if _aa_adj != 0.0:
                 quality_score += self._wr_dampen(_aa_adj)  # v198.0: WR-dampened
             _aa_pass = not _aa_fired
-            self._gate_stats["gate_g85aa_cwd"]["pass" if _aa_pass else "fail"] += 1
-            self._gate_stats_recent["gate_g85aa_cwd"].append(1 if _aa_pass else 0)
         except Exception:
             pass  # G8.5AA CWD Confidence-WR Divergence is non-fatal soft-gate
-        self._record("gate_g85aa_cwd", _aa_pass)
+        self._record("gate_g85aa_cwd", _aa_pass)  # v212.0-FIX: removed duplicate direct _gate_stats/_gate_stats_recent update inside try block
 
         # ── G8.5AB — XRSI: RSI Extreme Direction Penalty (v158.0) ───────────
         # Zero-API soft-gate targeting the confirmed negative pocket from live trade
@@ -20271,11 +20279,9 @@ class UnitySignalFilter:
             if _ab_adj != 0.0:
                 quality_score += self._wr_dampen(_ab_adj)  # v198.0: WR-dampened
             _ab_pass = not _ab_fired
-            self._gate_stats["gate_g85ab_xrsi"]["pass" if _ab_pass else "fail"] += 1
-            self._gate_stats_recent["gate_g85ab_xrsi"].append(1 if _ab_pass else 0)
         except Exception:
             pass  # G8.5AB XRSI RSI-Extreme-Direction Penalty is non-fatal soft-gate
-        self._record("gate_g85ab_xrsi", _ab_pass)
+        self._record("gate_g85ab_xrsi", _ab_pass)  # v212.0-FIX: removed duplicate direct update
 
         # ── G8.5AC — GDLB: Direction Long Bias Penalty (v159.0) ─────────────
         # DATA-CONFIRMED structural edge from 16,305 terminal signals (full channel history):
@@ -20319,11 +20325,9 @@ class UnitySignalFilter:
             if _ac_adj != 0.0:
                 quality_score += self._wr_dampen(_ac_adj)  # v198.0: WR-dampened
             _ac_pass = not _ac_fired
-            self._gate_stats["gate_g85ac_dlb"]["pass" if _ac_pass else "fail"] += 1
-            self._gate_stats_recent["gate_g85ac_dlb"].append(1 if _ac_pass else 0)
         except Exception:
             pass  # G8.5AC GDLB Direction Long Bias Penalty is non-fatal soft-gate
-        self._record("gate_g85ac_dlb", _ac_pass)
+        self._record("gate_g85ac_dlb", _ac_pass)  # v212.0-FIX: removed duplicate direct update
 
         # ── G8.5AD — GTOD: Time-of-Day Direction Penalty (v160.0) ───────────
         # Zero-API soft-gate targeting confirmed worst Direction×Hour pockets from
@@ -20378,11 +20382,9 @@ class UnitySignalFilter:
             if _ad_adj != 0.0:
                 quality_score += self._wr_dampen(_ad_adj)  # v198.0: WR-dampened
             _ad_pass = not _ad_fired
-            self._gate_stats["gate_g85ad_gtod"]["pass" if _ad_pass else "fail"] += 1
-            self._gate_stats_recent["gate_g85ad_gtod"].append(1 if _ad_pass else 0)
         except Exception:
             pass  # G8.5AD GTOD Time-of-Day Direction Penalty is non-fatal soft-gate
-        self._record("gate_g85ad_gtod", _ad_pass)
+        self._record("gate_g85ad_gtod", _ad_pass)  # v212.0-FIX: removed duplicate direct update
 
         # ── v161.0: Daily state reset (UTC-day boundary) ─────────────────────
         # Resets _v161_daily_signal_n, _v161_unique_syms, _v161_dir_ring, _v161_batch_ts
