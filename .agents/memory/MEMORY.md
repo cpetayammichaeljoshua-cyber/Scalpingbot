@@ -1,3 +1,4 @@
+- [Unity Engine v219.0 — dual "141-gate filter" stale banners in 2 logger sites](unity-engine-v219.md) — _wire_all_components + start_continuous_scanner both frozen at "141-gate" since v141 era; 4 distinct banner sites total; multi-line f-string regex trap documented
 - [Unity Engine v218.0 — _print_startup_banner 167-GATE persistent ghost](unity-engine-v218.md) — v215.0 changelog documented the 167→177 fix but never applied it to code; confirmed pattern: changelog entry ≠ code change; RULE: grep whole file after every banner fix
 - [Unity Engine v217.0 — GEX comment correctness + CORR rho stale count](unity-engine-v217.md) — _gex_wr_mult IS identical to _wr_dampen() (both floor=0.70); prior "v213.0-FIX" comment was wrong; CORR pool 105→109
 - [Unity Engine v216.0 — G8.5CORR sentinel gap v161 era](unity-engine-v216.md) — GCAL/GSEQ/GMOM3/GBATCH missing from CORR dampener since v161; sentinel count 105→109; CORR vote normalization documented
