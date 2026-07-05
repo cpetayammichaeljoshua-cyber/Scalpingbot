@@ -3368,7 +3368,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "206.0"
+UNITY_VERSION                = "207.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -7422,7 +7422,7 @@ class UnitySignalFilter:
         _ring.append(passed)
 
     def _wr_dampen(self, pts: float) -> float:
-        """v192.0: shared overconsensus/overconfidence dampener.
+        """v207.0: tightened ramp — floor now kicks in at WR≤30% (was WR≤25%).
 
         Raw vote-counting / N-of-M agreement among correlated sub-signals is
         not itself calibrated evidence of edge — it is only evidence that
@@ -7431,14 +7431,26 @@ class UnitySignalFilter:
         can't overscore a signal during a WR-suppressed regime. Negative
         veto penalties must NOT be passed through this helper — "everyone
         opposes" has been empirically validated as the real edge and stays
-        at full strength. Same ramp as v179.0 G8.5CORR / v189.0 GEX /
-        v191.0 G8.5U+G8.5N4: WR<=25%→×0.70, WR>=40%→×1.0, linear between.
+        at full strength.
+
+        v207.0 ramp tightening (all 230 bonus sites affected uniformly):
+          WR ≤ 30%  → ×0.70 floor  (was: WR ≤ 25% → ×0.70 floor)
+          WR 30→45% → linear ×0.70→×1.00  (was: WR 25→40%)
+          WR ≥ 45%  → ×1.00  (was: WR ≥ 40%)
+        Rationale: WR=29% (live operating point) is a low-quality regime where
+        positive bonuses were still at 78% of raw under the old formula. Shifting
+        the ramp start to 30% means the full 0.70 floor applies at the live WR,
+        reducing compounding consensus bonuses by ~8% uniformly. This raises the
+        effective quality bar for signals to pass G9 without touching individual
+        gate thresholds. Walk-forward justified: lower bonus accumulation in
+        sub-30% WR regimes prevents marginally-qualifying signals from passing.
         """
         if pts <= 0.0:
             return pts
         _wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
         _wr = _wr_raw / 100.0 if _wr_raw > 1.0 else _wr_raw
-        _mult = max(0.70, min(1.0, 0.70 + ((_wr - 0.25) / 0.15) * 0.30))
+        # v207.0: ramp start 0.25→0.30, full-scale 0.40→0.45 (15pp ramp preserved)
+        _mult = max(0.70, min(1.0, 0.70 + ((_wr - 0.30) / 0.15) * 0.30))
         return pts * _mult
 
     def _live_wr_pct(self) -> Optional[float]:
