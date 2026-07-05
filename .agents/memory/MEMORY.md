@@ -1,3 +1,4 @@
+- [Unity Engine v216.0 — G8.5CORR sentinel gap v161 era](unity-engine-v216.md) — GCAL/GSEQ/GMOM3/GBATCH missing from CORR dampener since v161; sentinel count 105→109; CORR vote normalization documented
 - [Unity Engine v215.0 — _print_startup_banner INFO log stale "167-gate filter"](unity-engine-v215.md) — second arch banner missed in v214 pass; 167→177 gate count; v201→v215 stamp tokens appended
 - [Unity Engine v214.0 — Kelly Steps 133/134 ceiling-only no-op + banner fix](unity-engine-v214.md) — GDLB/GTOD de-sizes were ceiling-only→no-ops since v159/v160; launcher banner 176→177 gates
 - [Unity Engine v213.0 — exception-path recording gap v4/v5 series](unity-engine-v213.md) — 46 gates C4–V5 had bare except:pass with no fallback _record(); stamp Steps1-131→Steps1-162; same v190.0 root-cause

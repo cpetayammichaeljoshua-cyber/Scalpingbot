@@ -23,6 +23,21 @@ ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5
    avgP=-4.12%/-3.01%; SHORT@22h UTC avgP=-4.39%). De-sizes ×0.82/×0.88/×0.78
    for these pockets have been no-ops since v160.0 introduction. Same fix pattern.
 
+   BUG FIX — G8.5CORR sentinel gap: v161.0 positive-score gates missing [v216.0]:
+   Four v161.0-era gates (GCAL/GSEQ/GMOM3/GBATCH — G8.5AF/AH/AI/AJ) had positive
+   score paths that were NEVER included in the G8.5CORR overconsensus dampener
+   since their introduction in v161.0. Root cause: same version-block gap pattern as
+   v180.0/v181.0/v186.0/v204.0/v210.0. The v186.0 CORR expansion pass added the
+   immediately-following v163-v168 batch (AK→AT) but skipped the v161.0 block
+   (AE→AJ). Impact: when all four fire simultaneously in active markets (peak-window
+   signal #11-20 + reversal momentum + elite batch size 5/7 + month-start alpha),
+   their combined unclamped positive vote contribution (int=+1+1+2+1=+5) bypassed the
+   Wilson/√corr clawback that should dampen overconsensus. This inflates quality_score
+   by up to 6.5pt (2.5+1.5+1.5+1.0) without any CORR correction. Fix: added 4
+   sentinels to _corr_sentinels tuple. GDIV (AG, +0.5pt→int=0) and GDOW (AE,
+   hard-block) correctly omitted — no CORR contribution. Sentinel count: 105→109.
+   v215→v216.
+
    BUG FIX — _print_startup_banner INFO log stale "167-gate filter" [v215.0]:
    The _print_startup_banner() architecture INFO log (logger.info("📐 ARCHITECTURE..."))
    showed "167-gate filter" since v201.0 — frozen at the moment GSEV became the 167th
@@ -3491,7 +3506,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "215.0"
+UNITY_VERSION                = "216.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -20210,6 +20225,19 @@ class UnitySignalFilter:
                 "_last_g85v4_erv",    "_last_g85w4_wac",                            # v125.0 V4/W4
                 "_last_g85x4_svr",    "_last_g85y4_ows",                            # v126.0 X4/Y4
                 "_last_g85z4_arc",                                                   # v127.0 Z4
+                # v216.0: add missing v161.0 positive-score-path gates (4 sentinels). CORR sentinel count: 105→109.
+                # Root cause: same version-block gap pattern as v180/v181/v186/v204/v210.
+                # The v186.0 pass added ak→at (v163-v168) but skipped the immediately-preceding
+                # v161.0 block (AE→AJ). Gates AF/AH/AI/AJ all have positive score paths:
+                #   GCAL  (AF):  +1.0pt month-start alpha   → int=+1 vote
+                #   GSEQ  (AH):  +1.5pt peak-window signal  → int=+1 vote
+                #   GMOM3 (AI):  +1.5pt reversal momentum   → int=+1 vote
+                #   GBATCH(AJ):  +2.5pt elite batch size    → int=+2 → vote=+1
+                # GDIV (AG) omitted: +0.5pt → int=0, no CORR contribution.
+                # GDOW (AE) omitted: hard-block, no quality_score adjustment.
+                # All store float (±/0); int() cast converts to ±1/0 correctly.
+                "_last_g85af_gcal",                                                  # v161.0 GCAL calendar alpha
+                "_last_g85ah_gseq", "_last_g85ai_gmom3", "_last_g85aj_gbatch",     # v161.0 GSEQ/GMOM3/GBATCH
             )
             _corr_votes = []
             for _attr in _corr_sentinels:
