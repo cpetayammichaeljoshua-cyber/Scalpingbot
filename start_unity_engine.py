@@ -12756,14 +12756,17 @@ class UnitySignalFilter:
                         f"G7_MISMATCH [{symbol}]: regime={regime} opposes {direction} "
                         f"(conf={gex_conf:.0f}<{GEX_MIN_CONFIDENCE}) → −18pts quality [v11.3]"
                     )
-                # v189.0: Smooth WR-aware dampener applied to ALL GEX bonus paths.
+                # v189.0/v213.0: Smooth WR-aware dampener applied to ALL GEX bonus paths.
                 # Rationale: high dealer-flow confidence in a losing regime (WR<30%) is
                 # overconfidence, not conviction. GEX bonuses compress linearly between
-                # WR=25% (×0.70 floor) and WR=40% (×1.0 ceiling) — no hard cliff.
-                # Formula: mult = clamp(0.70 + (WR-0.25)/0.15 × 0.30, 0.70, 1.0)
-                #   WR≤25% → ×0.70 | WR=30% → ×0.80 | WR=35% → ×0.90 | WR≥40% → ×1.00
+                # WR=30% (×0.30 floor) and WR=45% (×1.0 ceiling) — matching self._wr_dampen().
+                # Formula: mult = clamp(0.30 + (WR-0.30)/0.15 × 0.70, 0.30, 1.0)   [v213.0]
+                #   WR≤30% → ×0.30 | WR=37.5% → ×0.65 | WR≥45% → ×1.00
+                # v213.0-FIX: floor was 0.70 (v189.0) — matched the WR ramp range but NOT the
+                # self._wr_dampen() floor (0.30, tightened v207.0). At live WR=29%, GEX was
+                # giving 0.70× credit while all other 177 gates gave 0.30× — 2.33× overscoring.
                 # Safe parsing: strips "%" suffix, handles 0-1 or 0-100 scale, clamps [0,1];
-                # on any failure defaults conservatively to WR=0.30 (partial dampening).
+                # on any failure defaults conservatively to WR=0.30 (full dampening applied).
                 try:
                     _gex_wr_raw = getattr(getattr(self, "_booster", None), "win_rate", 0.0)
                     _gex_wr = float(str(_gex_wr_raw).strip("%").strip() or 0)
