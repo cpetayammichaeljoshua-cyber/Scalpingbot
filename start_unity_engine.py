@@ -1,8 +1,38 @@
 #!/usr/bin/env python3
 """
-Unity Engine v219.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v220.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v220.0 improvements [2026-07-05]:
+   BUG FIX — Kelly Steps 19/20/21/26 boost compounding against active GSEV optimism-trap [v220.0]:
+   Root cause: G8.5BI GSEV (Step 162) is the last Kelly step applied — a "de-size when
+   system is in an optimism-trap regime" sentinel. But Kelly Steps 19 (×1.08 prime-session),
+   20 (×1.18 Markov-Sovereign), 21 (×1.25 HMM-Expansion) and 26 (×1.10 HMM-GEX dual) are
+   applied at steps 19-26 (far before Step 162). When GSEV fires ≤-1.5 (base optimism-trap),
+   Step 162 de-sizes ×0.84. But if Steps 19+20+21 all fired first, net multiplier is
+   ×1.08 × ×1.18 × ×1.25 × ×0.84 ≈ ×1.337 — the boost substantially OFFSETS the de-size
+   intent of GSEV. The optimism-trap was designed to reduce sizing in overconfident regimes,
+   not merely partially dampen compounded boosts.
+   Fix: All four boost steps now check `_last_g85bi_gsev > -1.5` before applying the upscale.
+   When GSEV optimism-trap is active (≤-1.5), Steps 19/20/21/26 skip their boosts entirely,
+   allowing Step 162 to de-size from the uncompounded baseline. GSEV ≤-2.0 (extreme, ×0.78)
+   gets even cleaner effect since there is no boost to undo. Non-fatal change — if _last_g85bi_gsev
+   is unset (getattr default 0.0), guard evaluates to 0.0 > -1.5 = True (boost allowed).
+   v219→v220.
+
+   BUG FIX — Kelly Step 20 Markov-Sovereign boost Sharpe guard -4.0 too permissive [v220.0]:
+   Root cause: Kelly Step 20 applies a ×1.18 boost when Markov transition p_ij ≥ 0.87
+   (SOVEREIGN tier). The guard was `Sharpe >= -4.0`. At the live WR ~29%, the Sharpe ratio
+   typically sits between -0.5 and -2.5. A -4.0 floor means Step 20 fires a ×1.18 BOOST
+   in virtually every drawdown scenario — even when the overall strategy is clearly in a
+   losing regime. Markov SOVEREIGN for a specific direction does not validate overall edge
+   health at WR 29%; it only measures that specific state-transition probability.
+   Fix: Sharpe guard -4.0 → -2.0. Below Sharpe -2.0, the drawdown is severe enough that
+   no Markov-specific conviction justifies oversizing relative to the current regime.
+   This specifically targets the live WR 29% regime where Sharpe is ~-0.5 to -1.5 (still
+   passes) but blocks the boost in severe drawdown (Sharpe < -2.0, currently fires silently).
+   v219→v220.
+
  v219.0 improvements [2026-07-05]:
    BUG FIX — _wire_all_components 🔗 wired-layers info banner gate-count stale "141-gate filter" [v219.0]:
    Root cause: the _logger.info("🔗 … All components wired … 141-gate filter …") line at
@@ -3558,7 +3588,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "219.0"
+UNITY_VERSION                = "220.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -24631,12 +24661,13 @@ class UnityProfitBooster:
             if SESSION_BONUS_UTC_START <= _prime_hour_19 < SESSION_BONUS_UTC_END:
                 if len(self._pnl_ring) >= 10 and kelly > 0.0:
                     _sr_prime_19 = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
-                    if _sr_prime_19 >= -1.0:
+                    _gsev19 = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0)
+                    if _sr_prime_19 >= -1.0 and _gsev19 > -1.5:  # v220.0: skip if GSEV optimism-trap active (≤-1.5)
                         _kelly_prime_pre = kelly
                         kelly = min(_kelly_ceil, kelly * 1.08)
                         self._logger.debug(
                             f"⏰ [v18.49 Step 19] Prime-Session boost: UTC {_prime_hour_19:02d}h "
-                            f"SR={_sr_prime_19:.2f}≥-1.0 → Kelly ×1.08 "
+                            f"SR={_sr_prime_19:.2f}≥-1.0 GSEV={_gsev19:.1f}>-1.5 → Kelly ×1.08 "
                             f"({_kelly_prime_pre*100:.2f}%→{kelly*100:.2f}%)"
                         )
         except Exception:
@@ -24665,12 +24696,13 @@ class UnityProfitBooster:
                 _p20, _n20 = _mk20.transition_probability(_sym20, _dir20)
                 if _n20 >= MARKOV_CHAIN_MIN_OBS and _p20 >= MARKOV_CHAIN_THRESHOLD:
                     _sr20 = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
-                    if _sr20 >= -4.0:
+                    _gsev20 = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0)
+                    if _sr20 >= -2.0 and _gsev20 > -1.5:  # v220.0: -4.0→-2.0 tightened; GSEV guard added
                         _kelly_mk_pre = kelly
                         kelly = min(_kelly_ceil, kelly * 1.18)
                         self._logger.debug(
                             f"⚡ [v18.69 Step20 Markov-Sovereign] p_ij={_p20:.3f}≥{MARKOV_CHAIN_THRESHOLD} "
-                            f"n={_n20} SR={_sr20:.2f}≥-4.0 → Kelly ×1.18 "
+                            f"n={_n20} SR={_sr20:.2f}≥-2.0 GSEV={_gsev20:.1f}>-1.5 → Kelly ×1.18 "
                             f"({_kelly_mk_pre*100:.2f}%→{kelly*100:.2f}%)"
                         )
         except Exception:
@@ -24690,7 +24722,8 @@ class UnityProfitBooster:
             if _hmm21 is not None and getattr(_hmm21, "is_ready", False) and kelly > 0.002:
                 _rg21, _pe21, _ = _hmm21.get_regime()
                 _sr21 = float(getattr(self, "sharpe_ratio", 0.0) or 0.0)
-                if _rg21 == "EXPANSION" and _pe21 >= 0.75 and _sr21 >= 0.0:
+                _gsev21 = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0)
+                if _rg21 == "EXPANSION" and _pe21 >= 0.75 and _sr21 >= 0.0 and _gsev21 > -1.5:  # v220.0: GSEV guard
                     # v19.2: EXPANSION multiplier ×1.20→×1.25 — institutional MacroGlide
                     # directive: confirmed low-vol expansion with P≥0.75 AND SR≥0.0 (positive
                     # risk-adjusted edge) warrants 25% Kelly boost vs previous 20%.  The extra
@@ -24701,7 +24734,7 @@ class UnityProfitBooster:
                     kelly = min(_kelly_ceil, kelly * 1.25)
                     self._logger.debug(
                         f"🧠 [v19.2 Step21 HMM] EXPANSION P={_pe21:.2f}≥0.75 "
-                        f"SR={_sr21:.2f}≥0.0 → Kelly ×1.25 "
+                        f"SR={_sr21:.2f}≥0.0 GSEV={_gsev21:.1f}>-1.5 → Kelly ×1.25 "
                         f"({_kelly_hmm_pre*100:.2f}%→{kelly*100:.2f}%)"
                     )
                 elif _rg21 == "CONTRACTION" and (1.0 - _pe21) >= 0.65:
@@ -24932,14 +24965,15 @@ class UnityProfitBooster:
                         and _k26_hmm_str == "CONTRACTION" and _k26_hmm_p >= 0.65
                         and _k26_gex_bear):
                     _k26_scale = 1.10
-                if _k26_scale > 1.0:
+                _gsev26 = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0)
+                if _k26_scale > 1.0 and _gsev26 > -1.5:  # v220.0: GSEV guard — skip boost if optimism-trap active
                     _k26_pre = kelly
                     kelly = min(kelly * _k26_scale, _kelly_ceil)
                     self._logger.debug(
                         f"🎯 [v64.0 Step26 DualRegime] {_k26_dir} "
                         f"HMM={_k26_hmm_str}(p={_k26_hmm_p:.2f}) "
                         f"GEX={'bull' if _k26_gex_bull else 'bear'} "
-                        f"→ Kelly ×{_k26_scale:.2f} "
+                        f"GSEV={_gsev26:.1f}>-1.5 → Kelly ×{_k26_scale:.2f} "
                         f"({_k26_pre*100:.2f}%→{kelly*100:.2f}%)"
                     )
         except Exception:
