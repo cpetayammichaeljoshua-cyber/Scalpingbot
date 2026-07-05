@@ -1,3 +1,5 @@
+- [Unity Engine v215.0 — _print_startup_banner INFO log stale "167-gate filter"](unity-engine-v215.md) — second arch banner missed in v214 pass; 167→177 gate count; v201→v215 stamp tokens appended
+- [Unity Engine v214.0 — Kelly Steps 133/134 ceiling-only no-op + banner fix](unity-engine-v214.md) — GDLB/GTOD de-sizes were ceiling-only→no-ops since v159/v160; launcher banner 176→177 gates
 - [Unity Engine v213.0 — exception-path recording gap v4/v5 series](unity-engine-v213.md) — 46 gates C4–V5 had bare except:pass with no fallback _record(); stamp Steps1-131→Steps1-162; same v190.0 root-cause
 - [Unity Engine v210.0 — CORR sentinel gap v121-v127 era](unity-engine-v210.md) — 10 gates (O4-Z4) missing from CORR clawback since v121.0; sentinel count 95→105; same gap pattern as v186/v204/v180
 - [Unity Engine v208.0 — inline WR-mult ramp sync + H4/I4/J4 dampening](unity-engine-v208.md) — 3 inline copies of old ramp (0.25→0.40) fixed to match v207.0 _wr_dampen (0.30→0.45); H4/I4/J4 positive paths undampened since v119-v120
