@@ -1,3 +1,4 @@
+- [Unity Engine v223.0 — boost Kelly WR floor guard batch fix](unity-engine-v223.md) — Steps 36-162 (112 sites) boost paths fired unconditionally at WR=29%; _kW≥30% ternary guard + ceiling clamps added
 - [Unity Engine v222.0 — de-size Kelly floor guard batch fix](unity-engine-v222.md) — Steps 93-137 (46 sites) missing max(_kelly_floor) — stacked crisis could push Kelly below 0.1% minimum
 - [Unity Engine v220.0 — Kelly boost anti-compounding + Step 20 Sharpe tightening](unity-engine-v220.md) — Steps 19/20/21/26 GSEV guard (_gsev>-1.5); Step 20 Sharpe -4.0→-2.0; prevents ×1.593 compound boost offsetting GSEV ×0.84 de-size
 - [Unity Engine v219.0 — dual "141-gate filter" stale banners in 2 logger sites](unity-engine-v219.md) — _wire_all_components + start_continuous_scanner both frozen at "141-gate" since v141 era; 4 distinct banner sites total; multi-line f-string regex trap documented

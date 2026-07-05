@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
 """
-Unity Engine v222.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v223.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v223.0 improvements [2026-07-05]:
+   BUG FIX BATCH — Kelly Steps 36–162 boost paths missing WR floor guard [v223.0]:
+   Root cause: 112 Kelly boost assignments (Steps 36–92 small-mult ×1.02–×1.05 and
+   Steps 106–162 all-resonant ×1.02–×1.05) fired unconditionally regardless of live
+   win-rate. At WR=29% (current live WR), every positive-signal confirmation added
+   compounding ×1.03/×1.04 stack on top of each other — contradicting the engine's
+   own evidence that the current regime is not an edge-positive environment.
+   Fix: Added shared `_kW` variable (method-scope, computed from booster._win_ring,
+   defaults 0.0) immediately before Kelly Step 36. All 112 boost assignments wrapped:
+     `BOOST_EXPR if _kW >= 0.30 else self.last_kelly_fraction`
+   Additionally: 14 simple direct-multiplication boost paths (no prior ceiling clamp)
+   now also use `min(BOOST, self._kelly_ceil)` ensuring no unclamped upward drift.
+   De-size paths (×<1.0) left untouched — crisis protection always fires.
+   Steps 32–35 (v221.0 per-step WR guards) left untouched — not double-guarded.
+   The _kW block is protected by try/except; failure → _kW=0.0 → no boosts fire.
+
  v222.0 improvements [2026-07-05]:
    BUG FIX BATCH — Kelly Steps 93–137 de-size paths missing floor guard [v222.0]:
    Root cause: 46 Kelly de-size assignments (Steps 93/94/95/96/97/98/99/100/101/102/103/
@@ -3651,7 +3667,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "222.0"
+UNITY_VERSION                = "223.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -25380,6 +25396,18 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 35 AVWAP-Extension Sizing is non-fatal
 
+        # v223.0: Shared WR snapshot for Kelly boost guards (Steps 36–162)
+        # Computed once here in the outer method scope; every try/except block below
+        # can read _kW without re-computing win_ring statistics per step.
+        # Default 0.0 → all boost paths blocked (safe conservative fallback if booster absent).
+        _kW: float = 0.0
+        try:
+            _kW_ring = list(getattr(getattr(self, "_booster", None), "_win_ring", []) or [])
+            if len(_kW_ring) >= 10:
+                _kW = float(sum(_kW_ring)) / float(len(_kW_ring))
+        except Exception:
+            pass  # _kW stays 0.0 — no boosts fire (conservative)
+
         # ── Kelly Step 36 (v77.0): OFI-Flow Asymmetry Sizing ─────────────────
         # Uses the G8.5H Bid-Ask Flow Asymmetry gate result stored in
         # self._last_g85h_ofi_aligned (+1=dual-align, -1=dual-oppose, 0=neutral).
@@ -25413,7 +25441,7 @@ class UnityProfitBooster:
                     )
                 elif _k36_alignment == 1:
                     # Dual-source momentum confirm — amplify
-                    self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                    self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                     self._logger.debug(
                         f"📊 [v77.0 Step36 FlowAsym] DUAL-ALIGN (OFI+OB) "
                         f"→ Kelly ×1.03 ({_k36_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -25453,7 +25481,7 @@ class UnityProfitBooster:
                     )
                 elif _k37_regime == 1:
                     # Aligned HMM expansion — amplify
-                    self.last_kelly_fraction = self.last_kelly_fraction * 1.04
+                    self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                     self._logger.debug(
                         f"📊 [v78.0 Step37 HMMTransition] ALIGNED EXPANSION "
                         f"→ Kelly ×1.04 ({_k37_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26403,7 +26431,7 @@ class UnityProfitBooster:
             _k68_fos = int(getattr(self, "_last_g85p3_fos", 0) or 0)
             if _k68_fos == 1:
                 _k68_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v107.0 Step68 FOSTripleResonance] TRIPLE-ALIGNED "
                     f"→ Kelly ×1.03 ({_k68_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26425,7 +26453,7 @@ class UnityProfitBooster:
             _k69_rke = int(getattr(self, "_last_g85q3_rke", 0) or 0)
             if _k69_rke == 1:
                 _k69_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v107.0 Step69 RKETripleCoherence] TRIPLE-BULLISH-REGIME "
                     f"→ Kelly ×1.03 ({_k69_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26447,7 +26475,7 @@ class UnityProfitBooster:
             _k70_bwo = int(getattr(self, "_last_g85r3_bwo", 0) or 0)
             if _k70_bwo == 1:
                 _k70_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v108.0 Step70 BWOTripleMomentum] TRIPLE-ALIGNED "
                     f"→ Kelly ×1.03 ({_k70_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26469,7 +26497,7 @@ class UnityProfitBooster:
             _k71_qsc = int(getattr(self, "_last_g85s3_qsc", 0) or 0)
             if _k71_qsc == 1:
                 _k71_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v108.0 Step71 QSCCompositeHealth] QUALITY-GREEN "
                     f"→ Kelly ×1.03 ({_k71_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26491,7 +26519,7 @@ class UnityProfitBooster:
             _k72_rfw = int(getattr(self, "_last_g85t3_rfw", 0) or 0)
             if _k72_rfw == 1:
                 _k72_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v109.0 Step72 RFWTripleAlign] REGIME-FLOW-WR-ALIGNED "
                     f"→ Kelly ×1.03 ({_k72_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26513,7 +26541,7 @@ class UnityProfitBooster:
             _k73_khs = int(getattr(self, "_last_g85u3_khs", 0) or 0)
             if _k73_khs == 1:
                 _k73_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v109.0 Step73 KHSTripleSync] KALMAN-HMM-SPREAD-SYNC "
                     f"→ Kelly ×1.03 ({_k73_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26535,7 +26563,7 @@ class UnityProfitBooster:
             _k74_tec = int(getattr(self, "_last_g85v3_tec", 0) or 0)
             if _k74_tec == 1:
                 _k74_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.04
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v110.0 Step74 TECTripleConf] TRIPLE-EV-CONFIDENCE-POSITIVE "
                     f"→ Kelly ×1.04 ({_k74_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26557,7 +26585,7 @@ class UnityProfitBooster:
             _k75_mot = int(getattr(self, "_last_g85w3_mot", 0) or 0)
             if _k75_mot == 1:
                 _k75_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.04
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v111.0 Step75 MOTTripleSync] MOMENTUM-STACK-ALIGNED "
                     f"→ Kelly ×1.04 ({_k75_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26579,7 +26607,7 @@ class UnityProfitBooster:
             _k76_cds = int(getattr(self, "_last_g85x3_cds", 0) or 0)
             if _k76_cds == 1:
                 _k76_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v113.0 Step76 CDSTripleSafety] CRISIS-COMPASS-SAFE "
                     f"→ Kelly ×1.03 ({_k76_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26601,7 +26629,7 @@ class UnityProfitBooster:
             _k77_mcs = int(getattr(self, "_last_g85y3_mcs", 0) or 0)
             if _k77_mcs == 1:
                 _k77_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.04
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v113.0 Step77 MCSTripleSync] MOMENTUM-COH-POSITIVE "
                     f"→ Kelly ×1.04 ({_k77_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26623,7 +26651,7 @@ class UnityProfitBooster:
             _k78_rqt = int(getattr(self, "_last_g85z3_rqt", 0) or 0)
             if _k78_rqt == 1:
                 _k78_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v114.0 Step78 RQTTripleSync] REGIME-QUALITY-POSITIVE "
                     f"→ Kelly ×1.03 ({_k78_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26645,7 +26673,7 @@ class UnityProfitBooster:
             _k79_fvr = int(getattr(self, "_last_g85a4_fvr", 0) or 0)
             if _k79_fvr == 1:
                 _k79_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = self.last_kelly_fraction * 1.03
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"📊 [v114.0 Step79 FVRTripleSync] FLOW-VOLUME-POSITIVE "
                     f"→ Kelly ×1.03 ({_k79_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26668,7 +26696,7 @@ class UnityProfitBooster:
             _k80_rws = int(getattr(self, "_last_g85b4_rws", 0) or 0)
             if _k80_rws == 1:
                 _k80_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v132.0 Step80 RWS] hot-streak → Kelly ×1.03 "
                     f"({_k80_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -26727,10 +26755,10 @@ class UnityProfitBooster:
             _k82_tfc  = int(getattr(self, "_last_g85d4_tfc", 0) or 0)
             _k82_conf = float(getattr(self, "_last_g85d4_conf", 0.0) or 0.0)
             if _k82_tfc == 1 and _k82_conf >= 0.70:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v117.0 Step82 TFC-Sizing] TimesFM high-conf aligned → Kelly ×1.04")
             elif _k82_tfc == 1 and _k82_conf >= 0.55:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v117.0 Step82 TFC-Sizing] TimesFM partial-align → Kelly ×1.02")
             elif _k82_tfc == -1 and _k82_conf >= 0.70:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.84
@@ -26750,7 +26778,7 @@ class UnityProfitBooster:
         try:
             _k83_trs = int(getattr(self, "_last_g85e4_trs", 0) or 0)
             if _k83_trs == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v117.0 Step83 TRS-Sizing] TimesFM-RegimeSync triple/dual-sync → Kelly ×1.03")
             elif _k83_trs == -1:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.87
@@ -26767,10 +26795,10 @@ class UnityProfitBooster:
             _k84_tpm = int(getattr(self, "_last_g85f4_tpm", 0) or 0)
             _k84_str = float(getattr(self, "_last_g85f4_strength", 0.0) or 0.0)
             if _k84_tpm == 1 and _k84_str >= 0.99:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v118.0 Step84 TPM-Sizing] PatchMomentum 3-scale-aligned str=1.0 → Kelly ×1.04")
             elif _k84_tpm == 1 and _k84_str >= 0.60:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v118.0 Step84 TPM-Sizing] PatchMomentum 2-scale-aligned str≥0.67 → Kelly ×1.02")
             elif _k84_tpm == -1 and _k84_str >= 0.99:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.84
@@ -26788,7 +26816,7 @@ class UnityProfitBooster:
         try:
             _k85_svtfc = int(getattr(self, "_last_g85g4_svtfc", 0) or 0)
             if _k85_svtfc == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v118.0 Step85 SVTFC-Sizing] SharpeVelocity+TimesFM composite-positive → Kelly ×1.03")
             elif _k85_svtfc == -1:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.87
@@ -26804,10 +26832,10 @@ class UnityProfitBooster:
             _k86_tpe  = int(getattr(self, "_last_g85h4_tpe", 0) or 0)
             _k86_conf = float(getattr(self, "_last_g85h4_conf", 0.0) or 0.0)
             if _k86_tpe == 1 and _k86_conf >= 0.80:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v119.0 Step86 TPE-Sizing] PatchEnsemble full-align (conf={_k86_conf:.2f}) → Kelly ×1.04")
             elif _k86_tpe == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v119.0 Step86 TPE-Sizing] PatchEnsemble partial-align (conf={_k86_conf:.2f}) → Kelly ×1.02")
             elif _k86_tpe == -1 and _k86_conf >= 0.80:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.83
@@ -26824,7 +26852,7 @@ class UnityProfitBooster:
         try:
             _k87_dgc = int(getattr(self, "_last_g85i4_dgc", 0) or 0)
             if _k87_dgc == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v119.0 Step87 DGC-Sizing] DrawdownGuard-TimesFM composite-positive → Kelly ×1.03")
             elif _k87_dgc == -1:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.86
@@ -26840,10 +26868,10 @@ class UnityProfitBooster:
             _k88_tfms = int(getattr(self, "_last_g85j4_tfms",      0) or 0)
             _k88_conf = float(getattr(self, "_last_g85j4_tfms_conf", 0.0) or 0.0)
             if _k88_tfms == +1 and _k88_conf >= 5 / 7.0:    # ≥5 aligned
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v120.0 Step88 TFMS-Sizing] MultiScale full-align (conf={_k88_conf:.2f}) → Kelly ×1.04")
             elif _k88_tfms == +1 and _k88_conf >= 4 / 7.0:  # ≥4 aligned
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v120.0 Step88 TFMS-Sizing] MultiScale partial-align (conf={_k88_conf:.2f}) → Kelly ×1.02")
             elif _k88_tfms == -1 and _k88_conf >= 5 / 7.0:  # ≥5 opposed
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.83
@@ -26860,7 +26888,7 @@ class UnityProfitBooster:
         try:
             _k89_psr = int(getattr(self, "_last_g85k4_psr", 0) or 0)
             if _k89_psr == +1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug("[v120.0 Step89 PSR-Sizing] PatchScale triple-regime-aligned → Kelly ×1.03")
             elif _k89_psr == -1:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.87
@@ -26874,7 +26902,7 @@ class UnityProfitBooster:
         try:
             _k90_wsd = int(getattr(self, "_last_g85l4_wsd", 0) or 0)
             if _k90_wsd == +1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug("[v120.0 Step90 WSD-Sizing] WR-Sharpe-DD all-3-positive → Kelly ×1.04")
             elif _k90_wsd == -1:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.83
@@ -26888,7 +26916,7 @@ class UnityProfitBooster:
         try:
             _k91_ofm = int(getattr(self, "_last_g85m4_ofm", 0) or 0)
             if _k91_ofm == +1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug("[v120.0 Step91 OFM-Sizing] OFI-VPIN-Funding triple-micro-aligned → Kelly ×1.03")
             elif _k91_ofm == -1:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.87
@@ -26903,10 +26931,10 @@ class UnityProfitBooster:
             _k92_tfc   = int(getattr(self, "_last_g85n4_tfc",       0) or 0)
             _k92_votes = int(getattr(self, "_last_g85n4_tfc_votes",  0) or 0)
             if _k92_tfc == +1 and _k92_votes >= 4:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v120.0 Step92 TFC-Sizing] TFC-meta ≥4-votes-aligned (votes={_k92_votes}) → Kelly ×1.04")
             elif _k92_tfc == +1 and _k92_votes >= 3:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v120.0 Step92 TFC-Sizing] TFC-meta ≥3-votes-aligned (votes={_k92_votes}) → Kelly ×1.02")
             elif _k92_tfc == -1 and _k92_votes <= -4:
                 self.last_kelly_fraction = self.last_kelly_fraction * 0.83
@@ -26925,7 +26953,7 @@ class UnityProfitBooster:
         try:
             _k93_evv = int(getattr(self, "_last_g85o4_ev_vel", 0) or 0)
             if _k93_evv == +1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v121.0 Step93 EVVel-Sizing] EV-vel=+1 (improving) → Kelly ×1.03")
             elif _k93_evv == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.87, self._kelly_ceil), self._kelly_floor)
@@ -26941,7 +26969,7 @@ class UnityProfitBooster:
         try:
             _k94_wra = int(getattr(self, "_last_g85p4_wra", 0) or 0)
             if _k94_wra == +1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v121.0 Step94 WRAccel-Sizing] WR+EV dual-accel → Kelly ×1.03")
             elif _k94_wra == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.87, self._kelly_ceil), self._kelly_floor)
@@ -26969,7 +26997,7 @@ class UnityProfitBooster:
                     self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.85, self._kelly_ceil), self._kelly_floor)
                     self._logger.debug(f"[v121.0 Step95 MaxDD-EV-Cmpd] DD={_k95_dd:.1f}%>42%+WR={_k95_wr:.1%}<32% → Kelly ×0.85")
             elif _k95_mec == +1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v121.0 Step95 MaxDD-EV-Cmpd] healthy regime DD<25%+WR>38% → Kelly ×1.04")
         except Exception:
             pass  # Kelly Step 95 MaxDD-EV-Compound Sizing is non-fatal
@@ -26983,7 +27011,7 @@ class UnityProfitBooster:
         try:
             _k96_sow = int(getattr(self, "_last_g85r4_sow", 0) or 0)
             if _k96_sow == +1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v123.0 Step96 SOW-Sizing] triple-resonance positive → Kelly ×1.03")
             elif _k96_sow == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.87, self._kelly_ceil), self._kelly_floor)
@@ -27003,7 +27031,7 @@ class UnityProfitBooster:
             _k97_dd  = float(getattr(self, "_max_drawdown_pct", 0.0) or 0.0)
             _k97_wr  = float(getattr(self, "_bayes_wr", 0.5) or 0.5)
             if _k97_sqc == +1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v123.0 Step97 SQC-Sizing] three-way healthy → Kelly ×1.04")
             elif _k97_sqc == -1:
                 if _k97_dd > 47.0 and _k97_wr < 0.28:
@@ -27027,7 +27055,7 @@ class UnityProfitBooster:
             _k98_cap = getattr(self, "_last_g85t4_cap", 0)
             if _k98_cap == 1:
                 # Capitulation reversal setup — slight boost for high-conviction macro setup
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.05, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.05, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v124.0 Step98 CapReversal-Sizing] reversal-setup → Kelly ×1.05")
             elif _k98_cap == -1:
                 # Counter-trend signal — reduce sizing when fighting macro fear
@@ -27076,10 +27104,10 @@ class UnityProfitBooster:
         try:
             _k100_erv = int(getattr(self, "_last_g85v4_erv", 0) or 0)
             if _k100_erv == 2:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v125.0 Step100 ERV] fast EV recovery → Kelly ×1.03")
             elif _k100_erv == 1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v125.0 Step100 ERV] moderate EV recovery → Kelly ×1.01")
             elif _k100_erv == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.87, self._kelly_ceil), self._kelly_floor)
@@ -27095,10 +27123,10 @@ class UnityProfitBooster:
         try:
             _k101_wac = int(getattr(self, "_last_g85w4_wac", 0) or 0)
             if _k101_wac == 2:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v125.0 Step101 WAC] strong WR accel → Kelly ×1.02")
             elif _k101_wac == 1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v125.0 Step101 WAC] moderate WR accel → Kelly ×1.01")
             elif _k101_wac == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.88, self._kelly_ceil), self._kelly_floor)
@@ -27113,10 +27141,10 @@ class UnityProfitBooster:
         try:
             _k102_svr = int(getattr(self, "_last_g85x4_svr", 0) or 0)
             if _k102_svr == 2:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v126.0 Step102 SVR] fast quality recovery → Kelly ×1.03")
             elif _k102_svr == 1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v126.0 Step102 SVR] moderate quality recovery → Kelly ×1.01")
             elif _k102_svr == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.87, self._kelly_ceil), self._kelly_floor)
@@ -27131,10 +27159,10 @@ class UnityProfitBooster:
         try:
             _k103_ows = int(getattr(self, "_last_g85y4_ows", 0) or 0)
             if _k103_ows == 2:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v126.0 Step103 OWS] OFI+WR dual-align → Kelly ×1.02")
             elif _k103_ows == 1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v126.0 Step103 OWS] OFI directional align → Kelly ×1.01")
             elif _k103_ows == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.88, self._kelly_ceil), self._kelly_floor)
@@ -27150,10 +27178,10 @@ class UnityProfitBooster:
         try:
             _k104_arc = int(getattr(self, "_last_g85z4_arc", 0) or 0)
             if _k104_arc == 2:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v127.0 Step104 ARC] all-3-regime-aligned → Kelly ×1.03")
             elif _k104_arc == 1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v127.0 Step104 ARC] 2/3-regime-aligned → Kelly ×1.01")
             elif _k104_arc == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.87, self._kelly_ceil), self._kelly_floor)
@@ -27169,10 +27197,10 @@ class UnityProfitBooster:
         try:
             _k105_svc = int(getattr(self, "_last_g85a5_svc", 0) or 0)
             if _k105_svc == 2:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v127.0 Step105 SVC] sharpe+quality both-positive → Kelly ×1.02")
             elif _k105_svc == 1:
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.01, self._kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(f"[v127.0 Step105 SVC] sharpe-or-quality positive → Kelly ×1.01")
             elif _k105_svc == -1:
                 self.last_kelly_fraction = max(min(self.last_kelly_fraction * 0.88, self._kelly_ceil), self._kelly_floor)
@@ -27264,14 +27292,14 @@ class UnityProfitBooster:
             _k109_ekc = int(getattr(self, "_last_g85d5_ekc", 0) or 0)
             if _k109_ekc == 2:
                 _k109_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v132.0 Step109 EKC] all-3-aligned → Kelly ×1.03 "
                     f"({_k109_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k109_ekc == 1:
                 _k109_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v132.0 Step109 EKC] 2/3-aligned → Kelly ×1.01 "
                     f"({_k109_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27296,14 +27324,14 @@ class UnityProfitBooster:
             _k110_msc = int(getattr(self, "_last_g85e5_msc", 0) or 0)
             if _k110_msc == 2:
                 _k110_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v132.0 Step110 MSC] ≥3/4-sentinels-positive → Kelly ×1.04 "
                     f"({_k110_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k110_msc == 1:
                 _k110_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v132.0 Step110 MSC] 2/4-sentinels-positive → Kelly ×1.01 "
                     f"({_k110_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27323,14 +27351,14 @@ class UnityProfitBooster:
             _k111 = int(getattr(self, "_last_g85f5_irq", 0) or 0)
             if _k111 == 2:
                 _k111_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v133.0 Step111 IRQ] irons+quality+vol all aligned → Kelly ×1.03 "
                     f"({_k111_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k111 == 1:
                 _k111_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v133.0 Step111 IRQ] irons+quality partial alignment → Kelly ×1.01 "
                     f"({_k111_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27351,14 +27379,14 @@ class UnityProfitBooster:
             _k112 = int(getattr(self, "_last_g85g5_rfc", 0) or 0)
             if _k112 == 2:
                 _k112_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v133.0 Step112 RFC] regime+flow+conviction all aligned → Kelly ×1.04 "
                     f"({_k112_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k112 == 1:
                 _k112_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v133.0 Step112 RFC] regime+flow partial alignment → Kelly ×1.01 "
                     f"({_k112_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27379,14 +27407,14 @@ class UnityProfitBooster:
             _k113 = int(getattr(self, "_last_g85h5_wrs", 0) or 0)
             if _k113 == 2:
                 _k113_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v134.0 Step113 WRS] WR+DD+Sharpe all safe → Kelly ×1.03 "
                     f"({_k113_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k113 == 1:
                 _k113_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v134.0 Step113 WRS] 2/3 safety votes positive → Kelly ×1.01 "
                     f"({_k113_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27407,14 +27435,14 @@ class UnityProfitBooster:
             _k114 = int(getattr(self, "_last_g85i5_ovm", 0) or 0)
             if _k114 == 2:
                 _k114_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v134.0 Step114 OVM] OFI+VPIN+Vol all aligned → Kelly ×1.04 "
                     f"({_k114_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k114 == 1:
                 _k114_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v134.0 Step114 OVM] 2/3 momentum votes aligned → Kelly ×1.01 "
                     f"({_k114_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27441,14 +27469,14 @@ class UnityProfitBooster:
             _k115 = int(getattr(self, "_last_g85j5_emc", 0) or 0)
             if _k115 >= 2:
                 _k115_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v135.0 Step115 EMC] all-3-safe → Kelly ×1.03 "
                     f"({_k115_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k115 == 1:
                 _k115_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v135.0 Step115 EMC] 2/3-safe → Kelly ×1.01 "
                     f"({_k115_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27480,14 +27508,14 @@ class UnityProfitBooster:
             _k116 = int(getattr(self, "_last_g85k5_qfc", 0) or 0)
             if _k116 >= 2:
                 _k116_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v135.0 Step116 QFC] all-3-quality-high → Kelly ×1.03 "
                     f"({_k116_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k116 == 1:
                 _k116_pre = self.last_kelly_fraction
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v135.0 Step116 QFC] 2/3-quality → Kelly ×1.01 "
                     f"({_k116_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27525,13 +27553,13 @@ class UnityProfitBooster:
                     f"({_k117_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k117 >= 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v136.0 Step117 MEV] all-3-healthy → Kelly ×1.03 "
                     f"({_k117_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k117 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v136.0 Step117 MEV] 2/3-healthy → Kelly ×1.01 "
                     f"({_k117_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27568,13 +27596,13 @@ class UnityProfitBooster:
                     f"({_k118_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k118 == 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v137.0 Step118 OSW] all-3-momentum → Kelly ×1.04 "
                     f"({_k118_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k118 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v137.0 Step118 OSW] 2/3-momentum → Kelly ×1.02 "
                     f"({_k118_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27611,13 +27639,13 @@ class UnityProfitBooster:
                     f"({_k119_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k119 == 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v137.0 Step119 FSL] all-3-safe → Kelly ×1.03 "
                     f"({_k119_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k119 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v137.0 Step119 FSL] 2/3-safe → Kelly ×1.01 "
                     f"({_k119_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27653,13 +27681,13 @@ class UnityProfitBooster:
                     f"({_k120_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k120 == 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v138.0 Step120 RSQ] all-aligned → Kelly ×1.04 "
                     f"({_k120_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k120 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v138.0 Step120 RSQ] 2/3-aligned → Kelly ×1.02 "
                     f"({_k120_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27695,13 +27723,13 @@ class UnityProfitBooster:
                     f"({_k121_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k121 == 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.03) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v138.0 Step121 EWV] all-healthy → Kelly ×1.03 "
                     f"({_k121_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k121 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.01) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v138.0 Step121 EWV] 2/3-healthy → Kelly ×1.01 "
                     f"({_k121_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27737,13 +27765,13 @@ class UnityProfitBooster:
                     f"({_k122_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k122 == 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v139.0 Step122 DVS] all-healthy → Kelly ×1.04 "
                     f"({_k122_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k122 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v139.0 Step122 DVS] 2/3-healthy → Kelly ×1.02 "
                     f"({_k122_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27779,13 +27807,13 @@ class UnityProfitBooster:
                     f"({_k123_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k123 == 2:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v139.0 Step123 VCF] all-aligned → Kelly ×1.04 "
                     f"({_k123_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k123 == 1:
-                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(self._kelly_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v139.0 Step123 VCF] 2/3-aligned → Kelly ×1.02 "
                     f"({_k123_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27822,13 +27850,13 @@ class UnityProfitBooster:
                     f"({_k124_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k124 == 2:
-                self.last_kelly_fraction = min(_k124_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k124_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v140.0 Step124 LSQ] all-healthy → Kelly ×1.04 "
                     f"({_k124_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k124 == 1:
-                self.last_kelly_fraction = min(_k124_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k124_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v140.0 Step124 LSQ] 2/3-healthy → Kelly ×1.02 "
                     f"({_k124_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27865,13 +27893,13 @@ class UnityProfitBooster:
                     f"({_k125_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k125 == 2:
-                self.last_kelly_fraction = min(_k125_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k125_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v140.0 Step125 MFR] all-resonant → Kelly ×1.04 "
                     f"({_k125_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k125 == 1:
-                self.last_kelly_fraction = min(_k125_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k125_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v140.0 Step125 MFR] 2/3-resonant → Kelly ×1.02 "
                     f"({_k125_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27908,13 +27936,13 @@ class UnityProfitBooster:
                     f"({_k126_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k126 == 2:
-                self.last_kelly_fraction = min(_k126_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k126_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v141.0 Step126 OUP] peak-OU-edge Z>2.5 → Kelly ×1.04 "
                     f"({_k126_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k126 == 1:
-                self.last_kelly_fraction = min(_k126_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k126_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v141.0 Step126 OUP] above-mean Z>1.5 → Kelly ×1.02 "
                     f"({_k126_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27951,13 +27979,13 @@ class UnityProfitBooster:
                     f"({_k127_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k127 == 2:
-                self.last_kelly_fraction = min(_k127_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k127_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v141.0 Step127 MFA] high-FLOAM-IR>0.15 → Kelly ×1.04 "
                     f"({_k127_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k127 == 1:
-                self.last_kelly_fraction = min(_k127_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k127_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v141.0 Step127 MFA] positive-IR>0.08 → Kelly ×1.02 "
                     f"({_k127_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -27990,13 +28018,13 @@ class UnityProfitBooster:
             elif _k128 == -1:
                 self.last_kelly_fraction = max(min(_k128_ceil, self.last_kelly_fraction * 0.95), self._kelly_floor)
             elif _k128 == 2:
-                self.last_kelly_fraction = min(_k128_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k128_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v142.0 Step128 WNZ] dual-extreme-aligned peak-breakout → Kelly ×1.04 "
                     f"({_k128_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k128 == 1:
-                self.last_kelly_fraction = min(_k128_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k128_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
         except Exception:
             pass  # Kelly Step 128 WNZ Winsorization-Guard is non-fatal
 
@@ -28025,13 +28053,13 @@ class UnityProfitBooster:
             elif _k129 == -1:
                 self.last_kelly_fraction = max(min(_k129_ceil, self.last_kelly_fraction * 0.95), self._kelly_floor)
             elif _k129 == 2:
-                self.last_kelly_fraction = min(_k129_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k129_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v142.0 Step129 ADF] stationary+OU-confirmed → Kelly ×1.04 "
                     f"({_k129_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k129 == 1:
-                self.last_kelly_fraction = min(_k129_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k129_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
         except Exception:
             pass  # Kelly Step 129 ADF Stationarity-Guard is non-fatal
 
@@ -28061,13 +28089,13 @@ class UnityProfitBooster:
             elif _k130 == -1:
                 self.last_kelly_fraction = max(min(_k130_ceil, self.last_kelly_fraction * 0.95), self._kelly_floor)
             elif _k130 == 2:
-                self.last_kelly_fraction = min(_k130_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k130_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v143.0 Step130 PCO] max-orthogonal peak-FLOAM-IR → Kelly ×1.04 "
                     f"({_k130_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k130 == 1:
-                self.last_kelly_fraction = min(_k130_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k130_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
         except Exception:
             pass  # Kelly Step 130 PCO FLOAM-Orthogonality is non-fatal
 
@@ -28097,13 +28125,13 @@ class UnityProfitBooster:
             elif _k131 == -1:
                 self.last_kelly_fraction = max(min(_k131_ceil, self.last_kelly_fraction * 0.95), self._kelly_floor)
             elif _k131 == 2:
-                self.last_kelly_fraction = min(_k131_ceil, self.last_kelly_fraction * 1.04)
+                self.last_kelly_fraction = min(_k131_ceil, self.last_kelly_fraction * 1.04) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v143.0 Step131 ICS] peak-FLOAM-IR high-IC+orthogonal → Kelly ×1.04 "
                     f"({_k131_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k131 == 1:
-                self.last_kelly_fraction = min(_k131_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k131_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
         except Exception:
             pass  # Kelly Step 131 ICS FLOAM-IR is non-fatal
 
@@ -28257,7 +28285,7 @@ class UnityProfitBooster:
                     f"({_k137_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                 )
             elif _k137_gbatch >= 2.5:
-                self.last_kelly_fraction = min(_k137_ceil, self.last_kelly_fraction * 1.02)
+                self.last_kelly_fraction = min(_k137_ceil, self.last_kelly_fraction * 1.02) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v162.0 Step137 GBATCH] elite-batch regime → Kelly ×1.02 "
                     f"({_k137_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28321,7 +28349,7 @@ class UnityProfitBooster:
             _k140_pre  = self.last_kelly_fraction
             _k140_ceil = self._kelly_ceil if hasattr(self, "_kelly_ceil") else self.last_kelly_fraction * 2.0
             if _k140_ghtf >= 1.5:
-                self.last_kelly_fraction = min(_k140_ceil, self.last_kelly_fraction * 1.05)
+                self.last_kelly_fraction = min(_k140_ceil, self.last_kelly_fraction * 1.05) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v165.0 Step140 GHTF] hot-sequence → Kelly ×1.05 "
                     f"({_k140_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28571,7 +28599,7 @@ class UnityProfitBooster:
             if _k151_galp >= 1.5:
                 _k151_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v170.0 Step151 GALP] peak-session+strong-regime → Kelly ×1.04 "
                     f"({_k151_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28579,7 +28607,7 @@ class UnityProfitBooster:
             elif _k151_galp >= 1.0:
                 _k151_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v170.0 Step151 GALP] peak-session+recovery → Kelly ×1.02 "
                     f"({_k151_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28603,7 +28631,7 @@ class UnityProfitBooster:
             elif _k152_gvlr >= 1.5:
                 _k152_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v171.0 Step152 GVLR] ultra-clean+OFI-aligned → Kelly ×1.03 "
                     f"({_k152_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28611,7 +28639,7 @@ class UnityProfitBooster:
             elif _k152_gvlr >= 1.0:
                 _k152_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v171.0 Step152 GVLR] clean+OFI-aligned → Kelly ×1.02 "
                     f"({_k152_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28643,7 +28671,7 @@ class UnityProfitBooster:
             elif _k153_grlb >= 1.5:
                 _k153_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v171.0 Step153 GRLB] struct-alpha → Kelly ×1.02 "
                     f"({_k153_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28675,7 +28703,7 @@ class UnityProfitBooster:
             elif _k154_gltb >= 1.5:
                 _k154_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v172.0 Step154 GLTB] SHORT-alpha-aligned → Kelly ×1.03 "
                     f"({_k154_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28715,7 +28743,7 @@ class UnityProfitBooster:
             elif _k155_gcms >= 2.0:
                 _k155_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v172.0 Step155 GCMS] full-consensus → Kelly ×1.04 "
                     f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28723,7 +28751,7 @@ class UnityProfitBooster:
             elif _k155_gcms >= 1.5:
                 _k155_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v172.0 Step155 GCMS] strong-consensus → Kelly ×1.02 "
                     f"({_k155_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28745,7 +28773,7 @@ class UnityProfitBooster:
             if _k156_gdsa >= 2.0:
                 _k156_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.05, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.05, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v173.0 Step156 GDSA] SHORT-alpha-full → Kelly ×1.05 "
                     f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28753,7 +28781,7 @@ class UnityProfitBooster:
             elif _k156_gdsa >= 1.0:
                 _k156_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.02, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v173.0 Step156 GDSA] SHORT-alpha-mild → Kelly ×1.02 "
                     f"({_k156_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28801,7 +28829,7 @@ class UnityProfitBooster:
             elif _k157_gevl >= 1.0:
                 _k157_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v173.0 Step157 GEVL] EV-recovery → Kelly ×1.03 "
                     f"({_k157_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28835,7 +28863,7 @@ class UnityProfitBooster:
             elif _k158_grdc >= 1.0:
                 _k158_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v174.0 Step158 GRDC] dual-recovery → Kelly ×1.04 "
                     f"({_k158_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28870,7 +28898,7 @@ class UnityProfitBooster:
             elif _k159_gxwi >= 0.5:
                 _k159_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v174.0 Step159 GXWI] maker-checker-aligned → Kelly ×1.03 "
                     f"({_k159_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28905,7 +28933,7 @@ class UnityProfitBooster:
             elif _k160_gpel >= 1.0:
                 _k160_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.04, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v175.0 Step160 GPEL] locked-high-streak → Kelly ×1.04 "
                     f"({_k160_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
@@ -28940,7 +28968,7 @@ class UnityProfitBooster:
             elif _k161_glcv >= 1.0:
                 _k161_pre = self.last_kelly_fraction
                 _kelly_ceil = getattr(self, "_kelly_ceil", self.last_kelly_fraction * 2.0)
-                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil)
+                self.last_kelly_fraction = min(self.last_kelly_fraction * 1.03, _kelly_ceil) if _kW >= 0.30 else self.last_kelly_fraction  # v223.0: WR≥30% guard
                 self._logger.debug(
                     f"[v175.0 Step161 GLCV] loop-converging → Kelly ×1.03 "
                     f"({_k161_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
