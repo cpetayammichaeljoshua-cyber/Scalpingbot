@@ -1,3 +1,4 @@
+- [Unity Engine v213.0 — exception-path recording gap v4/v5 series](unity-engine-v213.md) — 46 gates C4–V5 had bare except:pass with no fallback _record(); stamp Steps1-131→Steps1-162; same v190.0 root-cause
 - [Unity Engine v210.0 — CORR sentinel gap v121-v127 era](unity-engine-v210.md) — 10 gates (O4-Z4) missing from CORR clawback since v121.0; sentinel count 95→105; same gap pattern as v186/v204/v180
 - [Unity Engine v208.0 — inline WR-mult ramp sync + H4/I4/J4 dampening](unity-engine-v208.md) — 3 inline copies of old ramp (0.25→0.40) fixed to match v207.0 _wr_dampen (0.30→0.45); H4/I4/J4 positive paths undampened since v119-v120
 - [Unity Engine v207.0 — _wr_dampen ramp tightening](unity-engine-v207.md) — ramp start 0.25→0.30; floor now at WR≤30% (was ≤25%); reduces all 230 positive bonus sites ~8% at live WR=29%

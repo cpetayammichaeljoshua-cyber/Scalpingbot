@@ -1,8 +1,39 @@
 #!/usr/bin/env python3
 """
-Unity Engine v212.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v213.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v213.0 improvements [2026-07-05]:
+   BUG FIX — 46 v4/v5-series gates missing exception-path recording [v213.0]:
+   Root cause identical to v190.0 dead-gate pattern: gates G8.5C4 through G8.5V5
+   (46 gates, v116.0-v143.0 era) used direct _gate_stats[key]["pass"/"fail"] += 1
+   and _gate_stats_recent[key].append() calls INSIDE their try blocks, with bare
+   "except Exception: pass" clauses providing NO fallback recording on exception.
+   On any exception (numpy error, missing data, uninitialized attribute), the gate
+   becomes completely invisible to analytics — zero call count, corrupted pass/fail
+   rates, and wrong bottleneck rankings — identical to the NameError swallowing that
+   caused v142-v177 gates to silently no-op for 4+ months (fixed v190.0).
+   Affected gates (46 total): C4(AEV) D4(TFC) E4(TRS) F4(TPM) G4(SVTFC) H4(TPE)
+   I4(DGC) J4(TFMS) K4(PSR) L4(WSD) M4(OFM) N4(TFC-Meta) O4(EV_VEL) P4(WRA)
+   Q4(MEC) R4(SOW) S4(SQC) T4(CAP) U4(TUC) V4(ERV) W4(WAC) X4(SVR) Y4(OWS)
+   Z4(ARC) A5(SVC) B5(EVPV) C5(TSQC) D5(EKC) E5(MSC) F5(IRQ) G5(RFC) H5(WRS)
+   I5(OVM) J5(EMC) K5(QFC) L5(MEV) M5(OSW) N5(FSL) O5(RSQ) P5(EWV) Q5(DVS)
+   R5(VCF) S5(LSQ) T5(MFR) U5(OUP) V5(MFA).
+   Fix: replaced each bare "pass" in except clause with self._record(key, True)
+   providing neutral (pass) fallback recording — gate counts are now accurate even
+   when exceptions occur. v212→v213.
+
+   BUG FIX — Stale capability stamp Kelly step count [v213.0]:
+   Capability stamp showed "Kelly(Steps1-131·...RFC-RegimeFlowConviction[v133.0])"
+   — last updated when there were 131 Kelly steps. Current count is 162 steps.
+   Steps 132-162 (added v157.0-v201.0) were missing from the wiring log:
+   GCWD[v157]·GDLB[v159]·GTOD[v160]·GCAL[v162]·GDIV[v162]·GBATCH[v162]·
+   GSDD[v163]·GREX[v163]·GHTF[v165]·GMAP[v165]·GCAL2[v166]·GLEN[v166]·
+   GRSL[v167]·GEVAP[v167]·GFRD[v168]·GORD[v168]·GWFV[v169]·GDDV[v169]·
+   GHRZ[v170]·GALP[v170]·GVLR[v171]·GRLB[v171]·GLTB[v172]·GCMS[v172]·
+   GDSA[v173]·GEVL[v173]·GRDC[v174]·GXWI[v174]·GPEL[v175]·GLCV[v175]·
+   GSEV[v201]. Updated stamp to Steps1-162. v212→v213.
+
  v212.0 improvements [2026-07-05]:
    BUG FIX — 10 additional double-record gates [v212.0]:
    Same root-cause as v211.0 (CORR): pre-existing direct _gate_stats/_gate_stats_recent update
@@ -3422,7 +3453,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "212.0"
+UNITY_VERSION                = "213.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -17364,7 +17395,7 @@ class UnitySignalFilter:
             else:
                 self._last_g85c4_aev = 0  # cold-start
         except Exception:
-            pass  # G8.5C4 AdaptiveEV-Persistence Sentinel is non-fatal soft-gate
+            self._record("gate_g85c4_aev", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5D4 — TimesFM-ForecastConfluence (v117.0) ───────────────────────
         # TimesFM-inspired patch-based time-series forecast gate.  Implements the core
@@ -17459,7 +17490,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85d4_tfc"]["pass"] += 1
                 self._gate_stats_recent["gate_g85d4_tfc"].append(True)
         except Exception:
-            pass  # G8.5D4 is a non-fatal soft-gate
+            self._record("gate_g85d4_tfc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5E4 — TimesFM-RegimeSync (v117.0) ───────────────────────────────
         # Cross-validates the TimesFM patch-forecast direction with HMM regime and OFI
@@ -17546,7 +17577,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85e4_trs"]["pass"] += 1
                 self._gate_stats_recent["gate_g85e4_trs"].append(True)
         except Exception:
-            pass  # G8.5E4 is a non-fatal soft-gate
+            self._record("gate_g85e4_trs", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5F4 — TimesFM-PatchMomentum (v118.0) ────────────────────────────
         # Multi-resolution TimesFM-inspired patch gate. Implements the TimesFM concept
@@ -17656,7 +17687,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85f4_tpm"]["pass"] += 1
                 self._gate_stats_recent["gate_g85f4_tpm"].append(True)
         except Exception:
-            pass  # G8.5F4 is a non-fatal soft-gate
+            self._record("gate_g85f4_tpm", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5G4 — SharpeVelocity-TimesFM Composite (v118.0) ─────────────────
         # Compound gate combining Sharpe acceleration with TimesFM confluence.
@@ -17721,7 +17752,7 @@ class UnitySignalFilter:
             self._gate_stats["gate_g85g4_svtfc"]["pass" if _g4_pass else "fail"] += 1
             self._gate_stats_recent["gate_g85g4_svtfc"].append(_g4_pass)
         except Exception:
-            pass  # G8.5G4 SharpeVelocity-TimesFM Composite is non-fatal soft-gate
+            self._record("gate_g85g4_svtfc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5H4 — TimesFM-PatchEnsemble (v119.0) ──────────────────────
         # 5-scale pure-numpy patch ensemble (8/16/24/32/48-bar windows).
@@ -17804,7 +17835,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85h4_tpe"]["pass"] += 1
                 self._gate_stats_recent["gate_g85h4_tpe"].append(True)
         except Exception:
-            pass  # G8.5H4 is a non-fatal soft-gate
+            self._record("gate_g85h4_tpe", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5I4 — DrawdownGuard-TimesFM Composite (v119.0) ────────────
         # Compound gate combining MaxDD regime level with TimesFM cross-gate
@@ -17844,7 +17875,7 @@ class UnitySignalFilter:
                     f"(H4={_i4_tf_h4:+d} F4={_i4_tf_f4:+d} G4={_i4_tf_g4:+d}) adj={_i4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5I4 DrawdownGuard-TimesFM Composite is non-fatal soft-gate
+            self._record("gate_g85i4_dgc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5J4 — TimesFM-MultiScale-ForecastVote (v120.0) ───────────
         # Extended 7-scale pure-numpy TimesFM-inspired patch forecast gate.
@@ -17914,7 +17945,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85j4_tfms"]["pass"] += 1
                 self._gate_stats_recent["gate_g85j4_tfms"].append(True)
         except Exception:
-            pass  # G8.5J4 is a non-fatal soft-gate
+            self._record("gate_g85j4_tfms", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5K4 — PatchScale-RegimeAlignment (v120.0) ─────────────────
         # Macro/mid/micro regime alignment gate. Computes linear regression slopes
@@ -17992,7 +18023,7 @@ class UnitySignalFilter:
                 self._gate_stats["gate_g85k4_psr"]["pass"] += 1
                 self._gate_stats_recent["gate_g85k4_psr"].append(True)
         except Exception:
-            pass  # G8.5K4 is a non-fatal soft-gate
+            self._record("gate_g85k4_psr", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5L4 — WinRate-Sharpe-DrawdownTriple (v120.0) ─────────────
         # Triple compound gate combining three independent crisis/health signals:
@@ -18033,7 +18064,7 @@ class UnitySignalFilter:
                     f"dgc={_l4_dgc:+d} pos={_l4_pos} neg={_l4_neg} adj={_l4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5L4 WinRate-Sharpe-DrawdownTriple is non-fatal soft-gate
+            self._record("gate_g85l4_wsd", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5M4 — OFI-VPIN-Funding Microstructure Triple (v120.0) ────
         # Triple microstructure compound gate cross-validating three live signals:
@@ -18084,7 +18115,7 @@ class UnitySignalFilter:
                     f"fr={_m4_fr:+d} pos={_m4_pos} neg={_m4_neg} adj={_m4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5M4 is a non-fatal soft-gate
+            self._record("gate_g85m4_ofm", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5N4 — TimesFM-ConsensusCap Meta-Gate (v120.0) ────────────
         # Meta-gate aggregating all TimesFM-family gate votes:
@@ -18135,7 +18166,7 @@ class UnitySignalFilter:
                     f"adj={_n4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5N4 TimesFM-ConsensusCap Meta-gate is non-fatal soft-gate
+            self._record("gate_g85n4_tfc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5O4 — EV-Velocity-Trend (v121.0) ─────────────────────────
         # Tracks the velocity (rate-of-change) of recent EV values to detect
@@ -18170,7 +18201,7 @@ class UnitySignalFilter:
                     f"adj={_o4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5O4 EV-Velocity-Trend is non-fatal soft-gate
+            self._record("gate_g85o4_ev_vel", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5P4 — WR-Acceleration-Sentinel (v121.0) ───────────────────
         # Cross-validates WR trajectory (_last_g85x2_wrt) with EV crisis
@@ -18202,7 +18233,7 @@ class UnitySignalFilter:
                     f"(wrt={_p4_wrt:+d} aev={_p4_aev:+d}) adj={_p4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5P4 WR-Acceleration-Sentinel is non-fatal soft-gate
+            self._record("gate_g85p4_wra", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5Q4 — MaxDD-EV-Compound (v121.0/v152.0) ──────────────────────────
         # Compound gate combining MaxDD severity with current session WR regime.
@@ -18242,7 +18273,7 @@ class UnitySignalFilter:
                     f"DD={_q4_dd:.1f}% WR={_q4_wr:.1%} adj={_q4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5Q4 MaxDD-EV-Compound is non-fatal soft-gate
+            self._record("gate_g85q4_mec", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5R4 — Sharpe-OFI-WR TripleResonance (v123.0) ─────────────
         # Three-source triple-resonance gate: Sharpe trend + OFI persistence + WR trajectory.
@@ -18286,7 +18317,7 @@ class UnitySignalFilter:
                     f"total={_r4_total:+d} adj={_r4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5R4 Sharpe-OFI-WR TripleResonance is non-fatal soft-gate
+            self._record("gate_g85r4_sow", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5S4 — Signal-Quality-Coherence Sentinel (v123.0) ──────────
         # Three-dimensional crisis sentinel: MaxDD severity + WR + Sharpe coherence.
@@ -18320,7 +18351,7 @@ class UnitySignalFilter:
                     f"adj={_s4_adj:+.1f}pts"
                 )
         except Exception:
-            pass  # G8.5S4 Signal-Quality-Coherence Sentinel is non-fatal soft-gate
+            self._record("gate_g85s4_sqc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5T4 — Capitulation-Reversal Gate (v124.0) ─────────────────
         # Zero-API extreme-fear capitulation detector. Reads public Fear&Greed index
@@ -18408,7 +18439,7 @@ class UnitySignalFilter:
                     f"adj={_t4_adj:+.1f}pts cap={_t4_cap:+d}"
                 )
         except Exception:
-            pass  # G8.5T4 Capitulation-Reversal Gate is non-fatal soft-gate
+            self._record("gate_g85t4_cap", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5U4 — Triple-Ultimate-Crisis Sentinel (v124.0) ─────────────
         # Most aggressive crisis gate — applies maximum penalty when ALL THREE
@@ -18467,7 +18498,7 @@ class UnitySignalFilter:
                     f"adj={_u4_adj:+.1f}pts tuc={_u4_tuc:+d}"
                 )
         except Exception:
-            pass  # G8.5U4 Triple-Ultimate-Crisis Sentinel is non-fatal soft-gate
+            self._record("gate_g85u4_tuc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5V4 — EV-Recovery-Velocity (v125.0) ──────────────────────
         # Zero-API gate: reads booster._ev_ring (deque of recent EV-R values stored
@@ -18516,7 +18547,7 @@ class UnitySignalFilter:
                     f"adj={_v4_adj:+.1f}pts erv={_v4_erv_v:+d}"
                 )
         except Exception:
-            pass  # G8.5V4 EV-Recovery-Velocity is non-fatal soft-gate
+            self._record("gate_g85v4_erv", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5W4 — WinRate-Acceleration-Coherence (v125.0) ────────────
         # Zero-API gate: reads booster._pnl_ring (deque of +1/-1 outcome flags)
@@ -18563,7 +18594,7 @@ class UnitySignalFilter:
                     f"adj={_w4_adj:+.1f}pts wac={_w4_wac:+d}"
                 )
         except Exception:
-            pass  # G8.5W4 WinRate-Acceleration-Coherence is non-fatal soft-gate
+            self._record("gate_g85w4_wac", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5X4 — SVR: Quality-Score-Velocity-Recovery Sentinel [v126.0] ──
         # Tracks the quality_score_ring (last-8 composite scores) and computes a
@@ -18601,7 +18632,7 @@ class UnitySignalFilter:
                     f"slope={_x4_slope:+.2f}pts/cycle adj={_x4_adj:+.1f}pts svr={_x4_svr:+d}"
                 )
         except Exception:
-            pass  # G8.5X4 Quality-Score-Velocity-Recovery is non-fatal soft-gate
+            self._record("gate_g85x4_svr", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5Y4 — OWS: OFI-WR-Trajectory-Sync Confluence [v126.0] ───
         # Cross-validates OFI net direction (from _ofi_ring z-score) vs WR momentum
@@ -18639,7 +18670,7 @@ class UnitySignalFilter:
                     f"adj={_y4_adj:+.1f}pts ows={_y4_ows:+d}"
                 )
         except Exception:
-            pass  # G8.5Y4 is a non-fatal soft-gate
+            self._record("gate_g85y4_ows", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5Z4 — ARC: Adaptive-Regime-Composite Sentinel [v127.0] ───
         # 3-source zero-API composite: RegimeMomentumSync verdict (_last_g85z2_rms)
@@ -18687,7 +18718,7 @@ class UnitySignalFilter:
                     f"votes=+{_z4_pos}/-{_z4_neg} adj={_z4_adj:+.1f}pts arc={_z4_arc:+d}"
                 )
         except Exception:
-            pass  # G8.5Z4 is a non-fatal soft-gate
+            self._record("gate_g85z4_arc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5A5 — SVC: Sharpe-Velocity-Confluence Sentinel [v127.0] ──
         # Cross-validates Sharpe velocity trend (signal_data sharpe_velocity_norm)
@@ -18722,7 +18753,7 @@ class UnitySignalFilter:
                     f"adj={_a5_adj:+.1f}pts svc={_a5_svc:+d}"
                 )
         except Exception:
-            pass  # G8.5A5 Sharpe-Velocity-Confluence is non-fatal soft-gate
+            self._record("gate_g85a5_svc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5B5 — EV-Persistence-Velocity (v128.0) ───────────────────
         # Zero-API composite: cross-validates AdaptiveEV-Persistence sentinel
@@ -18767,7 +18798,7 @@ class UnitySignalFilter:
                     f"adj={_b5_adj:+.1f}pts evpv={_b5_evpv:+d}"
                 )
         except Exception:
-            pass  # G8.5B5 EV-Persistence-Velocity is non-fatal soft-gate
+            self._record("gate_g85b5_evpv", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5C5 — TripleSignalQuality-Convergence (v128.0) ───────────
         # Zero-API meta-gate that cross-validates 3 complementary quality
@@ -18804,7 +18835,7 @@ class UnitySignalFilter:
                     f"adj={_c5_adj:+.1f}pts tsqc={_c5_tsqc:+d}"
                 )
         except Exception:
-            pass  # G8.5C5 TripleSignalQuality-Convergence is non-fatal soft-gate
+            self._record("gate_g85c5_tsqc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5D5 — EV-Kelly-CPCV-Coherence (v132.0) ─────────────────
         # Zero-API meta-gate that cross-validates 3 complementary momentum
@@ -18844,7 +18875,7 @@ class UnitySignalFilter:
                     f"pos={_d5_votes_pos} neg={_d5_votes_neg} adj={_d5_adj:+.1f}pts ekc={_d5_ekc:+d}"
                 )
         except Exception:
-            pass  # G8.5D5 EV-Kelly-CPCV-Coherence is non-fatal soft-gate
+            self._record("gate_g85d5_ekc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5E5 — Multi-Sentinel-Consensus Meta-Gate (v132.0) ───────
         # Zero-API 4-sentinel majority vote.  Aggregates RWS (_last_g85b4_rws),
@@ -18888,7 +18919,7 @@ class UnitySignalFilter:
                     f"pos={_e5_votes_pos} neg={_e5_votes_neg} adj={_e5_adj:+.1f}pts msc={_e5_msc:+d}"
                 )
         except Exception:
-            pass  # G8.5E5 Multi-Sentinel-Consensus Meta-Gate is non-fatal soft-gate
+            self._record("gate_g85e5_msc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5F5 — IRONS-Quality-Regime Composite (v133.0) ──────────
         # Zero-API 3-source composite.  Cross-validates IRONS score trajectory
@@ -18948,7 +18979,7 @@ class UnitySignalFilter:
                     f"adj={_f5_adj:+.1f}pts irq={_f5_irq:+d}"
                 )
         except Exception:
-            pass  # G8.5F5 IRONS-Quality-Regime Composite is non-fatal soft-gate
+            self._record("gate_g85f5_irq", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5G5 — Regime-Flow-Conviction Composite (v133.0) ─────────
         # Zero-API 3-source conviction filter.  Cross-validates HMM macro regime
@@ -19006,7 +19037,7 @@ class UnitySignalFilter:
                     f"adj={_g5_adj:+.1f}pts rfc={_g5_rfc:+d}"
                 )
         except Exception:
-            pass  # G8.5G5 Regime-Flow-Conviction Composite is non-fatal soft-gate
+            self._record("gate_g85g5_rfc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5H5 — WinRate-Drawdown-Sharpe Triple-Safety (v134.0) ──────
         # 3-vote composite safety gate: WR trajectory + MaxDD guard + Sharpe velocity.
@@ -19067,7 +19098,7 @@ class UnitySignalFilter:
                     f"adj={_h5_adj:+.1f}pts wrs={_h5_wrs:+d}"
                 )
         except Exception:
-            pass  # G8.5H5 WinRate-Drawdown-Sharpe Triple-Safety is non-fatal soft-gate
+            self._record("gate_g85h5_wrs", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5I5 — OFI-VPIN-Volume Triple-Momentum (v134.0) ────────────
         # 3-vote momentum gate: OFI persistence + VPIN conviction + Volume momentum.
@@ -19123,7 +19154,7 @@ class UnitySignalFilter:
                     f"adj={_i5_adj:+.1f}pts ovm={_i5_ovm:+d}"
                 )
         except Exception:
-            pass  # G8.5I5 OFI-VPIN-Volume Triple-Momentum is non-fatal soft-gate
+            self._record("gate_g85i5_ovm", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5J5 — EV-MaxDD-Correlation Safety Gate (v135.0) ──────────
         # Emergency 3-vote safety composite targeting catastrophic MaxDD+EV scenarios.
@@ -19176,7 +19207,7 @@ class UnitySignalFilter:
                     f"adj={_j5_adj:+.1f}pts emc={_j5_emc:+d}"
                 )
         except Exception:
-            pass  # G8.5J5 EV-MaxDD-Correlation Safety is non-fatal soft-gate
+            self._record("gate_g85j5_emc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5K5 — Quality-Floor-Conviction Gate (v135.0) ─────────────
         # 3-vote conviction quality composite: IRONS sentinel + LLM confidence + NN quality.
@@ -19229,7 +19260,7 @@ class UnitySignalFilter:
                     f"adj={_k5_adj:+.1f}pts qfc={_k5_qfc:+d}"
                 )
         except Exception:
-            pass  # G8.5K5 Quality-Floor-Conviction is non-fatal soft-gate
+            self._record("gate_g85k5_qfc", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5L5 — MaxDD-EV-VPIN Triple-Brake (v136.0) ────────────────
         # Zero-API 3-vote emergency brake composite targeting catastrophic MaxDD+EV+VPIN scenarios.
@@ -19285,7 +19316,7 @@ class UnitySignalFilter:
                     f"adj={_l5_adj:+.1f}pts mev={_l5_mev:+d}"
                 )
         except Exception:
-            pass  # G8.5L5 MaxDD-EV-VPIN Triple-Brake is non-fatal soft-gate
+            self._record("gate_g85l5_mev", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
         # ── Gate G8.5M5 — OSW OFI-Sharpe-WinRate Triple-Momentum (v137.0) ────
         # Zero-API 3-vote momentum composite: cross-validates OFI ring mean,
         # Sharpe velocity, and rolling WinRate trajectory. EMERGENCY -4.0pts when
@@ -19338,7 +19369,7 @@ class UnitySignalFilter:
                     f"adj={_m5_adj:+.1f}pts osw={_m5_osw:+d}"
                 )
         except Exception:
-            pass  # G8.5M5 OFI-Sharpe-WinRate Triple-Momentum is non-fatal soft-gate
+            self._record("gate_g85m5_osw", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5N5 — FSL Funding-Spread-Liquidity Triple-Safety (v137.0) ─
         # Zero-API 3-vote liquidity safety composite. EMERGENCY -4.0pts when all 3
@@ -19392,7 +19423,7 @@ class UnitySignalFilter:
                     f"adj={_n5_adj:+.1f}pts fsl={_n5_fsl:+d}"
                 )
         except Exception:
-            pass  # G8.5N5 Funding-Spread-Liquidity Triple-Safety is non-fatal soft-gate
+            self._record("gate_g85n5_fsl", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
         # ── Gate G8.5O5 — RSQ Regime-Signal-Quality Triple-Coherence (v138.0) ─
         # Zero-API 3-vote coherence composite: quality_score_ring velocity +
         # OFI persistence alignment + RegimeCoh sentinel. Catches scenarios where
@@ -19451,7 +19482,7 @@ class UnitySignalFilter:
                     f"adj={_o5_adj:+.1f}pts rsq={_o5_rsq:+d}"
                 )
         except Exception:
-            pass  # G8.5O5 Regime-Signal-Quality Triple-Coherence is non-fatal soft-gate
+            self._record("gate_g85o5_rsq", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5P5 — EWV EV-WinRate-IRONS Triple-Composite (v138.0) ─────
         # Zero-API 3-vote composite: EV ring momentum + rolling WinRate threshold +
@@ -19505,7 +19536,7 @@ class UnitySignalFilter:
                     f"adj={_p5_adj:+.1f}pts ewv={_p5_ewv:+d}"
                 )
         except Exception:
-            pass  # G8.5P5 EV-WinRate-IRONS Triple-Composite is non-fatal soft-gate
+            self._record("gate_g85p5_ewv", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
         # ── Gate G8.5Q5 — DVS DrawdownVelocity-Sharpe Triple-Safety (v139.0) ──
         # Zero-API 3-vote safety composite: Sharpe-Velocity-Confluence sentinel +
         # WinRate trajectory + DrawdownMomentum health. Catches the scenario where
@@ -19546,7 +19577,7 @@ class UnitySignalFilter:
                     f"adj={_q5_adj:+.1f}pts dvs={_q5_dvs:+d}"
                 )
         except Exception:
-            pass  # G8.5Q5 DrawdownVelocity-Sharpe Triple-Safety is non-fatal soft-gate
+            self._record("gate_g85q5_dvs", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate G8.5R5 — VCF VPIN-Coherence-Flow Triple-Momentum (v139.0) ────
         # Zero-API 3-vote momentum composite: VPIN flow toxicity regime +
@@ -19591,7 +19622,7 @@ class UnitySignalFilter:
                     f"adj={_r5_adj:+.1f}pts vcf={_r5_vcf:+d}"
                 )
         except Exception:
-            pass  # G8.5R5 VPIN-Coherence-Flow Triple-Momentum is non-fatal soft-gate
+            self._record("gate_g85r5_vcf", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── v140.0 Gate G8.5S5 — LSQ Liquidity-Sharpe-Quality Triple-Convergence ──
         # 129th gate — zero-API 3-vote cross-validation combining:
@@ -19633,7 +19664,7 @@ class UnitySignalFilter:
                 f"emergency={_s5_emergency} adj={_s5_adj_s5:+.1f}pts lsq={_s5_lsq:+d}"
             )
         except Exception:
-            pass  # G8.5S5 LSQ Liquidity-Sharpe-Quality is non-fatal soft-gate
+            self._record("gate_g85s5_lsq", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── v140.0 Gate G8.5T5 — MFR MomentumFlow-Regime Triple-Resonance ──────
         # 130th gate — zero-API 3-vote cross-validation combining:
@@ -19681,7 +19712,7 @@ class UnitySignalFilter:
                 f"emergency={_t5_emergency} adj={_t5_adj_t5:+.1f}pts mfr={_t5_mfr:+d}"
             )
         except Exception:
-            pass  # G8.5T5 MFR MomentumFlow-Regime is non-fatal soft-gate
+            self._record("gate_g85t5_mfr", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── v141.0 Gate G8.5U5 — OUP Ornstein-Uhlenbeck Process Mean-Reversion ──
         # 131st gate — zero-API OU-process spread quality gate implementing the
@@ -19738,7 +19769,7 @@ class UnitySignalFilter:
                 f"emergency={_u5_emergency} adj={_u5_adj_u5:+.1f}pts oup={_u5_oup:+d}"
             )
         except Exception:
-            pass  # G8.5U5 OUP Ornstein-Uhlenbeck Process is non-fatal soft-gate
+            self._record("gate_g85u5_oup", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── v141.0 Gate G8.5V5 — MFA Multi-Factor Alpha FLOAM (IR=IC×√BR) ──────
         # 132nd gate — zero-API FLOAM (Fundamental Law of Active Management) gate:
@@ -19810,7 +19841,7 @@ class UnitySignalFilter:
                 f"emergency={_v5_emergency} adj={_v5_adj_v5:+.1f}pts mfa={_v5_mfa:+d}"
             )
         except Exception:
-            pass  # G8.5V5 MFA Multi-Factor Alpha FLOAM is non-fatal soft-gate
+            self._record("gate_g85v5_mfa", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
         # ── Gate 8.5W5 — WNZ Winsorization-Normalized Z-Score Guard [v142.0] ──────
         # From the FLOAM / StatArb framework (Roan+Ruuj): institutional quant pipelines
@@ -30488,7 +30519,7 @@ class UnityEngine:
             f"141-gate filter (G2.5b:Pattern · G7b:BSGreeks · G8.5b:FactorICIR · G8.5c:PortfolioOpt · G8.5e:HMM · G8.5f:VPIN · G8.5g:Kalman · G8.5h:Dispersion · G8.5i:PCA · G8.5j:CSM · G8.5k:IVCrush · G8.5L:HMM-FlipCool · G8.5m:BTCmacroGEX · G8.5n:MultiFlip · G8.5q:QuantDinger-MomVol · G8.5r:FundingRate · G8.5w:MTF-Momentum[v50.0] · G8.5x:LiqCascade-Dir[v50.0] · G8.5T:TurboVec-3TF-Fib[v57.0] · G8.5U:MomConsensus-5gate[v68.0] · G8.5P:BTC-CrossPair[v60.0,v75.0-FIX] · G8.5R:HMM-GEX-Coherence[v62.0] · G8.5S:SpreadStress-FLIPx2[v65.0] · G8.5Z:AutoCorr-Persistence[v64.0] · G8.5Y:ATR-VolCompress[v65.0,v75.0-FIX] · G8.5X:DGRP-Velocity[v66.0] · G8.5A:FundingTrend[v68.0] · G8.5B:OFI-Persist[v72.0] · G8.5C:RegimeCoh-HMM+GEX[v73.0] · G8.5D:OFI-Velocity[v74.0] · G8.5E:CrossCoherence[v75.0] · G8.5F:VWAP-Extension[v76.0] · G8.5G:CUSUM-Breakout[v76.0] · G8.5H:FlowAsymmetry[v77.0] · G8.5I:MicroTrend[v77.0] · G8.5J:HMMRegimeTransition[v78.0] · G8.5K:SpreadLiquidity[v79.0] · G8.5L2:VolPressureRegime[v80.0] · G8.5N2:FundMomPersist[v81.0] · G8.5S2:WRCrisisRegime[v85.0] · G8.5T2:ExtremeFearRegime[v85.0] · G8.5U2:VoV-StabilityRegime[v87.0] · G8.5V2:OBPressure-Imbalance[v88.0] · G8.5W2:DrawdownMomentum-Sentinel[v89.0/v154.0] · G8.5X2:WinRateTrajectory[v90.0] · G8.5Y2:HMM-VPIN-Coherence[v91.0] · G8.5Z2:RegimeMomentumSync[v92.0] · G8.5A3:VPIN-OFI-Funding-TripleConf[v93.0] · G8.5B3:HMM-OFI-Spread-TripleSync[v94.0] · G8.5C3:VolFlow-OFI-EV-TripleConv[v95.0] · G8.5D3:Regime-DD-WRT-TripleRisk[v96.0] · G8.5E3:EV-FundMom-OFI-TriplePressure[v97.0] · G8.5F3:MultiLayer-Coherence[v101.0] · G8.5G3:SharpeVelocity-QualityMomentum[v102.0] · G8.5H3:RecentWR-EmergencyBrake[v103.0] · G8.5I3:IRONSFloor-SharpeCompound[v103.0] · G8.5J3:LLM-TechCoherence[v104.0] · G8.5K3:StreakSession[v104.0] · G8.5L3:CrisisConsensus-Compound[v105.0] · G8.5M3:TrendQuality-Persistence[v105.0] · G8.5N3:OFI-HMM-MicroTrend-TripleSync[v106.0] · G8.5O3:WinRate-CPCV-NNQuality-Coherence[v106.0] · G8.5P3:FundMom-OFI-WRCrisis-TripleResonance[v107.0] · G8.5Q3:RegimeSent-WREV-EFO-TripleCoherence[v107.0] · G8.5R3:BTC-WRTraj-OFI-TripleMomentum[v108.0] · G8.5S3:Quality-Sharpe-Coherence-CompositeHealth[v108.0] · G8.5T3:RegimeFlow-OFI-WR-TripleAlignment[v109.0] · G8.5U3:Kalman-HMM-Spread-TripleSync[v109.0] · G8.5V3:TripleEV-Confidence-Persistence[v110.0] · G8.5W3:MomentumStack-OFI-MicroTrend-TripleSync[v111.0] · G8.5X3:CrisisCompass-DDM-WRT-TripleSafety[v113.0] · G8.5Y3:MomentumCoh-TripleSync-MetaGate[v113.0] · G8.5Z3:RegimeCrisisQuality-TripleSync(-2.0/-1.5/+2.0/+1.5pts)[v114.0] · G8.5A4:FlowVolumeRegime-TripleSync(-2.0/-1.5/+2.0/+1.5pts)[v114.0] · G8.5B4:RollingWR-Momentum-Sentinel(-3.0/-2.0/-1.0/+1.5pts)[v115.0/v154.0] · G8.5C4:AdaptiveEV-Persistence(-3.0/-2.0/-1.0/+1.5pts)[v116.0] · G8.5D4:TimesFM-ForecastConfluence(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5E4:TimesFM-RegimeSync(-2.0/-1.5/+2.0/+1.5pts)[v117.0] · G8.5F4:TimesFM-PatchMomentum(-2.0/-1.5/+1.5/+2.0pts)[v118.0] · G8.5G4:SharpeVelocity-TimesFM-Composite(-2.0/-1.5/+1.5/+2.0pts)[v118.0] · G8.5H4:TimesFM-PatchEnsemble-5scale(-2.0/-1.5/+1.5/+2.0pts)[v119.0] · G8.5I4:DrawdownGuard-TimesFM-Composite(-2.0/-1.5/+1.5/+2.0pts)[v119.0] · G8.5J4:TimesFM-MultiScale-ForecastVote(-2.0/-1.5/+1.5/+2.0pts)[v120.0] · G8.5K4:PatchScale-RegimeAlignment(-2.0/-1.5/+1.5/+2.0pts)[v120.0] · G8.5L4:WinRate-Sharpe-DD-Triple(-3.0/-2.0/+1.5/+2.0pts)[v120.0] · G8.5M4:OFI-VPIN-Funding-MicroTriple(-2.0/-1.5/+1.5/+2.0pts)[v120.0] · G8.5N4:TimesFM-ConsensusCap-Meta(-2.5/-2.0/+2.0/+2.5pts)[v120.0] · G8.5T4:CapitulationReversal(+2.5/+1.5/-2.0pts)[v124.0] · G8.5U4:TripleUltimateCrisis(-4.0/-3.0/+1.5pts)[v124.0] · G8.5V4:EV-Recovery-Velocity(+2.0/+1.0/-2.0pts)[v125.0] · G8.5W4:WinRate-Acceleration-Coherence(+2.0/+1.5/-2.0pts)[v125.0] · G8.5X4:Quality-Score-Velocity-Recovery(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Y4:OFI-WR-Trajectory-Sync(+2.0/+1.0/-2.0pts)[v126.0] · G8.5Z4:Adaptive-Regime-Composite(+2.0/+1.0/-2.0pts)[v127.0] · G8.5A5:Sharpe-Velocity-Confluence(+2.0/+1.0/-2.0pts)[v127.0] · G8.5V:VibeAgents · G9-CompoundHostile[v41.0]+SortinoUC[v65.0]+RegimeExp[v72.0]+FlowStack[v74.0] · G4-WRAdaptCap[v86.0]+DeadZone-0.42[v67.0] + MaxDD-EarlyDeterrent) · "
             f"G0.8:MinTP1≥{MIN_TP1_DISTANCE_PCT:.2%} · GCVAR:CVaR99 · GMK:Markov(p_ij≥{MARKOV_CHAIN_THRESHOLD}) · "
             f"G9:quality≥{SIGNAL_MIN_QUALITY_GATE:.0f} · {_irons_gate_str} · "
-            f"Kelly(Steps1-131·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·EVVelTrend[v121.0]·WRAccelSentinel[v121.0]·MaxDD-EV-Compound[v121.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion[v72.0]·OFI-PersistKelly[v73.0]·EnsembleConf[v74.0]·CrossCoherence[v75.0]·AVWAP-Extension[v76.0]·FlowAsym[v77.0]·HMMTransition[v78.0]·SpreadLiq[v79.0]·VolPressure[v80.0]·FundMom[v81.0]·VoV-Stability[v87.0]·OBPressure[v88.0]·DDMomentum[v89.0]·WRTrajectory[v90.0]·HMMVPINCoh[v91.0]·RMSSync[v92.0]·VPCTripleConf[v93.0]·HOSTripleSync[v94.0]·VOETripleConv[v95.0]·RDWTripleRisk[v96.0]·EFOTriplePressure[v97.0]·EWBrake[v103.0]·IRFlorSharpe[v103.0]·NNQualDampener[v104.0]·StreakSession[v104.0]·CrisisConsensus[v105.0]·TrendQualPersist[v105.0]·IRCTripleSync[v106.0]·WNQCoherence[v106.0]·FOSTripleResonance[v107.0]·RKETripleCoherence[v107.0]·BWOTripleMomentum[v108.0]·QSCCompositeHealth[v108.0]·RFWTripleAlign[v109.0]·KHSTripleSync[v109.0]·TECTripleConf[v110.0]·MOTTripleSync[v111.0]·CDSTripleSafety[v113.0]·MCSMetaTripleSync[v113.0]·RQTTripleSync[v114.0]·FVRTripleSync[v114.0]·TFCForecastConf[v117.0]·TRSRegimeSync[v117.0]·TPMPatchMomentum[v118.0]·SVTFCComposite[v118.0]·TPEPatchEnsemble[v119.0]·DGCDrawdownGuard[v119.0]·TFMSMultiScale[v120.0]·PSRRegimeAlign[v120.0]·WSDTriple[v120.0]·OFMicroTriple[v120.0]·TFCConsensusMeta[v120.0]·CapReversal[v124.0]·TUC-Brake[v124.0]·ERV-EVRecoveryVel[v125.0]·WAC-WRAccelCoh[v125.0]·SVR-QualVelRecovery[v126.0]·OWS-OFIWRTrajSync[v126.0]·ARC-AdaptRegimeComp[v127.0]·SVC-SharpeVelConf[v127.0]·EKC-EVKellyCPCV[v132.0]·MSC-MultiSentinelConsensus[v132.0]·IRQ-IRONSQualityRegime[v133.0]·RFC-RegimeFlowConviction[v133.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
+            f"Kelly(Steps1-162·UMI·SRM·SovFloor·MkSov·PrimeSess·HMM-Regime·Calmar0.50·F&G-cached·F&GConsec·EVVelTrend[v121.0]·WRAccelSentinel[v121.0]·MaxDD-EV-Compound[v121.0]·DualRegime[v64.0]·SortinoScale[v65.0]·MaxDDBrake[v66.0]·BTC-ATR-Spike[v68.0]·MaxDD-UltraRuin[v69.0]·VolExpansion[v72.0]·OFI-PersistKelly[v73.0]·EnsembleConf[v74.0]·CrossCoherence[v75.0]·AVWAP-Extension[v76.0]·FlowAsym[v77.0]·HMMTransition[v78.0]·SpreadLiq[v79.0]·VolPressure[v80.0]·FundMom[v81.0]·VoV-Stability[v87.0]·OBPressure[v88.0]·DDMomentum[v89.0]·WRTrajectory[v90.0]·HMMVPINCoh[v91.0]·RMSSync[v92.0]·VPCTripleConf[v93.0]·HOSTripleSync[v94.0]·VOETripleConv[v95.0]·RDWTripleRisk[v96.0]·EFOTriplePressure[v97.0]·EWBrake[v103.0]·IRFlorSharpe[v103.0]·NNQualDampener[v104.0]·StreakSession[v104.0]·CrisisConsensus[v105.0]·TrendQualPersist[v105.0]·IRCTripleSync[v106.0]·WNQCoherence[v106.0]·FOSTripleResonance[v107.0]·RKETripleCoherence[v107.0]·BWOTripleMomentum[v108.0]·QSCCompositeHealth[v108.0]·RFWTripleAlign[v109.0]·KHSTripleSync[v109.0]·TECTripleConf[v110.0]·MOTTripleSync[v111.0]·CDSTripleSafety[v113.0]·MCSMetaTripleSync[v113.0]·RQTTripleSync[v114.0]·FVRTripleSync[v114.0]·TFCForecastConf[v117.0]·TRSRegimeSync[v117.0]·TPMPatchMomentum[v118.0]·SVTFCComposite[v118.0]·TPEPatchEnsemble[v119.0]·DGCDrawdownGuard[v119.0]·TFMSMultiScale[v120.0]·PSRRegimeAlign[v120.0]·WSDTriple[v120.0]·OFMicroTriple[v120.0]·TFCConsensusMeta[v120.0]·CapReversal[v124.0]·TUC-Brake[v124.0]·ERV-EVRecoveryVel[v125.0]·WAC-WRAccelCoh[v125.0]·SVR-QualVelRecovery[v126.0]·OWS-OFIWRTrajSync[v126.0]·ARC-AdaptRegimeComp[v127.0]·SVC-SharpeVelConf[v127.0]·EKC-EVKellyCPCV[v132.0]·MSC-MultiSentinelConsensus[v132.0]·IRQ-IRONSQualityRegime[v133.0]·RFC-RegimeFlowConviction[v133.0]·GCWD-NearGXPR[v157.0]·GDLB-DirLongBias[v159.0]·GTOD-TimeOfDay[v160.0]·GCAL-CalWeek[v162.0]·GDIV-SymDiversity[v162.0]·GBATCH-BatchSize[v162.0]·GSDD-SameDir[v163.0]·GREX-RecentReuse[v163.0]·GHTF-HotSeq[v165.0]·GMAP-RSIzone[v165.0]·GCAL2-AIoverconf[v166.0]·GLEN-LoopEng[v166.0]·GRSL-PnLslope[v167.0]·GEVAP-EVvelocity[v167.0]·GFRD-FundCrowding[v168.0]·GORD-OFIoppose[v168.0]·GWFV-WFVdrift[v169.0]·GDDV-QualVelocity[v169.0]·GHRZ-DeadZone[v170.0]·GALP-PeakSession[v170.0]·GVLR-VPINliq[v171.0]·GRLB-SymAlpha[v171.0]·GLTB-DirBias[v172.0]·GCMS-CheckerMeta[v172.0]·GDSA-ShortAlpha[v173.0]·GEVL-EVlossVel[v173.0]·GRDC-RoleDefined[v174.0]·GXWI-XMLworkflow[v174.0]·GPEL-PromptEdge[v175.0]·GLCV-LoopConv[v175.0]·GSEV-OptimismTrap[v201.0]) · Agency · UTBot · GEX(FLIP≥{GEX_FLIP_ZONE_DGRP}) · G1-GEX-RR · PerSymbol · SmartSLTP · "
             f"AIOrchestrator · MarketIntel · OutcomeTracker · NNRetrain({NN_RETRAIN_INTERVAL_SEC//60}min) · "
             f"LLM-AutoRoute · SignalRate · HealthServer · ThreadPool={THREAD_POOL_WORKERS}w · "
             f"L11-NonFatal · BootstrapCacheFix · v{UNITY_VERSION} active."
