@@ -23,6 +23,25 @@ ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5
    avgP=-4.12%/-3.01%; SHORT@22h UTC avgP=-4.39%). De-sizes ×0.82/×0.88/×0.78
    for these pockets have been no-ops since v160.0 introduction. Same fix pattern.
 
+   COMMENT FIX — GEX _gex_wr_mult formula comment + CORR rho pool count [v217.0]:
+   Two factually incorrect comments corrected; no code logic changed.
+   1. GEX dampener comment (line ~12846): The prior "v189.0/v213.0" comment block
+      falsely stated the formula was `clamp(0.30+(WR-0.30)/0.15×0.70, 0.30, 1.0)`
+      giving floor=×0.30 at WR≤30%, and incorrectly claimed `self._wr_dampen()` uses
+      floor=0.30. Both claims are wrong. `_wr_dampen()` docstring and code have ALWAYS
+      used floor=×0.70 (`max(0.70,...)`). The `_gex_wr_mult` formula is IDENTICAL to
+      `_wr_dampen()` — both give ×0.70 at live WR=29%. The "v213.0-FIX" label was
+      spurious: v213.0 only fixed recording gaps (46 bare-except gates); it never touched
+      the GEX formula. The formula was correctly synced in v208.0 (ramp start 0.25→0.30
+      to match v207.0 _wr_dampen tightening). No overscoring existed. Risk: a future
+      maintainer reading the old comment would conclude GEX bonuses were massively
+      over-dampened (×0.30 vs ×0.70 "standard") and attempt to "fix" correct code.
+      Corrected to accurately describe the actual formula and its v208.0 provenance.
+   2. CORR rho comment (line ~20272): `_corr_rho = 0.65` inline comment still said
+      "105-sentinel pool post-v210.0" after the v216.0 pass added 4 more sentinels
+      (total now 109). Updated to "109-sentinel pool post-v216.0".
+   v216→v217.
+
    BUG FIX — G8.5CORR sentinel gap: v161.0 positive-score gates missing [v216.0]:
    Four v161.0-era gates (GCAL/GSEQ/GMOM3/GBATCH — G8.5AF/AH/AI/AJ) had positive
    score paths that were NEVER included in the G8.5CORR overconsensus dampener
@@ -3506,7 +3525,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "216.0"
+UNITY_VERSION                = "217.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -12840,15 +12859,21 @@ class UnitySignalFilter:
                         f"G7_MISMATCH [{symbol}]: regime={regime} opposes {direction} "
                         f"(conf={gex_conf:.0f}<{GEX_MIN_CONFIDENCE}) → −18pts quality [v11.3]"
                     )
-                # v189.0/v213.0: Smooth WR-aware dampener applied to ALL GEX bonus paths.
+                # v189.0/v208.0: Smooth WR-aware dampener applied to ALL GEX bonus paths.
                 # Rationale: high dealer-flow confidence in a losing regime (WR<30%) is
-                # overconfidence, not conviction. GEX bonuses compress linearly between
-                # WR=30% (×0.30 floor) and WR=45% (×1.0 ceiling) — matching self._wr_dampen().
-                # Formula: mult = clamp(0.30 + (WR-0.30)/0.15 × 0.70, 0.30, 1.0)   [v213.0]
-                #   WR≤30% → ×0.30 | WR=37.5% → ×0.65 | WR≥45% → ×1.00
-                # v213.0-FIX: floor was 0.70 (v189.0) — matched the WR ramp range but NOT the
-                # self._wr_dampen() floor (0.30, tightened v207.0). At live WR=29%, GEX was
-                # giving 0.70× credit while all other 177 gates gave 0.30× — 2.33× overscoring.
+                # overconfidence, not conviction. GEX bonuses compress linearly using the
+                # SAME formula as self._wr_dampen() — floor ×0.70 at WR≤30%, ramp to ×1.0
+                # at WR≥45%.
+                # Formula: mult = clamp(0.70 + (WR-0.30)/0.15 × 0.30, 0.70, 1.0)   [v208.0]
+                #   WR≤30% → ×0.70 | WR=37.5% → ×0.85 | WR≥45% → ×1.00
+                # v217.0-COMMENT-FIX: The prior comment block (v189.0/v213.0) incorrectly
+                # stated the formula was clamp(0.30+(WR-0.30)/0.15×0.70,0.30,1.0) giving
+                # floor ×0.30, and falsely claimed self._wr_dampen() uses floor=0.30. Both
+                # claims are WRONG. self._wr_dampen() docstring and code both use floor=0.70
+                # (max(0.70,...)) — always have. The v208.0 ramp sync (0.25→0.30 start) already
+                # made _gex_wr_mult identical to _wr_dampen(). At live WR=29% both give ×0.70.
+                # The "v213.0-FIX" label was spurious — v213.0 only fixed recording gaps, never
+                # touched this formula. No overscoring existed; no code change needed here.
                 # Safe parsing: strips "%" suffix, handles 0-1 or 0-100 scale, clamps [0,1];
                 # on any failure defaults conservatively to WR=0.30 (full dampening applied).
                 try:
@@ -20260,7 +20285,7 @@ class UnitySignalFilter:
                                      # under-clipping overconsensus (naive_total too high → smaller
                                      # clawback magnitude); 1.60 produces correct dampening strength
                 _corr_naive_total = _corr_avg_pt * (_corr_pos - _corr_neg)
-                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family (105-sentinel pool post-v210.0)
+                _corr_rho = 0.65  # documented correlation estimate for chained meta-gate family (109-sentinel pool post-v216.0)
                 _corr_effective_n = _corr_n / (1.0 + _corr_rho * max(_corr_n - 1, 0))
                 _corr_discount = (_corr_effective_n / _corr_n) ** 0.5
                 _corr_fair_total = _corr_naive_total * _corr_discount
