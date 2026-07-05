@@ -1,8 +1,34 @@
 #!/usr/bin/env python3
 """
-Unity Engine v204.0 — 30-layer SOVEREIGN institutional-grade trading system.
+Unity Engine v210.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v210.0 improvements [2026-07-05]:
+   BUG FIX — G8.5CORR sentinel gap for v121.0-v127.0 gate era [v210.0]:
+   1. G8.5CORR sentinel gap — 10 gates (O4/P4/Q4/R4/S4/V4/W4/X4/Y4/Z4) from the v121.0-v127.0 era
+      missing from G8.5CORR Family Correlation Dampener since introduction [v210.0]:
+      These gates were added in v121.0-v127.0 and fixed for WR-dampening of positive bonuses in
+      v209.0, but their sentinel attributes were never included in the _corr_sentinels tuple.
+      Consequence: when O4/P4/Q4/R4/S4/V4/W4/X4/Y4/Z4 all fire positive votes simultaneously
+      (strong trending regime, broad microstructure/EV/WR alignment), the overconsensus clawback
+      severely UNDERCOUNTS positive votes — naive_total inflated vs. corr-adjusted total is less
+      clipped — letting overscoring slip through the CORR guard in exactly the high-consensus,
+      low-WR regimes where it is most needed. Same root cause and fix pattern as v186.0 (v163-v168
+      batch gap), v204.0 (gate_g85m/n gap), and v180.0 (v119-v120 batch gap).
+      All 10 sentinels store int (+1/0/-1); int() cast is identity — no risk.
+      CORR sentinel count: 95 → 105.
+      Sentinels added:
+        _last_g85o4_ev_vel (v121.0 O4 EV-Velocity-Trend),
+        _last_g85p4_wra    (v121.0 P4 WR-Acceleration-Sentinel),
+        _last_g85q4_mec    (v121.0 Q4 MaxDD-EV-Compound),
+        _last_g85r4_sow    (v123.0 R4 Sharpe-OFI-WR TripleResonance),
+        _last_g85s4_sqc    (v123.0 S4 Signal-Quality-Coherence-Sentinel),
+        _last_g85v4_erv    (v125.0 V4 EV-Recovery-Velocity),
+        _last_g85w4_wac    (v125.0 W4 WinRate-Acceleration-Coherence),
+        _last_g85x4_svr    (v126.0 X4 Quality-Score-Velocity-Recovery),
+        _last_g85y4_ows    (v126.0 Y4 OFI-WR-Trajectory-Sync),
+        _last_g85z4_arc    (v127.0 Z4 Adaptive-Regime-Composite).
+
  v204.0 improvements [2026-07-04]:
    BUG FIX BATCH — CORR sentinel gap, DBT/MiroFish/Factor bias overscoring [v204.0]:
    1. G8.5CORR sentinel gap — gate_g85m and gate_g85n missing from CORR overconsensus dampener [v204.0]:
@@ -3368,7 +3394,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "209.0"
+UNITY_VERSION                = "210.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -20091,6 +20117,15 @@ class UnitySignalFilter:
                 "_last_g85ao_gcal2", "_last_g85ap_glen",                           # v166.0 GCAL2/GLEN
                 "_last_g85aq_grsl",  "_last_g85ar_gevap",                          # v167.0 GRSL/GEVAP
                 "_last_g85as_gfrd",  "_last_g85at_gord",                           # v168.0 GFRD/GORD
+                # v210.0: add missing v121.0-v127.0 gate era (O4/P4/Q4/R4/S4/V4/W4/X4/Y4/Z4 — 10 sentinels).
+                # These gates were fixed for WR-dampening in v209.0 but their sentinel attributes
+                # were never added to the CORR clawback list — same pattern as v186.0/v204.0 gaps.
+                # All store int (+/-/0); int() cast is identity — no risk. CORR sentinel count: 95→105.
+                "_last_g85o4_ev_vel", "_last_g85p4_wra",  "_last_g85q4_mec",       # v121.0 O4/P4/Q4
+                "_last_g85r4_sow",    "_last_g85s4_sqc",                            # v123.0 R4/S4
+                "_last_g85v4_erv",    "_last_g85w4_wac",                            # v125.0 V4/W4
+                "_last_g85x4_svr",    "_last_g85y4_ows",                            # v126.0 X4/Y4
+                "_last_g85z4_arc",                                                   # v127.0 Z4
             )
             _corr_votes = []
             for _attr in _corr_sentinels:
