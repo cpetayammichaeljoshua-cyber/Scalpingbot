@@ -1,3 +1,4 @@
+- [Unity Engine v229.0 — G8.5C4 cold-start recording gap](unity-engine-v229.md) — cold-start else branch set sentinel but skipped _gate_stats update; gate invisible in analytics before ev_ring ≥ 10; same fix pattern as D4/E4/F4/H4/J4
 - [Unity Engine v228.0 — Kelly Steps 27/32/33/34/35 missing _kGSEV GSEV guard](unity-engine-v228.md) — 5 boost steps had WR guards (v221) but no GSEV guard; _kGSEV moved before Step 27 to cover all boost steps
 - [Unity Engine v224–v226 — Kelly de-size floor + boost guard completeness](unity-engine-v226.md) — 50 de-size floor fixes + 143 boost paths fully guarded (_kW+_kGSEV); chain now structurally sound
 - [Unity Engine v223.0 — boost Kelly WR floor guard batch fix](unity-engine-v223.md) — Steps 36-162 (112 sites) boost paths fired unconditionally at WR=29%; _kW≥30% ternary guard + ceiling clamps added

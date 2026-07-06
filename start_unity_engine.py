@@ -3,6 +3,19 @@
 Unity Engine v223.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v229.0 improvements [2026-07-06]:
+   BUG FIX — G8.5C4 cold-start recording gap [v229.0]:
+   G8.5C4 (AEV AdaptiveEV-Persistence): the outer `else:` branch (when ev_ring < 10
+   resolved trades) set `self._last_g85c4_aev = 0` but never updated _gate_stats or
+   _gate_stats_recent. This made the gate invisible in bottleneck analytics until the
+   ev_ring warmed up (typically ~10 trades after each restart). No impact on gate
+   filtering or Kelly sizing — the sentinel is neutral (0) during cold-start so Kelly
+   Step 81 is unaffected. The same gap was already fixed for D4/E4/F4/H4/J4 via the
+   v143.1-FIX cold-start recording pattern; C4 was missed in every pass since v115.0.
+   Fix: add `_gate_stats["gate_g85c4_aev"]["pass"] += 1` and
+   `_gate_stats_recent["gate_g85c4_aev"].append(True)` to the cold-start else branch.
+   v228.0→v229.0.
+
  v228.0 improvements [2026-07-06]:
    BUG FIX BATCH — Kelly Steps 27/32/33/34/35 boost paths missing _kGSEV GSEV guard [v228.0]:
    Root cause: Steps 27 (Sortino ×1.05), 32 (OFI-Persist ×1.08), 33 (EnsembleConf ×1.07),
@@ -3756,7 +3769,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "228.0"
+UNITY_VERSION                = "229.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -17703,6 +17716,10 @@ class UnitySignalFilter:
                 self._gate_stats_recent["gate_g85c4_aev"].append(_c4_pass)
             else:
                 self._last_g85c4_aev = 0  # cold-start
+                # v229.0-FIX: cold-start path not recorded (gate invisible before ev_ring ≥ 10).
+                # D4/E4/F4/H4/J4 all have this same fix (v143.1-FIX); C4 was missed.
+                self._gate_stats["gate_g85c4_aev"]["pass"] += 1
+                self._gate_stats_recent["gate_g85c4_aev"].append(True)
         except Exception:
             self._record("gate_g85c4_aev", True)  # v213.0-FIX: exception-path fallback recording — gate invisible in analytics on error without this
 
