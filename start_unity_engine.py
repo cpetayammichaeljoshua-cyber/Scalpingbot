@@ -3,6 +3,42 @@
 Unity Engine v223.0 — 30-layer SOVEREIGN institutional-grade trading system.
 
 ARCHITECTURE (30 layers · 177-gate filter +G8.5CORR overconsensus-dampener · 5-bucket RL · Kelly 162-steps · GEX · SRM):
+ v228.0 improvements [2026-07-06]:
+   BUG FIX BATCH — Kelly Steps 27/32/33/34/35 boost paths missing _kGSEV GSEV guard [v228.0]:
+   Root cause: Steps 27 (Sortino ×1.05), 32 (OFI-Persist ×1.08), 33 (EnsembleConf ×1.07),
+   34 (CrossCoherence ×1.06), and 35 (AVWAP-Extension ×1.04) had WR floor guards (added in
+   v221.0) but no GSEV crisis guard. At live GSEV ≤ -1.5 (optimism-trap active), Kelly Step
+   162 fires ×0.84 de-size while these 5 boost steps could still fire their multipliers —
+   net-contradictory compounding (boost offsets de-size, same pattern fixed for Steps 19/20/21/26
+   in v220.0 and Steps 36–162 in v225.0/v226.0).
+   Fix: Moved shared _kGSEV block from after Step 35 to before Step 27 (guard now covers Steps
+   27–162). Added `and _kGSEV` to the boost-path condition in all 5 affected steps. De-size
+   paths in these steps (×0.82–×0.90) are unmodified — crisis de-sizing always fires.
+   v226.0→v228.0.
+
+ v227.0 improvements [2026-07-06]:
+   BUG FIX — G8.5CORR overconsensus clawback nullified by _wr_dampen() [v227.0]:
+   Root cause: `quality_score += self._wr_dampen(_corr_adj)` was added in v198.0 with
+   the comment "WR-dampened". However _wr_dampen() contains `if pts <= 0.0: return pts`
+   (early-return for penalties). Two consequences:
+   (a) BUY-consensus case (_corr_adj < 0): _wr_dampen was a no-op — the penalty
+       already passed through unchanged, so v198.0 had zero net effect here.
+   (b) SELL-consensus case (_corr_adj > 0): _corr_adj is the "clawback" that makes
+       a bearish score less negative. _wr_dampen reduced this positive correction at
+       WR<30%, meaning bearish overconsensus was UNDER-corrected in losing regimes —
+       the opposite of the intended behavior.
+   Fix: `quality_score += _corr_adj` (no wrapper). Overconsensus correction always
+   fires at full Wilson/sqrt(corr) strength regardless of live WR.
+
+   BUG FIX — Cold-start Kelly path uses 0.0 floor [v227.0]:
+   Root cause: v226.0 Fix 3 patched the main-path final assignment
+   (`self.last_kelly_fraction = max(self._kelly_floor, min(_kelly_ceil, kelly))`).
+   A separate cold-start early-return path (`if len(self._win_ring) < 10: ... return`)
+   still used `max(0.0, min(0.03, _cold_k))`. On cold-start this could set
+   last_kelly_fraction = 0.0 if the Bayesian prior computes a negative Kelly, causing
+   zero position size in the first 10 trades.
+   Fix: `max(self._kelly_floor, min(0.03, _cold_k))`.
+
  v226.0 improvements [2026-07-06]:
    BUG FIX BATCH — Kelly Steps 36–162 residual unguarded boost paths + _kGSEV hardening
    [v226.0]:
@@ -3720,7 +3756,7 @@ CONSEC_WIN_STREAK_THRESHOLD  = 2     # v33.0: 3→2 — at WR=28% P(2 consec win
 CONSEC_WIN_STREAK_BONUS      = -3.0  # extra delta applied on top of RL bucket (v18.57: -2.0→-3.0 — stronger threshold relaxation on confirmed hot streak; +8% more signals during streaks, all other gates still apply)
 
 # ── Unity Engine metadata ─────────────────────────────────────────────────────
-UNITY_VERSION                = "226.0"
+UNITY_VERSION                = "228.0"
 
 # ── v161.0 Data-Confirmed Gate Constants ─────────────────────────────────────
 # Six-session quantitative analysis of 17,647 InsiderTactics trades.
@@ -20487,7 +20523,7 @@ class UnitySignalFilter:
                 _corr_adj = _corr_fair_total - _corr_naive_total  # negative-magnitude clawback
                 if abs(_corr_adj) >= 0.1:
                     _corr_fired = True
-                    quality_score += self._wr_dampen(_corr_adj)  # v198.0: WR-dampened
+                    quality_score += _corr_adj  # v227.0-FIX: removed _wr_dampen() wrapper — _wr_dampen early-returns for pts<=0 so it was a no-op on BUY-consensus clawbacks (negative _corr_adj); for SELL-consensus (positive _corr_adj) it was incorrectly reducing the clawback at low WR, leaving bearish overconsensus under-corrected. CORR clawback must always fire at full strength.
             self._record("gate_g85corr_fcd", _corr_adj >= 0)  # v211.0-FIX: removed duplicate direct _gate_stats/_gate_stats_recent update; v192.0 added self._record() outside try but left the pre-existing direct update — causing every CORR evaluation to double-count in _gate_stats and double-append to _gate_stats_recent, inflating pass/fail analytics by 2×
             if _corr_fired:
                 self._logger.debug(
@@ -24130,7 +24166,7 @@ class UnityProfitBooster:
             _cold_k  = (_cold_p * _cold_rr - (1.0 - _cold_p)) / _cold_rr
             if KELLY_HALF_KELLY:
                 _cold_k *= 0.5
-            self.last_kelly_fraction = max(0.0, min(0.03, _cold_k))
+            self.last_kelly_fraction = max(self._kelly_floor, min(0.03, _cold_k))  # v227.0-FIX: 0.0 → _kelly_floor (cold-start path missed by v226.0 fix 3)
             return
 
         # v18.27: Pre-compute expensive ratio properties once per _update_kelly()
@@ -25111,6 +25147,20 @@ class UnityProfitBooster:
         except Exception:
             pass  # Kelly Step 26 dual-regime upscale is non-fatal
 
+        # v228.0: Shared GSEV guard for Kelly boost guards (Steps 27–162)
+        # Prevents boost compounding when GSEV is signalling a crisis regime (optimism-trap).
+        # Same rationale as v220.0 guard added to Steps 19/20/21/26 and v225.0 guard for Steps
+        # 36–162: a boost firing while GSEV Step 162 fires ×0.84 de-size is net-contradictory.
+        # Moved here from after Step 35 (was Steps 36–162 only) to also cover Steps 27/32/33/34/35
+        # which had WR floor guards (v221.0) but no GSEV guard — closing the remaining gap.
+        # Default True: _last_g85bi_gsev initialises to 0.0, so 0.0 > -1.5 = True
+        # → boosts allowed when GSEV data is not yet available (conservative cold-start).
+        _kGSEV: bool = True  # default True — boosts allowed when GSEV unavailable
+        try:
+            _kGSEV = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0) > -1.5
+        except Exception:
+            pass  # _kGSEV stays True — conservative: allow boosts (GSEV data absent)
+
         # ── Kelly Step 27 (v65.0): Sortino Downside Protection Scale ───────────
         # The Sortino ratio measures risk-adjusted returns using ONLY downside
         # deviation (σ_d), not total volatility.  A deeply negative Sortino
@@ -25135,7 +25185,7 @@ class UnityProfitBooster:
                 _k27_scale = 1.0
                 if _k27_srt < -2.5:
                     _k27_scale = 0.85
-                elif _k27_srt > 2.0 and _k27_wr > 0.35:
+                elif _k27_srt > 2.0 and _k27_wr > 0.35 and _kGSEV:  # v228.0: GSEV guard — no boost when optimism-trap active
                     _k27_scale = 1.05
                 if _k27_scale != 1.0:
                     _k27_pre = kelly
@@ -25312,7 +25362,7 @@ class UnityProfitBooster:
                 _k32_pre      = self.last_kelly_fraction
                 _k32_wr_ring  = getattr(self._booster, "_win_ring", [])
                 _k32_wr       = (sum(_k32_wr_ring) / len(_k32_wr_ring)) if len(_k32_wr_ring) >= 10 else 0.0
-                if _k32_aligned == 3 and _k32_wr >= 0.32:  # v221.0: WR≥32% guard — OFI flow ≠ edge at WR=29%
+                if _k32_aligned == 3 and _k32_wr >= 0.32 and _kGSEV:  # v221.0: WR≥32%; v228.0: GSEV guard
                     self.last_kelly_fraction = self.last_kelly_fraction * 1.08
                     self._logger.debug(
                         f"📊 [v73.0 Step32 OFI-Persist] {_k32_sym} 3/3 OFI aligned "
@@ -25346,7 +25396,7 @@ class UnityProfitBooster:
                     _k33_pre     = self.last_kelly_fraction
                     _k33_wr_ring = getattr(self._booster, "_win_ring", [])
                     _k33_wr      = (sum(_k33_wr_ring) / len(_k33_wr_ring)) if len(_k33_wr_ring) >= 10 else 0.0
-                    if _k33_unc < 0.08 and _k33_wr >= 0.32:  # v221.0: WR≥32% guard — low uncertainty ≠ edge at WR=29%
+                    if _k33_unc < 0.08 and _k33_wr >= 0.32 and _kGSEV:  # v221.0: WR≥32%; v228.0: GSEV guard
                         self.last_kelly_fraction = self.last_kelly_fraction * 1.07
                         self._logger.debug(
                             f"📊 [v74.0 Step33 EnsembleConf] unc={_k33_unc:.3f}<0.08 "
@@ -25378,7 +25428,7 @@ class UnityProfitBooster:
                 _k34_pre     = self.last_kelly_fraction
                 _k34_wr_ring = getattr(self._booster, "_win_ring", [])
                 _k34_wr      = (sum(_k34_wr_ring) / len(_k34_wr_ring)) if len(_k34_wr_ring) >= 10 else 0.0
-                if _k34_votes == 3 and _k34_wr >= 0.32:  # v221.0: WR≥32% guard — directional coherence ≠ edge at WR=29%
+                if _k34_votes == 3 and _k34_wr >= 0.32 and _kGSEV:  # v221.0: WR≥32%; v228.0: GSEV guard
                     self.last_kelly_fraction = self.last_kelly_fraction * 1.06
                     self._logger.debug(
                         f"📊 [v75.0 Step34 CrossCoherence] G8.5E 3/3 votes "
@@ -25439,8 +25489,8 @@ class UnityProfitBooster:
                         f"📊 [v76.0 Step35 AVWAP-Extension] avwap={_k35_avwap:+.1f}bps >150bps against dir "
                         f"→ Kelly ×0.82 ({_k35_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
                     )
-                elif _k35_in_dir and _k35_abs > 150.0 and _k35_cusum and _k35_wr >= 0.30:  # v221.0: WR≥30% guard
-                    # Price extended far IN direction AND CUSUM confirms breakout AND edge confirmed
+                elif _k35_in_dir and _k35_abs > 150.0 and _k35_cusum and _k35_wr >= 0.30 and _kGSEV:  # v221.0: WR≥30%; v228.0: GSEV guard
+                    # Price extended far IN direction AND CUSUM confirms breakout AND edge confirmed AND no GSEV crisis
                     self.last_kelly_fraction = self.last_kelly_fraction * 1.04
                     self._logger.debug(
                         f"📊 [v76.0 Step35 AVWAP-Extension] avwap={_k35_avwap:+.1f}bps >150bps in dir + CUSUM "
@@ -25461,18 +25511,8 @@ class UnityProfitBooster:
         except Exception:
             pass  # _kW stays 0.0 — no boosts fire (conservative)
 
-        # v225.0: Shared GSEV guard for Kelly boost guards (Steps 36–162)
-        # Prevents boost compounding when GSEV is signalling a crisis regime
-        # (same rationale as v220.0 guard on Steps 19/20/21/26: a ×1.03–×1.05
-        # boost firing while GSEV fires ×0.84 de-size is net-contradictory).
-        # Default True: _last_g85bi_gsev initialises to 0.0, so 0.0 > -1.5 = True
-        # → boosts allowed when GSEV data is not yet available (conservative).
-        # v226.0: try/except guard mirrors _kW resiliency
-        _kGSEV: bool = True  # default True — boosts allowed when GSEV unavailable
-        try:
-            _kGSEV = float(getattr(self, "_last_g85bi_gsev", 0.0) or 0.0) > -1.5
-        except Exception:
-            pass  # _kGSEV stays True — conservative: allow boosts (GSEV data absent)
+        # v228.0: _kGSEV is now defined before Step 27 (see block above — covers Steps 27–162).
+        # The variable is already in scope here; no re-computation needed for Steps 36–162.
 
         # ── Kelly Step 36 (v77.0): OFI-Flow Asymmetry Sizing ─────────────────
         # Uses the G8.5H Bid-Ask Flow Asymmetry gate result stored in
