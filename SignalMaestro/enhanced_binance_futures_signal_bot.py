@@ -400,7 +400,11 @@ class EnhancedBinanceFuturesSignalBot:
                 tr = np.maximum(tr1, np.maximum(tr2, tr3))
                 tr[0] = tr1[0]  # First value
                 return pd.Series(tr).rolling(window=period).mean().values
-        except:
+        except (TypeError, ValueError, ZeroDivisionError, IndexError) as e:
+            # CRITICAL FIX (audit H4 / NEXT-3): bare except swallowed KeyboardInterrupt
+            # and masked talib/pandas degenerate-input failures. Scope to the real
+            # failure classes for the TA path.
+            self.logger.debug(f"ATR calc fallback (period={period}): {type(e).__name__}: {e}")
             return np.ones(len(high)) * 0.01
 
     def _calculate_ema(self, prices, period):
@@ -410,7 +414,8 @@ class EnhancedBinanceFuturesSignalBot:
                 return talib.EMA(prices, timeperiod=period)
             else:
                 return pd.Series(prices).ewm(span=period).mean().values
-        except:
+        except (TypeError, ValueError, ZeroDivisionError, IndexError) as e:
+            self.logger.debug(f"EMA calc fallback (period={period}): {type(e).__name__}: {e}")
             return np.ones(len(prices)) * prices[-1]
 
     def _calculate_rsi(self, prices, period):
@@ -427,7 +432,8 @@ class EnhancedBinanceFuturesSignalBot:
                 rs = avg_gain / avg_loss
                 rsi = 100 - (100 / (1 + rs))
                 return np.concatenate([[50], rsi.values])  # Prepend initial value
-        except:
+        except (TypeError, ValueError, ZeroDivisionError, IndexError) as e:
+            self.logger.debug(f"RSI calc fallback (period={period}): {type(e).__name__}: {e}")
             return np.ones(len(prices)) * 50
 
     def _calculate_macd(self, prices, fast=12, slow=26, signal=9):
@@ -443,7 +449,8 @@ class EnhancedBinanceFuturesSignalBot:
                 signal_line = macd_line.ewm(span=signal).mean()
                 histogram = macd_line - signal_line
                 return macd_line.values, signal_line.values, histogram.values
-        except:
+        except (TypeError, ValueError, ZeroDivisionError, IndexError) as e:
+            self.logger.debug(f"MACD calc fallback: {type(e).__name__}: {e}")
             length = len(prices)
             return np.zeros(length), np.zeros(length), np.zeros(length)
 
@@ -459,7 +466,8 @@ class EnhancedBinanceFuturesSignalBot:
                 upper = sma + (std * std_dev)
                 lower = sma - (std * std_dev)
                 return upper.values, sma.values, lower.values
-        except:
+        except (TypeError, ValueError, ZeroDivisionError, IndexError) as e:
+            self.logger.debug(f"Bollinger calc fallback: {type(e).__name__}: {e}")
             length = len(prices)
             return np.ones(length) * prices[-1], np.ones(length) * prices[-1], np.ones(length) * prices[-1]
 
@@ -475,7 +483,8 @@ class EnhancedBinanceFuturesSignalBot:
                     if data[i] == min(data[i-window:i+window+1]):
                         swing_points.append(data[i])
             return swing_points if swing_points else [data[-1]]
-        except:
+        except (TypeError, ValueError, ZeroDivisionError, IndexError) as e:
+            self.logger.debug(f"swing points fallback ({point_type}): {type(e).__name__}: {e}")
             return [data[-1]]
 
     def generate_futures_signal(self, symbol: str, indicators: Dict[str, Any]) -> Optional[Dict[str, Any]]:

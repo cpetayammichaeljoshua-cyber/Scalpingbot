@@ -116,9 +116,9 @@ class DynamicErrorFixer:
                 # Set future warning options
                 try:
                     pd.set_option('future.no_silent_downcasting', True)
-                except:
-                    pass
-                
+                except (AttributeError, KeyError, ValueError):
+                    pass  # NEXT-4: narrowed — old pandas lacks this option; don't swallow shutdown signals
+
                 # Additional pandas options for warning suppression
                 pd.set_option('display.max_columns', None)
                 pd.set_option('display.width', None)
@@ -148,8 +148,8 @@ class DynamicErrorFixer:
                 warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
                 warnings.filterwarnings('ignore', message='DataConversionWarning')
                 warnings.filterwarnings('ignore', message='UndefinedMetricWarning')
-            except:
-                pass
+            except (AttributeError, ModuleNotFoundError, ImportError):
+                pass  # NEXT-4: narrowed — sklearn not installed or filter API changed
             
             self.logger.info("✅ Comprehensive warning suppression configured")
             
@@ -199,8 +199,8 @@ class DynamicErrorFixer:
                         try:
                             if hasattr(result, 'infer_objects'):
                                 result = result.infer_objects(copy=False)
-                        except:
-                            pass
+                        except (TypeError, AttributeError, ValueError):
+                            pass  # NEXT-4: narrowed — older pandas lacks copy= arg or infer_objects
                         return result
                 
                 # Apply the safe replacement
@@ -229,9 +229,9 @@ class DynamicErrorFixer:
                 
                 try:
                     pd.set_option('future.no_silent_downcasting', True)
-                except:
-                    pass
-            
+                except (AttributeError, KeyError, ValueError):
+                    pass  # NEXT-4: narrowed — old pandas lacks this option
+
             return True
         except Exception as e:
             self.logger.debug(f"Pandas future warnings fix failed: {e}")
@@ -283,9 +283,9 @@ class DynamicErrorFixer:
                         'savefig.dpi': 100,
                         'savefig.bbox': 'tight'
                     })
-            except:
-                pass
-                
+            except (KeyError, ValueError, TypeError):
+                pass  # NEXT-4: narrowed — matplotlib not installed or rcParams key changed
+
             return True
         except Exception as e:
             self.logger.debug(f"Matplotlib fix failed: {e}")
@@ -454,12 +454,13 @@ def safe_pandas_replace(df, to_replace, value, **kwargs):
         try:
             # Handle downcasting deprecation
             result = result.infer_objects(copy=False)
-        except:
-            pass
+        except (TypeError, AttributeError, ValueError):
+            pass  # NEXT-4: narrowed — older pandas lacks copy= arg
         return result
 
 # Apply global fixes on import
 try:
     apply_all_fixes()
-except:
-    pass  # Fail silently during import
+except (AttributeError, KeyError, ValueError, TypeError, ModuleNotFoundError, ImportError):
+    pass  # NEXT-4: narrowed — fail silently on missing optional deps, but DO let
+          # KeyboardInterrupt/SystemExit propagate so import can be interrupted cleanly.

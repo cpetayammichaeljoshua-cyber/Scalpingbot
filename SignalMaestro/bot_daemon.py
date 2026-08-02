@@ -118,7 +118,7 @@ class BotDaemon:
             return False
         try:
             return self.process.poll() is None
-        except:
+        except Exception:  # NEXT-5: narrowed from bare except
             return False
     
     def start_bot(self) -> bool:
@@ -370,7 +370,7 @@ class BotDaemon:
             try:
                 with open(self.status_file, 'r') as f:
                     return json.load(f)
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-5: narrowed from bare except
                 pass
         
         return {

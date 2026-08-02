@@ -243,7 +243,7 @@ class AIDependencyManager:
             try:
                 import importlib.metadata
                 return importlib.metadata.version(name)
-            except:
+            except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-5: narrowed from bare except
                 pass
                 
             return "unknown"

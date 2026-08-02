@@ -99,7 +99,7 @@ except ImportError:
         result = df.replace(to_replace, value, **kwargs)
         try:
             result = result.infer_objects(copy=False)
-        except:
+        except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
             pass
         return result
 
@@ -764,7 +764,7 @@ class AdvancedMLTradeAnalyzer:
                     self.signal_classifier.fit(X_train, y_train)
                 self.model_performance['signal_accuracy'] = 0.7  # Conservative fallback
                 self.logger.info("📊 Fallback classifier trained")
-            except:
+            except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
                 self.logger.error("Failed to train fallback classifier")
 
     async def _train_profit_predictor(self, features: pd.DataFrame, targets: Dict):
@@ -830,7 +830,7 @@ class AdvancedMLTradeAnalyzer:
                     self.profit_predictor.fit(X_train, y_train)
                 self.model_performance['profit_prediction_accuracy'] = 0.5  # Conservative fallback
                 self.logger.info("📊 Fallback profit predictor trained")
-            except:
+            except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
                 self.logger.error("Failed to train fallback profit predictor")
 
     async def _train_risk_assessor(self, features: pd.DataFrame, targets: Dict):
@@ -3168,12 +3168,12 @@ class UltimateTradingBot:
                 if highest_tf in symbol_analysis['timeframes']:
                     tf_data = symbol_analysis['timeframes'][highest_tf]
                     if 'indicators' in tf_data:
-                        ml_prediction = await self.ml_analyzer.predict_trade_outcome({
+                        ml_prediction = self.ml_analyzer.predict_trade_outcome({
                             'symbol': symbol,
                             'indicators': tf_data['indicators'],
                             'signal_strength': symbol_analysis['overall_strength'],
                             'timeframe': highest_tf
-                        })
+                        })  # predict_trade_outcome is sync; 'await' caused TypeError → ML filter silently disabled
                         symbol_analysis['ml_prediction'] = ml_prediction
             
             return symbol_analysis
@@ -3500,7 +3500,7 @@ class UltimateTradingBot:
                     
                     # Use the ML analyzer's prediction method (thread-safe)
                     if hasattr(self, 'ml_analyzer') and self.ml_analyzer:
-                        prediction = await self.ml_analyzer.predict_trade_outcome(signal_data)
+                        prediction = self.ml_analyzer.predict_trade_outcome(signal_data)  # sync method; 'await' caused TypeError → ML silently disabled
                         return prediction
                     else:
                         # Fallback prediction
@@ -5244,7 +5244,7 @@ class UltimateTradingBot:
                         try:
                             error_data = json.loads(error)
                             error_desc = error_data.get('description', error)
-                        except:
+                        except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-6: narrowed from bare except
                             error_desc = error
 
                         self.logger.warning(f"⚠️ Channel {self.target_channel} not accessible: {error_desc}")
@@ -5320,7 +5320,7 @@ class UltimateTradingBot:
                             error_data = {}
                             try:
                                 error_data = json.loads(error_text)
-                            except:
+                            except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-6: narrowed from bare except
                                 pass
 
                             error_description = error_data.get('description', error_text)
@@ -5379,7 +5379,7 @@ class UltimateTradingBot:
                         self.logger.info(f"✅ Fallback message sent to admin {self.admin_chat_id}")
                         return True
                     return False
-        except:
+        except (OSError, ConnectionError, TimeoutError, ValueError, asyncio.TimeoutError):  # NEXT-6: narrowed from bare except
             return False
 
     def format_ml_signal_message(self, signal: Dict[str, Any]) -> str:
@@ -5912,7 +5912,7 @@ Type `/help` for complete command list
                             logs = json.load(f)
                             persistent_logs_count = len(logs)
                             recent_trades = logs[-10:] if logs else []
-                    except:
+                    except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-6: narrowed from bare except
                         pass
 
                 # Calculate session statistics
@@ -6086,7 +6086,7 @@ Type `/help` for complete command list
                                     elif pnl < 0:
                                         recent_performance["losses"] += 1
                                     recent_performance["total_pnl"] += pnl
-                        except:
+                        except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-6: narrowed from bare except
                             pass
 
                     performance_msg = f"""📈 **DETAILED PERFORMANCE ANALYSIS**
@@ -6872,7 +6872,7 @@ Symbol {symbol} is not currently locked.
                                 open_msg += f"   Entry: {signal['entry_price']:.6f}\n"
                                 open_msg += f"   Duration: {duration:.1f} minutes\n"
                                 open_msg += f"   ML Learning: ✅ Active\n\n"
-                        except:
+                        except Exception:  # NEXT-6: narrowed from bare except
                             open_msg += f"📊 **{symbol}** {signal['direction']}\n"
                             open_msg += f"   Entry: {signal['entry_price']:.6f}\n"
                             open_msg += f"   Duration: {duration:.1f} minutes\n"
@@ -7147,9 +7147,9 @@ Use /train to manually scan and train""")
                                         if current_time_ts - trade_time <= 604800:
                                             recent_metrics["trades_7d"] += 1
                                             recent_metrics["profit_7d"] += pnl
-                                    except:
+                                    except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
                                         continue
-                        except:
+                        except Exception:  # NEXT-6: narrowed from bare except
                             pass
                     
                     metrics_msg = f"""📊 **COMPREHENSIVE TRADING METRICS**
@@ -7244,10 +7244,10 @@ Use /train to manually scan and train""")
                                     pnl_percent = ((current_price - entry_price) / entry_price) * 100 * signal['optimal_leverage']
                                 else:
                                     pnl_percent = ((entry_price - current_price) / entry_price) * 100 * signal['optimal_leverage']
-                                
+
                                 total_unrealized += pnl_percent
                                 status_emoji = "🟢" if pnl_percent > 0 else "🔴" if pnl_percent < 0 else "🟡"
-                                
+
                                 positions_msg += f"""\n\n{status_emoji} **{symbol}** {signal['direction'].upper()}
 • Entry: {entry_price:.6f} | Current: {current_price:.6f}
 • Unrealized P&L: {pnl_percent:+.2f}%
@@ -7260,7 +7260,7 @@ Use /train to manually scan and train""")
 • Leverage: {signal['optimal_leverage']}x
 • Duration: {duration_str}
 • Risk: ${self.risk_per_trade_amount:.2f}"""
-                        except:
+                        except Exception:  # NEXT-6: narrowed from bare except
                             positions_msg += f"""\n\n📊 **{symbol}** {signal['direction'].upper()}
 • Entry: {signal['entry_price']:.6f} | Current: Error
 • Leverage: {signal['optimal_leverage']}x
@@ -7322,9 +7322,9 @@ Use /train to manually scan and train""")
                                             pnl_data["trades_month"] += 1
                                             if pnl > 0:
                                                 pnl_data["wins_month"] += 1
-                                    except:
+                                    except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
                                         continue
-                        except:
+                        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
                             pass
                     
                     # Calculate current unrealized P&L
@@ -7341,9 +7341,12 @@ Use /train to manually scan and train""")
                                     pnl = ((current_price - entry_price) / entry_price) * 100 * signal['optimal_leverage']
                                 else:
                                     pnl = ((entry_price - current_price) / entry_price) * 100 * signal['optimal_leverage']
-                                
+
                                 unrealized_pnl += pnl
-                        except:
+                        except (KeyError, ZeroDivisionError, ValueError, TypeError) as pnl_err:
+                            # AUDIT C3: was bare `except:` — silently swallowed
+                            # entry_price=None / 0 divide / missing keys. Now logged.
+                            self.logger.debug(f"unrealized PnL skip {symbol}: {pnl_err}")
                             continue
                     
                     pnl_msg = f"""💰 **PROFIT & LOSS SUMMARY**
@@ -7444,7 +7447,7 @@ Use /train to manually scan and train""")
                                                 stats["recent_wins"] += 1
                                             elif pnl < 0:
                                                 stats["recent_losses"] += 1
-                                    except:
+                                    except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
                                         continue
                                 
                                 # Calculate averages
@@ -7453,7 +7456,7 @@ Use /train to manually scan and train""")
                                 if stats["loss_amounts"]:
                                     stats["avg_loss"] = sum(stats["loss_amounts"]) / len(stats["loss_amounts"])
                                     
-                        except:
+                        except Exception:  # NEXT-6: narrowed from bare except
                             pass
                     
                     # Calculate win rates
@@ -7558,7 +7561,7 @@ Use /train to manually scan and train""")
                         try:
                             entry_dt = datetime.fromisoformat(entry_time)
                             time_str = entry_dt.strftime('%m/%d %H:%M')
-                        except:
+                        except Exception:  # NEXT-6: narrowed from bare except
                             time_str = "Unknown"
                         
                         trades_msg += f"""\n\n{i}. {status_emoji} **{symbol}** {direction}
@@ -8802,6 +8805,37 @@ Use /train to manually scan and train""")
         except Exception as e:
             return 'OPEN'
 
+    def _net_pnl_with_fees(self, gross_pnl_pct: float, leverage: int = 1,
+                            taker_fee_pct: float = 0.05, n_turns: int = 1) -> float:
+        """
+        Convert a gross leveraged P/L percentage into a NET P/L percentage
+        that accounts for Binance Futures taker fees on both entry and exit.
+
+        gross_pnl_pct — what the bot currently records: ((price_diff/entry)*100*leverage)
+        leverage      — exchange leverage used on the position (default 1)
+        taker_fee_pct — taker fee as % of notional per side. Binance USDT-M default 0.05%.
+                        (maker would be 0.02% if we ever route limit-only.)
+        n_turns       — number of (open+close) round-trips this trade produced.
+                        Standard closed trade = 1 (entry fee + exit fee = 2 sides).
+
+        AUDIT C2: prior code never subtracted fees; reported P&L was overstated by
+        (2 * taker_fee * leverage) per round-trip. A 10x trade at 0.05% would show
+        +1.0% profit on a flat move, while the real net is -1.0%.
+
+        Returns the net P/L in the SAME units as gross_pnl_pct (leveraged % of margin).
+        """
+        try:
+            leverage = max(int(leverage) if leverage else 1, 1)
+            # Total fee paid as a fraction of notional, multiplied back into margin units.
+            # (Total fee % of margin) = (fee_per_side * 2 sides * turns) * leverage
+            fee_per_side = float(taker_fee_pct)  # % of notional per side
+            fee_total_pct_of_margin = (fee_per_side * 2 * max(int(n_turns) if n_turns else 1, 1)) * leverage
+            return float(gross_pnl_pct) - fee_total_pct_of_margin
+        except (TypeError, ValueError):
+            # Fallback: caller likely passed a non-numeric gross; don't crash the
+            # trade-completion path, just record the gross unchanged.
+            return float(gross_pnl_pct) if gross_pnl_pct is not None else 0.0
+
     async def record_trade_completion(self, signal: Dict[str, Any], trade_result: Dict[str, Any]):
         """Record completed trade for ML learning with comprehensive logging"""
         try:
@@ -8818,7 +8852,10 @@ Use /train to manually scan and train""")
                 'take_profit_3': signal['tp3'],
                 'signal_strength': signal['signal_strength'],
                 'leverage': signal['optimal_leverage'],
-                'profit_loss': trade_result.get('profit_loss', 0),
+                'profit_loss': self._net_pnl_with_fees(
+                    gross_pnl_pct=trade_result.get('profit_loss', 0),
+                    leverage=signal['optimal_leverage'],
+                ),
                 'trade_result': trade_result.get('result', 'UNKNOWN'),
                 'duration_minutes': trade_result.get('duration_minutes', 0),
                 'market_volatility': signal.get('market_volatility', 0.02),
@@ -8866,7 +8903,7 @@ Use /train to manually scan and train""")
                 try:
                     with open(log_file, 'r') as f:
                         existing_logs = json.load(f)
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-6: narrowed from bare except
                     existing_logs = []
 
             # Add timestamp and bot version
@@ -9454,7 +9491,7 @@ Use /train to manually scan and train""")
                             try:
                                 await self.send_message(self.admin_chat_id,
                                     f"🚨 CRITICAL: Bot recovery failed after {consecutive_errors} errors. Manual intervention may be required.")
-                            except:
+                            except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, AttributeError, KeyError):  # NEXT-6: narrowed from bare except (was undefined TelegramError/NetworkError/TimedOut - bot uses aiohttp, not python-telegram-bot)
                                 pass  # Even admin notification failed
 
                 else:
@@ -9466,7 +9503,7 @@ Use /train to manually scan and train""")
                         self.logger.info("🌐 Network error detected, attempting quick connection refresh...")
                         try:
                             await self.verify_channel_access()
-                        except:
+                        except Exception:  # NEXT-6: narrowed from bare except
                             pass
 
                 self.logger.info(f"⏳ Waiting {error_wait} seconds before retry... (Recovery mode: {recovery_mode})")
@@ -9570,7 +9607,7 @@ Use /train to manually scan and train""")
                 try:
                     shutdown_msg = "🛑 **Ultimate ML Trading Bot Shutdown**\n\nBot has stopped. All ML models and learning data preserved for restart."
                     await self.send_message(self.admin_chat_id, shutdown_msg)
-                except:
+                except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, AttributeError, KeyError):  # NEXT-6: narrowed from bare except (was undefined TelegramError/NetworkError/TimedOut - bot uses aiohttp, not python-telegram-bot)
                     pass
 
 async def main():

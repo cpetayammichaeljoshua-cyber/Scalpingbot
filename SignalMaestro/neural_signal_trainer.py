@@ -3812,7 +3812,7 @@ class NeuralSignalTrainer:
                         # At CPCV=50.2% the model is essentially random; deploying it adds noise to G4.
                         # Guard: require CPCV avg >= 0.51 before any threshold adjustment or deployment.
                         if _cpcv_avg < 0.51:
-                            logger.warning(
+                            self.logger.warning(
                                 f"⚠️  [v115.0 CPCV-REJECT] K=3 CPCV avg={_cpcv_avg:.1%} < 51% threshold — "
                                 f"near-random model rejected; keeping previous model. "
                                 f"val={acc:.1%} folds={[f'{a:.1%}' for a in _cpcv_accs]}"

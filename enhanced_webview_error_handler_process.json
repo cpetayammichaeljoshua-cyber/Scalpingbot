@@ -1,7 +1,0 @@
-{
-  "name": "Enhanced Webview Error Handler",
-  "pid": 1031,
-  "command": "python enhanced_webview_error_handler.py",
-  "start_time": "2025-09-22T22:14:41.162109",
-  "critical": false
-}

@@ -618,7 +618,7 @@ class MLTradeAnalyzer:
                         transformed.append(encoder.transform([value])[0])
                     else:
                         transformed.append(default_value)
-                except:
+                except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-5: narrowed from bare except
                     transformed.append(default_value)
             return pd.Series(transformed, index=values.index)
         except Exception:

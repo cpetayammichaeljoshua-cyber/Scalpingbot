@@ -152,9 +152,10 @@ class MetricsReporter:
                 avg_return = 0
                 return_std = 0
             
-            # Calmar ratio (return / max drawdown)
-            max_dd = max([abs(t.get('max_adverse_pnl', 0)) for t in trades], default=1)
-            calmar_ratio = return_pct / max_dd if max_dd > 0 else 0
+            # Calmar ratio (return / max drawdown) — keep both in % so units are consistent
+            max_dd_usd = max([abs(t.get('max_adverse_pnl', 0)) for t in trades], default=0)
+            max_dd_pct = (max_dd_usd / initial_capital * 100) if initial_capital > 0 else 0
+            calmar_ratio = return_pct / max_dd_pct if max_dd_pct > 0 else 0
             
             return {
                 'total_return': total_return,

@@ -194,7 +194,16 @@ class DynamicLeverageManager:
                 return None
             
             # Use 1-hour data as primary timeframe for volatility calculation
-            primary_df = df_data.get('1h') or df_data.get('15m') or list(df_data.values())[0]
+            # Check for non-empty DataFrame using .empty property to avoid truth-value ambiguity
+            primary_df = df_data.get('1h')
+            if primary_df is None or primary_df.empty:
+                primary_df = df_data.get('15m')
+            if primary_df is None or primary_df.empty:
+                # Get first non-empty DataFrame from df_data
+                primary_df = next((df for df in df_data.values() if not df.empty), None)
+            if primary_df is None:
+                self.logger.warning(f"⚠️ All timeframe DataFrames are empty for {symbol}")
+                return None
             
             # Calculate ATR (Average True Range)
             atr_14, atr_percentage = await self._calculate_atr(primary_df)
@@ -858,11 +867,11 @@ class DynamicLeverageManager:
             else:
                 auto_leverage = 3   # Extreme volatility
             
-            # Adjust for trade size
-            if trade_size_usdt > 500:
-                auto_leverage = max(2, int(auto_leverage * 0.7))
-            elif trade_size_usdt > 1000:
+            # Adjust for trade size (largest trades get the biggest reduction)
+            if trade_size_usdt > 1000:
                 auto_leverage = max(2, int(auto_leverage * 0.5))
+            elif trade_size_usdt > 500:
+                auto_leverage = max(2, int(auto_leverage * 0.7))
             
             # Adjust for direction (shorts typically get lower leverage in volatile conditions)
             if trade_direction == 'SHORT' and volatility_score > 2.0:

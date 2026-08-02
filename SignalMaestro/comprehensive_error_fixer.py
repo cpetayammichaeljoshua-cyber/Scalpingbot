@@ -316,7 +316,7 @@ class AIEnhancedSignalProcessor:
                 # Fix future warnings
                 try:
                     pd.set_option('future.no_silent_downcasting', True)
-                except:
+                except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-5: narrowed from bare except
                     pass
                 
                 # Additional pandas options
@@ -430,7 +430,7 @@ class AIEnhancedSignalProcessor:
                 try:
                     os.chmod(file_path, 0o755)
                     fixed_count += 1
-                except:
+                except Exception:  # NEXT-5: narrowed from bare except
                     pass
             
             if fixed_count > 0:
@@ -563,7 +563,7 @@ class AIEnhancedSignalProcessor:
                         response = requests.get(url, timeout=10)
                         if response.status_code == 200:
                             self.logger.info(f"✅ {url} reachable")
-                    except:
+                    except (OSError, ConnectionError, TimeoutError, ValueError):  # NEXT-5: narrowed from bare except
                         pass
             except ImportError:
                 pass
@@ -586,7 +586,7 @@ class AIEnhancedSignalProcessor:
             for pid_file in pid_files:
                 try:
                     pid_file.unlink()
-                except:
+                except Exception:  # NEXT-5: narrowed from bare except
                     pass
             
             self.fixed_errors.append("Process issues fixed")

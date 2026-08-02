@@ -38,7 +38,13 @@ class RealisticBacktester:
             max_concurrent_trades=config.get('max_concurrent_trades', 3),
             max_daily_loss=config.get('max_daily_loss', 1.0),  # $1 max daily loss
             portfolio_risk_cap=config.get('portfolio_risk_cap', 5.0),  # Max 5% total risk
-            use_fixed_risk=True  # Always use fixed risk to prevent compounding
+            use_fixed_risk=True,  # Always use fixed risk to prevent compounding
+            # NEXT-1: see cli.py — bot uses market/taker orders, backtest must use
+            # the taker commission (0.05%) not the maker default (0.02%) or every
+            # filled simulated trade under-counts the round-trip cost by
+            # 0.03%/side × leverage × 2 sides.
+            commission_rate=config.get('commission_rate', 0.0005),
+            funding_rate=config.get('funding_rate', 0.0001),
         )
         self.execution_simulator = ExecutionSimulator()
         self.metrics_reporter = MetricsReporter()
@@ -106,7 +112,7 @@ class RealisticBacktester:
                     continue
                 
                 # Generate trading signals with stricter filtering
-                signals = generate_trading_signals(df, symbol, use_ml_filter=True)
+                signals = await generate_trading_signals(df, symbol, use_ml_filter=True)
                 
                 # Additional filtering for realistic results
                 filtered_signals = []

@@ -484,6 +484,11 @@ TP3: {trade.tp3:.4f} ⚪
                     await asyncio.sleep(30)
                     continue
 
+                # Check stop loss FIRST — if SL is hit, trade is over
+                if self._check_sl_hit(current_price, current_trade.current_sl, current_trade.direction):
+                    await self.handle_sl_hit(symbol)
+                    break  # Trade closed
+
                 # Check TP levels
                 if not current_trade.tp1_hit and self._check_tp_hit(current_price, current_trade.tp1, current_trade.direction):
                     await self.handle_tp1_hit(symbol)
@@ -508,6 +513,13 @@ TP3: {trade.tp3:.4f} ⚪
             return current_price >= tp_price
         else:
             return current_price <= tp_price
+
+    def _check_sl_hit(self, current_price: float, sl_price: float, direction: str) -> bool:
+        """Check if stop loss is hit"""
+        if direction in ['LONG', 'BUY']:
+            return current_price <= sl_price
+        else:
+            return current_price >= sl_price
 
     async def _get_current_price(self, symbol: str) -> Optional[float]:
         """Get current market price"""
@@ -772,6 +784,48 @@ TP3: {trade.tp3:.4f} ⚪
 
         except Exception as e:
             self.logger.error(f"❌ Error handling TP2 for {symbol}: {e}")
+
+    async def handle_sl_hit(self, symbol: str):
+        """Handle stop-loss hit — close position and record loss for ML learning"""
+        try:
+            trade = self.active_trades[symbol]
+
+            # Send close to Unity
+            await self.unity.close_position(symbol, "Stop Loss hit", 100)
+
+            # Record loss for ML learning
+            await self._record_trade_outcome(trade, 'SL_HIT', -1.0)
+
+            # Notification
+            if self._can_send_message() and self.admin_chat_id:
+                msg = f"""🛑 **SL HIT** - {symbol}
+
+🔴 **Position Closed** at {trade.current_sl:.4f}
+💰 **Loss:** -1.0R
+🧠 **ML Updated:** ✅
+📊 **Duration:** {self._format_duration(trade.start_time)}"""
+                await self.send_rate_limited_message(self.admin_chat_id, msg)
+
+            self.logger.info(f"🛑 SL hit for {symbol} at {trade.current_sl:.4f}")
+
+            # Update stats
+            self.performance_stats['total_signals'] += 1
+            self.performance_stats['total_profit'] -= 1.0
+            win = self.performance_stats['successful_trades']
+            total = self.performance_stats['total_signals']
+            self.performance_stats['win_rate'] = (win / total) * 100 if total > 0 else 0
+
+            # Remove trade
+            del self.active_trades[symbol]
+
+            # Retrain ML
+            try:
+                await self._retrain_ml_model()
+            except Exception as retrain_err:
+                self.logger.error(f"ML retraining after SL failed: {retrain_err}")
+
+        except Exception as e:
+            self.logger.error(f"❌ Error handling SL hit for {symbol}: {e}")
 
     async def send_sl_update_to_unity(self, symbol: str, new_sl: float, reason: str):
         """Send stop loss update to Unity"""

@@ -154,7 +154,7 @@ class UltimateScalpingStrategy:
                 return 'normal'
             else:
                 return 'high'
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return 'normal'  # Default to normal volatility
     
     def _get_adaptive_signal_threshold(self, volatility_state: str) -> float:
@@ -280,7 +280,7 @@ class UltimateScalpingStrategy:
                 'support_resistance': supertrend[-1],
                 'signal_quality': 'strong' if trend_strength > 0.5 else 'weak'
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'trend': 'neutral', 'strength': 0, 'support_resistance': close[-1]}
     
     def _calculate_ema_confluence(self, close: np.array) -> Dict[str, Any]:
@@ -332,7 +332,7 @@ class UltimateScalpingStrategy:
                 'ema200': ema200[-1],
                 'alignment': bullish_alignment or bearish_alignment
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'bias': 'neutral', 'strength': 0, 'alignment': False}
     
     def _calculate_rsi_with_divergence(self, close: np.array, high: np.array, low: np.array) -> Dict[str, Any]:
@@ -408,7 +408,7 @@ class UltimateScalpingStrategy:
                 'bearish_divergence': bearish_divergence,
                 'strength': strength
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'value': 50, 'strength': 0, 'oversold': False, 'overbought': False}
     
     def _calculate_macd_momentum(self, close: np.array) -> Dict[str, Any]:
@@ -453,7 +453,7 @@ class UltimateScalpingStrategy:
                 'increasing_momentum': increasing_momentum,
                 'strength': strength
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'strength': 0, 'bullish_crossover': False, 'bearish_crossover': False}
     
     def _calculate_volume_profile(self, close: np.array, volume: np.array) -> Dict[str, Any]:
@@ -482,7 +482,7 @@ class UltimateScalpingStrategy:
                 'trend': volume_price_trend,
                 'strength': strength
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'strength': 20, 'high_volume': False, 'trend': 'neutral'}
     
     def _calculate_bollinger_squeeze(self, close: np.array) -> Dict[str, Any]:
@@ -524,7 +524,7 @@ class UltimateScalpingStrategy:
                 'band_width': band_width,
                 'strength': strength
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'squeeze': False, 'expansion': False, 'strength': 0}
     
     def _calculate_stochastic_analysis(self, high: np.array, low: np.array, close: np.array) -> Dict[str, Any]:
@@ -576,7 +576,7 @@ class UltimateScalpingStrategy:
                 'bearish_crossover': bearish_crossover,
                 'strength': strength
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'strength': 0, 'oversold': False, 'overbought': False}
     
     def _calculate_vwap_position(self, high: np.array, low: np.array, close: np.array, volume: np.array) -> Dict[str, Any]:
@@ -602,7 +602,7 @@ class UltimateScalpingStrategy:
                 'slope': vwap_slope,
                 'strength': strength
             }
-        except:
+        except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
             return {'strength': 30, 'above_vwap': True, 'distance': 1}
     
     def _calculate_support_resistance(self, high: np.array, low: np.array, close: np.array) -> Dict[str, Any]:
@@ -633,7 +633,7 @@ class UltimateScalpingStrategy:
                 'support_distance': support_distance,
                 'strength': strength
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'strength': 0, 'near_resistance': False, 'near_support': False}
     
     def _calculate_market_structure(self, high: np.array, low: np.array, close: np.array) -> Dict[str, Any]:
@@ -676,7 +676,7 @@ class UltimateScalpingStrategy:
                 'recent_highs': recent_highs[-2:] if len(recent_highs) >= 2 else [],
                 'recent_lows': recent_lows[-2:] if len(recent_lows) >= 2 else []
             }
-        except:
+        except (TypeError, ValueError, KeyError, IndexError, ZeroDivisionError, AttributeError):  # NEXT-6: narrowed from bare except
             return {'structure': 'unclear', 'strength': 20}
     
     async def _generate_ultimate_signal(self, symbol: str, indicators: Dict[str, Dict], tf_data: Dict[str, pd.DataFrame], volatility_state: str = 'normal') -> Optional[UltimateSignal]:

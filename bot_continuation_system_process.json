@@ -1,7 +1,0 @@
-{
-  "pid": 842,
-  "command": "python fix_bot_continuation_system.py",
-  "bot_name": "Bot Continuation System",
-  "is_critical": true,
-  "start_time": "2025-09-22T22:13:49.703207"
-}

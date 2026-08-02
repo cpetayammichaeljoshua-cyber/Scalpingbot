@@ -150,7 +150,7 @@ class DeploymentManager:
                         try:
                             data = await response.json()
                             return data.get('server_running', True)
-                        except:
+                        except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-5: narrowed from bare except
                             # If JSON parsing fails but status is 200, consider healthy
                             return True
                     return False
@@ -264,7 +264,7 @@ class DeploymentManager:
                         'memory_mb': proc.memory_info().rss / 1024 / 1024,
                         'uptime_seconds': (datetime.now() - datetime.fromtimestamp(proc.create_time())).total_seconds()
                     })
-                except:
+                except Exception:  # NEXT-5: narrowed from bare except
                     pass
             
             # Health check

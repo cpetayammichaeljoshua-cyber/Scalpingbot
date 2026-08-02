@@ -584,7 +584,7 @@ class AdvancedTradingStrategy:
                 'technical_indicators': indicators,
                 'market_context': market_context,
                 'timestamp': datetime.now(),
-                'chart': chart_base64 if chart_base64 else None,
+                'chart': None,  # chart_base64 was undefined → NameError → _combine_signals always returned None; caller sets chart after signal is built
                 # Leverage and margin settings
                 'recommended_leverage': recommended_leverage,
                 'auto_leverage': auto_leverage,

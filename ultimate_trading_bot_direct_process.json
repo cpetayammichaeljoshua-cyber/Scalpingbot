@@ -1,7 +1,0 @@
-{
-  "name": "Ultimate Trading Bot Direct",
-  "pid": 995,
-  "command": "python SignalMaestro/ultimate_trading_bot.py",
-  "start_time": "2025-09-22T22:14:33.975012",
-  "critical": false
-}

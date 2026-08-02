@@ -54,6 +54,16 @@ class EnhancedSignalBot:
         self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
 
+        # Persistent aiohttp session for Telegram API connection reuse
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Return (or lazily create) the persistent aiohttp session."""
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(limit=10, ttl_dns_cache=300)
+            self._session = aiohttp.ClientSession(connector=connector)
+        return self._session
+
         # Bot settings
         self.admin_name = self.config.ADMIN_USER_NAME
         self.target_chat_id = "@TradeTactics_bot"
@@ -112,9 +122,9 @@ class EnhancedSignalBot:
                 'disable_web_page_preview': True
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=data) as response:
-                    return response.status == 200
+            session = await self._get_session()
+            async with session.post(url, json=data) as response:
+                return response.status == 200
 
         except Exception as e:
             self.logger.error(f"Error sending message: {e}")
@@ -128,16 +138,16 @@ class EnhancedSignalBot:
 
             url = f"{self.base_url}/sendPhoto"
 
-            async with aiohttp.ClientSession() as session:
-                form = aiohttp.FormData()
-                form.add_field('chat_id', chat_id)
-                form.add_field('photo', photo_bytes, filename='chart.png', content_type='image/png')
-                if caption:
-                    form.add_field('caption', caption)
-                    form.add_field('parse_mode', 'Markdown')
+            session = await self._get_session()
+            form = aiohttp.FormData()
+            form.add_field('chat_id', chat_id)
+            form.add_field('photo', photo_bytes, filename='chart.png', content_type='image/png')
+            if caption:
+                form.add_field('caption', caption)
+                form.add_field('parse_mode', 'Markdown')
 
-                async with session.post(url, data=form) as response:
-                    return response.status == 200
+            async with session.post(url, data=form) as response:
+                return response.status == 200
 
         except Exception as e:
             self.logger.error(f"Error sending photo: {e}")
@@ -147,8 +157,8 @@ class EnhancedSignalBot:
         """Test Telegram Bot API connection"""
         try:
             url = f"{self.base_url}/getMe"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
+            session = await self._get_session()
+            async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data.get('ok', False)
@@ -1051,7 +1061,7 @@ class EnhancedSignalBot:
                     await self.active_trader.test_connection()
                     test_results.append(f"✅ {api_name} API: Connected")
                     await self.send_message(chat_id, f"✅ {api_name} API test passed")
-                except:
+                except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, AttributeError, KeyError):  # NEXT-5: narrowed from bare except (was undefined TelegramError/NetworkError/TimedOut - bot uses aiohttp, not python-telegram-bot)
                     test_results.append(f"❌ {api_name} API: Failed")
                     await self.send_message(chat_id, f"❌ {api_name} API test failed")
                 
@@ -1061,7 +1071,7 @@ class EnhancedSignalBot:
                     performance = await self.trading_strategy.get_strategy_performance()
                     test_results.append("✅ Strategy Engine: Working")
                     await self.send_message(chat_id, "✅ Strategy engine test passed")
-                except:
+                except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, AttributeError, KeyError):  # NEXT-5: narrowed from bare except (was undefined TelegramError/NetworkError/TimedOut - bot uses aiohttp, not python-telegram-bot)
                     test_results.append("❌ Strategy Engine: Failed")
                     await self.send_message(chat_id, "❌ Strategy engine test failed")
                 
@@ -1096,7 +1106,7 @@ class EnhancedSignalBot:
                     else:
                         test_results.append("❌ Market Data: No data")
                         await self.send_message(chat_id, "❌ Market data test failed")
-                except:
+                except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, AttributeError, KeyError):  # NEXT-5: narrowed from bare except (was undefined TelegramError/NetworkError/TimedOut - bot uses aiohttp, not python-telegram-bot)
                     test_results.append("❌ Market Data: Error")
                     await self.send_message(chat_id, "❌ Market data test failed")
                 
@@ -1111,7 +1121,7 @@ class EnhancedSignalBot:
                     else:
                         test_results.append("❌ Risk Manager: Failed validation")
                         await self.send_message(chat_id, "❌ Risk manager test failed")
-                except:
+                except (asyncio.TimeoutError, aiohttp.ClientError, ValueError, AttributeError, KeyError):  # NEXT-5: narrowed from bare except (was undefined TelegramError/NetworkError/TimedOut - bot uses aiohttp, not python-telegram-bot)
                     test_results.append("❌ Risk Manager: Error")
                     await self.send_message(chat_id, "❌ Risk manager test failed")
                 

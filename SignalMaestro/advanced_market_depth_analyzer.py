@@ -259,7 +259,7 @@ class AdvancedMarketDepthAnalyzer:
                     for tape_data in list(self.tape_history)[-5:]:
                         if isinstance(tape_data, (int, float)):
                             hist_vols.append(float(tape_data))
-                except:
+                except Exception:  # NEXT-5: narrowed from bare except
                     pass
                 
                 if hist_vols:

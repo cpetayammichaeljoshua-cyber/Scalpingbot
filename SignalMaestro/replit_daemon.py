@@ -134,7 +134,7 @@ class ReplitDaemon:
                     with open(self.status_file, 'r') as f:
                         status = json.load(f)
                     return web.json_response(status)
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-5: narrowed from bare except
                     pass
             return web.json_response({'error': 'Status not available'})
         
@@ -245,7 +245,7 @@ class ReplitDaemon:
             return False
         try:
             return self.process.poll() is None
-        except:
+        except Exception:  # NEXT-5: narrowed from bare except
             return False
     
     def restart_bot(self) -> bool:

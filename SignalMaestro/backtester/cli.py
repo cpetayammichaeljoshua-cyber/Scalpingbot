@@ -37,7 +37,14 @@ class ComprehensiveBacktester:
             max_concurrent_trades=config.get('max_concurrent_trades', 3),
             max_daily_loss=config.get('max_daily_loss', 2.0),
             portfolio_risk_cap=config.get('portfolio_risk_cap', 8.0),  # Max 8% total portfolio risk
-            use_fixed_risk=config.get('use_fixed_risk', True)  # Use fixed risk to prevent compounding
+            use_fixed_risk=config.get('use_fixed_risk', True),  # Use fixed risk to prevent compounding
+            # NEXT-1: bot uses create_market_*_order everywhere → taker, not maker.
+            # Prior backtests ran on RiskManager's default 0.02% (maker), under-
+            # counting fees by 0.03%/side × leverage × 2 sides. At the backtester's
+            # 10x default that understated cost by 0.6%/trade; at 75x cap by 4.5%/trade.
+            # 0.05% = Binance Futures USDT-M default taker (BTCUSDT/ETHUSDT/altcoins).
+            commission_rate=config.get('commission_rate', 0.0005),
+            funding_rate=config.get('funding_rate', 0.0001),
         )
         self.execution_simulator = ExecutionSimulator()
         self.metrics_reporter = MetricsReporter()

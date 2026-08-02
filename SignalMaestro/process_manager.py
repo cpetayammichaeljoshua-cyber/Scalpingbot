@@ -207,7 +207,7 @@ class ProcessManager:
             return False
         try:
             return self.process.poll() is None
-        except:
+        except Exception:  # NEXT-5: narrowed from bare except
             return False
     
     def health_check(self) -> Dict[str, Any]:
@@ -402,7 +402,7 @@ class ProcessManager:
         try:
             process = psutil.Process(os.getpid())
             return round(process.memory_info().rss / 1024 / 1024, 2)
-        except:
+        except Exception:  # NEXT-5: narrowed from bare except
             return 0.0
     
     def get_status(self) -> Dict[str, Any]:
@@ -411,7 +411,7 @@ class ProcessManager:
             try:
                 with open(self.status_file, 'r') as f:
                     return json.load(f)
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError, TypeError):  # NEXT-5: narrowed from bare except
                 pass
         
         return {

@@ -833,7 +833,7 @@ class PerfectSignalBot:
 
                     # Use leverage calculator utility
                     volatility_profile = self.binance_trader.get_volatility_profile(symbol)
-                    trade_size_usdt = entry_price * 1.0 # Placeholder for actual trade size calculation
+                    trade_size_usdt = self.config.CAPITAL_BASE * (self.config.DEFAULT_RISK_PERCENTAGE / 100.0)  # risk-sized: config CAPITAL_BASE × DEFAULT_RISK_PERCENTAGE (defaults 10 × 5% = 0.50 USDT; env-tunable for real funded accounts) — mirrors advanced_time_fibonacci_strategy.py:764
                     leverage_data = self.leverage_calculator.calculate_optimal_leverage({
                         'strength': strength,
                         'confidence': min(strength * 0.9, 95),
@@ -884,7 +884,7 @@ class PerfectSignalBot:
 
                     # Use leverage calculator utility
                     volatility_profile = self.binance_trader.get_volatility_profile(symbol)
-                    trade_size_usdt = entry_price * 1.0 # Placeholder for actual trade size calculation
+                    trade_size_usdt = self.config.CAPITAL_BASE * (self.config.DEFAULT_RISK_PERCENTAGE / 100.0)  # risk-sized: config CAPITAL_BASE × DEFAULT_RISK_PERCENTAGE (defaults 10 × 5% = 0.50 USDT; env-tunable for real funded accounts) — mirrors advanced_time_fibonacci_strategy.py:764
                     leverage_data = self.leverage_calculator.calculate_optimal_leverage({
                         'strength': strength,
                         'confidence': min(strength * 0.9, 95),
@@ -975,7 +975,10 @@ class PerfectSignalBot:
                 if profit_potential > 2.5:
                     # Use leverage calculator utility
                     volatility_profile = self.binance_trader.get_volatility_profile(symbol)
-                    trade_size_usdt = entry_price * 1.0 # Placeholder for actual trade size calculation
+                    #responsive sizing: capital_base × risk_percentage (mirrors advanced_time_fibonacci_strategy.py:764)
+                    _capital_base = self.config.CAPITAL_BASE   # env-tunable capital base (default $10.0)
+                    _risk_pct = 5.0        # 5% risk management
+                    trade_size_usdt = _capital_base * (_risk_pct / 100.0)  # 0.50 USDT risk per trade
                     leverage_data = self.leverage_calculator.calculate_optimal_leverage({
                         'strength': strength,
                         'confidence': min(strength * 0.85, 92),
@@ -1019,7 +1022,10 @@ class PerfectSignalBot:
                 if profit_potential > 2.5:
                     # Use leverage calculator utility
                     volatility_profile = self.binance_trader.get_volatility_profile(symbol)
-                    trade_size_usdt = entry_price * 1.0 # Placeholder for actual trade size calculation
+                    # Responsive sizing: capital_base × risk_percentage (mirrors advanced_time_fibonacci_strategy.py:764)
+                    _capital_base = self.config.CAPITAL_BASE   # env-tunable capital base (default $10.0)
+                    _risk_pct = 5.0        # 5% risk management
+                    trade_size_usdt = _capital_base * (_risk_pct / 100.0)  # 0.50 USDT risk per trade
                     leverage_data = self.leverage_calculator.calculate_optimal_leverage({
                         'strength': strength,
                         'confidence': min(strength * 0.85, 92),
@@ -1085,7 +1091,7 @@ class PerfectSignalBot:
                     if profit_potential > 2.0:
                         # Use leverage calculator utility
                         volatility_profile = self.binance_trader.get_volatility_profile(symbol)
-                        trade_size_usdt = entry_price * 1.0 # Placeholder for actual trade size calculation
+                        trade_size_usdt = self.config.CAPITAL_BASE * (self.config.DEFAULT_RISK_PERCENTAGE / 100.0)  # risk-sized: config CAPITAL_BASE × DEFAULT_RISK_PERCENTAGE (defaults 10 × 5% = 0.50 USDT; env-tunable for real funded accounts) — mirrors advanced_time_fibonacci_strategy.py:764
                         leverage_data = self.leverage_calculator.calculate_optimal_leverage({
                             'strength': strength,
                             'confidence': min(strength * 0.88, 94),
@@ -1128,7 +1134,7 @@ class PerfectSignalBot:
                     if profit_potential > 2.0:
                         # Use leverage calculator utility
                         volatility_profile = self.binance_trader.get_volatility_profile(symbol)
-                        trade_size_usdt = entry_price * 1.0 # Placeholder for actual trade size calculation
+                        trade_size_usdt = self.config.CAPITAL_BASE * (self.config.DEFAULT_RISK_PERCENTAGE / 100.0)  # risk-sized: config CAPITAL_BASE × DEFAULT_RISK_PERCENTAGE (defaults 10 × 5% = 0.50 USDT; env-tunable for real funded accounts) — mirrors advanced_time_fibonacci_strategy.py:764
                         leverage_data = self.leverage_calculator.calculate_optimal_leverage({
                             'strength': strength,
                             'confidence': min(strength * 0.88, 94),
@@ -1317,7 +1323,10 @@ class PerfectSignalBot:
             # Placeholder for volatility profile and trade size, these need to be determined dynamically
             # For now, using dummy values. In a real scenario, these would come from market data and risk manager.
             volatility_profile = await self.binance_trader.get_volatility_profile(parsed_signal.get('symbol'))
-            trade_size_usdt = 1000 # Example: Assume a trade size of $1000 USDT for calculation
+            # Responsive sizing: capital_base × risk_pct (mirrors advanced_time_fibonacci_strategy.py:764)
+            _capital_base = 10.0   # $10 capital base
+            _risk_pct = 5.0        # 5% risk management
+            trade_size_usdt = _capital_base * (_risk_pct / 100.0)  # 0.50 USDT risk per trade
             trade_direction = parsed_signal.get('action', 'BUY')
 
             # Use leverage calculator utility to determine leverage and margin settings

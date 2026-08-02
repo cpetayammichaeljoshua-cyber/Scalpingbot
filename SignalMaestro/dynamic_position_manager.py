@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import hmac
 import hashlib
+import aiohttp
 
 try:
     from SignalMaestro.btcusdt_trader import BTCUSDTTrader as _Trader
@@ -95,6 +96,15 @@ class DynamicPositionManager:
         }
         
         self.logger.info("⚙️ Advanced Dynamic Position Manager initialized with market regime adaptation")
+        # Persistent aiohttp session for connection reuse
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Return (or lazily create) the persistent aiohttp session."""
+        if self._session is None or self._session.closed:
+            connector = aiohttp.TCPConnector(limit=10, ttl_dns_cache=300)
+            self._session = aiohttp.ClientSession(connector=connector)
+        return self._session
     
     async def calculate_multi_timeframe_atr(self, symbol: str) -> Dict[str, float]:
         """Calculate weighted ATR across multiple timeframes for precision"""
@@ -422,10 +432,10 @@ class DynamicPositionManager:
             if sl_distance <= 0:
                 return 0.0, 0.0
             
-            # Calculate position size considering leverage
-            # Risk = Position Size * Price * SL Distance / Leverage
-            # Position Size = Risk * Leverage / (Price * SL Distance)
-            position_size = (risk_amount * leverage) / (entry_price * sl_distance)
+            # Position size (base units) = risk_amount / sl_distance
+            # Correct: if position_size coins × sl_distance = risk_amount, loss at SL = risk_amount
+            # leverage only determines required margin, NOT the PnL at SL
+            position_size = risk_amount / sl_distance
             
             # Calculate notional value
             notional_value = position_size * entry_price
@@ -478,9 +488,8 @@ class DynamicPositionManager:
 
             data = f"{query_string}&signature={signature}"
 
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data, headers=headers) as response:
+            session = await self._get_session()
+            async with session.post(url, data=data, headers=headers) as response:
                     if response.status == 200:
                         result = await response.json()
                         self.logger.info(f"✅ Market order placed: {side} {quantity:.6f} {self.trader.symbol}")
@@ -509,6 +518,7 @@ class DynamicPositionManager:
                 'type': 'STOP_MARKET',
                 'quantity': f"{quantity:.6f}",
                 'stopPrice': f"{stop_price:.5f}",
+                'reduceOnly': True,
                 'timeInForce': 'GTC',
                 'timestamp': timestamp
             }
@@ -526,9 +536,8 @@ class DynamicPositionManager:
 
             data = f"{query_string}&signature={signature}"
 
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data, headers=headers) as response:
+            session = await self._get_session()
+            async with session.post(url, data=data, headers=headers) as response:
                     if response.status == 200:
                         result = await response.json()
                         self.logger.info(f"🛡️ Stop loss placed: {stop_price:.5f}")
@@ -557,6 +566,7 @@ class DynamicPositionManager:
                 'type': 'LIMIT',
                 'quantity': f"{quantity:.6f}",
                 'price': f"{limit_price:.5f}",
+                'reduceOnly': True,
                 'timeInForce': 'GTC',
                 'timestamp': timestamp
             }
@@ -574,9 +584,8 @@ class DynamicPositionManager:
 
             data = f"{query_string}&signature={signature}"
 
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data, headers=headers) as response:
+            session = await self._get_session()
+            async with session.post(url, data=data, headers=headers) as response:
                     if response.status == 200:
                         result = await response.json()
                         self.logger.info(f"🎯 Take profit placed: {limit_price:.5f}")
@@ -611,8 +620,13 @@ class DynamicPositionManager:
                 self.logger.error("❌ Insufficient account balance")
                 return None
             
-            # Calculate optimal leverage
-            optimal_leverage = await self.calculate_optimal_leverage(atr_value, balance)
+            # Calculate optimal leverage — was called with 2 args, method requires 4 → always TypeError
+            optimal_leverage = await self.calculate_optimal_leverage(
+                signal_data.get('symbol', 'BTCUSDT'),
+                {'weighted_atr': atr_value},
+                signal_data.get('market_regime', 'ranging'),
+                balance
+            )
             
             # Set leverage
             if not await self.set_leverage(optimal_leverage):

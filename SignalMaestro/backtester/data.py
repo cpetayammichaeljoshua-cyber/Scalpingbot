@@ -244,6 +244,7 @@ class CCXTDataProvider:
         finally:
             if self.exchange:
                 await self.exchange.close()
+                self.exchange = None
 
 async def get_market_data(symbol: str, timeframe: str = '5m', limit: int = 2016, 
                          use_real_data: bool = True) -> pd.DataFrame:

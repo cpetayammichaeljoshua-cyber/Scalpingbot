@@ -183,7 +183,8 @@ class AutomatedBacktestOptimizer:
 
             # Enhanced synthetic signal generation for backtesting
             signal_frequency = max(1, len(data) // 20)  # Generate more signals
-            
+
+            signal = None  # Reset per candle; skip when no new signal is generated
             for i in range(signal_frequency, len(data) - 10, signal_frequency):
                 current_price = data[i][4]  # Close price
                 

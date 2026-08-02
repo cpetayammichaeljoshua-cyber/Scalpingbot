@@ -6065,7 +6065,17 @@ Use `/orderflow` for detailed flow analysis."""
                 sl_price = price * (1 + pct_below)
 
             distance = abs(price - sl_price)
-            liq_distance = price / leverage  # Approximate liquidation distance
+            # Correct liquidation distance for Binance futures (isolated margin)
+            # Liquidation occurs when margin balance falls below maintenance margin
+            # Approximate: liq_price = entry * (1 - 1/leverage + maintenance_margin) for LONG
+            # Using 0.5% maintenance margin for BTCUSDT
+            maint_margin = 0.005
+            if direction == "LONG":
+                liq_price = price * (1 - (1 / leverage) + maint_margin)
+                liq_distance = price - liq_price
+            else:
+                liq_price = price * (1 + (1 / leverage) - maint_margin)
+                liq_distance = liq_price - price
 
             msg = f"""🛡️ **Dynamic Leveraging Stop Loss — BTCUSDT**
 
@@ -6078,7 +6088,7 @@ Use `/orderflow` for detailed flow analysis."""
 **Levels:**
 • **Stop Loss:** `${sl_price:,.2f}`
 • **SL Distance:** `${distance:,.2f}` ({pct_below*100:.2f}%)
-• **~Liquidation:** `${price - liq_distance if direction == 'LONG' else price + liq_distance:,.2f}`
+• **~Liquidation:** `${liq_price:,.2f}`
 • **SL Buffer:** `{(distance / liq_distance) if liq_distance > 0 else 0:.1f}x` above liquidation
 
 **Risk:**

@@ -353,7 +353,7 @@ class TradingMetricsManager:
                 if isinstance(entry_time, str):
                     try:
                         trade_date = datetime.fromisoformat(entry_time.replace('Z', '+00:00')).date()
-                    except:
+                    except Exception:  # NEXT-5: narrowed from bare except
                         trade_date = datetime.strptime(entry_time[:10], '%Y-%m-%d').date()
                 else:
                     trade_date = entry_time.date() if hasattr(entry_time, 'date') else today
@@ -427,7 +427,7 @@ class TradingMetricsManager:
                 if isinstance(entry_time, str):
                     try:
                         trade_date = datetime.fromisoformat(entry_time.replace('Z', '+00:00')).date()
-                    except:
+                    except Exception:  # NEXT-5: narrowed from bare except
                         trade_date = datetime.strptime(entry_time[:10], '%Y-%m-%d').date()
                 else:
                     trade_date = entry_time.date() if hasattr(entry_time, 'date') else today
@@ -453,7 +453,7 @@ class TradingMetricsManager:
                         
                         if entry_time >= cutoff_time:
                             recent_trades.append(trade)
-                    except:
+                    except Exception:  # NEXT-5: narrowed from bare except
                         continue
             
             metrics.trades_per_hour = len(recent_trades) / 24 if recent_trades else 0
@@ -554,7 +554,7 @@ class TradingMetricsManager:
                 if pnl > 0:
                     hourly_stats[hour]['wins'] += 1
                     
-            except:
+            except Exception:  # NEXT-5: narrowed from bare except
                 continue
         
         # Convert to success rates
@@ -641,7 +641,7 @@ class TradingMetricsManager:
                     week_pnl += pnl
                     week_trades += 1
                     
-            except:
+            except Exception:  # NEXT-5: narrowed from bare except
                 continue
         
         # Daily comparison

@@ -391,6 +391,7 @@ Once setup is complete, you should see:
     
     def create_interactive_setup_script(self) -> str:
         """Create interactive setup script"""
+        endpoints = self.monitoring_endpoints
         script = f'''#!/usr/bin/env python3
 """
 Interactive Setup Assistant
@@ -493,7 +494,7 @@ if __name__ == "__main__":
     interactive_setup()
 '''
         
-        return script.format(endpoints=self.monitoring_endpoints)
+        return script
     
     def test_all_endpoints(self) -> Dict[str, Any]:
         """Test all monitoring endpoints"""

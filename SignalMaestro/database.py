@@ -532,102 +532,23 @@ class Database:
         except Exception as e:
             self.logger.error(f"Error cleaning up old data: {e}")
             raise
-#!/usr/bin/env python3
-"""
-Database Module for Trading Bot
-"""
 
-import asyncio
-import logging
-import sqlite3
-from typing import Dict, Any, List, Optional
-
-class Database:
-    """Database interface for trading bot"""
-    
-    def __init__(self, db_path: str = "trading_bot.db"):
-        self.logger = logging.getLogger(__name__)
-        self.db_path = db_path
-        
-    async def initialize(self):
-        """Initialize database"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Create trades table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    symbol TEXT NOT NULL,
-                    direction TEXT NOT NULL,
-                    entry_price REAL NOT NULL,
-                    stop_loss REAL NOT NULL,
-                    take_profit_1 REAL,
-                    take_profit_2 REAL,
-                    take_profit_3 REAL,
-                    signal_strength REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    status TEXT DEFAULT 'active'
-                )
-            ''')
-            
-            conn.commit()
-            conn.close()
-            
-            self.logger.info("Database initialized successfully")
-            
-        except Exception as e:
-            self.logger.error(f"Database initialization error: {e}")
-    
     async def test_connection(self) -> bool:
         """Test database connection"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            conn.close()
-            return True
-        except:
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute("SELECT 1") as cursor:
+                    row = await cursor.fetchone()
+                return row is not None
+        except (sqlite3.Error, OSError, ValueError, AttributeError, KeyError):
             return False
-    
-    async def insert_trade(self, trade_data: Dict[str, Any]) -> Optional[int]:
-        """Insert new trade record"""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                INSERT INTO trades (symbol, direction, entry_price, stop_loss, 
-                                  take_profit_1, take_profit_2, take_profit_3, signal_strength)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                trade_data['symbol'],
-                trade_data['direction'],
-                trade_data['entry_price'],
-                trade_data['stop_loss'],
-                trade_data.get('take_profit_1'),
-                trade_data.get('take_profit_2'),
-                trade_data.get('take_profit_3'),
-                trade_data.get('signal_strength')
-            ))
-            
-            trade_id = cursor.lastrowid
-            conn.commit()
-            conn.close()
-            
-            return trade_id
-            
-        except Exception as e:
-            self.logger.error(f"Error inserting trade: {e}")
-            return None
-            
+
     def save_signal_data(self, data: Dict[str, Any]) -> Optional[int]:
-        """Save signal data to database"""
+        """Save signal data to database (kept synchronous - enhanced_perfect_scalping_bot_v3 calls it without await)"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             cursor.execute('''
                 INSERT INTO signals (signal_data, parsed_signal, status)
                 VALUES (?, ?, ?)
@@ -636,13 +557,14 @@ class Database:
                 json.dumps(data.get('parsed_signal', {})),
                 data.get('status', 'processed')
             ))
-            
+
             signal_id = cursor.lastrowid
             conn.commit()
             conn.close()
-            
+
             return signal_id
-            
+
         except Exception as e:
             self.logger.error(f"Error saving signal data: {e}")
             return None
+

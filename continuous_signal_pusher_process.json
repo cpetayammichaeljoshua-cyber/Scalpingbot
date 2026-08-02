@@ -1,7 +1,0 @@
-{
-  "name": "Continuous Signal Pusher",
-  "pid": 936,
-  "command": "python continuous_signal_pusher.py",
-  "start_time": "2025-09-22T22:14:21.913060",
-  "critical": true
-}

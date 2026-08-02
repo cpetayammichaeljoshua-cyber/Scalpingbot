@@ -389,7 +389,7 @@ last_ping_timestamp_seconds {self.last_ping.timestamp() if self.last_ping else 0
                 os.path.exists('SignalMaestro/enhanced_perfect_scalping_bot.py') and
                 os.path.exists('SignalMaestro/config.py')
             )
-        except:
+        except Exception:  # NEXT-6: narrowed from bare except
             return False
     
     def _check_trading_bot_health(self) -> bool:
@@ -414,8 +414,7 @@ last_ping_timestamp_seconds {self.last_ping.timestamp() if self.last_ping else 0
                         continue
             
             return False
-        except:
-            return False
+        except (OSError, ValueError, AttributeError, KeyError):  # NEXT-6: narrowed from bare except (removed undefined sqlite3.Error - method does not use sqlite3)
     
     def _check_database_health(self) -> bool:
         """Check database health"""
@@ -431,7 +430,7 @@ last_ping_timestamp_seconds {self.last_ping.timestamp() if self.last_ping else 0
                     return True
             
             return False
-        except:
+        except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
             return False
     
     async def _check_binance_health(self) -> bool:
@@ -440,14 +439,14 @@ last_ping_timestamp_seconds {self.last_ping.timestamp() if self.last_ping else 0
             async with aiohttp.ClientSession() as session:
                 async with session.get('https://api.binance.com/api/v3/ping', timeout=aiohttp.ClientTimeout(total=5)) as response:
                     return response.status == 200
-        except:
+        except (AttributeError, ModuleNotFoundError, ImportError):  # NEXT-6: narrowed from bare except
             return False
     
     def _check_telegram_health(self) -> bool:
         """Check Telegram bot configuration"""
         try:
             return bool(os.getenv('TELEGRAM_BOT_TOKEN'))
-        except:
+        except (OSError, ConnectionError, TimeoutError, ValueError, asyncio.TimeoutError):  # NEXT-6: narrowed from bare except
             return False
     
     def _format_uptime(self, seconds: float) -> str:

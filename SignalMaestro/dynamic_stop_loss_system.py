@@ -418,6 +418,8 @@ class ThreeSLOneTpManager:
 
 # Global registry for active 3SL/1TP managers
 _active_3sl1tp_managers: Dict[str, ThreeSLOneTpManager] = {}
+_managers_lock = asyncio.Lock()  # For async functions
+_managers_sync_lock = __import__("threading").Lock()  # For sync functions
 
 
 def create_3sl1tp_manager(symbol: str, direction: str, entry_price: float, 
@@ -426,38 +428,44 @@ def create_3sl1tp_manager(symbol: str, direction: str, entry_price: float,
     manager_id = f"{symbol}_{direction}_{int(entry_price * 1000000)}_{int(datetime.now().timestamp())}"
     
     manager = ThreeSLOneTpManager(symbol, direction, entry_price, position_size, config)
-    _active_3sl1tp_managers[manager_id] = manager
+    with _managers_sync_lock:
+        _active_3sl1tp_managers[manager_id] = manager
     
     return manager
 
 
 def get_3sl1tp_manager(manager_id: str) -> Optional[ThreeSLOneTpManager]:
     """Get 3SL/1TP manager by ID"""
-    return _active_3sl1tp_managers.get(manager_id)
+    with _managers_sync_lock:
+        return _active_3sl1tp_managers.get(manager_id)
 
 
 def remove_3sl1tp_manager(manager_id: str) -> bool:
     """Remove 3SL/1TP manager from registry"""
-    if manager_id in _active_3sl1tp_managers:
-        del _active_3sl1tp_managers[manager_id]
-        return True
+    with _managers_sync_lock:
+        if manager_id in _active_3sl1tp_managers:
+            del _active_3sl1tp_managers[manager_id]
+            return True
     return False
 
 
 def get_all_active_3sl1tp_managers() -> Dict[str, ThreeSLOneTpManager]:
     """Get all active 3SL/1TP managers"""
-    return _active_3sl1tp_managers.copy()
+    with _managers_sync_lock:
+        return _active_3sl1tp_managers.copy()
 
 
 def cleanup_inactive_3sl1tp_managers() -> int:
     """Remove inactive 3SL/1TP managers"""
-    inactive_managers = [
-        manager_id for manager_id, manager in _active_3sl1tp_managers.items()
-        if not manager.active
-    ]
+    with _managers_sync_lock:
+        inactive_managers = [
+            manager_id for manager_id, manager in _active_3sl1tp_managers.items()
+            if not manager.active
+        ]
     
     for manager_id in inactive_managers:
-        del _active_3sl1tp_managers[manager_id]
+        with _managers_sync_lock:
+            _active_3sl1tp_managers.pop(manager_id, None)
     
     return len(inactive_managers)
 

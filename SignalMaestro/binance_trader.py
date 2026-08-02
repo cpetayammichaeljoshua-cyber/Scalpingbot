@@ -746,23 +746,52 @@ class BinanceTrader:
                     
                     # Apply leverage adjustment if needed
                     current_leverage = await self.get_current_leverage(symbol)
+                    leverage_applied = current_leverage  # what the exchange actually has set
                     if current_leverage != optimal_leverage:
                         self.logger.info(f"🎯 {symbol}: Adjusting leverage {current_leverage}x → {optimal_leverage}x for trade")
                         leverage_set = await self.set_leverage(symbol, optimal_leverage)
                         if not leverage_set:
-                            self.logger.warning(f"⚠️ Failed to set optimal leverage for {symbol}, using current leverage")
-                    
+                            # CRITICAL FIX (audit C4): if set_leverage FAILED, the
+                            # exchange still has `current_leverage` — NOT optimal_leverage.
+                            # Don't scale position_size by the (un-applied) higher ratio,
+                            # or we send out oversized notional → margin-call risk.
+                            self.logger.warning(
+                                f"⚠️ {symbol}: set_leverage({optimal_leverage}x) FAILED; "
+                                f"position sizing will use current {current_leverage}x, not {optimal_leverage}x"
+                            )
+                        else:
+                            leverage_applied = optimal_leverage
+
                     # Adjust position size based on leverage for futures
                     if self.config.ENABLE_FUTURES_TRADING:
-                        # For futures, position size calculation considers leverage
-                        leverage_multiplier = optimal_leverage / self.config.DEFAULT_LEVERAGE
+                        # Use the leverage actually confirmed by the exchange, not the
+                        # one we WANTED. Multiplier is against the DEFAULT leverage.
+                        leverage_multiplier = leverage_applied / self.config.DEFAULT_LEVERAGE
                         position_size = position_size * leverage_multiplier
-                        
-                        self.logger.info(f"📊 {symbol}: Position adjusted for {optimal_leverage}x leverage "
+
+                        self.logger.info(f"📊 {symbol}: Position adjusted for {leverage_applied}x leverage "
                                        f"(Size: {position_size:.6f}, Value: ${trade_size_usdt:.2f})")
                         
                 except Exception as e:
                     self.logger.warning(f"⚠️ Error in dynamic leverage adjustment for {symbol}: {e}")
+                    # CRITICAL FIX (audit H1 / NEXT-2): if the leverage-optimization path
+                    # threw, we MUST NOT fall through and ship an order sized for a
+                    # leverage the exchange does not have set. Falling through here used to
+                    # produce oversized notional on a 429/network blip → margin-call risk.
+                    # The raise propagates to the outer caller which already records the
+                    # failed signal and skips order submission. We do NOT raise for a
+                    # benign "leverage already optimal" case — only when this was a real
+                    # adjustment attempt that broke.
+                    if 'leverage_info' in dir() and leverage_info is None:
+                        pass  # never entered the try; no adjustment was attempted
+                    raise RuntimeError(
+                        f"leverageadjustment_failed:{symbol}: aborting trade because dynamic "
+                        f"leverage setup raised — position sizing is unsafe"
+                    ) from e
+            else:
+                # No leverage manager / futures disabled: leverage_applied stays at
+                # config default; position_size unchanged. Backed by C4 fix.
+                leverage_applied = getattr(self.config, 'DEFAULT_LEVERAGE', 1)
             
             # Determine order type and price
             order_type = 'market'  # Default to market orders
@@ -939,12 +968,17 @@ class BinanceTrader:
             if 'stop_loss' in signal:
                 stop_loss_price = float(signal['stop_loss'])
                 try:
+                    # CRITICAL FIX (audit C1): reduceOnly=True prevents the stop
+                    # from opening a NEW opposing position if the original has
+                    # already closed elsewhere. Without it, Binance Futures SL
+                    # triggers create reverse positions → real-account loss.
+                    sl_params = {'stopPrice': stop_loss_price, 'reduceOnly': True}
                     stop_order = await self.exchange.create_order(
                         symbol=symbol,
                         type='stop_market',
                         side=side,
                         amount=amount,
-                        params={'stopPrice': stop_loss_price}
+                        params=sl_params
                     )
                     self.logger.info(f"Stop loss set at {stop_loss_price} for order {order['id']}")
                 except Exception as e:
@@ -954,11 +988,15 @@ class BinanceTrader:
             if 'take_profit' in signal:
                 take_profit_price = float(signal['take_profit'])
                 try:
+                    # CRITICAL FIX (audit C1): reduceOnly=True on TP limit so it
+                    # closes the existing position, never opens a reverse one.
+                    tp_params = {'reduceOnly': True}
                     tp_order = await self.exchange.create_limit_order(
                         symbol=symbol,
                         side=side,
                         amount=amount,
-                        price=take_profit_price
+                        price=take_profit_price,
+                        params=tp_params
                     )
                     self.logger.info(f"Take profit set at {take_profit_price} for order {order['id']}")
                 except Exception as e:

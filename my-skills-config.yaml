@@ -1,0 +1,53 @@
+# Hermes Skills Bulk Install - Configuration
+# Copy this to skills-config.yaml and adjust paths as needed
+
+target_dir: "/Volumes/NO NAME/TRADING/HERMES/skills"
+obsidian_vault: "/Volumes/NO NAME/TRADING/HERMES/obsidian-vault"
+
+repositories:
+  # Obsidian core skills (defuddle, json-canvas, obsidian-bases, obsidian-cli, obsidian-markdown)
+  - name: obsidian
+    url: https://github.com/kepano/obsidian-skills.git
+    path: skills
+
+  # Ruflo - Multi-agent orchestration platform
+  - name: ruflo
+    url: https://github.com/ruvnet/ruflo.git
+    path: "."
+    skill_name: ruflo
+
+  # Superpowers - Systematic engineering practices (14 skills)
+  - name: superpowers
+    url: https://github.com/obra/superpowers.git
+    path: skills
+
+  # ECC - Engineering Command Center (281 skills)
+  - name: ecc
+    url: https://github.com/affaan-m/ECC.git
+    path: skills
+
+  # Composio - 832 automation skills
+  - name: composio
+    url: https://github.com/ComposioHQ/awesome-claude-skills.git
+    path: composio-skills
+
+  # Awesome Claude - Curated skills from ComposioHQ (28 skills)
+  - name: awesome-claude
+    url: https://github.com/ComposioHQ/awesome-claude-skills.git
+    path: "."
+    exclude: [composio-skills]
+
+  # Matt Pocock - TypeScript/engineering skills
+  - name: mattpocock
+    url: https://github.com/mattpocock/skills.git
+    path: skills
+
+  # Anthropics - Official Anthropic skills (18 skills)
+  - name: anthropics
+    url: https://github.com/anthropics/skills.git
+    path: skills
+
+  # Dify - Agent workflow skills (6 skills)
+  - name: dify
+    url: https://github.com/langgenius/dify.git
+    path: .agents/skills

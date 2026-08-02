@@ -92,9 +92,9 @@ class RiskManager:
             entry_price = signal['price']
             direction = signal['direction']
             
-            # Calculate free equity (available capital minus reserved margin)
-            reserved_margin = sum(trade['margin_used'] for trade in self.active_trades)
-            free_equity = max(0, self.current_capital - reserved_margin)
+            # Calculate free equity — current_capital is already net of locked margin
+            # (margin is debited at open and returned at close), so no further subtraction.
+            free_equity = max(0, self.current_capital)
             
             # Calculate risk amount with realistic constraints
             if self.use_fixed_risk:

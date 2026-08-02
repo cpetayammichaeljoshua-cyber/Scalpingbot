@@ -573,6 +573,8 @@ class AdvancedTimeFibonacciStrategy:
 
             # ML validation if available
             ml_prediction = None
+            ml_confidence = 0.0
+            confidence_band = 'low'
             if ml_analyzer:
                 signal_data = {
                     'symbol': symbol,
@@ -686,7 +688,7 @@ class AdvancedTimeFibonacciStrategy:
                     **(ml_prediction or {}),
                     'confidence_value': ml_confidence,
                     'confidence_band': confidence_band,
-                    'leverage_multiplier': confidence_band_data['leverage_multiplier'],
+                    'leverage_multiplier': self.ml_confidence_bands[confidence_band]['leverage_multiplier'] if confidence_band in self.ml_confidence_bands else 1.0,
                     'momentum_confirmed': momentum_analysis['momentum_confirmed'],
                     'momentum_strength': momentum_analysis['momentum_strength'],
                     'volume_confirmed': volume_analysis['volume_confirmed'],

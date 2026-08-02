@@ -328,7 +328,7 @@ class TelegramClosedTradesScanner:
                         exit_dt = datetime.fromisoformat(exit_dt)
                     duration = (exit_dt - entry_dt).total_seconds() / 60
                     closed_trade['duration_minutes'] = max(1, duration)  # Minimum 1 minute
-                except:
+                except Exception:  # NEXT-5: narrowed from bare except
                     closed_trade['duration_minutes'] = 30  # Default duration
             else:
                 closed_trade['duration_minutes'] = 30  # Default duration
