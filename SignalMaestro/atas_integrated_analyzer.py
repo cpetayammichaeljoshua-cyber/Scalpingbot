@@ -108,7 +108,7 @@ class ATASIntegratedAnalyzer:
             sma_20 = float(np.mean(close[-20:]))
             sma_50 = float(np.mean(close[-50:]))
             sma_200 = float(np.mean(close[-200:])) if len(close) >= 200 else float(np.mean(close))
-            current = float(close[-1])
+            current = float(close[-2])
             signal = 'BUY' if current > sma_20 > sma_50 > sma_200 else ('SELL' if current < sma_20 < sma_50 < sma_200 else 'NEUTRAL')
             return {'sma_20': sma_20, 'sma_50': sma_50, 'sma_200': sma_200, 'current_price': current, 'signal': signal, 'strength': 75.0 if signal != 'NEUTRAL' else 50.0}
         except Exception as e:
@@ -158,7 +158,7 @@ class ATASIntegratedAnalyzer:
             std = np.std(close)
             upper = float(sma + 2 * std)
             lower = float(sma - 2 * std)
-            current = float(close[-1])
+            current = float(close[-2])
             signal = 'BUY' if current < lower else ('SELL' if current > upper else 'NEUTRAL')
             return {'upper': upper, 'middle': float(sma), 'lower': lower, 'signal': signal, 'strength': 70.0 if signal != 'NEUTRAL' else 40.0}
         except Exception as e:
@@ -171,7 +171,7 @@ class ATASIntegratedAnalyzer:
             close = df['close'].values[-14:]
             high14 = np.max(close)
             low14 = np.min(close)
-            current = float(close[-1])
+            current = float(close[-2])
             k_percent = float(((current - low14) / (high14 - low14)) * 100) if high14 != low14 else 50.0
             signal = 'BUY' if k_percent < 20 else ('SELL' if k_percent > 80 else 'NEUTRAL')
             return {'k_percent': k_percent, 'signal': signal, 'strength': float(abs(k_percent - 50) / 50 * 100)}
@@ -281,7 +281,7 @@ class ATASIntegratedAnalyzer:
             mid = float(np.mean(close))
             upper = float(mid + 2 * atr)
             lower = float(mid - 2 * atr)
-            current = float(close[-1])
+            current = float(close[-2])
             signal = 'BUY' if current < lower else ('SELL' if current > upper else 'NEUTRAL')
             return {'upper': upper, 'middle': mid, 'lower': lower, 'signal': signal, 'strength': 65.0 if signal != 'NEUTRAL' else 40.0}
         except Exception as e:
@@ -313,7 +313,7 @@ class ATASIntegratedAnalyzer:
             atr = np.mean(np.maximum(high[1:] - low[1:], np.maximum(abs(high[1:] - close[:-1]), abs(low[1:] - close[:-1]))))
             basic_ub = hl2 + 3 * atr
             basic_lb = hl2 - 3 * atr
-            current = float(close[-1])
+            current = float(close[-2])
             signal = 'BUY' if current > np.mean(basic_ub[-5:]) else ('SELL' if current < np.mean(basic_lb[-5:]) else 'NEUTRAL')
             return {'signal': signal, 'strength': 70.0 if signal != 'NEUTRAL' else 50.0}
         except Exception as e:
@@ -330,7 +330,7 @@ class ATASIntegratedAnalyzer:
                 return {'vwap': float(close[-1]), 'current': float(close[-1]),
                         'signal': 'NEUTRAL', 'strength': 50.0}
             vwap = float(np.sum(close * volume) / total_volume)
-            current = float(close[-1])
+            current = float(close[-2])
             signal = 'BUY' if current < vwap else ('SELL' if current > vwap else 'NEUTRAL')
             return {'vwap': vwap, 'current': current, 'signal': signal, 'strength': 65.0}
         except Exception as e:

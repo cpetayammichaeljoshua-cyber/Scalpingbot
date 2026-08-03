@@ -34,7 +34,8 @@ def apply_comprehensive_console_fixes():
         pd.options.mode.copy_on_write = True
         try:
             pd.set_option('future.no_silent_downcasting', True)
-        except:
+        except Exception as e:
+            logging.error(f"Error in console fix: {e}")
             pass
         print("✅ Pandas warning fixes applied")
     except ImportError:

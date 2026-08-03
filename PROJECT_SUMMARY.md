@@ -14,6 +14,11 @@
 
 ## 🚀 What Was Delivered
 
+### 🛠 Recent Maintenance & Enhancements
+- Fixed CRITICAL bug in SL/TP order placement (added `reduceOnly=True`).
+- Conducted comprehensive scalping bot audit (see `AUDIT_REPORT.md`).
+- Enhanced reliability and trading logic across multiple modules.
+
 ### 1. **Bookmap Trading Integration** ✅ NEW
 - Advanced order book (DOM) analysis
 - Aggressive buy/sell volume detection

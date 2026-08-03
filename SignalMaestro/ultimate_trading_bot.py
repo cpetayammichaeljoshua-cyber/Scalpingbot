@@ -6855,9 +6855,13 @@ Symbol {symbol} is not currently locked.
                                 entry_price = signal['entry_price']
 
                                 if signal['direction'].upper() in ['BUY', 'LONG']:
-                                    unrealized_pnl = ((current_price - entry_price) / entry_price) * 100 * signal['optimal_leverage']
+                                    # C2: Fee Accounting (subtracting 2*fee*leverage*100)
+                                    fee_adjustment = 2 * 0.0004 * signal['optimal_leverage'] * 100
+                                    unrealized_pnl = (((current_price - entry_price) / entry_price) * 100 * signal['optimal_leverage']) - fee_adjustment
                                 else:
-                                    unrealized_pnl = ((entry_price - current_price) / entry_price) * 100 * signal['optimal_leverage']
+                                    # C2: Fee Accounting
+                                    fee_adjustment = 2 * 0.0004 * signal['optimal_leverage'] * 100
+                                    unrealized_pnl = (((entry_price - current_price) / entry_price) * 100 * signal['optimal_leverage']) - fee_adjustment
 
                                 status_emoji = "🟢" if unrealized_pnl > 0 else "🔴" if unrealized_pnl < 0 else "🟡"
 
