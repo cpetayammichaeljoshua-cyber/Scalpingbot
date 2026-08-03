@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List
-import random
+import random  # retained for backward compat; no longer used after fabrication fix
 
 # Import backtester modules
 from .data import get_market_data, SyntheticDataProvider
@@ -106,20 +106,23 @@ class RealisticBacktester:
                 
                 # Get market data (7 days of 5-minute candles)
                 df = await get_market_data(symbol, timeframe='5m', limit=2016, use_real_data=False)
-                
+            
                 if df.empty:
                     self.logger.warning(f"No data available for {symbol}")
                     continue
-                
+            
                 # Generate trading signals with stricter filtering
                 signals = await generate_trading_signals(df, symbol, use_ml_filter=True)
-                
+            
                 # Additional filtering for realistic results
                 filtered_signals = []
                 for signal in signals:
                     if signal.get('signal_strength', 0) >= 70:  # Higher threshold
+                        # Attach the df slice for this symbol so signal processing
+                        # can run candle-by-candle instead of fabricating outcomes.
+                        signal['_market_df'] = df
                         filtered_signals.append(signal)
-                
+            
                 all_signals.extend(filtered_signals)
                 self.signals_generated += len(filtered_signals)
                 
@@ -184,42 +187,41 @@ class RealisticBacktester:
         self.logger.info("=" * 80)
     
     async def _check_trade_exits(self, current_time: datetime):
-        """Check if any active trades should be closed"""
+        """Check if any active trades should be closed.
         
+        NOTE: Trades are now closed candle-by-candle inside _process_realistic_signal
+        via _process_candle_by_candle(). Active trades should rarely persist here,
+        but if they do (e.g. no market df), close at entry price for safety.
+        """
         trades_to_close = []
         
         for trade in list(self.risk_manager.active_trades):
-            # Check if planned exit time has been reached
-            if current_time >= trade.get('planned_exit_time', current_time + timedelta(hours=1)):
-                trades_to_close.append(trade)
+            # No fabricated planned exit time — close any stale trades at current time
+            trades_to_close.append(trade)
         
-        # Close trades that have reached their exit time
         for trade in trades_to_close:
             await self._close_planned_trade(trade)
     
     async def _close_planned_trade(self, trade: Dict[str, Any]):
-        """Close a trade with its planned outcome"""
+        """Close a stale trade at entry price (no fabricated outcome)."""
         
         try:
-            exit_price = trade.get('planned_exit_price', trade['entry_price'])
-            exit_time = trade.get('planned_exit_time', datetime.now())
-            exit_reason = trade.get('planned_exit_reason', 'Time Exit')
+            exit_price = trade['entry_price']
+            exit_time = datetime.now()
+            exit_reason = 'Stale Trade Exit'
             
-            # Close trade
             completed_trade = self.risk_manager.close_trade(trade, exit_price, exit_time, exit_reason)
             
-            # Track performance
             self.leverage_engine.track_leverage_performance(trade['leverage'], completed_trade['net_pnl'])
             self.completed_trades.append(completed_trade)
             
-            # Update daily PnL tracking
             self.risk_manager.daily_pnl += completed_trade['net_pnl']
             
         except Exception as e:
-            self.logger.error(f"Error closing planned trade: {e}")
+            self.logger.error(f"Error closing stale trade: {e}")
     
     async def _process_realistic_signal(self, signal: Dict[str, Any]) -> bool:
-        """Process a signal with realistic constraints"""
+        """Process a signal with realistic constraints using candle-by-candle exit determination"""
         
         try:
             # Check if signal should be taken
@@ -249,8 +251,48 @@ class RealisticBacktester:
                 self.logger.debug("Trade opening failed")
                 return False
             
-            # Plan realistic exit (don't close immediately)
-            await self._plan_trade_exit(trade, vol_category, efficiency)
+            # Determine exit via candle-by-candle market data (NOT fabrication)
+            df = signal.get('_market_df')
+            if df is not None:
+                # Execute entry at next candle after signal
+                signal_time = signal['timestamp']
+                entry_idx = df.index.get_indexer([signal_time], method='nearest')[0]
+                if entry_idx + 1 < len(df):
+                    entry_candle = df.iloc[entry_idx + 1]
+                else:
+                    entry_candle = df.iloc[entry_idx]
+                
+                # Update entry price to actual fill
+                order = {
+                    'direction': signal['direction'],
+                    'size': trade['position_size'],
+                    'symbol': signal['symbol'],
+                    'timestamp': entry_candle.name
+                }
+                entry_exec = self.execution_simulator.simulate_market_order(order, entry_candle)
+                if entry_exec and 'fill_price' in entry_exec:
+                    trade['entry_price'] = entry_exec['fill_price']
+                    if trade['direction'] == 'LONG':
+                        trade['stop_loss_price'] = trade['entry_price'] * (1 - 0.015)
+                        trade['take_profit_price'] = trade['entry_price'] * (1 + 0.045)
+                    else:
+                        trade['stop_loss_price'] = trade['entry_price'] * (1 + 0.015)
+                        trade['take_profit_price'] = trade['entry_price'] * (1 - 0.045)
+                
+                # Process candle-by-candle for SL/TP exit
+                outcome = self._process_candle_by_candle(trade, df, entry_idx + 1)
+                completed_trade = self.risk_manager.close_trade(
+                    trade, outcome['exit_price'], outcome['exit_time'], outcome['exit_reason']
+                )
+                self.leverage_engine.track_leverage_performance(leverage, completed_trade['net_pnl'])
+                self.completed_trades.append(completed_trade)
+            else:
+                # Fallback: close at entry (no market data available)
+                self.logger.warning("No market df attached to signal — closing at entry price")
+                completed_trade = self.risk_manager.close_trade(
+                    trade, trade['entry_price'], signal['timestamp'], "No Data Exit"
+                )
+                self.completed_trades.append(completed_trade)
             
             return True
             
@@ -258,67 +300,40 @@ class RealisticBacktester:
             self.logger.error(f"Error processing realistic signal: {e}")
             return False
     
-    async def _plan_trade_exit(self, trade: Dict[str, Any], vol_category: str, efficiency: float):
-        """Plan when and how the trade will exit (but don't close it yet)"""
+    def _process_candle_by_candle(self, trade: Dict[str, Any], df, start_idx: int) -> Dict[str, Any]:
+        """
+        Process trade candle-by-candle from entry to determine SL/TP exit.
+        Replaces the fabricated random-outcome _plan_trade_exit simulation.
+        """
+        max_candles = 48  # 4 hours at 5m candles
         
-        try:
-            # Realistic win probability based on conditions
-            if efficiency > 90:
-                win_prob = 0.68  # Good but not unrealistic
-            elif efficiency > 70:
-                win_prob = 0.63
-            elif efficiency > 50:
-                win_prob = 0.58
-            elif efficiency > 30:
-                win_prob = 0.52
-            else:
-                win_prob = 0.45
+        for i in range(start_idx, min(start_idx + max_candles, len(df))):
+            candle = df.iloc[i]
             
-            # Random outcome
-            is_winner = random.random() < win_prob
+            # Update trade PnL with current candle
+            current_prices = {trade['symbol']: candle['close']}
+            self.risk_manager.update_trades(current_prices, candle.name)
             
-            # Realistic duration (30 minutes to 3 hours)
-            duration_minutes = random.uniform(30, 180)
-            exit_time = trade['entry_time'] + timedelta(minutes=duration_minutes)
+            # Check SL/TP using intrabar highs/lows via ExecutionSimulator
+            triggers = self.execution_simulator.process_stop_loss_take_profit(
+                [trade], candle
+            )
             
-            # Calculate exit price based on outcome
-            entry_price = trade['entry_price']
-            sl_price = trade['stop_loss_price']
-            tp_price = trade['take_profit_price']
-            
-            if is_winner:
-                if random.random() < 0.70:  # 70% hit full TP
-                    exit_price = tp_price
-                    exit_reason = "Take Profit"
-                else:  # 30% partial profit
-                    if trade['direction'] == 'LONG':
-                        profit_pct = random.uniform(1.5, 3.5)
-                        exit_price = entry_price * (1 + profit_pct / 100)
-                    else:
-                        profit_pct = random.uniform(1.5, 3.5)
-                        exit_price = entry_price * (1 - profit_pct / 100)
-                    exit_reason = "Partial Profit"
-            else:
-                if random.random() < 0.75:  # 75% hit stop loss
-                    exit_price = sl_price
-                    exit_reason = "Stop Loss"
-                else:  # 25% small loss
-                    if trade['direction'] == 'LONG':
-                        loss_pct = random.uniform(0.3, 1.0)
-                        exit_price = entry_price * (1 - loss_pct / 100)
-                    else:
-                        loss_pct = random.uniform(0.3, 1.0)
-                        exit_price = entry_price * (1 + loss_pct / 100)
-                    exit_reason = "Quick Exit"
-            
-            # Store planned exit in trade
-            trade['planned_exit_time'] = exit_time
-            trade['planned_exit_price'] = exit_price
-            trade['planned_exit_reason'] = exit_reason
-            trade['is_planned_winner'] = is_winner
-            
-        except Exception as e:
-            self.logger.error(f"Error planning trade exit: {e}")
+            if triggers:
+                _trigger_trade, exit_price, exit_reason = triggers[0]
+                return {
+                    'exit_price': exit_price,
+                    'exit_time': candle.name,
+                    'exit_reason': exit_reason
+                }
+        
+        # No SL/TP hit within max hold time — close at last candle close
+        last_candle = df.iloc[min(start_idx + max_candles - 1, len(df) - 1)]
+        return {
+            'exit_price': last_candle['close'],
+            'exit_time': last_candle.name,
+            'exit_reason': 'Time Exit'
+        }
     
     async def _fast_forward_day(self):
         """Skip to next day after hitting daily loss limit"""
@@ -326,13 +341,13 @@ class RealisticBacktester:
         self.logger.info("📅 Fast-forwarding to next trading day")
     
     async def _close_remaining_trades(self):
-        """Close any remaining active trades at neutral prices"""
+        """Close any remaining active trades at their entry price (neutral exit)"""
         
         while self.risk_manager.active_trades:
             trade = self.risk_manager.active_trades[0]
             
-            # Close at planned price if available, otherwise at entry price
-            exit_price = trade.get('planned_exit_price', trade['entry_price'])
+            # Close at entry price (neutral outcome, no fabricated planned exit)
+            exit_price = trade['entry_price']
             exit_time = datetime.now()
             
             completed_trade = self.risk_manager.close_trade(trade, exit_price, exit_time, "End of Backtest")
