@@ -97,7 +97,7 @@ class MetricsReporter:
             
             # Average trade metrics
             avg_win = np.mean([t.get('net_pnl', 0) for t in trades if t.get('is_winner', False)]) if winning_trades > 0 else 0
-            avg_loss = np.mean([t.get('net_pnl', 0) for t in trades if not t.get('is_winner', True)]) if losing_trades > 0 else 0
+            avg_loss = np.mean([t.get('net_pnl', 0) for t in trades if not t.get('is_winner', False)]) if losing_trades > 0 else 0
             
             # Largest trades
             largest_win = max([t.get('net_pnl', 0) for t in trades], default=0)
@@ -248,7 +248,7 @@ class MetricsReporter:
                 
                 # Duration by outcome
                 win_durations = [t.get('duration_minutes', 0) for t in trades if t.get('is_winner', False)]
-                lose_durations = [t.get('duration_minutes', 0) for t in trades if not t.get('is_winner', True)]
+                lose_durations = [t.get('duration_minutes', 0) for t in trades if not t.get('is_winner', False)]
                 
                 avg_win_duration = np.mean(win_durations) if win_durations else 0
                 avg_lose_duration = np.mean(lose_durations) if lose_durations else 0

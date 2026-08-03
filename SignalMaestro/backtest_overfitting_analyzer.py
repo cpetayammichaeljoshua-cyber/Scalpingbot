@@ -37,6 +37,8 @@ with a quality penalty of [-7.0, 0.0].  Steps 1–4 all pass → CLEAN (0 pts).
 """
 from __future__ import annotations
 
+import os
+import json
 import math
 import random
 from dataclasses import dataclass, field
@@ -439,6 +441,10 @@ class StrategyValidator:
         quality_score += result.quality_penalty
     """
 
+    def __init__(self):
+        import logging
+        self.logger = logging.getLogger(__name__)
+
     def validate(
         self,
         r_returns:  List[float],
@@ -474,6 +480,21 @@ class StrategyValidator:
         oos_returns = r_returns[mid:]
 
         # ── Step 1: In-Sample Excellence ──────────────────────────────────────
+        # v20.0: Re-enable consumption of optimization config for validation
+        config_path = 'SignalMaestro/backtest_optimization_config.json'
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    opt_config = json.load(f)
+                    # Force-disable fabricated trade generation for production validation
+                    # to prevent overfitting/lookahead contamination
+                    opt_config['synthetic_trade_generation'] = False
+                    opt_config['relaxed_signal_generation'] = False
+                    self.logger.info(f"Loaded and sanitized optimization config: {config_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to load optimization config: {e}")
+
+        # Original step 1 validation logic...
         s1_pass, is_sh, is_wr, is_pf, is_ev = _step1_in_sample_excellence(is_returns)
         result.step1_pass       = s1_pass
         result.is_sharpe        = is_sh

@@ -268,23 +268,30 @@ Send or forward signals for automatic processing.
         except Exception as e:
             self.logger.error(f"Error handling update: {e}")
 
-    async def run(self):
-        """Main bot loop"""
-        self.logger.info("🤖 Automated Signal Bot started")
+    async def run(self, offset_file='SignalMaestro/bot_offset.json'):
+        """Process one batch of updates and exit"""
+        self.logger.info("🤖 Automated Signal Bot - One-shot execution")
+
+        # Load offset
         offset = None
+        if os.path.exists(offset_file):
+            with open(offset_file, 'r') as f:
+                offset = json.load(f).get('offset')
 
-        while True:
-            try:
-                updates = await self.get_updates(offset=offset)
-                for update in updates:
-                    offset = update['update_id'] + 1
-                    await self.handle_update(update)
+        try:
+            updates = await self.get_updates(offset=offset)
+            for update in updates:
+                offset = update['update_id'] + 1
+                await self.handle_update(update)
 
-                await asyncio.sleep(1)
+            # Save offset
+            with open(offset_file, 'w') as f:
+                json.dump({'offset': offset}, f)
 
-            except Exception as e:
-                self.logger.error(f"Error in main loop: {e}")
-                await asyncio.sleep(5)
+            self.logger.info(f"✅ Processed {len(updates)} updates. Offset saved: {offset}")
+
+        except Exception as e:
+            self.logger.error(f"Error in execution: {e}")
 
 
 async def main():

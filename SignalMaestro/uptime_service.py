@@ -415,7 +415,8 @@ last_ping_timestamp_seconds {self.last_ping.timestamp() if self.last_ping else 0
             
             return False
         except (OSError, ValueError, AttributeError, KeyError):  # NEXT-6: narrowed from bare except (removed undefined sqlite3.Error - method does not use sqlite3)
-    
+            return False
+
     def _check_database_health(self) -> bool:
         """Check database health"""
         try:

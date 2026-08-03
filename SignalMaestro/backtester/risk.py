@@ -411,10 +411,10 @@ class RiskManager:
             
             # Account health
             account_health = "HEALTHY"
-            if current_drawdown > 15:
-                account_health = "AT_RISK"
-            elif current_drawdown > 25:
+            if current_drawdown > 25:
                 account_health = "DANGER"
+            elif current_drawdown > 15:
+                account_health = "AT_RISK"
             elif self.current_capital < self.initial_capital * 0.5:
                 account_health = "CRITICAL"
             

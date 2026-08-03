@@ -99,8 +99,9 @@ class TechnicalSignalProvider:
                 if signal:
                     signals.append(signal)
             
-            # Apply adaptive threshold if needed
-            if self.adaptive_threshold and len(signals) < 5:  # Too few signals
+            # Apply adaptive threshold if needed (disabled for production backtests
+            # to prevent overfitting via threshold relaxation)
+            if self.adaptive_threshold and len(signals) < 5 and False:  # NEXT-OVERFIT: disabled adaptive threshold lowering
                 self.logger.info(f"Only {len(signals)} signals generated, applying adaptive threshold")
                 # Lower threshold and regenerate
                 original_threshold = self.min_signal_strength
@@ -233,7 +234,7 @@ class TechnicalSignalProvider:
             # Check for LONG signal
             if long_conditions >= 2 and long_score >= self.min_signal_strength:
                 direction = 'LONG'
-                signal_strength = min(95, long_score + np.random.uniform(-5, 5))
+                signal_strength = min(95.0, float(long_score))  # NEXT-RNG: removed np.random noise for reproducible backtests
             
             # SHORT signal conditions
             short_conditions = 0
@@ -277,17 +278,23 @@ class TechnicalSignalProvider:
             # Check for SHORT signal (only if no LONG signal)
             if direction != 'LONG' and short_conditions >= 2 and short_score >= self.min_signal_strength:
                 direction = 'SHORT'
-                signal_strength = min(95, short_score + np.random.uniform(-5, 5))
+                signal_strength = min(95.0, float(short_score))  # NEXT-RNG: removed np.random noise for reproducible backtests
                 reasons = short_reasons
             
             # Return signal if valid
             if direction and signal_strength >= self.min_signal_strength:
+                # NEXT-LOOKAHEAD: Previously used current['close'] as entry price,
+                # which is lookahead bias — the decision is made at bar close but
+                # entry should execute at next bar's open. The caller loops to
+                # len(df)-1, so we use the next bar's open if available; fall
+                # back to current close only at the very last bar.
+                next_open = df['open'].iloc[index + 1] if index + 1 < len(df) else current['close']
                 return {
                     'timestamp': current.name,
                     'symbol': symbol,
                     'direction': direction,
                     'signal_strength': signal_strength,
-                    'price': current['close'],
+                    'price': next_open,
                     'atr_percentage': atr_pct,
                     'volume_ratio': current.get('volume_ratio', 1.0),
                     'trend_strength': trend_strength,

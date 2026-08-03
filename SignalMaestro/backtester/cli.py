@@ -163,7 +163,7 @@ class ComprehensiveBacktester:
         self.logger.info("=" * 80)
     
     async def _process_signal(self, signal: Dict[str, Any], df) -> bool:
-        """Process a single trading signal"""
+        """Process a single trading signal with candle-by-candle outcome simulation"""
         
         try:
             # Check if signal should be taken
@@ -193,24 +193,40 @@ class ComprehensiveBacktester:
             
             self.signals_taken += 1
             
-            # Simulate trade execution
+            # Simulate trade execution at signal timestamp
+            signal_time = signal['timestamp']
+            entry_candle_idx = df.index.get_indexer([signal_time], method='nearest')[0]
+            
+            # Execute entry at the candle after signal (or signal candle if no next)
+            if entry_candle_idx + 1 < len(df):
+                entry_candle = df.iloc[entry_candle_idx + 1]
+            else:
+                entry_candle = df.iloc[entry_candle_idx]
+            
             order = {
                 'direction': signal['direction'],
                 'size': trade['position_size'],
                 'symbol': signal['symbol'],
-                'timestamp': signal['timestamp']
+                'timestamp': entry_candle.name
             }
             
-            # Find market data for this timestamp
-            signal_time = signal['timestamp']
-            closest_candle = df.loc[df.index >= signal_time].iloc[0] if len(df.loc[df.index >= signal_time]) > 0 else df.iloc[-1]
+            entry_execution = self.execution_simulator.simulate_market_order(order, entry_candle)
             
-            execution = self.execution_simulator.simulate_market_order(order, closest_candle)
+            # Update entry price to the actual fill price (not signal price)
+            if entry_execution and 'fill_price' in entry_execution:
+                trade['entry_price'] = entry_execution['fill_price']
+                # Recalculate SL/TP relative to actual fill price
+                if trade['direction'] == 'LONG':
+                    trade['stop_loss_price'] = trade['entry_price'] * (1 - 0.015)  # 1.5% SL
+                    trade['take_profit_price'] = trade['entry_price'] * (1 + 0.045)  # 4.5% TP
+                else:
+                    trade['stop_loss_price'] = trade['entry_price'] * (1 + 0.015)
+                    trade['take_profit_price'] = trade['entry_price'] * (1 - 0.045)
             
-            # Simulate trade outcome (for backtesting speed)
-            outcome = self._simulate_trade_outcome(trade, vol_category, efficiency)
+            # Process candle-by-candle from entry to find SL/TP exit
+            outcome = self._process_candle_by_candle(trade, df, entry_candle_idx + 1)
             
-            # Close trade with simulated outcome
+            # Close trade with actual market outcome
             completed_trade = self.risk_manager.close_trade(
                 trade, outcome['exit_price'], 
                 outcome['exit_time'], outcome['exit_reason']
@@ -226,78 +242,40 @@ class ComprehensiveBacktester:
             self.logger.error(f"Error processing signal: {e}")
             return False
     
-    def _simulate_trade_outcome(self, trade: Dict[str, Any], vol_category: str, efficiency: float) -> Dict[str, Any]:
-        """Simulate realistic trade outcome based on market conditions"""
+    def _process_candle_by_candle(self, trade: Dict[str, Any], df, start_idx: int) -> Dict[str, Any]:
+        """
+        Process trade candle-by-candle from entry to determine SL/TP exit.
+        Replaces the fabricated random-outcome simulation with real market data.
+        """
+        max_candles = 48  # 4 hours at 5m candles
         
-        try:
-            # Win probability based on leverage efficiency and conditions
-            if efficiency > 90:
-                win_prob = 0.78  # Very good conditions
-            elif efficiency > 70:
-                win_prob = 0.70  # Good conditions
-            elif efficiency > 50:
-                win_prob = 0.62  # Average conditions
-            elif efficiency > 30:
-                win_prob = 0.55  # Poor conditions
-            else:
-                win_prob = 0.48  # Very poor conditions
+        for i in range(start_idx, min(start_idx + max_candles, len(df))):
+            candle = df.iloc[i]
             
-            # Random outcome
-            import random
-            is_winner = random.random() < win_prob
+            # Update trade PnL with current candle
+            current_prices = {trade['symbol']: candle['close']}
+            self.risk_manager.update_trades(current_prices, candle.name)
             
-            # Duration (15 minutes to 4 hours)
-            duration_minutes = random.uniform(15, 240)
-            exit_time = trade['entry_time'] + timedelta(minutes=duration_minutes)
+            # Check SL/TP using intrabar highs/lows (via ExecutionSimulator)
+            triggers = self.execution_simulator.process_stop_loss_take_profit(
+                [trade], candle
+            )
             
-            # Calculate exit price
-            entry_price = trade['entry_price']
-            sl_price = trade['stop_loss_price']
-            tp_price = trade['take_profit_price']
-            
-            if is_winner:
-                if random.random() < 0.75:  # 75% hit full TP
-                    exit_price = tp_price
-                    exit_reason = "Take Profit"
-                else:  # 25% partial profit
-                    if trade['direction'] == 'LONG':
-                        profit_pct = random.uniform(1.8, 4.2)
-                        exit_price = entry_price * (1 + profit_pct / 100)
-                    else:
-                        profit_pct = random.uniform(1.8, 4.2)
-                        exit_price = entry_price * (1 - profit_pct / 100)
-                    exit_reason = "Partial Profit"
-            else:
-                if random.random() < 0.80:  # 80% hit stop loss
-                    exit_price = sl_price
-                    exit_reason = "Stop Loss"
-                else:  # 20% small loss
-                    if trade['direction'] == 'LONG':
-                        loss_pct = random.uniform(0.3, 1.2)
-                        exit_price = entry_price * (1 - loss_pct / 100)
-                    else:
-                        loss_pct = random.uniform(0.3, 1.2)
-                        exit_price = entry_price * (1 + loss_pct / 100)
-                    exit_reason = "Quick Exit"
-            
-            return {
-                'exit_price': exit_price,
-                'exit_time': exit_time,
-                'exit_reason': exit_reason,
-                'is_winner': is_winner,
-                'duration_minutes': duration_minutes
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error simulating trade outcome: {e}")
-            # Fallback outcome
-            return {
-                'exit_price': trade['take_profit_price'] if random.random() < 0.6 else trade['stop_loss_price'],
-                'exit_time': trade['entry_time'] + timedelta(hours=2),
-                'exit_reason': "Simulated",
-                'is_winner': random.random() < 0.6,
-                'duration_minutes': 120
-            }
+            if triggers:
+                trigger_trade, exit_price, exit_reason = triggers[0]
+                return {
+                    'exit_price': exit_price,
+                    'exit_time': candle.name,
+                    'exit_reason': exit_reason
+                }
+        
+        # No SL/TP hit within max hold time — close at last candle close
+        last_candle = df.iloc[min(start_idx + max_candles - 1, len(df) - 1)]
+        return {
+            'exit_price': last_candle['close'],
+            'exit_time': last_candle.name,
+            'exit_reason': 'Time Exit'
+        }
     
     async def _update_active_trades(self, current_candle, current_time):
         """Update active trades with current market data"""
