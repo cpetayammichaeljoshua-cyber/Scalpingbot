@@ -34,7 +34,7 @@ class RealisticBacktester:
         )
         self.risk_manager = RiskManager(
             initial_capital=config.get('initial_capital', 10.0),
-            risk_percentage=config.get('risk_percentage', 2.0),  # Reduced to 2%
+            risk_percentage=config.get('risk_percentage', 3.0),  # BUG11 FIX: was 2.0 — drift from cli.py
             max_concurrent_trades=config.get('max_concurrent_trades', 3),
             max_daily_loss=config.get('max_daily_loss', 1.0),  # $1 max daily loss
             portfolio_risk_cap=config.get('portfolio_risk_cap', 5.0),  # Max 5% total risk
@@ -177,7 +177,7 @@ class RealisticBacktester:
     def _log_configuration(self):
         """Log realistic backtest configuration"""
         self.logger.info(f"💰 Initial Capital: ${self.config.get('initial_capital', 10.0)}")
-        self.logger.info(f"📊 Risk per Trade: {self.config.get('risk_percentage', 2.0)}% (FIXED DOLLAR)")
+        self.logger.info(f"📊 Risk per Trade: {self.config.get('risk_percentage', 3.0)}% (FIXED DOLLAR)")  # BUG11 FIX: was 2.0
         self.logger.info(f"📈 Max Concurrent Trades: {self.config.get('max_concurrent_trades', 3)}")
         self.logger.info(f"⚡ Dynamic Leverage: {self.config.get('min_leverage', 10)}x - {self.config.get('max_leverage', 75)}x")
         self.logger.info(f"🔒 Portfolio Risk Cap: {self.config.get('portfolio_risk_cap', 5.0)}%")
@@ -203,7 +203,14 @@ class RealisticBacktester:
             await self._close_planned_trade(trade)
     
     async def _close_planned_trade(self, trade: Dict[str, Any]):
-        """Close a stale trade at entry price (no fabricated outcome)."""
+        """Close a stale trade at entry price (no fabricated outcome).
+        
+        BUG14 FIX: close_trade already adds net_pnl to daily_pnl inside
+        risk.py, so we must NOT double-count here. The previous code did
+        `self.risk_manager.daily_pnl += completed_trade['net_pnl']` on top
+        of close_trade's internal update, overstating daily loss and
+        prematurely triggering the daily loss limit.
+        """
         
         try:
             exit_price = trade['entry_price']
@@ -215,7 +222,9 @@ class RealisticBacktester:
             self.leverage_engine.track_leverage_performance(trade['leverage'], completed_trade['net_pnl'])
             self.completed_trades.append(completed_trade)
             
-            self.risk_manager.daily_pnl += completed_trade['net_pnl']
+            # BUG14 FIX: do NOT add net_pnl to daily_pnl again — close_trade
+            # already updates it internally (risk.py line 323). Double-counting
+            # caused the daily loss limit to trigger prematurely.
             
         except Exception as e:
             self.logger.error(f"Error closing stale trade: {e}")
@@ -272,12 +281,21 @@ class RealisticBacktester:
                 entry_exec = self.execution_simulator.simulate_market_order(order, entry_candle)
                 if entry_exec and 'fill_price' in entry_exec:
                     trade['entry_price'] = entry_exec['fill_price']
+                    # Dynamic ATR-based SL/TP — BUG10 FIX (matches cli.py).
+                    # Hardcoded 1.5%/4.5% previously overrode the risk_manager
+                    # computed SL/TP. Now uses signal.atr_percentage, clamped
+                    # 0.5–3.0%, with 1:3 R/R preserved.
+                    # BUG13 FIX: SL = 1×ATR too tight — intrabar wicks triggered
+                    # SL before TP. Now SL = 1.5×ATR, TP = 3×SL (= 4.5×ATR).
+                    _atr_pct = float(signal.get('atr_percentage', 1.5) or 1.5)
+                    _atr_pct = max(0.5, min(_atr_pct, 3.0))
+                    _sl_dist = trade['entry_price'] * (_atr_pct * 1.5 / 100.0)
                     if trade['direction'] == 'LONG':
-                        trade['stop_loss_price'] = trade['entry_price'] * (1 - 0.015)
-                        trade['take_profit_price'] = trade['entry_price'] * (1 + 0.045)
+                        trade['stop_loss_price'] = trade['entry_price'] - _sl_dist
+                        trade['take_profit_price'] = trade['entry_price'] + (_sl_dist * 3)
                     else:
-                        trade['stop_loss_price'] = trade['entry_price'] * (1 + 0.015)
-                        trade['take_profit_price'] = trade['entry_price'] * (1 - 0.045)
+                        trade['stop_loss_price'] = trade['entry_price'] + _sl_dist
+                        trade['take_profit_price'] = trade['entry_price'] - (_sl_dist * 3)
                 
                 # Process candle-by-candle for SL/TP exit
                 outcome = self._process_candle_by_candle(trade, df, entry_idx + 1)
@@ -478,7 +496,7 @@ class RealisticBacktester:
 - Used Fixed Dollar Risk: Prevents exponential compounding
 - Portfolio Risk Cap: {self.config.get('portfolio_risk_cap', 5.0)}% maximum
 - Daily Loss Limit: ${self.config.get('max_daily_loss', 1.0)}
-- Risk per Trade: {self.config.get('risk_percentage', 2.0)}% of initial capital
+- Risk per Trade: {self.config.get('risk_percentage', 3.0)}% of initial capital  # BUG11 FIX: was 2.0
 
 ### Performance Validation
 Return Percentage: {results.get('return_percentage', 0):.1f}%
@@ -516,7 +534,7 @@ async def run_realistic_backtest():
     # Realistic configuration with proper constraints
     config = {
         'initial_capital': 10.0,
-        'risk_percentage': 2.0,  # Reduced from 10% to 2%
+        'risk_percentage': 3.0,  # BUG11 FIX: was 2.0 — drift from cli.py (institutional 3%)
         'max_concurrent_trades': 3,
         'min_leverage': 10,
         'max_leverage': 75,

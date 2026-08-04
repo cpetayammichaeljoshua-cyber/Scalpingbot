@@ -2,50 +2,50 @@
 ================================================================================
 
 📊 BASIC PERFORMANCE METRICS
-Total Trades: 15
-Winning Trades: 7
-Losing Trades: 8
-Win Rate: 46.7%
+Total Trades: 13
+Winning Trades: 0
+Losing Trades: 13
+Win Rate: 0.0%
 
 💰 FINANCIAL PERFORMANCE
-Total P&L: $2.51
-Return: 25.1%
-Final Capital: $12.51
-Gross Profit: $3.50
-Gross Loss: $0.99
-Profit Factor: 3.53
+Total P&L: $-8.57
+Return: -85.7%
+Final Capital: $1.43
+Gross Profit: $0.00
+Gross Loss: $8.57
+Profit Factor: 0.00
 
 🔥 CONSECUTIVE PERFORMANCE
-Max Consecutive Wins: 3
-Max Consecutive Losses: 4
+Max Consecutive Wins: 0
+Max Consecutive Losses: 13
 Current Consecutive Wins: 0
-Current Consecutive Losses: 2
+Current Consecutive Losses: 13
 
 ⏰ TIMING METRICS
-Trades per Hour: 0.089
-Trades per Day: 2.14
-Avg Trade Duration: 135.9 minutes
+Trades per Hour: 0.077
+Trades per Day: 1.86
+Avg Trade Duration: 51.9 minutes
 
 📉 RISK METRICS
-Max Drawdown: 7.6%
-Sharpe Ratio: 0.55
-Peak Capital: $12.71
+Max Drawdown: 85.7%
+Sharpe Ratio: -5.44
+Peak Capital: $10.00
 
 ⚡ LEVERAGE ANALYSIS
-Avg Leverage Used: 49.0x
-Leverage Efficiency: 65.3%
+Avg Leverage Used: 43.9x
+Leverage Efficiency: 58.6%
 Performance by Leverage: 9 levels analyzed
 
 📈 ADVANCED ANALYTICS
 Direction Performance:
-  Long Trades: 3 (Win Rate: 0.0%)
-  Short Trades: 12 (Win Rate: 58.3%)
-  Best Direction: SHORT
+  Long Trades: 5 (Win Rate: 0.0%)
+  Short Trades: 8 (Win Rate: 0.0%)
+  Best Direction: LONG
 
 Commission Impact:
-  Total Commission: $0.07
-  Avg per Trade: $0.005
-  Impact on Returns: 2.74%
+  Total Commission: $0.26
+  Avg per Trade: $0.020
+  Impact on Returns: 3.04%
 
 ================================================================================
 
@@ -55,11 +55,11 @@ Commission Impact:
 - Used Fixed Dollar Risk: Prevents exponential compounding
 - Portfolio Risk Cap: 5.0% maximum
 - Daily Loss Limit: $1.0
-- Risk per Trade: 2.0% of initial capital
+- Risk per Trade: 3.0% of initial capital  # BUG11 FIX: was 2.0
 
 ### Performance Validation
-Return Percentage: 25.1%
-Performance Rating: GOOD
+Return Percentage: -85.7%
+Performance Rating: CONSERVATIVE
 
 ### Key Improvements Implemented
 1. Fixed dollar risk sizing (prevents compounding explosion)

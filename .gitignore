@@ -158,3 +158,34 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+# === Unity Engine v223 audit additions ===
+
+# Node.js / claude-flow / ruflo artifacts (not part of Python runtime)
+node_modules/
+package/
+*.tgz
+
+# Local DB runs — never tracked
+*.db
+SignalMaestro/leverage_management.db
+SignalMaestro/test_leverage.db
+SignalMaestro/test_monitoring.db
+
+# macOS metadata junk
+._*
+.DS_Store
+
+# Local skills/agent scratch
+.agent/
+.agents/skills/
+.claude/
+agent/
+
+# Local backtest run artifacts
+SignalMaestro/dynamic_leverage_test_report.json
+SignalMaestro/REALISTIC_BACKTEST_REPORT.md
+
+# Bug-hunt scratch scripts (audit tooling, not shipped)
+bug_hunt_scan.py
+bug_hunt_scan2.py
+scan_all_bugs.py

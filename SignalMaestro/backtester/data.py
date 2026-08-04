@@ -185,10 +185,12 @@ class SyntheticDataProvider:
             cols_to_drop = ['prev_close', 'tr1', 'tr2', 'tr3', 'true_range', 'volume_avg']
             df.drop(columns=[col for col in cols_to_drop if col in df.columns], inplace=True)
             
-            # Fill NaN values
-            df['atr_percentage'] = df['atr_percentage'].fillna(df['atr_percentage'].mean())
-            df['volume_ratio'] = df['volume_ratio'].fillna(1.0)
-            df['trend_strength'] = df['trend_strength'].fillna(0.5)
+            # Fill NaN values — NEXT-BUG5 FIX: .mean() returns NaN if all
+            # entries are NaN (first 14 rows before ATR warmup). Use forward
+            # then backward fill for robustness, then a safe default.
+            df['atr_percentage'] = df['atr_percentage'].ffill().bfill().fillna(1.0)
+            df['volume_ratio'] = df['volume_ratio'].ffill().bfill().fillna(1.0)
+            df['trend_strength'] = df['trend_strength'].ffill().bfill().fillna(0.5)
             
             return df
             

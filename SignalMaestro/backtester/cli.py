@@ -154,7 +154,7 @@ class ComprehensiveBacktester:
     def _log_configuration(self):
         """Log backtest configuration"""
         self.logger.info(f"💰 Initial Capital: ${self.config.get('initial_capital', 10.0)}")
-        self.logger.info(f"📊 Risk per Trade: {self.config.get('risk_percentage', 10.0)}%")
+        self.logger.info(f"📊 Risk per Trade: {self.config.get('risk_percentage', 3.0)}%")  # NEXT-BUG3 FIX: was 10.0
         self.logger.info(f"📈 Max Concurrent Trades: {self.config.get('max_concurrent_trades', 3)}")
         self.logger.info(f"⚡ Dynamic Leverage: {self.config.get('min_leverage', 10)}x - {self.config.get('max_leverage', 75)}x")
         self.logger.info(f"📅 Backtest Period: 7 days")
@@ -215,13 +215,25 @@ class ComprehensiveBacktester:
             # Update entry price to the actual fill price (not signal price)
             if entry_execution and 'fill_price' in entry_execution:
                 trade['entry_price'] = entry_execution['fill_price']
-                # Recalculate SL/TP relative to actual fill price
+                # Dynamic ATR-based SL/TP — BUG10 FIX: was hardcoded 1.5%/4.5%
+                # overriding risk_manager's computed stop_loss_price. Use the
+                # signal's atr_percentage (or fall back to 1.5%) so volatility
+                # scales the stop. R/R stays 1:3 (TP = 3 × SL).
+                # BUG13 FIX: SL = 1×ATR was too tight — median candle range is ~1.1%
+                # of price (same as median ATR), so intrabar wicks triggered SL
+                # before TP could clear. Now SL = 1.5×ATR (industry-standard buffer)
+                # and TP = 3×SL (= 4.5×ATR), preserving the 1:3 R/R while giving
+                # trades room to breathe through normal volatility.
+                _atr_pct = float(signal.get('atr_percentage', 1.5) or 1.5)
+                # Clamp ATR to a safe band so synth outliers don't blow risk
+                _atr_pct = max(0.5, min(_atr_pct, 3.0))
+                _sl_dist = trade['entry_price'] * (_atr_pct * 1.5 / 100.0)
                 if trade['direction'] == 'LONG':
-                    trade['stop_loss_price'] = trade['entry_price'] * (1 - 0.015)  # 1.5% SL
-                    trade['take_profit_price'] = trade['entry_price'] * (1 + 0.045)  # 4.5% TP
+                    trade['stop_loss_price'] = trade['entry_price'] - _sl_dist
+                    trade['take_profit_price'] = trade['entry_price'] + (_sl_dist * 3)
                 else:
-                    trade['stop_loss_price'] = trade['entry_price'] * (1 + 0.015)
-                    trade['take_profit_price'] = trade['entry_price'] * (1 - 0.045)
+                    trade['stop_loss_price'] = trade['entry_price'] + _sl_dist
+                    trade['take_profit_price'] = trade['entry_price'] - (_sl_dist * 3)
             
             # Process candle-by-candle from entry to find SL/TP exit
             outcome = self._process_candle_by_candle(trade, df, entry_candle_idx + 1)
@@ -278,7 +290,7 @@ class ComprehensiveBacktester:
         }
     
     async def _update_active_trades(self, current_candle, current_time):
-        """Update active trades with current market data"""
+        """Update active trades with current market data using intrabar SL/TP"""
         
         if not self.risk_manager.active_trades:
             return
@@ -288,11 +300,15 @@ class ComprehensiveBacktester:
         for trade in self.risk_manager.active_trades:
             current_prices[trade['symbol']] = current_candle['close']
         
-        # Update trades
+        # Update trades with close-price PnL
         self.risk_manager.update_trades(current_prices, current_time)
         
-        # Check for stop loss/take profit triggers
-        triggers = self.risk_manager.check_stop_loss_take_profit(current_prices, current_time)
+        # NEXT-BUG8 FIX: Use ExecutionSimulator for intrabar SL/TP detection
+        # (high/low range) instead of risk_manager.check_stop_loss_take_profit
+        # which only uses close price — close-price checks miss intrabar stops.
+        triggers = self.execution_simulator.process_stop_loss_take_profit(
+            self.risk_manager.active_trades, current_candle
+        )
         
         for trade, exit_price, exit_reason in triggers:
             completed_trade = self.risk_manager.close_trade(trade, exit_price, current_time, exit_reason)
@@ -432,10 +448,12 @@ class ComprehensiveBacktester:
 async def run_comprehensive_backtest():
     """Main entry point for comprehensive backtesting"""
     
-    # Configuration
+    # Configuration — NEXT-BUG2 FIX: risk_percentage was 10.0 here but
+    # __init__ defaults to 3.0. _log_configuration showed 10.0 misleadingly.
+    # Standardized to 3.0 (institutional-grade risk per trade).
     config = {
         'initial_capital': 10.0,
-        'risk_percentage': 10.0,
+        'risk_percentage': 3.0,  # NEXT-BUG2 FIX: was 10.0, inconsistent with __init__
         'max_concurrent_trades': 3,
         'min_leverage': 10,
         'max_leverage': 75,

@@ -350,10 +350,13 @@ class RiskManager:
     def check_stop_loss_take_profit(self, current_prices: Dict[str, float], 
                                    current_time: datetime) -> List[Dict[str, Any]]:
         """
-        Check for stop loss and take profit triggers
-        
-        Returns:
-            List of trades to close
+        Check for stop loss and take profit triggers using CLOSE price only.
+            
+            NOTE: This method uses close prices — it is kept for backward
+            compatibility. For accurate intrabar SL/TP detection, use
+            ExecutionSimulator.process_stop_loss_take_profit() which checks
+            candle high/low ranges instead. The candle-by-candle processing
+            in cli.py and realistic_cli.py already uses ExecutionSimulator.
         """
         
         trades_to_close = []
@@ -377,11 +380,6 @@ class RiskManager:
                         trades_to_close.append((trade, current_price, "Stop Loss"))
                     elif current_price <= trade['take_profit_price']:
                         trades_to_close.append((trade, current_price, "Take Profit"))
-                
-                # Check time-based exit (maximum 4 hours)
-                hours_open = (current_time - trade['entry_time']).total_seconds() / 3600
-                if hours_open >= 4:
-                    trades_to_close.append((trade, current_price, "Time Exit"))
             
             return trades_to_close
             

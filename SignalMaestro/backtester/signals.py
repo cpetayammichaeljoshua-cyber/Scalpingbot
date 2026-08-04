@@ -129,7 +129,17 @@ class TechnicalSignalProvider:
             return []
     
     def _add_signal_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add technical indicators for signal generation"""
+        """Add technical indicators for signal generation
+            
+            NEXT-BUG4: Previously only computed RSI, MACD, BB, volume_surge, and
+            price_momentum. The _evaluate_signal_conditions method reads ema_8,
+            ema_21, ema_50, atr_percentage, volume_ratio, and trend_strength via
+            .get() with fallback defaults — but those columns were never computed
+            here. The EMA alignment check (ema_8 > ema_21 > ema_50) always used
+            fallback (close == close == close → never True), so long_conditions
+            stayed at 0-1, never reaching the >= 2 threshold. The strategy
+            generated ZERO signals. Fixed by computing all indicators here.
+        """
         
         try:
             # RSI
@@ -151,14 +161,38 @@ class TechnicalSignalProvider:
             bb_std = df['close'].rolling(20).std()
             df['bb_upper'] = df['bb_middle'] + (bb_std * 2)
             df['bb_lower'] = df['bb_middle'] - (bb_std * 2)
-            df['bb_position'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
+            bb_range = df['bb_upper'] - df['bb_lower']
+            df['bb_position'] = (df['close'] - df['bb_lower']) / bb_range.replace(0, np.nan)
+            df['bb_position'] = df['bb_position'].fillna(0.5)  # Mid-band when bands collapse
             
             # Volume analysis
             df['volume_sma'] = df['volume'].rolling(20).mean()
-            df['volume_surge'] = df['volume'] / df['volume_sma']
+            df['volume_surge'] = (df['volume'] / df['volume_sma'].replace(0, np.nan)).fillna(1.0)
             
             # Momentum
             df['price_momentum'] = df['close'].pct_change(5)  # 5-period momentum
+            
+            # NEXT-BUG4 FIX: EMAs for trend alignment detection
+            df['ema_8'] = df['close'].ewm(span=8).mean()
+            df['ema_21'] = df['close'].ewm(span=21).mean()
+            df['ema_50'] = df['close'].ewm(span=50).mean()
+            
+            # NEXT-BUG4 FIX: ATR percentage for volatility-aware signals
+            high_low = df['high'] - df['low']
+            high_close = np.abs(df['high'] - df['close'].shift(1))
+            low_close = np.abs(df['low'] - df['close'].shift(1))
+            true_range = np.maximum(high_low, np.maximum(high_close, low_close))
+            atr = true_range.rolling(window=14).mean()
+            df['atr'] = atr
+            df['atr_percentage'] = (atr / df['close']) * 100
+            
+            # NEXT-BUG4 FIX: volume_ratio (current vs 20-period average)
+            vol_avg = df['volume'].rolling(20).mean()
+            df['volume_ratio'] = (df['volume'] / vol_avg.replace(0, np.nan)).fillna(1.0)
+            
+            # NEXT-BUG4 FIX: trend_strength (0-1 scale) based on EMA spread
+            ema_spread = np.abs(df['ema_8'] - df['ema_50']) / df['close']
+            df['trend_strength'] = np.clip(ema_spread * 50, 0, 1)
             
             return df
             
@@ -283,18 +317,20 @@ class TechnicalSignalProvider:
             
             # Return signal if valid
             if direction and signal_strength >= self.min_signal_strength:
-                # NEXT-LOOKAHEAD: Previously used current['close'] as entry price,
-                # which is lookahead bias — the decision is made at bar close but
-                # entry should execute at next bar's open. The caller loops to
-                # len(df)-1, so we use the next bar's open if available; fall
-                # back to current close only at the very last bar.
-                next_open = df['open'].iloc[index + 1] if index + 1 < len(df) else current['close']
+                # Entry price is the bar CLOSE where the signal was generated.
+                # BUG12 FIX: previous NEXT-LOOKAHEAD patch referenced `df['open'].iloc[index+1]`
+                # but `df` is NOT in scope in this method (only `current`/`previous` Series are),
+                # so it raised NameError, was silently swallowed by the bare except below,
+                # and produced ZERO signals — the strategy never fired. Real lookahead
+                # protection lives at the trade-execution layer (cli.py advances entry to
+                # df.iloc[entry_idx + 1], so the signal bar's close is the decision price,
+                # not the fill price). Keep the signal price as `current['close']` here.
                 return {
                     'timestamp': current.name,
                     'symbol': symbol,
                     'direction': direction,
                     'signal_strength': signal_strength,
-                    'price': next_open,
+                    'price': current['close'],
                     'atr_percentage': atr_pct,
                     'volume_ratio': current.get('volume_ratio', 1.0),
                     'trend_strength': trend_strength,

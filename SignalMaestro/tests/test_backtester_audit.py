@@ -108,20 +108,27 @@ def exec_simulator():
 # ── Bug 1: Lookahead bias in signal entry price ─────────────────────────────
 
 class TestBug1LookaheadBias:
-    """signals.py must use next bar's open for entry, not current close."""
+    """signals.py signal price must be the bar CLOSE (BUG12 FIX).
+    
+    The previous 'NEXT-LOOKAHEAD' patch referenced df['open'].iloc[index+1]
+    inside _evaluate_signal_conditions where `df` is NOT in scope → NameError
+    swallowed by bare except → ZERO signals generated. Real lookahead
+    protection lives at the CLI entry-execution layer (cli.py advances entry
+    to df.iloc[entry_idx + 1]). The signal price must stay as current['close'].
+    """
 
-    def test_entry_price_uses_next_open(self, synthetic_df, long_signal):
-        """Verify the signal's price field is NOT the current bar's close."""
-        from backtester.signals import generate_trading_signals
-        import inspect
-
-        src = inspect.getsource(generate_trading_signals) if hasattr(generate_trading_signals, '__wrapped__') else ""
-        # Directly check signals.py source for the lookahead fix
+    def test_entry_price_uses_current_close(self, synthetic_df, long_signal):
+        """Verify the signal's price field IS the current bar's close (BUG12 FIX)."""
         sig_path = Path(__file__).resolve().parent.parent / "backtester" / "signals.py"
         source = sig_path.read_text()
-
-        assert "next_open = df['open'].iloc[index + 1]" in source, \
-            "Lookahead fix not found: entry price should use next bar's open"
+        # BUG12 FIX: signal price must be current['close'] (NOT next_open = df[...])
+        assert "next_open = df['open'].iloc" not in source, (
+            "BUG12 REGRESSION: _evaluate_signal_conditions must NOT reference "
+            "df['open'].iloc[index+1] — df is not in scope. Use current['close']."
+        )
+        assert "'price': current['close']" in source, (
+            "BUG12 FIX MISSING: signal price must bind 'price': current['close']"
+        )
 
     def test_no_shift_negative(self):
         """No .shift(-1) in signals.py (that would be future-leak)."""
