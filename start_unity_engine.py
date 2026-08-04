@@ -4827,7 +4827,10 @@ class LLMKeyRotator:
                 # to its best-effort branch with a clear warning.
                 pass
 
-            next_key_masked = self._keys[self._idx][:8] + "…"
+            # CRITICAL-FIX: previously used self._keys[self._idx][:8] which leaked
+            # the first 8 chars of the key (sk-or-v1-X…). Now uses last 6 chars
+            # consistent with the rest of the class (key[-6:]).
+            next_key_masked = "…" + self._keys[self._idx][-6:]
             self._log.warning(
                 f"🔑 [v9.8] LLMKeyRotator: key …{key[-6:]} degraded "
                 f"(HTTP {status_code}, cooldown={cooldown}s"
@@ -5332,6 +5335,18 @@ class UnityMetrics:
 
     def record_trade_return(self, pnl_pct: float) -> None:
         """Record a closed trade return % and update equity curve + drawdown."""
+        # MEDIUM-FIX: guard against NaN/inf from None casts or DB corruption.
+        # Without this, _current_equity becomes NaN and permanently poisons
+        # max_drawdown_pct, sharpe_ratio, sortino_ratio, calmar_ratio → all
+        # subsequent quality penalties and Kelly dampening block every signal.
+        if not math.isfinite(pnl_pct):
+            self._logger.warning(
+                f"⚠️ record_trade_return: non-finite pnl_pct={pnl_pct!r} — "
+                f"skipping to prevent equity curve corruption"
+            )
+            return
+        # Clamp to sane bounds: ±100% per trade (a 200% loss is a data error)
+        pnl_pct = max(-100.0, min(100.0, pnl_pct))
         # v18.26: deque(maxlen=200) auto-discards the oldest entry in O(1) —
         # the manual slice-trim block is no longer needed.
         self._trade_returns.append(pnl_pct)
@@ -5472,7 +5487,11 @@ class UnityMetrics:
         if b <= 0:
             return 0.0
         f = (p * b - q) / b
-        return max(0.0, min(25.0, f * 100))
+        # CRITICAL-FIX: cap at KELLY_MAX_FRACTION*100 (8.0) not 25.0 — the
+        # cold-start path returns last_kelly_fraction*100 (0–8%), but the warm
+        # path was capped at 25% allowing 3× the institutional max. Now both
+        # paths return the same 0–8% range.
+        return max(0.0, min(KELLY_MAX_FRACTION * 100, f * 100))
 
     def quant_report(self) -> str:
         """Return a formatted quant performance report string."""
@@ -5613,7 +5632,12 @@ class PerSymbolTracker:
     def save(self, path: str = UNITY_SYMBOLS_FILE) -> None:
         """Persist per-symbol stats to disk so Gate 8 survives restarts."""
         try:
-            _atomic_write_json(path, dict(self._data))   # v9.7: crash-safe write
+            # CRITICAL-FIX: persist _consec_loss alongside _data so loss-streak
+            # kill switches (G9/GSLK) survive restarts. Previously only _data was
+            # saved — after restart every symbol's consec_loss was 0, letting
+            # through trades that should have been blocked.
+            _payload = {"_data": dict(self._data), "_consec_loss": dict(self._consec_loss)}
+            _atomic_write_json(path, _payload)
         except Exception:
             pass
 
@@ -5624,8 +5648,16 @@ class PerSymbolTracker:
                 return
             with open(path) as f:
                 saved = json.load(f)
-            for sym, d in saved.items():
-                self._data[sym].update(d)
+            # CRITICAL-FIX: handle both old format (bare dict of symbol→stats)
+            # and new format ({_data, _consec_loss}) for backward compat.
+            if isinstance(saved, dict) and "_data" in saved:
+                for sym, d in saved.get("_data", {}).items():
+                    self._data[sym].update(d)
+                for sym, cl in saved.get("_consec_loss", {}).items():
+                    self._consec_loss[sym] = int(cl)
+            else:
+                for sym, d in saved.items():
+                    self._data[sym].update(d)
         except Exception:
             pass
 
