@@ -189,3 +189,10 @@ SignalMaestro/REALISTIC_BACKTEST_REPORT.md
 bug_hunt_scan.py
 bug_hunt_scan2.py
 scan_all_bugs.py
+
+# Runtime artifacts (do not commit)
+*.bak-*
+unity_filter_state_v*.json
+unity_metrics_v*.json
+unity_symbols_v*.json
+.venv/

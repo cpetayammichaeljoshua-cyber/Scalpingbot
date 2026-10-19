@@ -1868,7 +1868,7 @@ class AIOrchestrationAgent:
 
     @staticmethod
     def _parse_ai_response(content: str) -> Optional[dict]:
-        """
+        r"""
         Extract and parse JSON from AI response — handles markdown code fences
         and nested JSON structures.  Uses a brace-counting extractor so nested
         objects (e.g. {"data": {"x": 1}}) are captured correctly instead of

@@ -2778,6 +2778,67 @@ _pre_os.environ.setdefault("TOKENIZERS_PARALLELISM",         "false")   # preven
 _pre_os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS",  "1")       # no tqdm progress bars from HF
 _pre_os.environ.setdefault("HF_DATASETS_OFFLINE",            "1")       # disable HF hub network calls
 _pre_os.environ.setdefault("TRANSFORMERS_OFFLINE",           "1")       # no HF model download attempts
+# ═══════════════════════════════════════════════════════════════════════════════
+# 0-pre.  .env LOADER  (v230.2)
+# ═══════════════════════════════════════════════════════════════════════════════
+# The engine reads secrets straight from os.environ. Without this block a .env
+# file is completely inert and the boot always fails with "Missing critical
+# env vars". This is a stdlib parser (python-dotenv is NOT a dependency here).
+#
+# Runs BEFORE the v9.8 key-name / value sanitisers below so both sanitiser
+# passes see the loaded values. setdefault keeps a real environment variable
+# authoritative over the file (container injection beats the checked-in file).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_dotenv_once() -> None:
+    """Load .env into os.environ (non-destructive). Never raises."""
+    _os = _pre_os
+    import os.path as _op
+
+    _here = _op.dirname(_op.abspath(globals().get("__file__", "")))
+    _candidates = []
+    for _base in (_os.getcwd(), _here):
+        if not _base:
+            continue
+        _candidates.append(_op.join(_base, ".env"))
+        _candidates.append(_op.join(_base, ".env.local"))
+    _explicit = _os.environ.get("UNITY_DOTENV")
+    if _explicit:
+        _candidates.append(_explicit)
+
+    _seen = set()
+    for _path in _candidates:
+        if not _path or _path in _seen or not _op.isfile(_path):
+            continue
+        _seen.add(_path)
+        try:
+            with open(_path, "r", encoding="utf-8") as _fh:
+                for _raw in _fh:
+                    _line = _raw.strip()
+                    if not _line or _line.startswith("#"):
+                        continue
+                    if _line.startswith("export "):
+                        _line = _line[7:].lstrip()
+                    _eq = _line.find("=")
+                    if _eq <= 0:
+                        continue
+                    _key = _line[:_eq].strip()
+                    _val = _line[_eq + 1:].strip()
+                    if not _key or not _key.replace("_", "").isalnum():
+                        continue
+                    if _val and _val[0] not in ("'", '"'):
+                        _hash = _val.find(" #")
+                        if _hash >= 0:
+                            _val = _val[:_hash].rstrip()
+                    if len(_val) >= 2 and _val[0] == _val[-1] and _val[0] in ("'", '"'):
+                        _val = _val[1:-1]
+                    # non-destructive: real env always wins
+                    _os.environ.setdefault(_key, _val)
+        except Exception:
+            # A broken .env must never kill the bot.
+            pass
+
+_load_dotenv_once()
 del _pre_os
 
 # ── v18.39 Comprehensive Dependency Bootstrap ─────────────────────────────────
@@ -3218,20 +3279,21 @@ SIGNAL_INTERVAL_MIN   = 240      # per-symbol cooldown (seconds) [v18.71: 300→
 SIGNALS_PER_HOUR_MIN  = 5
 SIGNALS_PER_HOUR_MAX  = 15  # v15.3: 10→15 — 5m TF addition doubled signal generation; cap raised to allow more quality signals through while still preventing spam
 
-assert SIGNALS_PER_HOUR_MIN <= SIGNALS_PER_HOUR_MAX
+if SIGNALS_PER_HOUR_MIN > SIGNALS_PER_HOUR_MAX:
+    raise ValueError(f"[v230.2 config] SIGNALS_PER_HOUR_MIN ({SIGNALS_PER_HOUR_MIN}) > SIGNALS_PER_HOUR_MAX ({SIGNALS_PER_HOUR_MAX})")
 
 # ── SL/TP (ATR-scaled, 15M tuned) ────────────────────────────────────────────
 STOP_LOSS_PERCENT     = 0.65
 TAKE_PROFIT_PERCENT   = 1.10
 TP_ALLOCATION         = (45, 35, 20)   # TP1 / TP2 / TP3 percentage allocations
 
-assert sum(TP_ALLOCATION) == 100
+if sum(TP_ALLOCATION) != 100: raise ValueError(f"[v230.2 config] TP_ALLOCATION sums to {sum(TP_ALLOCATION)}, expected 100")
 
 # ── Leverage ──────────────────────────────────────────────────────────────────
 MIN_LEVERAGE          = 3
 MAX_LEVERAGE          = 20    # v18.85: 30→20 — at WR=30.2% MaxDD=49.37% leverage=30x compounds losses catastrophically; 20x cap reduces maximum single-trade loss by 33%; combined with Kelly reduction (25%→8%) and paper-mode raise this limits max ruin risk
 
-assert MIN_LEVERAGE <= MAX_LEVERAGE
+if MIN_LEVERAGE > MAX_LEVERAGE: raise ValueError(f"[v230.2 config] MIN_LEVERAGE ({MIN_LEVERAGE}) > MAX_LEVERAGE ({MAX_LEVERAGE})")
 
 # ── Kelly Criterion ───────────────────────────────────────────────────────────
 KELLY_MAX_FRACTION    = 0.08     # cap Kelly at 8% of capital per trade (v18.85: 0.25→0.08 — RISK FIX: at WR=30.2% Sharpe=-4.87 MaxDD=49.37% the 25% cap was allowing catastrophic drawdowns; institutional full-Kelly at 30% WR = (0.30×2.20−0.70)/2.20 = −0.018 (negative! so raw Kelly=0); 8% is an empirical institutional maximum for live futures trading in negative-Sharpe regime — preserves capital while engine recovers)
@@ -6594,6 +6656,10 @@ class UnitySignalFilter:
                  symbol_tracker: "PerSymbolTracker"):
         self._health = health_monitor
         self._sym_tracker = symbol_tracker
+        # v230.0 FIX: UnityMetrics reference, injected via set_metrics().
+        # Previously absent -> 9 unguarded self._metrics reads raised
+        # AttributeError and silently disabled the WR/drawdown gates.
+        self._metrics = None
         self._logger = logging.getLogger("UnityEngine.Filter")
         self._gate_stats: Dict[str, Dict[str, int]] = {
             "gate_ev":         {"pass": 0, "fail": 0},  # v6.1: EV gate (pre-Gate 1)
@@ -7452,6 +7518,17 @@ class UnitySignalFilter:
             )
             return frozenset()
 
+    def set_metrics(self, metrics: Any) -> None:
+        """v230.0 FIX: wire the shared UnityMetrics instance into the filter.
+
+        UnitySignalFilter reads self._metrics at 9+ sites (all-time WR,
+        max_drawdown_pct, expected_value_r) but the engine never assigned it --
+        only UnityConsole owns a _metrics attribute. The repo's own v143.1
+        comment at line 16050 documents the resulting AttributeError. With this
+        setter wired from UnityEngine the reads resolve to real values.
+        """
+        self._metrics = metrics
+
     def set_booster(self, booster: Any) -> None:
         """v8.5: Inject booster for hard consec-loss circuit-breaker visibility."""
         self._booster = booster
@@ -7880,7 +7957,19 @@ class UnitySignalFilter:
         """
         if pts <= 0.0:
             return pts
-        _wr_raw = float(getattr(self._booster, "win_rate", 0.0) or 0.0) if getattr(self, "_booster", None) is not None else 0.0
+        # v230.0 FIX: read WR from the booster _win_ring directly.
+        # _booster.win_rate existed only as a property added in v230.0;
+        # before then every read returned 0.0 -> permanent 0.70 floor.
+        _b_d = getattr(self, "_booster", None)
+        _wr_raw = 0.0
+        if _b_d is not None:
+            _wr_prop = getattr(_b_d, "win_rate", None)
+            if _wr_prop is not None:
+                _wr_raw = float(_wr_prop or 0.0)
+            else:
+                _ring_d = list(getattr(_b_d, "_win_ring", None) or [])
+                if len(_ring_d) >= 10:
+                    _wr_raw = (sum(1 for _x in _ring_d if _x) / len(_ring_d)) * 100.0
         _wr = _wr_raw / 100.0 if _wr_raw > 1.0 else _wr_raw
         # v207.0: ramp start 0.25→0.30, full-scale 0.40→0.45 (15pp ramp preserved)
         _mult = max(0.70, min(1.0, 0.70 + ((_wr - 0.30) / 0.15) * 0.30))
@@ -7903,8 +7992,13 @@ class UnitySignalFilter:
         _b = getattr(self, "_booster", None)
         if _b is None:
             return None
-        _wr = getattr(_b, "win_rate", None)
-        return float(_wr) if _wr is not None else None
+        # v230.0 FIX: _booster.win_rate did not exist -> always None. Fall
+        # back to the _win_ring so ~20 WR-crisis gates actually receive a
+        # live value instead of silently failing closed at cold-start 0.
+        _ring = list(getattr(_b, "_win_ring", None) or [])
+        if len(_ring) < 10:
+            return None
+        return (sum(1 for _x in _ring if _x) / len(_ring)) * 100.0
 
     def _live_wr_frac(self) -> Optional[float]:
         """v199.0: safe live win-rate accessor, [0,1] fraction, or None if unavailable."""
@@ -8201,7 +8295,7 @@ class UnitySignalFilter:
         # env UNITY_GDCR=0 to disable.
         _gdcr_enabled = os.getenv("UNITY_GDCR", "1").strip().lower() not in ("0","false","no","off","")
         if _gdcr_enabled:
-            _gdcr_dd  = float(self.max_drawdown_pct)
+            _gdcr_dd  = float(getattr(getattr(self, "_metrics", None), "max_drawdown_pct", 0.0) or 0.0)
             _gdcr_sr  = 0.0
             _gdcr_wr  = 0.0
             try:
@@ -8314,7 +8408,7 @@ class UnitySignalFilter:
                     f"{_gmdr_remain}s remaining (DD>43%+WR<28%+2losses; Phase 1.99) [v155.0]",
                     0.0,
                 )
-            _gmdr_dd     = float(self.max_drawdown_pct)
+            _gmdr_dd     = float(getattr(getattr(self, "_metrics", None), "max_drawdown_pct", 0.0) or 0.0)
             _gmdr_wr     = 0.0
             _gmdr_consec = 0
             try:
@@ -10744,11 +10838,11 @@ class UnitySignalFilter:
                     # v83.0 NN v20: F111-F115 — EV/risk crisis features
                     try:
                         # F111: session EV normalized (−0.50R→−1.0, 0R→0.0, +0.30R→+0.6, clipped [−1,+1])
-                        _v83_ev     = float(self.expected_value_r)
+                        _v83_ev     = float(getattr(getattr(self, "_metrics", None), "expected_value_r", 0.0) or 0.0)
                         _v83_f111   = max(-1.0, min(1.0, _v83_ev / 0.5))
                         signal_data.setdefault("ev_crisis_norm", _v83_f111)
                         # F112: MaxDD normalized (0%→0.0, 50%→−1.0, clipped [−1,0])
-                        _v83_dd     = float(self.max_drawdown_pct)
+                        _v83_dd     = float(getattr(getattr(self, "_metrics", None), "max_drawdown_pct", 0.0) or 0.0)
                         _v83_f112   = max(-1.0, min(0.0, -_v83_dd / 50.0))
                         signal_data.setdefault("max_dd_norm", _v83_f112)
                         # F113: G8.5P2 EV-crisis gate output (−1=ultra-crisis, 0=neutral)
@@ -11564,7 +11658,7 @@ class UnitySignalFilter:
                         # (F181 was always set first via setdefault; F259 setdefault was a silent no-op).
                         # "sharpe_vel_tf_norm" is a unique key; old trades return 0.0 (backward-safe).
                         try:
-                            _f259_ring = getattr(self, "_pnl_ring", None)
+                            _f259_ring = getattr(getattr(self, "_booster", None), "_pnl_ring", None)
                             _f259_pnl = list(_f259_ring) if _f259_ring is not None and len(_f259_ring) >= 10 else None
                             if _f259_pnl is not None and len(_f259_pnl) >= 10:
                                 import numpy as _np_f259
@@ -11939,8 +12033,8 @@ class UnitySignalFilter:
                         _f312_ovm = int(getattr(self, "_last_g85i5_ovm", 0) or 0)
                         signal_data["h5_ovm_gate"] = float({-1: 0.0, 0: 0.5, 1: 0.75, 2: 1.0}.get(_f312_ovm, 0.5))
                         # F313: h5_wr_recent_delta — recent-20 WR vs all-time WR delta, scaled to [-1,+1]
-                        _f313_wr_all  = float(getattr(self, "_win_rate", 0.0) or 0.0)
-                        _f313_pnl_r   = list(getattr(self, "_pnl_ring", []) or [])
+                        _f313_wr_all  = float(getattr(getattr(self, "_booster", None), "win_rate", 0.0) or 0.0)
+                        _f313_pnl_r   = list(getattr(getattr(self, "_booster", None), "_pnl_ring", []) or [])
                         _f313_wr_rec  = (float(sum(1 for x in _f313_pnl_r[-20:] if x > 0)) / 20.0
                                          if len(_f313_pnl_r) >= 20 else _f313_wr_all)
                         signal_data["h5_wr_recent_delta"] = max(-1.0, min(1.0, (_f313_wr_rec - _f313_wr_all) / 0.20))
@@ -11962,7 +12056,7 @@ class UnitySignalFilter:
                         _f316_emc = int(getattr(self, "_last_g85j5_emc", 0) or 0)
                         signal_data["j5_emc_gate"] = float({-2: 0.0, -1: 0.15, 0: 0.5, 1: 0.75, 2: 1.0}.get(_f316_emc, 0.5))
                         # F317: j5_ev_ring_mean — EV ring mean R-multiple, scaled to [-1,+1]
-                        _f317_ev_r = list(getattr(self, "_ev_ring", []) or [])
+                        _f317_ev_r = list(getattr(getattr(self, "_booster", None), "_ev_ring", []) or [])
                         _f317_ev_mean = float(sum(_f317_ev_r) / len(_f317_ev_r)) if len(_f317_ev_r) >= 3 else 0.0
                         signal_data["j5_ev_ring_mean"] = max(-1.0, min(1.0, _f317_ev_mean / 0.50))
                         # F318: j5_maxdd_severity — MaxDD as fraction [0,1] (0=no DD, 1=100% wipeout)
@@ -11986,7 +12080,7 @@ class UnitySignalFilter:
                         _f321_mev = int(getattr(self, "_last_g85l5_mev", 0) or 0)
                         signal_data["l5_mev_gate"] = float({-2: 0.0, -1: 0.15, 0: 0.5, 1: 0.75, 2: 1.0}.get(_f321_mev, 0.5))
                         # F322: l5_ev_health — EV ring mean health, normalized [-1,+1] (scale: /0.30 clamped)
-                        _f322_ev_r = list(getattr(getattr(self, "_booster", None), "_ev_ring", None) or getattr(self, "_ev_ring", []) or [])
+                        _f322_ev_r = list(getattr(getattr(self, "_booster", None), "_ev_ring", None) or getattr(getattr(self, "_booster", None), "_ev_ring", []) or [])
                         _f322_ev_mean = float(sum(_f322_ev_r) / len(_f322_ev_r)) if len(_f322_ev_r) >= 3 else 0.0
                         signal_data["l5_ev_health"] = max(-1.0, min(1.0, _f322_ev_mean / 0.30))
                         # F323: l5_vpin_level — VPIN toxicity level [0,1] (higher = more informed traders)
@@ -12220,7 +12314,7 @@ class UnitySignalFilter:
                         _f359_ics = int(getattr(self, "_last_g85z5_ics", 0) or 0)
                         signal_data["z5_ics_gate"] = float({-3:0.0,-2:0.1,-1:0.3,0:0.5,1:0.75,2:1.0}.get(_f359_ics, 0.5))
                         # F360: z5_floam_ir — FLOAM IR proxy = IC × √(BR/252), normalized [−1,+1]→[0,1]
-                        _f360_pnl = list(getattr(self, "_pnl_ring", None) or [])
+                        _f360_pnl = list(getattr(getattr(self, "_booster", None), "_pnl_ring", None) or [])
                         _f360_ir  = 0.0
                         if len(_f360_pnl) >= 10:
                             _f360_n  = min(30, len(_f360_pnl))
@@ -12384,7 +12478,7 @@ class UnitySignalFilter:
                         signal_data["ar_gevap_gate"] = {-2.0: 0.0, -1.5: 0.2}.get(_f378_gevap, 0.5)
                         # F379: ev_velocity — (ev_ring r5_mean - prior_mean) / 0.01, capped [-1,1]
                         _f379_bst  = getattr(self, "_booster", None)
-                        _f379_ring = list(getattr(_f379_bst, "_ev_ring", None) or getattr(self, "_ev_ring", []) or [])
+                        _f379_ring = list(getattr(_f379_bst, "_ev_ring", None) or getattr(getattr(self, "_booster", None), "_ev_ring", []) or [])
                         if len(_f379_ring) >= 10:
                             _f379_m5 = sum(_f379_ring[-5:]) / 5
                             _f379_mp = sum(_f379_ring[-15:-5]) / max(1, len(_f379_ring[-15:-5]))
@@ -12395,7 +12489,7 @@ class UnitySignalFilter:
                         _f380_ev_min = float(os.getenv("EV_MIN_BPS", "70")) / 10000.0  # bps → R fraction
                         _f380_m5    = float(signal_data.get("ev_velocity", 0.0))  # reuse computed
                         _f380_bst   = getattr(self, "_booster", None)
-                        _f380_ring  = list(getattr(_f380_bst, "_ev_ring", None) or getattr(self, "_ev_ring", []) or [])
+                        _f380_ring  = list(getattr(_f380_bst, "_ev_ring", None) or getattr(getattr(self, "_booster", None), "_ev_ring", []) or [])
                         if len(_f380_ring) >= 5:
                             _f380_m5 = sum(_f380_ring[-5:]) / 5
                             if   _f380_m5 >= 2 * _f380_ev_min: signal_data["ev_regime_score"] = 1.0
@@ -12655,7 +12749,7 @@ class UnitySignalFilter:
                     # F415: role_workflow_composite — mean(F411,F413) meta-composite of both v174 gates
                     _f411_grdc = float(getattr(self, "_last_g85be_grdc", 0.0) or 0.0)
                     signal_data["be_grdc_gate"] = {-2.0: 0.0, -1.0: 0.25, 1.0: 1.0}.get(_f411_grdc, 0.5)
-                    _f412_ring = list(getattr(self, "_win_ring", []))
+                    _f412_ring = list(getattr(getattr(self, "_booster", None), "_win_ring", []) or [])
                     if len(_f412_ring) >= GRDC_MIN_RING:
                         _f412_all_wr    = sum(1 for w in _f412_ring if w) / len(_f412_ring)
                         _f412_recent    = _f412_ring[-10:] if len(_f412_ring) >= 10 else _f412_ring
@@ -15550,8 +15644,8 @@ class UnitySignalFilter:
             _p2_fired = False
             self._last_g85p2_ev_crisis = 0  # reset each cycle
             if _p2_total >= 10:
-                _p2_ev    = float(self.expected_value_r)
-                _p2_dd    = float(self.max_drawdown_pct)
+                _p2_ev    = float(getattr(getattr(self, "_metrics", None), "expected_value_r", 0.0) or 0.0)
+                _p2_dd    = float(getattr(getattr(self, "_metrics", None), "max_drawdown_pct", 0.0) or 0.0)
                 _p2_adj   = 0.0
                 if _p2_ev < -0.30:
                     # Ultra-crisis: EV deeply negative — ruthless quality penalty
@@ -15974,7 +16068,7 @@ class UnitySignalFilter:
             _w2_fired = False
             self._last_g85w2_ddm = 0  # reset each cycle
             if _w2_total >= 10:
-                _w2_dd  = float(self.max_drawdown_pct)
+                _w2_dd  = float(getattr(getattr(self, "_metrics", None), "max_drawdown_pct", 0.0) or 0.0)
                 _w2_sr  = float(getattr(self._booster, "sharpe_ratio", 0.0) or 0.0) if self._booster else 0.0
                 _w2_adj = 0.0
                 if _w2_dd > 48.0 and _w2_sr < -4.0:
@@ -18061,7 +18155,7 @@ class UnitySignalFilter:
         #   Mixed or flat                                         → 0pts
         # Stores _last_g85g4_svtfc (±1/0) for Kelly Step 85.
         try:
-            _g4_pnl_ring = getattr(self, "_pnl_ring", None)
+            _g4_pnl_ring = getattr(getattr(self, "_booster", None), "_pnl_ring", None)
             _g4_pnl_list = list(_g4_pnl_ring) if _g4_pnl_ring is not None and len(_g4_pnl_ring) >= 10 else None
             _g4_sharpe_vel = 0.0
             if _g4_pnl_list is not None and len(_g4_pnl_list) >= 10:
@@ -18814,7 +18908,7 @@ class UnitySignalFilter:
             _u4_adj  = 0.0
             _u4_tuc  = 0   # +1=triple-healthy, -1=deep-crisis, -2=ultimate-crisis, 0=neutral
             # Read live metrics from engine state (zero-API, in-memory only)
-            _u4_wr = float(getattr(self, "_win_rate", 0.0) or 0.0)
+            _u4_wr = float(getattr(getattr(self, "_booster", None), "win_rate", 0.0) or 0.0)
             _u4_w  = int(getattr(self, "_wins",  0) or 0)
             _u4_l  = int(getattr(self, "_losses", 0) or 0)
             if (_u4_w + _u4_l) > 0:
@@ -19411,9 +19505,9 @@ class UnitySignalFilter:
         try:
             import numpy as _np_h5
             # Vote 1: WR trajectory
-            _h5_wrt = getattr(self, "_win_rate", None)
+            _h5_wrt = getattr(getattr(self, "_booster", None), "win_rate", None)
             _h5_wr_alltime = float(_h5_wrt) if _h5_wrt is not None else 0.0
-            _h5_pnl_ring   = list(getattr(self, "_pnl_ring", []) or [])
+            _h5_pnl_ring   = list(getattr(getattr(self, "_booster", None), "_pnl_ring", []) or [])
             _h5_wr_recent  = 0.0
             if len(_h5_pnl_ring) >= 20:
                 _h5_wr_recent = float(sum(1 for x in _h5_pnl_ring[-20:] if x > 0)) / 20.0
@@ -19525,7 +19619,7 @@ class UnitySignalFilter:
         # Sentinel: _last_g85j5_emc. [v135.0]
         try:
             # Vote 1: EV ring mean
-            _j5_ev_ring = list(getattr(self, "_ev_ring", []) or [])
+            _j5_ev_ring = list(getattr(getattr(self, "_booster", None), "_ev_ring", []) or [])
             _j5_ev_mean = float(sum(_j5_ev_ring) / len(_j5_ev_ring)) if len(_j5_ev_ring) >= 3 else 0.0
             _j5_emc1 = (1 if _j5_ev_mean > 0.0 else (-1 if _j5_ev_mean < -0.20 else 0))
             # Vote 2: MaxDD severity
@@ -19637,7 +19731,7 @@ class UnitySignalFilter:
             _l5_dd = float(getattr(self, "_max_drawdown_pct", 0.0) or 0.0)
             _l5_mev1 = (1 if _l5_dd < 0.18 else (-2 if _l5_dd > 0.40 else (-1 if _l5_dd > 0.28 else 0)))
             # Vote 2: EV ring health (use booster._ev_ring or self._ev_ring)
-            _l5_ev_r = list(getattr(getattr(self, "_booster", None), "_ev_ring", None) or getattr(self, "_ev_ring", []) or [])
+            _l5_ev_r = list(getattr(getattr(self, "_booster", None), "_ev_ring", None) or getattr(getattr(self, "_booster", None), "_ev_ring", []) or [])
             _l5_ev_mean = float(sum(_l5_ev_r) / len(_l5_ev_r)) if len(_l5_ev_r) >= 3 else 0.0
             _l5_mev2 = (1 if _l5_ev_mean > 0.01 else (-1 if _l5_ev_mean < -0.15 else 0))
             # Vote 3: VPIN toxicity
@@ -20415,7 +20509,7 @@ class UnitySignalFilter:
         try:
             _z5_ics = 0
             _z5_adj = 0.0
-            _z5_pnl_ring = list(getattr(self, "_pnl_ring", None) or [])
+            _z5_pnl_ring = list(getattr(getattr(self, "_booster", None), "_pnl_ring", None) or [])
             if len(_z5_pnl_ring) >= 10:
                 _z5_recent_n  = min(30, len(_z5_pnl_ring))
                 _z5_recent    = _z5_pnl_ring[-_z5_recent_n:]
@@ -21316,7 +21410,7 @@ class UnitySignalFilter:
                 _gevap_bst = getattr(self, "_booster", None)
                 _gevap_ring = list(
                     getattr(_gevap_bst, "_ev_ring", None) or
-                    getattr(self,       "_ev_ring", []) or []
+                    getattr(getattr(self, "_booster", None), "_ev_ring", []) or []
                 )
                 if len(_gevap_ring) >= 10:
                     _gevap_r5   = _gevap_ring[-5:]
@@ -21902,7 +21996,7 @@ class UnitySignalFilter:
         try:
             self._last_g85be_grdc = 0.0
             if GRDC_ENABLED:
-                _grdc_ring = list(getattr(self, "_win_ring", []))
+                _grdc_ring = list(getattr(getattr(self, "_booster", None), "_win_ring", []) or [])
                 if len(_grdc_ring) >= GRDC_MIN_RING:
                     _grdc_all_wr    = (sum(1 for w in _grdc_ring if w) / len(_grdc_ring)) * 100.0
                     _grdc_recent    = _grdc_ring[-10:] if len(_grdc_ring) >= 10 else _grdc_ring
@@ -23575,6 +23669,32 @@ class UnityProfitBooster:
         # Both are exposed on /metrics and printed in the console dashboard.
         self._pnl_ring: deque = deque(maxlen=100)   # last-100 trade returns
         self._ev_ring: deque  = deque(maxlen=20)    # v116.0: last-20 per-trade R-multiples for G8.5C4 AdaptiveEV-Persistence gate
+
+    @property
+    def win_rate(self) -> float:
+        """Session win rate as a percentage (0-100), same scale as
+        UnityMetrics.win_rate.
+
+        v230.0 FIX: UnitySignalFilter reads this attribute at 16 call sites
+        (lines 7883, 8128, 8151, 8210, 8322, 9470, 13156, 14588, 18511,
+        18817-via-family-C, 19414-via-family-C, 22854 plus the Kelly Step
+        133/134 site) but UnityProfitBooster never defined it. Every read fell
+        back to the getattr default of 0.0, which:
+          * pinned _wr_dampen() (308 call sites) at its permanent 0.70 floor
+            for the entire session, and
+          * forced every WR-crisis gate (_GCLH, _GDCR, _GMDR, _G85U) into its
+            deep-crisis branch on 0% WR instead of the real value.
+        This property reads the same _win_ring deque that _update_threshold_rl()
+        already uses, so no new state is introduced. Returns 0.0 on cold start
+        (fewer than 10 outcomes) so gates see an explicit cold value.
+        """
+        try:
+            _ring = list(getattr(self, "_win_ring", None) or [])
+            if len(_ring) < 10:
+                return 0.0
+            return (sum(1 for _x in _ring if _x) / len(_ring)) * 100.0
+        except Exception:
+            return 0.0
 
     def set_last_signal(self, symbol: str, direction: str) -> None:
         """v18.51: Track last dispatched signal context for Kelly Step 20.
@@ -29319,8 +29439,20 @@ class UnityConsole:
                         )
                 except Exception:
                     pass
-        except Exception:
-            pass
+        except Exception as e:
+            # v20.0 FIX (audit): was bare `pass` — silently swallowed ALL
+            # record_outcome failures. If booster.record_outcome() raised
+            # (e.g. numpy math error), Kelly/IRONS/Bayesian/adaptive-RR
+            # calibration silently froze while the bot kept trading on
+            # stale thresholds. At minimum log the failure so operators
+            # can see calibration stopped.
+            try:
+                logging.getLogger("UnityEngine.Console").warning(
+                    f"⚠️ record_outcome booster update failed (calibration may be stale): "
+                    f"{type(e).__name__}: {e}"
+                )
+            except Exception:
+                pass
         # v10.0: Feed quant metrics ring (Sharpe/Sortino/Calmar/MaxDD/EV/Kelly)
         try:
             self._metrics.record_trade_return(float(_effective_pnl))
@@ -30652,6 +30784,12 @@ class UnityEngine:
         # v8.5: wire booster into filter for hard consec-loss circuit-breaker
         if getattr(self, "booster", None) is not None:
             self.signal_filter.set_booster(self.booster)
+        # v230.0: wire shared metrics so filter WR/drawdown gates resolve
+        try:
+            if getattr(self, "metrics", None) is not None:
+                self.signal_filter.set_metrics(self.metrics)
+        except Exception:
+            pass
         if self.public_api is not None:
             self.signal_filter.set_public_api(self.public_api)
         if self.gex_engine is not None:
@@ -31362,7 +31500,20 @@ class UnityEngine:
                             socket_connect_timeout=5,
                             socket_timeout=3,
                         )
-                        await _c.ping()
+                        # v20.0 FIX (audit BUG #3): from_url() opens the socket
+                        # immediately, so if ping() fails the client is LEAKED
+                        # (leak = 1 conn + 1 thread per attempt). With Redis down,
+                        # _redis_init is re-invoked every 10 min from the
+                        # persistence task → unbounded thread growth → OOM.
+                        # Bound the ping AND guarantee aclose() on every failure.
+                        try:
+                            await asyncio.wait_for(_c.ping(), timeout=3)
+                        except Exception as _ping_exc:
+                            try:
+                                await _c.aclose()
+                            except Exception:
+                                pass
+                            raise _ping_exc
                         self._redis = _c
                         self._logger.info(
                             f"✅ [v8.0] Redis connected via redis.asyncio "
@@ -31827,7 +31978,14 @@ class UnityEngine:
                         )
 
                 finally:
-                    self._signal_queue.task_done()
+                    # v20.0 FIX (audit BUG #4, part 2): guard task_done() so a
+                    # duplicate call (or a call when the pending counter is
+                    # already 0) can't raise InvalidStateError and propagate as
+                    # a crash. The original code called it bare in a `finally`.
+                    try:
+                        self._signal_queue.task_done()
+                    except asyncio.InvalidStateError:
+                        pass
 
             except asyncio.CancelledError:
                 _log.info("Signal consumer cancelled")
@@ -33259,6 +33417,12 @@ class UnityEngine:
             f"(stall_warn={_STALL_SEC/60:.0f}min, zombie_cancel={_ZOMBIE_SEC/60:.0f}min)"
         )
         await asyncio.sleep(60.0)   # initial grace period — let all tasks spin up
+        # v20.0 FIX (audit BUG #2): the auditor must NEVER audit/cancel itself.
+        # asyncio.all_tasks() includes THIS task; its name ("UnityTaskAuditor")
+        # happens to be in _NEVER_CANCEL, but that exemption is fragile (a rename
+        # or frozenset cleanup silently re-enables the self-cancel, killing the
+        # engine 30 min after boot). Pin the identity explicitly.
+        _me = asyncio.current_task()
 
         while True:
             try:
@@ -33269,6 +33433,8 @@ class UnityEngine:
                 _cancelled = 0
 
                 for t in _all:
+                    if t is _me:                # v20.0: never audit/cancel self
+                        continue
                     _tid  = id(t)
                     _name = t.get_name() or "unnamed"
                     if t.done():
@@ -33823,17 +33989,28 @@ class UnityEngine:
                 os.path.dirname(__file__) or ".", "SignalMaestro", "trade_history.db"
             )
             if os.path.exists(_db_path):
-                _wcon = _wsql.connect(_db_path)
-                _wr = _wcon.execute(
-                    "SELECT "
-                    "SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END), "
-                    "SUM(CASE WHEN outcome='SL' OR (outcome='EXPIRED' AND pnl_pct<=-0.5) "
-                    "         THEN 1 ELSE 0 END) "
-                    "FROM trades WHERE outcome IS NOT NULL"
-                ).fetchone()
-                _wcon.close()
-                _db_wins   = int(_wr[0] or 0)
-                _db_losses = int(_wr[1] or 0)
+                # v20.0 FIX (audit BUG #1 + #5): run() is async — these 4
+                # synchronous sqlite3 calls ran DIRECTLY on the event loop,
+                # freezing every other task (WS, scanner, persistence, health
+                # server) for up to the sqlite timeout each time the WAL is
+                # held by the TradeMemory writer. Wrap each blocking query in
+                # run_in_executor and use a `with` connection so a connection
+                # is never leaked when an exception fires between connect()
+                # and close() (which previously leaked one handle per DB-lock
+                # error, accumulating over restarts).
+                def _warm_start_aggregate(_p):
+                    with _wsql.connect(_p, timeout=5) as _c:
+                        _r = _c.execute(
+                            "SELECT "
+                            "SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END), "
+                            "SUM(CASE WHEN outcome='SL' OR (outcome='EXPIRED' AND pnl_pct<=-0.5) "
+                            "         THEN 1 ELSE 0 END) "
+                            "FROM trades WHERE outcome IS NOT NULL"
+                        ).fetchone()
+                        return (int(_r[0] or 0), int(_r[1] or 0))
+                _db_wins, _db_losses = await loop.run_in_executor(
+                    self._thread_pool, _warm_start_aggregate, _db_path
+                )
                 _db_total  = _db_wins + _db_losses
                 _metrics_total = self.metrics.win_count + self.metrics.loss_count
                 if _db_total > _metrics_total:
@@ -33887,31 +34064,26 @@ class UnityEngine:
                 # benefit from the aggregate WR seed), then re-call _update_threshold_rl
                 # so the threshold reflects real recent performance.
                 if self.booster is not None and _db_total >= 10:
+                    # v20.0 FIX (audit BUG #1 + #5): ring query in executor +
+                    # `with` connection (no leak). Replaces the previous
+                    # inline `.connect().execute()` whose connection was never
+                    # assigned to a variable (leaked on every start) plus a
+                    # duplicate second connection opened at the "reopen" site.
                     try:
-                        _ring_rows = _wsql.connect(_db_path).execute("""
-                            SELECT outcome, pnl_pct FROM trades
-                            WHERE outcome IS NOT NULL AND (
-                                outcome IN ('TP1','TP2','TP3','SL') OR
-                                (outcome = 'EXPIRED' AND ABS(pnl_pct) >= 0.5)
-                            )
-                            ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
-                            LIMIT 60
-                        """).fetchall() if False else []
-                    except Exception:
-                        _ring_rows = []
-                    # Reopen DB for ring query (reuse same DB path)
-                    try:
-                        _wcon_ring = _wsql.connect(_db_path)
-                        _ring_rows = _wcon_ring.execute("""
-                            SELECT outcome, pnl_pct FROM trades
-                            WHERE outcome IS NOT NULL AND (
-                                outcome IN ('TP1','TP2','TP3','SL') OR
-                                (outcome = 'EXPIRED' AND ABS(pnl_pct) >= 0.5)
-                            )
-                            ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
-                            LIMIT 60
-                        """).fetchall()
-                        _wcon_ring.close()
+                        def _ring_query(_p):
+                            with _wsql.connect(_p, timeout=5) as _c:
+                                return _c.execute("""
+                                    SELECT outcome, pnl_pct FROM trades
+                                    WHERE outcome IS NOT NULL AND (
+                                        outcome IN ('TP1','TP2','TP3','SL') OR
+                                        (outcome = 'EXPIRED' AND ABS(pnl_pct) >= 0.5)
+                                    )
+                                    ORDER BY COALESCE(outcome_timestamp, timestamp) DESC
+                                    LIMIT 60
+                                """).fetchall()
+                        _ring_rows = await loop.run_in_executor(
+                            self._thread_pool, _ring_query, _db_path
+                        )
                         _ring_outcomes = []
                         for _r_out, _r_pnl in _ring_rows:
                             _r_out = (_r_out or "").upper()
@@ -33968,12 +34140,15 @@ class UnityEngine:
                     # and use the actual age, capped at 7200s (2h) to avoid
                     # runaway starvation after long downtime.
                     try:
-                        _wcon_ts = _wsql.connect(_db_path)
-                        _last_ts_row = _wcon_ts.execute("""
-                            SELECT MAX(COALESCE(outcome_timestamp, timestamp)) last_ts
-                            FROM trades WHERE outcome IS NOT NULL
-                        """).fetchone()
-                        _wcon_ts.close()
+                        def _ts_query(_p):
+                            with _wsql.connect(_p, timeout=5) as _c:
+                                return _c.execute("""
+                                    SELECT MAX(COALESCE(outcome_timestamp, timestamp)) last_ts
+                                    FROM trades WHERE outcome IS NOT NULL
+                                """).fetchone()
+                        _last_ts_row = await loop.run_in_executor(
+                            self._thread_pool, _ts_query, _db_path
+                        )
                         if _last_ts_row and _last_ts_row[0]:
                             # Bug O intent: use actual stale ONLY when it EXCEEDS warm_start's
                             # 1800s pre-age (i.e. engine was offline for >30min).  warm_start's
@@ -34731,6 +34906,15 @@ class UnityEngine:
                 """GET /metrics — detailed engine performance metrics."""
                 m = eng.metrics
                 b = eng.booster
+                # v20.0 FIX (audit BUG #7): @watched_task writes to
+                # _watched_task_restart_counts under _watched_task_restart_lock,
+                # but the original /metrics handler snapshotted the dict with a
+                # bare `dict(...)` while the writer held the lock — a latent
+                # torn-read race (benign in CPython for small dicts, but the
+                # comment at the writer site claims the lock covers reads too).
+                # Snapshot once, under the lock, then read from the snapshot.
+                with _watched_task_restart_lock:
+                    _rc_snapshot = dict(_watched_task_restart_counts)
                 payload = {
                     "version":              UNITY_VERSION,
                     "uptime_hours":         round(m.uptime_hours, 4),
@@ -34790,8 +34974,8 @@ class UnityEngine:
                     # v10.9: @watched_task restart observability (resolves v10.4 changelog gap)
                     # signal_consumer_restarts: restarts of the critical SignalConsumer task
                     # watched_task_restart_counts: per-task restart counts for all watched tasks
-                    "signal_consumer_restarts": _watched_task_restart_counts.get("SignalConsumer", 0),
-                    "watched_task_restart_counts": dict(_watched_task_restart_counts),
+                    "signal_consumer_restarts": _rc_snapshot.get("SignalConsumer", 0),
+                    "watched_task_restart_counts": _rc_snapshot,
                     "timestamp":            datetime.now().isoformat(),
                     # ── v8.0 Prompt 1: last atomic SignalDecisionVector ────────
                     # Immutable snapshot of GEX + LLM + NN inputs for last SEND
@@ -35260,6 +35444,7 @@ setInterval(refresh, 5000);
         mirofish_sim_task:  Optional[asyncio.Task] = None,  # L0.95: MiroFish Swarm Sim (v10.0)
         tg_poll_task:       Optional[asyncio.Task] = None,  # v15.4: Dedicated TG poll loop
         auditor_task:       Optional[asyncio.Task] = None,  # v18.12: Task Health Auditor
+        heartbeat_task:     Optional[asyncio.Task] = None,  # v20.0 FIX: Cycle Heartbeat (was missing — crash on shutdown)
     ):
         """Ordered teardown — cancel background tasks, close HTTP sessions."""
         self._logger.info(f"🧹 [Unity v{UNITY_VERSION}] Starting graceful cleanup...")
@@ -35271,12 +35456,26 @@ setInterval(refresh, 5000);
                 pass
 
         # v8.0: flush remaining signals before shutdown
+        # v20.0 FIX (audit BUG #4): queue.join() returns only when the pending
+        # counter hits 0. A single get() whose task_done() was skipped by an
+        # exception (or whose producer never existed — see BUG #6) leaves the
+        # counter permanently >=1, so join() waits the full 10s on EVERY shutdown,
+        # eating 1/3 of the Railway SIGTERM kill window before any task is
+        # cancelled. Drain with get_nowait() + task_done() instead — bounded
+        # to one pass, never blocks.
         try:
-            if self._signal_queue and not self._signal_queue.empty():
+            _drained = 0
+            while not self._signal_queue.empty():
+                try:
+                    self._signal_queue.get_nowait()
+                    self._signal_queue.task_done()
+                    _drained += 1
+                except asyncio.QueueEmpty:
+                    break
+            if _drained:
                 self._logger.info(
-                    f"📨 Flushing {self._signal_queue.qsize()} queued signals on shutdown..."
+                    f"📨 Drained {_drained} queued signals on shutdown"
                 )
-                await asyncio.wait_for(self._signal_queue.join(), timeout=10.0)
         except Exception:
             pass
 
@@ -35331,6 +35530,7 @@ setInterval(refresh, 5000);
             (mirofish_sim_task, "MiroFishSim"),        # L0.95 (v10.0) — FIX v10.5: was never cancelled
             (tg_poll_task,      "TGDedicatedPoll"),    # v15.4: Dedicated TG poll loop
             (auditor_task,      "TaskAuditor"),        # v18.12 — FIX v18.21
+            (heartbeat_task,    "CycleHeartbeat"),     # v20.0 FIX: was missing — task leaked on shutdown
         ]
         for task, name in all_tasks:
             if task and not task.done():

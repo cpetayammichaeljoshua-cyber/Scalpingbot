@@ -1,0 +1,16 @@
+[project]
+name = "unity-engine"
+version = "230.2"
+description = "FXUSDT Telegram scalping bot with the unified Unity Engine signal gate stack."
+requires-python = ">=3.11"
+# Not a packaged distribution: install runtime deps from requirements.txt.
+# This file exists so that [tool.*] config is machine-readable.
+
+[tool.pytest.ini_options]
+# pytest-asyncio 0.23+ warns when asyncio_mode is unset (the default is being
+# flipped to "strict" in a future release). Set it explicitly.
+# All 62 current tests are synchronous, so "strict" collects them all and a
+# future async test must opt in with @pytest.mark.asyncio.
+asyncio_mode = "strict"
+testpaths = ["SignalMaestro/tests"]
+addopts = "-ra"

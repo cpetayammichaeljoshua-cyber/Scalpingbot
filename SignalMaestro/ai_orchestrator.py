@@ -5,6 +5,11 @@ Coordinates all AI models and makes unified trading decisions
 Integrates sentiment analysis, market prediction, and existing ML systems
 """
 
+# v20.0 FIX (audit): Without this, pd.DataFrame annotations are evaluated at
+# def-time. When pandas is absent, pd=None → None.DataFrame → AttributeError
+# at import, which crashed the entire AI Orchestrator layer.
+from __future__ import annotations
+
 import asyncio
 import logging
 import os

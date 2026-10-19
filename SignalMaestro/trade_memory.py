@@ -838,7 +838,27 @@ class OutcomeTracker:
                     _u_sym_tracker = getattr(self.bot, "_unity_sym_tracker",  None)
                     try:
                         if _u_booster is not None:
-                            _u_booster.record_outcome(_is_definitive_win, pnl_pct)
+                            # v230.1 FIX: pass the realised R:R through.
+                            # Previously omitted -> rr_ratio=0.0 always, so
+                            # booster._rr_ring never saw a real trade and
+                            # booster._ev_ring stored 0.0 for every win
+                            # (flat EV signal, dead G8.5C4/P2/V2 gates).
+                            try:
+                                _u_tp1 = tp1 if tp1 else 0.0
+                                _u_sl = sl if sl else 0.0
+                                _u_rr_ratio = 0.0
+                                if entry > 0 and _u_tp1 > 0 and _u_sl > 0:
+                                    _u_rew = abs(_u_tp1 - entry)
+                                    _u_risk = abs(entry - _u_sl)
+                                    if _u_risk > 0:
+                                        _u_rr_ratio = min(20.0, max(0.0, _u_rew / _u_risk))
+                                if _u_rr_ratio <= 0:
+                                    _u_rr_ratio = float(getattr(_u_booster, "_min_rr_ratio", 0.0) or 0.0) \
+                                        or 2.75
+                            except Exception:
+                                _u_rr_ratio = 2.75
+                            _u_booster.record_outcome(
+                                _is_definitive_win, pnl_pct, _u_rr_ratio)
                         if _u_metrics is not None:
                             if _is_definitive_win:
                                 _u_metrics.win_count += 1
