@@ -2988,9 +2988,54 @@ def _bootstrap_all_critical_packages() -> None:
     #   Attempt 2: PyPI mirror  (same CDN, --extra-index-url resolver)
     #   Attempt 3: standard PyPI (no +cpu suffix — works when CDN is blocked
     #              but PyPI is reachable; Replit/some cloud platforms)
-    # Railway non-root user (unity) cannot write to /usr/local without --user;
-    # detect and add it automatically.
-    if not _can_import("torch"):
+    #
+    # v229.1: SKIP THE WHOLE TORCH BOOTSTRAP BY DEFAULT.
+    # -----------------------------------------------------------------------
+    # Every torch reference in this engine turns out to be a capability
+    # CHECK, not computation.  The only code path that touches torch is
+    # UnityEngine.__init__ at L~31204: `try: import torch; run a
+    # TransformerEncoder forward pass; label the tier "SOVEREIGN" else
+    # "STANDARD"`.  Nothing in any signal gate, recalibration, LLM router,
+    # or order path imports torch.  (Verified by importing the monolith and
+    # inspecting sys.modules: torch never loads.)
+    #
+    # So the 5-tier CDN bootstrap below — 200 MB wheel, 480 s timeout per
+    # attempt, 5 retry tiers — existed only to let a log line print
+    # "SOVEREIGN" instead of "STANDARD".  In production the tier label is
+    # cosmetic; the actual trade computation is sklearn + numpy.
+    #
+    # Opt IN when you genuinely want torch on the box:
+    #     UNITY_INSTALL_TORCH=1   python3 start_unity_engine.py
+    # When opted out, the transformers block below is also skipped
+    # automatically (it is already gated on _can_import("torch")), which
+    # is correct: transformers is likewise only used for the capability
+    # display.  Worst-case deploy-time savings: 5 tiers x 480 s timeout
+    # = ~40 min of pip retries per cold deploy (only when every CDN tier
+    # times out, e.g. pytorch.org blocked but PyPI reachable).
+    #
+    # NOTE: `_install_torch` replaces the old `if not _can_import("torch")`
+    # guard below.  It is True ONLY if the user opted in OR torch is
+    # already importable (in which case the install body is a no-op).
+    # When the user has NOT opted in and torch is absent, we skip entirely.
+    #
+    # Emitted at WARNING, not INFO: this runs at import time (L~3175),
+    # BEFORE the engine's logging handlers are attached (L~4503), so the
+    # root logger is still at WARNING and INFO would be silently dropped.
+    # A skipped dependency install is also operator-actionable, which fits
+    # WARNING.
+    import os as _boot_os_flag
+    _torch_opt_in = _boot_os_flag.environ.get("UNITY_INSTALL_TORCH", "").strip() in (
+        "1", "true", "yes")
+    _install_torch = _torch_opt_in or _can_import("torch")
+    if not _torch_opt_in and not _can_import("torch"):
+        _log.warning(
+            "[v229.1 Bootstrap] torch bootstrap SKIPPED (default).  "
+            "Engine runs STANDARD tier: sklearn+numpy gates are the full "
+            "trade-computation stack; torch is only a boot-time capability "
+            "label and is not used for signals, orders, or recalibration.  "
+            "Set UNITY_INSTALL_TORCH=1 to install it anyway."
+        )
+    if _install_torch and not _can_import("torch"):
         _log.info("⚡ [v19.3 Bootstrap] Installing torch (CPU, 5-tier fallback)...")
         import os as _boot_os
         _pip_user = [] if (hasattr(_boot_os, "geteuid") and _boot_os.geteuid() == 0) else ["--user"]
@@ -5700,8 +5745,20 @@ class PerSymbolTracker:
             # through trades that should have been blocked.
             _payload = {"_data": dict(self._data), "_consec_loss": dict(self._consec_loss)}
             _atomic_write_json(path, _payload)
-        except Exception:
-            pass
+        except Exception as _e:
+            # v229.2: was `except Exception: pass`.  This payload is what
+            # carries _consec_loss across restarts.  Silent failure meant
+            # persistence could stop advancing indefinitely with no signal.
+            #
+            # Accurate consequence (verified): _atomic_write_json is
+            # tempfile+os.replace, so a FAILED save leaves the previous good
+            # file intact -- it does NOT zero state.  Restart restores the
+            # last good snapshot.  The actual harm is undetected staleness:
+            # saves silently stop advancing and nobody notices.  The real
+            # zero-state path is load() failing on a corrupt payload, not
+            # here.  Match Metrics.save() (L5596) / Metrics.load() (L5620).
+            # Still returns None, so no caller sees a new exception.
+            logger.warning(f"⚠️ [PerSymbolTracker.save] failed: {_e}")
 
     def load(self, path: str = UNITY_SYMBOLS_FILE) -> None:
         """Restore per-symbol stats from disk."""
@@ -5714,14 +5771,31 @@ class PerSymbolTracker:
             # and new format ({_data, _consec_loss}) for backward compat.
             if isinstance(saved, dict) and "_data" in saved:
                 for sym, d in saved.get("_data", {}).items():
+                    # v229.2: a single corrupt entry (non-dict value) used to
+                    # abort the WHOLE load via AttributeError on update(), and
+                    # the bare `pass` hid it.  Because the _data loop runs
+                    # first, _consec_loss was then NEVER restored -> every
+                    # symbol's loss streak came back as 0 and the G9/GSLK
+                    # kill switches silently lost their state.  Verified:
+                    # healthy NEARUSDT(wins=2) + corrupt CORRUPT='oops'
+                    # yielded _consec_loss == {} on the original.
+                    if not isinstance(d, dict):
+                        logger.warning(f"⚠️ [Tracker.load] corrupt _data[{sym}]={d!r}; skipped")
+                        continue
                     self._data[sym].update(d)
                 for sym, cl in saved.get("_consec_loss", {}).items():
                     self._consec_loss[sym] = int(cl)
             else:
                 for sym, d in saved.items():
+                    if not isinstance(d, dict):
+                        logger.warning(f"⚠️ [Tracker.load] corrupt legacy[{sym}]={d!r}; skipped")
+                        continue
                     self._data[sym].update(d)
-        except Exception:
-            pass
+        except Exception as _e:
+            # v229.2: was `pass`.  Corrupt/truncated JSON is now visible.
+            # State is left unchanged (best effort) -- nothing worse to do
+            # without the caller deciding policy.
+            logger.warning(f"⚠️ [Tracker.load] failed: {_e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -7381,33 +7455,37 @@ class UnitySignalFilter:
                                  "SignalMaestro", "trade_history.db")
             if not os.path.exists(_path):
                 return frozenset()
-            _con = _sql.connect(_path)
-            _rows = _con.execute("""
-                SELECT symbol,
-                       COUNT(*) total,
-                       SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) wins
-                FROM trades
-                WHERE outcome IS NOT NULL AND outcome NOT IN ('','PENDING')
-                GROUP BY symbol
-                HAVING (total >= 15 AND (1.0 * wins / total) < 0.28)
-                    OR (total >= 20 AND (1.0 * wins / total) < 0.25)
-                    OR (total >= 7  AND wins = 0)
-                    OR (total >= 5  AND wins = 0)
-                    OR (total >= 8  AND (1.0 * wins / total) < 0.15)
-            """).fetchall()
-            # v149.0: added fast-path tier ≥15 trades AND WR<28% (above the ≥20/WR<25% base).
-            # Rationale: at engine WR=29%, symbols with WR<28% are already underperforming the
-            # engine average. Previously they needed 20 trades of evidence. Now 15 trades of
-            # WR<28% evidence is sufficient to auto-block. The ≥20/WR<25% base tier is kept as
-            # the primary institutional threshold. Zero-win safety nets unchanged.
-            # v101.0 regime-adaptive blacklist: raised min_trades 10→20, WR threshold 30%→25%.
-            # Root cause: at engine WR=29.3% almost every traded symbol hits WR<30%/≥10 → 80%
-            # of signals auto-blocked (GBLK was #1 bottleneck at 20% pass rate).
-            # Fix: require 20 trades of evidence AND WR<25% for general auto-block.
-            # Zero-win (≥5 or ≥7 trades) and severe underperformer (WR<15%/≥8) safety nets kept.
-            # Effect: symbols with 10-19 trades or WR 25-30% are no longer blanket-blocked;
-            # the 66-gate signal filter provides quality control for those marginal cases.
-            _con.close()
+            _con = _sql.connect(_path, timeout=5)   # v229.1: explicit busy timeout
+            try:
+                _rows = _con.execute("""
+                    SELECT symbol,
+                           COUNT(*) total,
+                           SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) wins
+                    FROM trades
+                    WHERE outcome IS NOT NULL AND outcome NOT IN ('','PENDING')
+                    GROUP BY symbol
+                    HAVING (total >= 15 AND (1.0 * wins / total) < 0.28)
+                        OR (total >= 20 AND (1.0 * wins / total) < 0.25)
+                        OR (total >= 7  AND wins = 0)
+                        OR (total >= 5  AND wins = 0)
+                        OR (total >= 8  AND (1.0 * wins / total) < 0.15)
+                """).fetchall()
+                # v149.0: added fast-path tier ≥15 trades AND WR<28% (above the ≥20/WR<25% base).
+                # Rationale: at engine WR=29%, symbols with WR<28% are already underperforming the
+                # engine average. Previously they needed 20 trades of evidence. Now 15 trades of
+                # WR<28% evidence is sufficient to auto-block. The ≥20/WR<25% base tier is kept as
+                # the primary institutional threshold. Zero-win safety nets unchanged.
+                # v101.0 regime-adaptive blacklist: raised min_trades 10→20, WR threshold 30%→25%.
+                # Root cause: at engine WR=29.3% almost every traded symbol hits WR<30%/≥10 → 80%
+                # of signals auto-blocked (GBLK was #1 bottleneck at 20% pass rate).
+                # Fix: require 20 trades of evidence AND WR<25% for general auto-block.
+                # Zero-win (≥5 or ≥7 trades) and severe underperformer (WR<15%/≥8) safety nets kept.
+                # Effect: symbols with 10-19 trades or WR 25-30% are no longer blanket-blocked;
+                # the 66-gate signal filter provides quality control for those marginal cases.
+            except Exception:
+                raise
+            finally:
+                _con.close()   # v229.1: guaranteed close
             # Build symbol→(wins, total) map for WR floor check
             _sym_stats = {str(s).upper(): (int(_w), int(_t)) for (s, _t, _w) in _rows if s}
             _bl_raw    = frozenset(_sym_stats.keys())
@@ -7489,17 +7567,21 @@ class UnitySignalFilter:
                                  "SignalMaestro", "trade_history.db")
             if not os.path.exists(_path):
                 return frozenset()
-            _con = _sql.connect(_path)
-            _rows = _con.execute("""
-                SELECT symbol, COUNT(*) total,
-                       SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) wins
-                FROM trades
-                WHERE outcome IS NOT NULL AND outcome NOT IN ('','PENDING')
-                GROUP BY symbol HAVING total >= 10
-                ORDER BY (1.0 * wins / total) DESC
-                LIMIT ?
-            """, (_n,)).fetchall()
-            _con.close()
+            _con = _sql.connect(_path, timeout=5)   # v229.1: explicit busy timeout
+            try:
+                _rows = _con.execute("""
+                    SELECT symbol, COUNT(*) total,
+                           SUM(CASE WHEN outcome IN ('TP1','TP2','TP3') THEN 1 ELSE 0 END) wins
+                    FROM trades
+                    WHERE outcome IS NOT NULL AND outcome NOT IN ('','PENDING')
+                    GROUP BY symbol HAVING total >= 10
+                    ORDER BY (1.0 * wins / total) DESC
+                    LIMIT ?
+                """, (_n,)).fetchall()
+            except Exception:
+                raise
+            finally:
+                _con.close()   # v229.1: guaranteed close
             if len(_rows) < _n:
                 logging.getLogger("UnityEngine.Filter").info(
                     f"⚪ [v8.6] Whitelist disabled: only {len(_rows)} symbols qualify "
@@ -30609,30 +30691,35 @@ class UnityEngine:
             return
         try:
             _conn = _sqlite3.connect(_db_path, timeout=5, check_same_thread=False)
-            _conn.row_factory = _sqlite3.Row
-            _c = _conn.cursor()
-            # Fetch the most recent N completed trades.
-            # Schema: symbol, action (BUY/SELL), outcome (TP1/TP2/TP3/SL/EXPIRED).
-            # Fall back to direction/side column names for schema compatibility.
-            _dir_col = "action"
+            
             try:
-                _c.execute("SELECT action FROM trades LIMIT 0")
-            except _sqlite3.OperationalError:
+                _conn.row_factory = _sqlite3.Row
+                _c = _conn.cursor()
+                # Fetch the most recent N completed trades.
+                # Schema: symbol, action (BUY/SELL), outcome (TP1/TP2/TP3/SL/EXPIRED).
+                # Fall back to direction/side column names for schema compatibility.
+                _dir_col = "action"
                 try:
-                    _c.execute("SELECT direction FROM trades LIMIT 0")
-                    _dir_col = "direction"
+                    _c.execute("SELECT action FROM trades LIMIT 0")
                 except _sqlite3.OperationalError:
-                    _dir_col = "side"
-            try:
-                _rows = _c.execute(
-                    f"SELECT symbol, {_dir_col} AS dir_col, outcome FROM trades "
-                    "WHERE outcome IS NOT NULL "
-                    "ORDER BY rowid DESC LIMIT ?",
-                    (MARKOV_CHAIN_RING_SIZE * 6,),   # 6× buffer to fill all 4 states
-                ).fetchall()
+                    try:
+                        _c.execute("SELECT direction FROM trades LIMIT 0")
+                        _dir_col = "direction"
+                    except _sqlite3.OperationalError:
+                        _dir_col = "side"
+                try:
+                    _rows = _c.execute(
+                        f"SELECT symbol, {_dir_col} AS dir_col, outcome FROM trades "
+                        "WHERE outcome IS NOT NULL "
+                        "ORDER BY rowid DESC LIMIT ?",
+                        (MARKOV_CHAIN_RING_SIZE * 6,),   # 6× buffer to fill all 4 states
+                    ).fetchall()
+                except Exception:
+                    _rows = []
             except Exception:
-                _rows = []
-            _conn.close()
+                raise
+            finally:
+                _conn.close()   # v229.1: guaranteed close
             # ── Neutral-prior seeding strategy (v18.53) ───────────────────────
             # The goal of seeding is to prevent cold-start delay (n<MIN_OBS=5)
             # without injecting biased data.  Historical WR=30% means all states
@@ -32311,7 +32398,20 @@ class UnityEngine:
                     try:
                         if self.signal_filter is not None:
                             _old_bl = self.signal_filter._symbol_blacklist
-                            _new_bl = UnitySignalFilter._load_symbol_blacklist()
+                            # v229.1 FIX: _load_symbol_blacklist() issues a BLOCKING
+                            # sqlite3 query.  Called directly here it stalled the whole
+                            # event loop (WS ingest, scanner, health, funding) for up to
+                            # the 5 s busy-timeout whenever the WAL was held by the
+                            # TradeMemory writer — every 10 minutes.  Dispatch it to the
+                            # dedicated pool, exactly like the DB warm-start aggregate
+                            # (L34024) and ring query (L34098) already do.  The
+                            # assignment to _symbol_blacklist below stays on the loop
+                            # thread, so no new lock is needed.
+                            _loop = asyncio.get_running_loop()
+                            _new_bl = await _loop.run_in_executor(
+                                self._thread_pool,
+                                UnitySignalFilter._load_symbol_blacklist,
+                            )
                             _added   = _new_bl - _old_bl
                             _removed = _old_bl - _new_bl
                             self.signal_filter._symbol_blacklist = _new_bl
