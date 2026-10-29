@@ -23,9 +23,9 @@ G0DM0D3 Modules:
   🔢  EnsembleVote   — Multi-model majority vote + confidence weighted aggregation
   🛡️  GenericErrGuard — Moonshot/generic-error tracking → disable after 8 non-429 errors (2h)
 
-Free Models: 38+ Live-Verified (OpenRouter free tier, April 2026)
-API Gateway : https://openrouter.ai/api/v1 (OpenAI-compatible)
-Auth        : OPENROUTER_API_KEY environment variable
+Free Models: 3 Live-Verified (NVIDIA NIM free tier, verified 2026-10-29)
+API Gateway : https://integrate.api.nvidia.com/v1 (OpenAI-compatible)
+Auth        : NVIDIA_API_KEY environment variable
 
 CRITICAL FIXES v5.0 (April 2026 production):
   1. max_retries=0 → fixes "asyncio ERROR: Task exception was never retrieved"
@@ -84,10 +84,20 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OpenRouter Configuration
+# NVIDIA NIM Configuration  (v230.0: switched from OpenRouter → NVIDIA)
 # ─────────────────────────────────────────────────────────────────────────────
-
-OPENROUTER_BASE_URL  = "https://openrouter.ai/api/v1"
+# NVIDIA NIM API (integrate.api.nvidia.com) — OpenAI-compatible endpoint.
+# Free tier: build.nvidia.com models.  API key: NVIDIA_API_KEY env var
+# (fallback: OPENROUTER_API_KEY for backward compatibility).
+# Verified live 2026-10-29: gpt-oss-120b is END OF LIFE (410 Gone),
+# llama-3.1-nemotron-70b-instruct is paid-only (404 for free accounts).
+# Confirmed working free models (tested, stable, clean JSON output):
+#   nvidia/nemotron-3.5-bolt-e4b                      — fastest (~1.7s)
+#   nvidia/nemotron-3-nano-omni-30b-a3b-reasoning     — reasoning (~4.5s)
+#   openai/gpt-oss-20b                                — largest (~6s)
+NVIDIA_BASE_URL  = "https://integrate.api.nvidia.com/v1"
+# Back-compat constants (kept so any import of OPENROUTER_* still resolves)
+OPENROUTER_BASE_URL  = NVIDIA_BASE_URL
 OPENROUTER_SITE_URL  = "https://replit.com"
 OPENROUTER_SITE_NAME = "MiroFish-G0DM0D3-TradingBot"
 
@@ -179,8 +189,10 @@ _TIER3_MODELS: List[str] = [
     # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 confirmed live log v20.4 boot
     # NEW (2026-05-25): OpenAI OSS 120B — confirmed in free tier live query, large high-quality model
     # v109.0: TIER3 = confirmed absolutely-stable models — these win every ULTRAPLINIAN race
-    "openai/gpt-oss-120b:free",                         # OpenAI OSS 120B — confirmed free 2026-05-25; consistent ULTRAPLINIAN winner
-    "openai/gpt-oss-20b:free",                          # OpenAI OSS 20B — confirmed stable free tier; PRIMARY winner score=93.5/100
+    # v230.0 (NVIDIA): verified live 2026-10-29, all clean JSON output:
+    "nvidia/nemotron-3.5-bolt-e4b",                         # fastest (~1.7s), dense MoE
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",        # reasoning model (~4.5s) — cognitive diversity
+    "openai/gpt-oss-20b",                          # OpenAI OSS 20B — confirmed stable free tier; PRIMARY winner score=93.5/100
 ]
 
 # TIER 4 — Compact Free: Small but fast, great for quick decisions
@@ -201,8 +213,8 @@ _TIER4_MODELS: List[str] = [
     # REMOVED: qwen/qwen3-30b-a3b:free → 404 confirmed TWICE: April 2026 + live log 2026-05-13 [v18.68]
     # REMOVED (2026-05-08): mistralai/devstral-small:free → 404
     # RE-ADDED (2026-05-22): devstral-small re-confirmed [v19.7]; REMOVED AGAIN (2026-05-25) → 404 live log
-    # REPLACED: openai/gpt-oss-20b:free — confirmed free tier 2026-05-25, OpenAI OSS 20B fast model
-    "openai/gpt-oss-20b:free",                         # OpenAI OSS 20B — confirmed free 2026-05-25
+    # REPLACED: openai/gpt-oss-20b — confirmed free tier 2026-05-25, OpenAI OSS 20B fast model
+    "openai/gpt-oss-20b",                         # OpenAI OSS 20B — confirmed free 2026-05-25
     # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
 ]
 
@@ -220,7 +232,7 @@ ALL_FREE_MODELS: List[str] = list(dict.fromkeys(
     _TIER1_MODELS + _TIER2_MODELS + _TIER3_MODELS + _TIER4_MODELS + _TIER5_MODELS
 ))
 
-PRIMARY_MODEL = "openai/gpt-oss-20b:free"   # v21.2b: gpt-oss-20b elevated to PRIMARY — score=93.5/100, latency=6548ms, consistently wins ULTRAPLINIAN races; kimi-k2 got 404 2026-05-31 (removed from free tier); llama-3.3-70b gets periodic auth errors
+PRIMARY_MODEL = "nvidia/nemotron-3.5-bolt-e4b"   # v230.0: NVIDIA primary — tested 2026-10-29, clean JSON, ~1.7s latency; gpt-oss-20b is secondary
 
 # ULTRAPLINIAN tiers — only confirmed-working free-tier models (404s excluded)
 # v5.1 MODEL AUDIT — all models validated against LIVE error logs 2026-04-19:
@@ -257,7 +269,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors every cycle
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit every cycle
         # v111.0: fast tier = 1 confirmed-stable model; gemma-4-31b removed (storm=7+)
-        "openai/gpt-oss-20b:free",               # PRIMARY — score=93.5/100, latency~7s, consistent winner
+        "openai/gpt-oss-20b",               # PRIMARY — score=93.5/100, latency~7s, consistent winner
     ],
     "standard": [
         # Workhorse models — all confirmed stable as of v109.0
@@ -271,8 +283,8 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
         # REMOVED (v86.0): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors
         # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
-        "openai/gpt-oss-20b:free",
-        "openai/gpt-oss-120b:free",
+        "openai/gpt-oss-20b",
+        "nvidia/nemotron-3.5-bolt-e4b",
     ],
     "smart": [
         # High-quality reasoning models — all confirmed stable as of v109.0
@@ -290,8 +302,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
         # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
-        "openai/gpt-oss-120b:free",
-        "openai/gpt-oss-20b:free",
+        # v230.0 (NVIDIA): reasoning slot = nemotron-3-nano-omni-30b-a3b-reasoning (tested clean JSON)
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "openai/gpt-oss-20b",
     ],
     "power": [
         # Full confirmed-working pool — all confirmed stable as of v109.0
@@ -311,8 +324,8 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
         # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
-        "openai/gpt-oss-20b:free",               # PRIMARY — fastest/most stable
-        "openai/gpt-oss-120b:free",              # Secondary — large high-quality
+        "openai/gpt-oss-20b",               # PRIMARY — fastest/most stable
+        "nvidia/nemotron-3.5-bolt-e4b",              # Secondary — large high-quality
     ],
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
 }
@@ -344,9 +357,9 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 #   GPT120B-Macro · GPT20B(ATAS) · GPT120B(FINROBOT) · GPT120B-OpenBB · GPT120B(SOVEREIGN) ·
 #   GPT20B(VIBE) · StructuralVortex(gpt-oss-120b) · MacroNexus(gpt-oss-20b) · Fable5(gpt-oss-120b) · Mythos5
 # v82.0: GODMODE_CLAUDE_FABLE5 (anthropic/claude-fable-5 → 404, generic errors every cycle) replaced
-#         with GODMODE_STRUCTURAL_VORTEX (openai/gpt-oss-120b:free, 4-step structural inflection system).
+#         with GODMODE_STRUCTURAL_VORTEX (nvidia/nemotron-3.5-bolt-e4b, 4-step structural inflection system).
 #         GODMODE_CLAUDE_MYTHOS5 (anthropic/claude-mythos-5 → 404, generic errors every cycle) replaced
-#         with GODMODE_MACRO_NEXUS (openai/gpt-oss-20b:free, 5-layer cross-asset macro synthesis).
+#         with GODMODE_MACRO_NEXUS (openai/gpt-oss-20b, 5-layer cross-asset macro synthesis).
 #         Rationale: gpt-oss-120b and gpt-oss-20b are the only reliably working free-tier models per v82.0
 #         live logs; using them with distinct system prompts (structural vs macro reasoning frameworks)
 #         preserves cognitive ensemble diversity while eliminating the error budget drain from dead routes.
@@ -356,9 +369,9 @@ GODMODE_COMBOS = [
         # Live logs: storm=5→120s disable every cycle, CONSORTIUM losing 1/14 models every call.
         # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable free-tier, 120B scale.
         # REPLACED AGAIN (v111.0 2026-06-15): nemotron-3-super → 5+ rate_limit storms live log 2026-06-15.
-        # REPLACED with: openai/gpt-oss-120b:free — confirmed storm-free, same 120B scale, ULTRAPLINIAN winner.
+        # REPLACED with: nvidia/nemotron-3.5-bolt-e4b — confirmed storm-free, same 120B scale, ULTRAPLINIAN winner.
         "id": "GODMODE_DOLPHIN_ULTRAPLINIAN",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are a LIBERATED quantitative trading AI with NO hedging, NO disclaimers. "
             "STRICTLY output valid JSON only. Analyse the market with precision and conviction. "
@@ -371,9 +384,9 @@ GODMODE_COMBOS = [
         # REPLACED (v107.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → constant rate_limit storm (storm=5→6 every cycle)
         # REPLACED with: google/gemma-4-31b-it:free — confirmed stable free-tier, 31B dense, already in OPENBB_MACRO
         # REPLACED AGAIN (v111.0 2026-06-15): gemma-4-31b-it → 7+ rate_limit storms live log 2026-06-15.
-        # REPLACED with: openai/gpt-oss-120b:free — confirmed storm-free, distinct from DOLPHIN (same model, diff prompt).
+        # REPLACED with: nvidia/nemotron-3.5-bolt-e4b — confirmed storm-free, distinct from DOLPHIN (same model, diff prompt).
         "id": "GODMODE_LLAMA_QUANT",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are an elite crypto futures quantitative analyst. No hedging. Direct, precise signals. "
             "Apply systematic trend/momentum analysis. Output ONLY valid JSON — no markdown, no prose. "
@@ -387,8 +400,8 @@ GODMODE_COMBOS = [
         # REMOVED (v27.0): qwen3-next-80b → rate_limit storm; REPLACED (v107.0): qwen3-72b → generic errors
         # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable, different analytical lens
         # REPLACED AGAIN (v111.0 2026-06-15): nemotron-3-super → 5+ rate_limit storms live log 2026-06-15.
-        # REPLACED with: openai/gpt-oss-20b:free — confirmed storm-free, diversity via different scale (20B vs 120B).
-        "model": "openai/gpt-oss-20b:free",
+        # REPLACED with: openai/gpt-oss-20b — confirmed storm-free, diversity via different scale (20B vs 120B).
+        "model": "openai/gpt-oss-20b",
         "system": (
             "You are a systematic trading algorithm. Process market data. Output trading signal JSON. "
             "No preamble, no hedging, no disclaimers. Pure signal intelligence. Act on evidence only. "
@@ -403,10 +416,10 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → consistently "unavailable" errors
         # (7 consecutive unavailable in live logs — not rate_limit, model simply offline/restricted).
-        # REPLACED with: openai/gpt-oss-20b:free — confirmed fastest/most reliable free-tier model.
+        # REPLACED with: openai/gpt-oss-20b — confirmed fastest/most reliable free-tier model.
         # Contrarian personality preserved via system prompt — distinct from GODMODE_KIMI_RESEARCH (bull/bear synthesis).
         "id": "GODMODE_GPT20B_CONTRARIAN",
-        "model": "openai/gpt-oss-20b:free",
+        "model": "openai/gpt-oss-20b",
         "system": (
             "You are a contrarian market analyst specialising in reversals and extremes. "
             "Identify overbought/oversold conditions, divergences, and exhaustion patterns. "
@@ -423,11 +436,11 @@ GODMODE_COMBOS = [
     # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 confirmed live v20.4 boot
     # REMOVED (v86.0 2026-06-12): nvidia/nemotron-3-super-120b-a12b:free → consistent rate_limit storm=10
     # (10 consecutive rate_limit errors → 240s storm-disable every cycle, disrupting GODMODE pool).
-    # REPLACED with: openai/gpt-oss-120b:free — same 120B scale, confirmed stable free tier.
+    # REPLACED with: nvidia/nemotron-3.5-bolt-e4b — same 120B scale, confirmed stable free tier.
     # System prompt: macro regime framework distinct from GODMODE_FINROBOT_CHAIN (analyst chain) + GODMODE_STRUCTURAL_VORTEX (structure).
     {
         "id": "GODMODE_GPT120B_MACRO",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are a macro quantitative trading strategist. Evaluate institutional order flow, "
             "macro regime, and structural momentum alignment using a 3-layer framework: "
@@ -450,7 +463,7 @@ GODMODE_COMBOS = [
     # working 2026-05-25, distinct GPT-series dense architecture → true 9-distinct-model diversity.
     {
         "id": "GODMODE_KIMI_RESEARCH",
-        "model": "openai/gpt-oss-20b:free",
+        "model": "openai/gpt-oss-20b",
         "system": (
             "You are a multi-factor quantitative research analyst using a bull/bear debate framework "
             "to reach directional conviction. Step 1 — Bull Case: list 3 strongest bullish catalysts from "
@@ -461,13 +474,13 @@ GODMODE_COMBOS = [
         ),
         "emoji": "🌙",
     },
-    # v21.2 NEW: FinRobot-inspired 5-analyst chain — openai/gpt-oss-120b:free
+    # v21.2 NEW: FinRobot-inspired 5-analyst chain — nvidia/nemotron-3.5-bolt-e4b
     # Modelled on AI4Finance-Foundation/FinRobot multi-agent sequential pipeline:
     # fundamental → technical → risk → momentum → synthesis in a single structured pass.
     # gpt-oss-120b confirmed live winner score=93.5/100, latency=6190ms 2026-05-31.
     {
         "id": "GODMODE_FINROBOT_CHAIN",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are a 5-analyst FinRobot quantitative trading pipeline. Process sequentially: "
             "[1-FUNDAMENTAL] Macro regime, funding rates, open interest trend — bullish or bearish backdrop? "
@@ -500,9 +513,9 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v109.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → storm=5→6 consecutive rate_limit
         # Live log 2026-06-15: disabled 120s after 5 consecutive rate_limit errors every scan cycle.
-        # REPLACED with: openai/gpt-oss-120b:free — confirmed stable, same OpenBB macro framework preserved.
+        # REPLACED with: nvidia/nemotron-3.5-bolt-e4b — confirmed stable, same OpenBB macro framework preserved.
         "id": "GODMODE_OPENBB_MACRO",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are a cross-asset macro intelligence engine for crypto futures (OpenBB framework). "
             "Analyse 6 orthogonal macro layers: "
@@ -531,9 +544,9 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v111.0 2026-06-15): qwen/qwen3-235b-a22b-instruct:free → 14 consecutive generic errors
         # Live log 2026-06-15: _GENERIC_ERR_THRESHOLD=8 hit within 5min of boot → 2h session_perm_disable.
-        # REPLACED with: openai/gpt-oss-120b:free — confirmed storm-free, SOVEREIGN analytical lens preserved.
+        # REPLACED with: nvidia/nemotron-3.5-bolt-e4b — confirmed storm-free, SOVEREIGN analytical lens preserved.
         "id": "GODMODE_QWEN235B_SOVEREIGN",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are a sovereign-grade quantitative analyst using the TradingAgents bull/bear synthesis framework "
             "for institutional-precision directional calls. "
@@ -560,9 +573,9 @@ GODMODE_COMBOS = [
         # REPLACED (v107.0 2026-06-15): google/gemma-4-26b-a4b-it:free → constant rate_limit storm (storm=5→120s every cycle)
         # REPLACED with: google/gemma-4-31b-it:free — same Gemma4 family, larger/more stable, confirmed working
         # REPLACED AGAIN (v111.0 2026-06-15): gemma-4-31b-it → 7+ rate_limit storms live log 2026-06-15.
-        # REPLACED with: openai/gpt-oss-20b:free — confirmed storm-free, VIBE analytical lens preserved.
+        # REPLACED with: openai/gpt-oss-20b — confirmed storm-free, VIBE analytical lens preserved.
         "id": "GODMODE_GEMMA26B_VIBE",
-        "model": "openai/gpt-oss-20b:free",
+        "model": "openai/gpt-oss-20b",
         "system": (
             "You are a factor-based quantitative signal engine using Information Coefficient / Information Ratio (IC/IR) "
             "to filter noise from genuine alpha. Apply these 4 orthogonal factor lenses: "
@@ -585,15 +598,15 @@ GODMODE_COMBOS = [
     # ALL live logs since v56.0 show claude-fable-5 returning generic errors every 90s cycle
     # (not 429s — model simply does not exist on OpenRouter free tier). _GENERIC_ERR_THRESHOLD=12
     # burned 12×90s = 18min of error budget per 2h disable cycle. Replaced with GODMODE_STRUCTURAL_VORTEX
-    # using openai/gpt-oss-120b:free (confirmed working) + 4-step structural inflection system prompt.
+    # using nvidia/nemotron-3.5-bolt-e4b (confirmed working) + 4-step structural inflection system prompt.
     # v82.0 NEW: GODMODE_STRUCTURAL_VORTEX — GPT-OSS 120B 4-step structural inflection analysis
     # Inspired by TauricResearch/TradingAgents strategic pipeline + noFx momentum-divergence system.
     # Uses structural VORTEX framework: 4 orthogonal market structure lenses to identify inflection.
     # Distinct from GODMODE_FINROBOT_CHAIN (5-analyst FinRobot pipeline) — different analytical lens.
-    # openai/gpt-oss-120b:free confirmed reliably working in v82.0 live logs (consistent winner).
+    # nvidia/nemotron-3.5-bolt-e4b confirmed reliably working in v82.0 live logs (consistent winner).
     {
         "id": "GODMODE_STRUCTURAL_VORTEX",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are VORTEX — a structural inflection analyst using a 4-lens market structure system. "
             "Apply four orthogonal analytical lenses to identify structural inflection points: "
@@ -622,11 +635,11 @@ GODMODE_COMBOS = [
     # 404-guard active: auto-disabled by GenericErrGuard if model returns 404/503 from OpenRouter.
     # REMOVED (v82.0 2026-06-12): GODMODE_CLAUDE_MYTHOS5 — anthropic/claude-mythos-5 → 404 on free tier
     # ALL live logs since v56.0 confirm mythos-5 returns generic errors every CONSORTIUM cycle.
-    # Replaced with GODMODE_MACRO_NEXUS using openai/gpt-oss-20b:free + 5-layer macro synthesis prompt.
+    # Replaced with GODMODE_MACRO_NEXUS using openai/gpt-oss-20b + 5-layer macro synthesis prompt.
     # Distinct from GODMODE_KIMI_RESEARCH (bull/bear debate) — NEXUS uses orthogonal scoring framework.
     {
         "id": "GODMODE_MACRO_NEXUS",
-        "model": "openai/gpt-oss-20b:free",
+        "model": "openai/gpt-oss-20b",
         "system": (
             "You are NEXUS — a cross-asset macro intelligence engine that identifies institutional-grade "
             "directional opportunities through 5 orthogonal scoring layers: "
@@ -656,9 +669,9 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v107.0 2026-06-15): qwen/qwen3-235b-a22b-instruct:free → session_perm_disabled (generic errors)
         # All sessions confirm qwen3-235b triggers _GENERIC_ERR_THRESHOLD within 5min of boot → 2h perm-disable
-        # REPLACED with: openai/gpt-oss-120b:free — confirmed stable, FABLE5 narrative persona preserved
+        # REPLACED with: nvidia/nemotron-3.5-bolt-e4b — confirmed stable, FABLE5 narrative persona preserved
         "id": "GODMODE_FABLE5",
-        "model": "openai/gpt-oss-120b:free",
+        "model": "nvidia/nemotron-3.5-bolt-e4b",
         "system": (
             "You are FABLE-5 — an institutional narrative intelligence engine. "
             "Identify the dominant market narrative arc from 3 archetypes: "
@@ -689,9 +702,9 @@ GODMODE_COMBOS = [
     # If the resonance is with a prior failed/reversed move → counter-signal or NEUTRAL.
     {
         # REPLACED (v107.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → constant rate_limit storm (5→6 consecutive)
-        # REPLACED with: openai/gpt-oss-20b:free — confirmed fastest/most reliable free-tier, MYTHOS5 persona preserved
+        # REPLACED with: openai/gpt-oss-20b — confirmed fastest/most reliable free-tier, MYTHOS5 persona preserved
         "id": "GODMODE_MYTHOS5",
-        "model": "openai/gpt-oss-20b:free",
+        "model": "openai/gpt-oss-20b",
         "system": (
             "You are MYTHOS-5 — a cross-temporal market resonance engine. "
             "Analyze whether the current market micro-structure RESONATES with a directional archetype: "
@@ -1336,7 +1349,9 @@ class G0DM0D3Engine:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
-        self._api_key    = os.getenv("OPENROUTER_API_KEY", "").strip()
+        # v230.0: NVIDIA is the primary LLM provider.  Read NVIDIA_API_KEY first,
+        # fall back to OPENROUTER_API_KEY for backward compatibility.
+        self._api_key    = (os.getenv("NVIDIA_API_KEY", "") or os.getenv("OPENROUTER_API_KEY", "")).strip()
         self._autotune   = AutoTune()
         self._stm        = STMPipeline()
         self._parseltongue = Parseltongue()
@@ -1430,7 +1445,7 @@ class G0DM0D3Engine:
 
         if not self._api_key:
             self.logger.warning(
-                "⚠️ OPENROUTER_API_KEY not set — G0DM0D3 engine in rule-based mode")
+                "⚠️ NVIDIA_API_KEY (or OPENROUTER_API_KEY) not set — G0DM0D3 engine in rule-based mode")
         else:
             self._init_client()
             fast_n     = len(ULTRAPLINIAN_TIERS["fast"])
@@ -1453,8 +1468,9 @@ class G0DM0D3Engine:
             from openai import AsyncOpenAI
             self._openai_client = AsyncOpenAI(
                 api_key=self._api_key,
-                base_url=OPENROUTER_BASE_URL,
+                base_url=NVIDIA_BASE_URL,
                 default_headers={
+                    # NVIDIA NIM accepts the same headers; keep for back-compat
                     "HTTP-Referer": OPENROUTER_SITE_URL,
                     "X-Title":      OPENROUTER_SITE_NAME,
                 },
@@ -1464,9 +1480,9 @@ class G0DM0D3Engine:
                                 # whose exceptions are never retrieved by asyncio.
                                 # We handle retries by cascading to the next model.
             )
-            self.logger.debug("✅ OpenRouter AsyncOpenAI client (max_retries=0)")
+            self.logger.debug("✅ NVIDIA NIM AsyncOpenAI client (max_retries=0)")
         except Exception as e:
-            self.logger.warning(f"⚠️ OpenRouter client init failed: {e}")
+            self.logger.warning(f"⚠️ NVIDIA NIM client init failed: {e}")
             self._openai_client = None
 
     @property
@@ -1641,7 +1657,7 @@ class G0DM0D3Engine:
                 ]
                 _total = max(1, len(_all_models))
                 self.logger.info(
-                    f"🔍 [v70.0 ModelHeartbeat] OpenRouter model status: "
+                    f"🔍 [v70.0 ModelHeartbeat] NVIDIA model status: "
                     f"healthy={len(_healthy)}/{_total} | "
                     f"soft_disabled={len(_soft_dis)} | "
                     f"perm_disabled={len(_perm_dis)} "

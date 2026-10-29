@@ -360,9 +360,11 @@ class AICapabilityChecker:
         """
         try:
             import openai  # noqa: F401 — just verify the package is importable
-            # Accept any of the three LLM keys (primary → secondary → tertiary)
+            # Accept any of the LLM keys (primary → secondary → tertiary)
+            # v230.0: NVIDIA is primary
             api_key = (
-                os.environ.get("OPENROUTER_API_KEY", "").strip()
+                os.environ.get("NVIDIA_API_KEY", "").strip()
+                or os.environ.get("OPENROUTER_API_KEY", "").strip()
                 or os.environ.get("ANTHROPIC_API_KEY", "").strip()
                 or os.environ.get("OPENAI_API_KEY", "").strip()
             )
@@ -422,10 +424,11 @@ class AICapabilityChecker:
         Rule-based analysis always works as final fallback.
         """
         try:
-            # Primary: any LLM key configured → full OpenRouter/GPT-based sentiment
-            # v5.0: check OPENROUTER_API_KEY first (primary engine key)
+            # Primary: any LLM key configured → full NVIDIA/GPT-based sentiment
+            # v230.0: check NVIDIA_API_KEY first (primary engine key)
             api_key = (
-                os.environ.get("OPENROUTER_API_KEY", "").strip()
+                os.environ.get("NVIDIA_API_KEY", "").strip()
+                or os.environ.get("OPENROUTER_API_KEY", "").strip()
                 or os.environ.get("ANTHROPIC_API_KEY", "").strip()
                 or os.environ.get("OPENAI_API_KEY", "").strip()
             )

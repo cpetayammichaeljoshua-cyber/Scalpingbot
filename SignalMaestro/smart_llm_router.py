@@ -98,48 +98,10 @@ MODEL_PRICING = {
     "anthropic/claude-3-5-haiku-20241022":  {"input": 0.80, "output": 4.0},
     "openai/gpt-4o-mini":                   {"input": 0.15, "output": 0.60},
     # v21.0: OpenRouter free-tier — confirmed working models only.
-    # REMOVED: meta-llama/llama-3.2-3b-instruct:free → 404/rate_limit storm
-    # REMOVED: meta-llama/llama-3.1-8b-instruct:free → 404
-    # REMOVED: google/gemma-2-9b-it:free → 404
-    # REMOVED: mistralai/mistral-7b-instruct:free → 404
-    # REMOVED: qwen/qwen-2.5-7b-instruct:free → unconfirmed
-    # REMOVED: microsoft/phi-3-mini-128k-instruct:free → 404
-    # REMOVED: qwen/qwen3-coder:free → 404 confirmed v20.5 boot
-    # REMOVED: deepseek/deepseek-r1:free → 404 confirmed v18.37
-    # REMOVED: microsoft/phi-4-reasoning:free → 404 confirmed v19.7b
-    # REMOVED: google/gemma-3-27b-it:free → 404 confirmed v19.7b
-    # REMOVED: google/gemma-3-12b-it:free → 404 confirmed v18.32
-    # REMOVED: mistralai/devstral-small:free → 404 confirmed v19.7b
-    # REMOVED: meta-llama/llama-4-scout:free → 404 confirmed v18.33
-    # REMOVED: meta-llama/llama-4-maverick:free → 404 confirmed v18.54
-    # REMOVED: qwen/qwen3-14b:free → unconfirmed, removed v21.0 cleanup
-    "meta-llama/llama-3.3-70b-instruct:free":                         {"input": 0.0, "output": 0.0},
-    # REMOVED (v27.0 2026-05-31): qwen/qwen3-next-80b-a3b-instruct:free → rate_limit storm (13 errors, 960s disabled)
-    # qwen/qwen3-72b:free already present above — slot consolidated
-    # REMOVED: qwen/qwen3-235b-a22b:free → 404 confirmed live log 2026-05-13 [v18.68]
-    # REMOVED: qwen/qwen3-30b-a3b:free  → 404 confirmed live log 2026-05-13 [v18.68] (also April 2026)
-    # v18.72: Qwen3-235B-A22B re-added under correct OpenRouter slug (GitHub repo: QwenLM/Qwen3)
-    "qwen/qwen3-235b-a22b-instruct:free":                             {"input": 0.0, "output": 0.0},
-    # v20.0: AEON-7 Qwen3.6-27B removed — slug was marked tentative/pending confirmation, caused 404s
-    # REMOVED: aeon-7/qwen3.6-27b-aeon-ultimate-uncensored-dflash:free → unconfirmed slug [v20.0]
-    # REMOVED: moonshotai/kimi-k2:free → 404 confirmed live log v21.2 boot 2026-05-31 (provider revoked free access)
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free":  {"input": 0.0, "output": 0.0},
-    "z-ai/glm-4.5-air:free":                                         {"input": 0.0, "output": 0.0},
-    # REMOVED (v41.1 2026-06-02): mistralai/mistral-small-3.2-24b-instruct:free → 404 confirmed v41.0 boot
-    # REMOVED: tngtech/deepseek-r1t-chimera:free → 404 confirmed v21.5 [v25.0 MODEL_COSTS cleanup]
-    # REMOVED: deepseek/deepseek-r1-0528:free → 404 confirmed v21.5 [v25.0 MODEL_COSTS cleanup]
-    # v19.3: Added MODEL_COSTS entries for all v19.2 free-tier additions
-    # (missing entries cause KeyError in cost estimator — now all free models covered)
-    "qwen/qwen3-72b:free":                                            {"input": 0.0, "output": 0.0},
-    # REMOVED (v41.1 2026-06-02): microsoft/phi-4-reasoning-plus:free → 404 confirmed v41.0 boot (base+plus both dead)
-    # v20.0: OpenAI OSS free-tier — confirmed working on OpenRouter 2026-05-25
-    "openai/gpt-oss-20b:free":                                        {"input": 0.0, "output": 0.0},
-    "openai/gpt-oss-120b:free":                                       {"input": 0.0, "output": 0.0},
-    # v21.0: New confirmed-working free models added 2026-05-31
-    "nvidia/nemotron-3-super-120b-a12b:free":                         {"input": 0.0, "output": 0.0},
-    # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot (was free 2026-05-25)
-    "google/gemma-4-26b-a4b-it:free":                                 {"input": 0.0, "output": 0.0},
-    "google/gemma-4-31b-it:free":                                     {"input": 0.0, "output": 0.0},
+    # v230.0 (NVIDIA): switched to NVIDIA NIM free models, verified live 2026-10-29.
+    "nvidia/nemotron-3.5-bolt-e4b":                       {"input": 0.0, "output": 0.0},
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning":      {"input": 0.0, "output": 0.0},
+    "openai/gpt-oss-20b":                                 {"input": 0.0, "output": 0.0},
     # v19.3: Paid frontier additions
     "anthropic/claude-3-7-sonnet-20250219":                           {"input": 3.0,  "output": 15.0},
     "openai/gpt-4.1":                                                 {"input": 2.0,  "output": 8.0},
@@ -194,8 +156,9 @@ _FREE_SIMPLE = [
     # nvidia/nemotron-3-super-120b-a12b:free → 5+ consecutive rate_limit storms → removed
     # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → removed
     # qwen/qwen3-235b-a22b-instruct:free → 14 generic errors → session_perm_disabled → removed
-    "openai/gpt-oss-20b:free",                                        # PRIMARY — score=93.5/100, confirmed storm-free
-    "openai/gpt-oss-120b:free",                                       # Large — confirmed storm-free, consistent CONSORTIUM winner
+    # v230.0 (NVIDIA): switched to NVIDIA NIM free models, verified live 2026-10-29.
+    "nvidia/nemotron-3.5-bolt-e4b",                                  # PRIMARY — fastest (~1.7s), clean JSON
+    "openai/gpt-oss-20b",                                            # Large — clean JSON, consistent winner
 ]
 _FREE_REASONING = [
     # v21.0: Dead model purge — confirmed-404 slugs removed, new reasoning heavyweights added.
@@ -223,8 +186,9 @@ _FREE_REASONING = [
     # nvidia/nemotron-3-super-120b-a12b:free → 5+ consecutive rate_limit storms → removed
     # qwen/qwen3-235b-a22b-instruct:free → 14 generic errors → session_perm_disabled → removed
     # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → removed
-    "openai/gpt-oss-120b:free",                                       # Large — confirmed storm-free, primary reasoning
-    "openai/gpt-oss-20b:free",                                        # Fast — PRIMARY winner score=93.5/100, confirmed storm-free
+    # v230.0 (NVIDIA): switched to NVIDIA NIM free models, verified live 2026-10-29.
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",                 # Reasoning — clean JSON, primary reasoning
+    "openai/gpt-oss-20b",                                            # Fast — PRIMARY winner, clean JSON
 ]
 
 TIER_MODELS = {

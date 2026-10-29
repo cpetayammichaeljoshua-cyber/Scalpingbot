@@ -3286,6 +3286,7 @@ _sanitize_all_env_key_names()
 
 
 _SANITIZE_KEYS = (
+    "NVIDIA_API_KEY",                       # v230.0: NVIDIA NIM primary
     "OPENROUTER_API_KEY",
     "OPENROUTER_API_KEY_BACKUP_1",   # v8.2 FIX: backup keys also need sanitization
     "OPENROUTER_API_KEY_BACKUP_2",   # v8.2 FIX: backup keys also need sanitization
@@ -4837,8 +4838,10 @@ class LLMKeyRotator:
         # v9.4: expanded backup pool (BACKUP_1..6) — 7 OpenRouter slots total +
         # OpenAI fallback.  More keys → longer effective rate-limit budget;
         # rotator picks each up on boot if defined and silently skips blanks.
+        # v230.0: NVIDIA_API_KEY is now the PRIMARY slot (NVIDIA is the provider).
         candidate_vars = [
-            "OPENROUTER_API_KEY",
+            "NVIDIA_API_KEY",               # v230.0: NVIDIA NIM primary
+            "OPENROUTER_API_KEY",           # back-compat: OpenRouter as backup
             "OPENROUTER_API_KEY_BACKUP_1",
             "OPENROUTER_API_KEY_BACKUP_2",
             "OPENROUTER_API_KEY_BACKUP_3",   # v9.4
@@ -4863,7 +4866,7 @@ class LLMKeyRotator:
         else:
             self._log.warning(
                 "⚠️  [v9.3] LLMKeyRotator: no API keys found — "
-                "set OPENROUTER_API_KEY for LLM features"
+                "set NVIDIA_API_KEY (or OPENROUTER_API_KEY) for LLM features"
             )
 
     def get_key(self) -> str:
@@ -4975,12 +4978,14 @@ class LLMKeyRotator:
 
     def inject_env(self) -> None:
         """
-        Inject the current active key back into OPENROUTER_API_KEY so all
-        downstream modules that read os.getenv('OPENROUTER_API_KEY') transparently
-        pick up the rotated key without requiring code changes in each module.
+        Inject the current active key back into NVIDIA_API_KEY AND
+        OPENROUTER_API_KEY so all downstream modules that read either env var
+        transparently pick up the rotated key without requiring code changes.
+        v230.0: NVIDIA is primary (godmod3 reads NVIDIA_API_KEY first).
         """
         active = self.get_key()
         if active:
+            os.environ["NVIDIA_API_KEY"]     = active
             os.environ["OPENROUTER_API_KEY"] = active
 
     @property
@@ -30018,7 +30023,7 @@ class UnityEngine:
             "IRONS_AIScorer",          # Layer 2.5 (v6.0: 25-indicator gate)
             "UTBot_Strategy",          # Layer 2.7 (v6.0: UT Bot Alerts + STC)
             "MiroFishSwarm",           # Layer 3
-            "G0DM0D3+OpenRouter",      # Layer 4
+            "G0DM0D3+NVIDIA",      # Layer 4
             "NeuralNetwork",           # Layer 5
             "ATAS+Bookmap",            # Layer 6
             "Risk+SLTP+Kelly",         # Layer 7
@@ -30340,10 +30345,10 @@ class UnityEngine:
         try:
             from SignalMaestro.godmod3_strategy import get_godmod3_engine
             self.godmod3 = get_godmod3_engine()
-            self.health.mark_available("G0DM0D3+OpenRouter")
+            self.health.mark_available("G0DM0D3+NVIDIA")
             self._logger.info("✅ [L4] G0DM0D3 Engine (ULTRAPLINIAN+GODMODE) ready")
         except Exception as e:
-            self.health.mark_unavailable("G0DM0D3+OpenRouter", str(e))
+            self.health.mark_unavailable("G0DM0D3+NVIDIA", str(e))
             self._logger.warning(f"⚠️  [L4] G0DM0D3 unavailable: {e}")
 
         try:
@@ -33908,32 +33913,40 @@ class UnityEngine:
             # instead of retrying 100× with exponential backoff.
             raise _ConfigError(f"Missing env vars: {missing}")
 
+        _nv  = bool(os.getenv("NVIDIA_API_KEY",     "").strip())
         _or  = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
         _oai = bool(os.getenv("OPENAI_API_KEY",     "").strip())
         _ant = bool(os.getenv("ANTHROPIC_API_KEY",  "").strip())
 
-        # v5.7: LLM Key Auto-Routing — promote OPENAI_API_KEY as OPENROUTER fallback
-        # when OPENROUTER_API_KEY is absent so G0DM0D3 still gets a functioning key.
-        if not _or and _oai:
-            os.environ["OPENROUTER_API_KEY"] = os.environ["OPENAI_API_KEY"]
-            _or = True
+        # v230.0: NVIDIA is the primary LLM provider.  Promote any fallback key
+        # (OpenRouter / OpenAI) into NVIDIA_API_KEY so G0DM0D3 gets a live key.
+        if not _nv and _or:
+            os.environ["NVIDIA_API_KEY"] = os.environ["OPENROUTER_API_KEY"]
+            _nv = True
             self._logger.info(
-                "🔑 [v5.7 Key Router] OPENAI_API_KEY promoted to OPENROUTER_API_KEY — "
-                "G0DM0D3/OpenRouter layers will use OpenAI endpoint as primary LLM."
+                "🔑 [v230.0 Key Router] OPENROUTER_API_KEY promoted to NVIDIA_API_KEY"
+            )
+        elif not _nv and _oai:
+            os.environ["NVIDIA_API_KEY"] = os.environ["OPENAI_API_KEY"]
+            _nv = True
+            self._logger.info(
+                "🔑 [v5.7 Key Router] OPENAI_API_KEY promoted to NVIDIA_API_KEY — "
+                "G0DM0D3/NVIDIA layers will use OpenAI endpoint as primary LLM."
             )
 
         # v8.0: Inject rotated key into env before layer init so all LLM modules
         # pick up the correct key even after a mid-session rotation.
         _llm_key_rotator.inject_env()
         self._logger.info(
-            f"🔑 AI keys: OpenRouter={'✅ PRIMARY' if _or else '⚠️  MISSING (LLM degraded)'} | "
+            f"🔑 AI keys: NVIDIA={'✅ PRIMARY' if _nv else '⚠️  MISSING (LLM degraded)'} | "
+            f"OpenRouter={'✅' if _or else '⬜'} | "
             f"Claude={'✅' if _ant else '⬜'} | OpenAI={'✅' if _oai else '⬜'} | "
             f"KeyRotator: {_llm_key_rotator.status_summary()}"
         )
-        if not _or and not _oai and not _ant:
+        if not _nv and not _or and not _oai and not _ant:
             self._logger.warning(
-                "⚠️  No LLM API keys set — G0DM0D3/OpenRouter layers will run in "
-                "fallback mode. Set OPENROUTER_API_KEY for full AI signal enhancement."
+                "⚠️  No LLM API keys set — G0DM0D3/NVIDIA layers will run in "
+                "fallback mode. Set NVIDIA_API_KEY for full AI signal enhancement."
             )
 
         try:
@@ -35284,7 +35297,7 @@ class UnityEngine:
                 Returns 503 if not yet ready (still warming up or critical layer failed).
                 """
                 try:
-                    _critical = ["TelegramBot", "G0DM0D3+OpenRouter", "AEGIS_GEX"]
+                    _critical = ["TelegramBot", "G0DM0D3+NVIDIA", "AEGIS_GEX"]
                     # v9.3 FIX: replace fragile anonymous type("x",(),{}) factory
                     # with a proper getattr fallback — avoids potential metaclass issues
                     # and makes the sentinel explicit and readable.
