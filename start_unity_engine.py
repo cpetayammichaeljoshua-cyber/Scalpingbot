@@ -2925,6 +2925,36 @@ def _bootstrap_all_critical_packages() -> None:
             + ", ".join(s.split("==")[0].split("[")[0] for s in _missing)
         )
         try:
+            # v229.3 FIX: On a read-only app dir (Railway/PaaS), pip install at
+            # runtime is IMPOSSIBLE — the non-root unity user cannot write to
+            # /usr/local (root-owned) or /app/.local (read-only app dir). The
+            # builder already installed all packages into /usr/local, so if we
+            # get here it means a package genuinely failed to import — running
+            # pip will only emit a confusing 'Permission denied' and waste 7min.
+            # Detect non-writability and skip cleanly instead.
+            import os as _boot_os
+            import sysconfig as _boot_sc
+            _boot_purelib = _boot_sc.get_path("purelib")
+            _boot_writable = True
+            try:
+                _boot_probe = os.path.join(_boot_purelib, ".unity_wprobe")
+                with open(_boot_probe, "w") as _pf:
+                    _pf.write("x")
+                os.remove(_boot_probe)
+            except Exception:
+                _boot_writable = False
+
+            if not _boot_writable:
+                _log.warning(
+                    f"⚠️  [v229.3 Bootstrap] {len(_missing)} package(s) not "
+                    f"importable but site-packages is NOT writable "
+                    f"({_boot_purelib}) — skipping runtime pip install. "
+                    "Engine continues degraded; the Dockerfile builder must "
+                    "install these at build time. "
+                    + ", ".join(s.split("==")[0].split("[")[0] for s in _missing)
+                )
+                return
+
             _res = _sp.run(
                 [_sys.executable, "-m", "pip", "install",
                  "--prefer-binary",            # use pre-built wheels → no C-build failures
