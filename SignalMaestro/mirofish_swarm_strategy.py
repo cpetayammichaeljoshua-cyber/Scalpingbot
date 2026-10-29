@@ -2138,6 +2138,28 @@ class AIOrchestrationAgent:
 
     # ── OpenAI query ─────────────────────────────────────────────────────────
 
+    async def _run_completion(self, create_coro, timeout: float):
+        """v231.0: Run an async completion and ALWAYS retrieve its exception.
+
+        asyncio.wait_for(create_coro, timeout) cancels the SDK request on
+        timeout, but the openai SDK leaves an orphaned background task whose
+        exception is never retrieved -> 'Task exception was never retrieved'
+        kills the process.  Run as an explicit Task, cancel + gather to drain
+        the exception, then re-raise the TimeoutError.
+        """
+        task = asyncio.ensure_future(create_coro)
+        try:
+            return await asyncio.wait_for(task, timeout=timeout)
+        except asyncio.TimeoutError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+        except Exception:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            raise
+
     async def _query_openai(self, prompt: str) -> Optional[dict]:
         """
         Send prompt to OpenAI; return parsed dict or None on any error.
@@ -2185,7 +2207,7 @@ class AIOrchestrationAgent:
                 "🔑 OpenAI cooldown elapsed — re-enabling. Attempting API call."
             )
         try:
-            response = await asyncio.wait_for(
+            response = await self._run_completion(
                 self.openai_client.chat.completions.create(
                     model=self._OPENAI_MODEL,
                     messages=[{"role": "user", "content": prompt}],
