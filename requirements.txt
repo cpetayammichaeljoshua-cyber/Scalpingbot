@@ -33,6 +33,8 @@ aiosqlite>=0.19            # HARD: unguarded import, crashes without it
 scikit-learn>=1.3         # sentiment + market-predictor SKLEARN mode
 # torch is large; the repo falls back to stdlib math when absent.
 torch>=2.2
+hmmlearn>=0.3.3           # HMM regime detector Tier-1 (hmm_regime_detector.py);
+                          # guarded at runtime but required by Dockerfile VERIFY
 
 # --- Test / CI ---------------------------------------------------------------
 pytest>=8.0
