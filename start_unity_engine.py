@@ -2887,7 +2887,6 @@ def _bootstrap_all_critical_packages() -> None:
         # ── async I/O (L11 CRITICAL — engine crashes without aiohttp) ─────────
         ("aiohttp",          "aiohttp==3.13.5"),
         ("aiosqlite",        "aiosqlite==0.22.1"),
-        ("aiodns",           "aiodns==4.0.0"),
         # ── data / ML stack (10+ layers disabled when numpy is missing) ────────
         ("numpy",            "numpy==2.4.4"),
         ("scipy",            "scipy==1.17.1"),
@@ -2898,14 +2897,9 @@ def _bootstrap_all_critical_packages() -> None:
         # ── exchange / trading ────────────────────────────────────────────────
         ("ccxt",             "ccxt==4.5.52"),
         ("requests",         "requests==2.33.1"),
-        ("binance",          "binance-connector==3.13.0"),
         # ── WebSocket / network ───────────────────────────────────────────────
         ("websockets",       "websockets==16.0"),
-        ("websocket",        "websocket-client==1.9.0"),
         # ── NLP / sentiment (sentiment gate) ──────────────────────────────────
-        ("vaderSentiment",   "vaderSentiment==3.3.2"),
-        ("textblob",         "textblob==0.20.0"),
-        ("nltk",             "nltk==3.9.4"),
         # ── BM25 swarm memory ─────────────────────────────────────────────────
         ("rank_bm25",        "rank-bm25==0.2.2"),
         # ── performance / serialization ────────────────────────────────────────
@@ -2915,7 +2909,6 @@ def _bootstrap_all_critical_packages() -> None:
         ("asyncio_throttle", "asyncio-throttle==1.0.2"),
         # ── cryptography ──────────────────────────────────────────────────────
         ("cryptography",     "cryptography==48.0.0"),
-        ("Crypto",           "pycryptodome==3.23.0"),
         # ── Redis state cache ─────────────────────────────────────────────────
         ("redis",            "redis==7.4.0"),
         # ── Hidden Markov Model (HMM regime detector, v18.76 dual-tier) ──────

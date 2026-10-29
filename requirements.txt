@@ -45,3 +45,13 @@ pytest-timeout>=2.2       # required by the documented `--timeout=60` flag
 openai>=1.30           # OpenAI backend (guarded); fallback chain still works
 ccxt>=4.0          # exchange abstraction (MEXC / OKX / Deribit cross-gates)
 transformers>=4.40 # HuggingFace; torch.nn.TransformerEncoder is primary
+websockets>=12.0   # BinanceTrader + aggTrade WS (imported by binance_trader.py)
+psutil>=5.9        # process/memory introspection (4 import sites)
+python-telegram-bot>=22.7   # FXSUSDTTelegramBot dispatch (13 import sites;
+                            # missing -> HEADLESS mode, no Telegram signals)
+uvloop>=0.20       # event-loop perf (start_unity_engine.py L35785)
+orjson>=3.10       # fast JSON (aegis_gex/*.py — 4 files)
+asyncio-throttle>=1.0   # rate-limit throttle (ai_sentiment_analyzer.py)
+cryptography>=42.0     # Fernet encryption (SignalMaestro/user_db.py)
+redis>=5.0             # async state cache (start_unity_engine.py L31571)
+rank-bm25>=0.2.2       # swarm BM25 memory (SignalMaestro/swarm_bm25_memory.py)
