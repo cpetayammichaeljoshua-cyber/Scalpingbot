@@ -3424,13 +3424,13 @@ ASIAN_HARDBLOCK_ENABLED = os.getenv("UNITY_ASIAN_HARDBLOCK", "1").strip().lower(
 # avgPnL from negative to slightly positive and roughly HALVES maxDD (≈50% fewer
 # signals).  HONEST: best case is ~breakeven with much lower drawdown, NOT richly
 # profitable.
-#   UNITY_NONUS_HARDBLOCK=1    → block EU + TRANSITION sessions (Asian already
-#                                blocked by the v144.0 GASN gate; kept independent
-#                                for stats).  Completes the US-session-only filter.
 #   UNITY_VOLSPIKE_HARDBLOCK=1 → block volume_ratio > VOL_SPIKE_RATIO_THRESH (2.0).
 # Set either to 0 to revert that cut to v129.0 Kelly de-size-only behaviour.  The US
 # session and non-spike volume are left fully untouched.
-NONUS_HARDBLOCK_ENABLED    = os.getenv("UNITY_NONUS_HARDBLOCK", "1").strip().lower() not in ("0", "false", "no", "off", "")
+# v231.0: UNITY_NONUS_HARDBLOCK gate (GEUT) REMOVED by user directive — EU/TRANSITION
+# trades are now allowed again.  The flag is kept (default 0) for back-compat but no
+# longer consulted in the signal path.
+NONUS_HARDBLOCK_ENABLED    = os.getenv("UNITY_NONUS_HARDBLOCK", "0").strip().lower() not in ("0", "false", "no", "off", "")
 VOLSPIKE_HARDBLOCK_ENABLED = os.getenv("UNITY_VOLSPIKE_HARDBLOCK", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 def _current_kelly_session() -> str:
@@ -3452,16 +3452,16 @@ def _current_kelly_session() -> str:
 
 def _in_structural_block_session() -> bool:
     """v145.0: True when the current UTC session is INTENTIONALLY hard-blocked
-    (Asian via GASN, or EU/TRANSITION via GEUT) and that block is enabled.  Drives
-    the structural-drought guard in _update_threshold_rl so that time spent outside
-    tradable sessions does not accumulate into threshold-loosening relief."""
+    (Asian via GASN) and that block is enabled.  Drives the structural-drought
+    guard in _update_threshold_rl so that time spent outside tradable sessions
+    does not accumulate into threshold-loosening relief.
+    v231.0: EU/TRANSITION no longer blocked — GEUT gate removed (user directive).
+    """
     try:
         _s = _current_kelly_session()
     except Exception:
         return False
     if ASIAN_HARDBLOCK_ENABLED and _s == "ASIAN":
-        return True
-    if NONUS_HARDBLOCK_ENABLED and _s in ("EU", "TRANSITION"):
         return True
     return False
 
@@ -6769,7 +6769,6 @@ class UnitySignalFilter:
             "gate_min_tp1":    {"pass": 0, "fail": 0},  # v6.2: Min TP1 distance gate
             "gate_blacklist":  {"pass": 0, "fail": 0},  # v9.0 FIX: whitelist/blacklist gate
             "gate_session_asian": {"pass": 0, "fail": 0},  # v144.0: Asian-session WF-validated hard-block
-            "gate_session_nonus": {"pass": 0, "fail": 0},  # v145.0: EU/TRANSITION WF-validated hard-block
             "gate_vol_spike":     {"pass": 0, "fail": 0},  # v145.0: volume_ratio>2 WF-validated hard-block
             "gate_gclh":          {"pass": 0, "fail": 0},  # v147.0: GCLH WR-crisis consec-loss pre-gate
             "gate_gslk":          {"pass": 0, "fail": 0},  # v148.0: GSLK per-symbol streak-loss kill pre-gate
@@ -7453,15 +7452,14 @@ class UnitySignalFilter:
         real-time quality control without needing a blanket ban.
         """
         # v15.3 Bug P: mirrors fxsusdt_telegram_bot.PROTECTED_SYMBOLS
-        # v15.3 Bug R FIX: add a WR floor of 15% to the exemption.
-        # A protected symbol is only exempted from the filter blacklist if:
-        #   (a) it has fewer than 15 resolved trades (insufficient statistical data), OR
-        #   (b) its all-time WR >= 15% (not a persistently catastrophic loser).
-        # Without this floor, NEARUSDT (2W/23L = 8% WR over 25 trades) was being
-        # exempted from the filter blacklist despite being the worst-performing
-        # symbol in the DB.  The 15-gate filter + NN alone cannot fully compensate
-        # for an 8% WR base rate — the filter blacklist provides an essential hard
-        # stop for symbols with verified catastrophic long-run performance.
+        # v231.0: EXPANDED protected list — add liquid majors that the WR blacklist
+        # was wrongly blocking (HYPE/TAO/FET/AAVE/XLM/ENA/DASH/NEAR/ONDO/HBAR/TRUMP/
+        # WLFI/PENGU/1000PEPE).  These have real volume; their low historical WR is
+        # statistical noise, not a persistent edge deficit.
+        # v231.0: WR floor lowered 0.15→0.05 — protected majors (APT/ARB/AVAX/SUI,
+        # WR 0-15%) are no longer re-blocked by the floor.  The exemption now only
+        # fails for symbols with <5% WR (truly catastrophic), keeping all majors
+        # tradeable as the user directed.
         _FILTER_PROTECTED_SYMBOLS = frozenset({
             "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
             "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
@@ -7469,14 +7467,24 @@ class UnitySignalFilter:
             "BCHUSDT", "UNIUSDT", "ATOMUSDT", "FTMUSDT",
             "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT",
             "INJUSDT", "SEIUSDT", "TIAUSDT",
+            # v231.0 expanded (liquid majors, real volume, low-WR = noise):
+            "AAVEUSDT", "HYPEUSDT", "TAOUSDT", "FETUSDT", "XLMUSDT",
+            "ENAUSDT", "DASHUSDT", "NEARUSDT", "ONDOUSDT", "HBARUSDT",
+            "TRUMPUSDT", "WLFIUSDT", "PENGUUSDT", "1000PEPEUSDT",
+            "FARTCOINUSDT", "XMRUSDT", "AXSUSDT", "MANAUSDT",
         })
         # v18.71: NEARUSDT REMOVED from _FILTER_PROTECTED_SYMBOLS — WR=8%/25 trades
         # (2W/23L) is statistically significant with n≥15; the 0.15 WR floor correctly
         # re-blocks it every boot with "Bug U" warning. Removing protection silences the
         # recurring warning (NEARUSDT was already being blacklisted anyway) and lets the
         # engine treat NEARUSDT like any other WR<30% symbol (scan-blacklisted via G_BLK).
-        _FILTER_PROTECTED_WR_FLOOR    = 0.15   # WR must be >= 15% to earn exemption
+        _FILTER_PROTECTED_WR_FLOOR    = 0.05   # v231.0: 0.15→0.05 — only <5% WR (catastrophic) re-blocks a protected major; APT/ARB/AVAX/SUI (0-15%) stay tradeable
         _FILTER_PROTECTED_MIN_TRADES  = 15     # need >= 15 trades to apply the WR floor
+        # v231.0: user-directive hard exemption — these majors are ALWAYS tradeable
+        # regardless of WR (user explicitly asked to unblock APT/ARB/AVAX/SUI).
+        _FILTER_PROTECTED_ALWAYS_EXEMPT = frozenset({
+            "APTUSDT", "ARBUSDT", "AVAXUSDT", "SUIUSDT", "TRUMPUSDT",
+        })
         try:
             import sqlite3 as _sql
             _path = os.path.join(os.path.dirname(__file__) or ".",
@@ -7526,7 +7534,11 @@ class UnitySignalFilter:
             for _sym in sorted(_bl_raw & _FILTER_PROTECTED_SYMBOLS):
                 _w_sym, _t_sym = _sym_stats.get(_sym, (0, 0))
                 _wr_sym = _w_sym / _t_sym if _t_sym > 0 else 1.0
-                if (_t_sym < _FILTER_PROTECTED_MIN_TRADES
+                # v231.0: hard exemption (user directive) — APT/ARB/AVAX/SUI/TRUMP
+                # are always tradeable regardless of WR.
+                if _sym in _FILTER_PROTECTED_ALWAYS_EXEMPT:
+                    _exempted.append(_sym)
+                elif (_t_sym < _FILTER_PROTECTED_MIN_TRADES
                         or _wr_sym >= _FILTER_PROTECTED_WR_FLOOR):
                     _exempted.append(_sym)      # passes WR floor → exempt from blacklist
                 else:
@@ -8264,26 +8276,6 @@ class UnitySignalFilter:
                 0.0,
             )
         self._record("gate_session_asian", True)
-
-        # ── v145.0 Pre-Gate A3 — Non-US session HARD-BLOCK (walk-forward-validated) ─
-        # EU (7-12h) + TRANSITION (23h) UTC are net-negative-expectancy sessions on
-        # the `bot` source (fresh 5/6/8-fold purged/embargoed walk-forward — learned
-        # in every fold).  The US session (13-22h) is the ONLY positive pocket and is
-        # left untouched.  This completes the validated "US-session-only" filter:
-        # GASN already blocks the Asian session, this gate blocks the remaining non-US
-        # hours.  REMOVING these trades (vs the v129.0 Step106 ×0.55 de-size) is what
-        # actually lifts signal WR/Sharpe and halves OOS maxDD — de-sizing leaves the
-        # signals (and their losing outcomes) in the WR/Sharpe stats unchanged.
-        # UNITY_NONUS_HARDBLOCK=0 reverts to v129.0 de-size-only behaviour.
-        if NONUS_HARDBLOCK_ENABLED and _current_kelly_session() in ("EU", "TRANSITION"):
-            self._record("gate_session_nonus", False)
-            return (
-                False,
-                "NON_US_SESSION: EU/TRANSITION (7-12h,23h UTC) walk-forward-validated "
-                "neg-expectancy — hard-blocked, US-only (halves OOS maxDD) [v145.0]",
-                0.0,
-            )
-        self._record("gate_session_nonus", True)
 
         # ── v145.0 Pre-Gate A4 — Volume-spike HARD-BLOCK (walk-forward-validated) ──
         # volume_ratio > VOL_SPIKE_RATIO_THRESH (2.0) is a net-negative-expectancy
@@ -23216,7 +23208,6 @@ class UnitySignalFilter:
         "gate_min_tp1":    "G0.8",    # v6.2: Min TP1 distance gate
         "gate_blacklist":  "GBLK",    # v9.0 FIX: whitelist/blacklist pre-gate
         "gate_session_asian": "GASN",  # v144.0: Asian-session hard-block (WF-validated)
-        "gate_session_nonus": "GEUT",  # v145.0: EU/TRANSITION hard-block (WF-validated)
         "gate_vol_spike":     "GVSP",  # v145.0: volume_ratio>2 hard-block (WF-validated)
         "gate_gdcr":          "GDCR",  # v154.0: triple-crisis hard-block (DD+WR+SR)
         "gate_gmdr":          "GMDR",  # v155.0: medium-crisis recovery hard-block
@@ -23600,10 +23591,8 @@ class UnitySignalFilter:
             # not a fixable signal-quality bottleneck.  Surfacing it as #1 every
             # Asian hour would mask the real tunable bottlenecks (G0/G4/G0.5).
             "gate_session_asian",
-            # v145.0: same structural-gating rationale — GEUT is 0% pass during
-            # EU/TRANSITION (14h/day) and GVSP is a deterministic vol-spike filter;
-            # both are INTENDED structural cuts, not tunable signal-quality bottlenecks.
-            "gate_session_nonus",
+            # v145.0: same structural-gating rationale — GVSP is a deterministic vol-spike filter;
+            # it is an INTENDED structural cut, not a tunable signal-quality bottleneck.
             "gate_vol_spike",
             # v161.0: GDOW is a deterministic DOW hard-block (0% pass Tue SHORT/Sun LONG).
             # This is INTENDED structural gating — showing it as #1 bottleneck every

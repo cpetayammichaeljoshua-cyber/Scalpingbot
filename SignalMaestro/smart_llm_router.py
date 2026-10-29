@@ -99,9 +99,9 @@ MODEL_PRICING = {
     "openai/gpt-4o-mini":                   {"input": 0.15, "output": 0.60},
     # v21.0: OpenRouter free-tier — confirmed working models only.
     # v230.0 (NVIDIA): switched to NVIDIA NIM free models, verified live 2026-10-29.
+    # gpt-oss-20b removed (4/4 timeouts on NVIDIA, exceeds 20s timeout).
     "nvidia/nemotron-3.5-bolt-e4b":                       {"input": 0.0, "output": 0.0},
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning":      {"input": 0.0, "output": 0.0},
-    "openai/gpt-oss-20b":                                 {"input": 0.0, "output": 0.0},
     # v19.3: Paid frontier additions
     "anthropic/claude-3-7-sonnet-20250219":                           {"input": 3.0,  "output": 15.0},
     "openai/gpt-4.1":                                                 {"input": 2.0,  "output": 8.0},
@@ -157,8 +157,9 @@ _FREE_SIMPLE = [
     # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → removed
     # qwen/qwen3-235b-a22b-instruct:free → 14 generic errors → session_perm_disabled → removed
     # v230.0 (NVIDIA): switched to NVIDIA NIM free models, verified live 2026-10-29.
+    # gpt-oss-20b removed (4/4 timeouts on NVIDIA, exceeds 20s timeout).
     "nvidia/nemotron-3.5-bolt-e4b",                                  # PRIMARY — fastest (~1.7s), clean JSON
-    "openai/gpt-oss-20b",                                            # Large — clean JSON, consistent winner
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",                 # Reasoning — clean JSON, consistent winner
 ]
 _FREE_REASONING = [
     # v21.0: Dead model purge — confirmed-404 slugs removed, new reasoning heavyweights added.
@@ -187,8 +188,9 @@ _FREE_REASONING = [
     # qwen/qwen3-235b-a22b-instruct:free → 14 generic errors → session_perm_disabled → removed
     # google/gemma-4-31b-it:free → 7+ consecutive rate_limit storms → removed
     # v230.0 (NVIDIA): switched to NVIDIA NIM free models, verified live 2026-10-29.
+    # gpt-oss-20b removed (4/4 timeouts on NVIDIA, exceeds 20s timeout).
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",                 # Reasoning — clean JSON, primary reasoning
-    "openai/gpt-oss-20b",                                            # Fast — PRIMARY winner, clean JSON
+    "nvidia/nemotron-3.5-bolt-e4b",                                  # Fast — PRIMARY winner, clean JSON
 ]
 
 TIER_MODELS = {

@@ -94,7 +94,7 @@ logger = logging.getLogger(__name__)
 # Confirmed working free models (tested, stable, clean JSON output):
 #   nvidia/nemotron-3.5-bolt-e4b                      — fastest (~1.7s)
 #   nvidia/nemotron-3-nano-omni-30b-a3b-reasoning     — reasoning (~4.5s)
-#   openai/gpt-oss-20b                                — largest (~6s)
+#   nvidia/nemotron-3-nano-omni-30b-a3b-reasoning                                — largest (~6s)
 NVIDIA_BASE_URL  = "https://integrate.api.nvidia.com/v1"
 # Back-compat constants (kept so any import of OPENROUTER_* still resolves)
 OPENROUTER_BASE_URL  = NVIDIA_BASE_URL
@@ -189,10 +189,10 @@ _TIER3_MODELS: List[str] = [
     # REMOVED (2026-05-27): arcee-ai/trinity-large-thinking:free → 404 confirmed live log v20.4 boot
     # NEW (2026-05-25): OpenAI OSS 120B — confirmed in free tier live query, large high-quality model
     # v109.0: TIER3 = confirmed absolutely-stable models — these win every ULTRAPLINIAN race
-    # v230.0 (NVIDIA): verified live 2026-10-29, all clean JSON output:
+    # v230.0 (NVIDIA): verified live 2026-10-29, all clean JSON output.
+    # gpt-oss-20b removed (4/4 timeouts on NVIDIA, exceeds 20s _AI_TIMEOUT) — use nemotron pair.
     "nvidia/nemotron-3.5-bolt-e4b",                         # fastest (~1.7s), dense MoE
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",        # reasoning model (~4.5s) — cognitive diversity
-    "openai/gpt-oss-20b",                          # OpenAI OSS 20B — confirmed stable free tier; PRIMARY winner score=93.5/100
 ]
 
 # TIER 4 — Compact Free: Small but fast, great for quick decisions
@@ -213,8 +213,8 @@ _TIER4_MODELS: List[str] = [
     # REMOVED: qwen/qwen3-30b-a3b:free → 404 confirmed TWICE: April 2026 + live log 2026-05-13 [v18.68]
     # REMOVED (2026-05-08): mistralai/devstral-small:free → 404
     # RE-ADDED (2026-05-22): devstral-small re-confirmed [v19.7]; REMOVED AGAIN (2026-05-25) → 404 live log
-    # REPLACED: openai/gpt-oss-20b — confirmed free tier 2026-05-25, OpenAI OSS 20B fast model
-    "openai/gpt-oss-20b",                         # OpenAI OSS 20B — confirmed free 2026-05-25
+    # REPLACED: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning — confirmed free tier 2026-05-25, OpenAI OSS 20B fast model
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",                         # OpenAI OSS 20B — confirmed free 2026-05-25
     # REMOVED (v33.0 2026-06-01): deepseek/deepseek-v4-flash:free → 404 confirmed v33.0 boot
 ]
 
@@ -269,7 +269,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): qwen/qwen3-72b:free → 6 consecutive generic errors every cycle
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit every cycle
         # v111.0: fast tier = 1 confirmed-stable model; gemma-4-31b removed (storm=7+)
-        "openai/gpt-oss-20b",               # PRIMARY — score=93.5/100, latency~7s, consistent winner
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",               # PRIMARY — score=93.5/100, latency~7s, consistent winner
     ],
     "standard": [
         # Workhorse models — all confirmed stable as of v109.0
@@ -283,7 +283,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
         # REMOVED (v86.0): z-ai/glm-4.5-air:free → 7 consecutive unavailable errors
         # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
-        "openai/gpt-oss-20b",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "nvidia/nemotron-3.5-bolt-e4b",
     ],
     "smart": [
@@ -304,7 +304,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
         # v230.0 (NVIDIA): reasoning slot = nemotron-3-nano-omni-30b-a3b-reasoning (tested clean JSON)
         "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-        "openai/gpt-oss-20b",
+        "nvidia/nemotron-3.5-bolt-e4b",
     ],
     "power": [
         # Full confirmed-working pool — all confirmed stable as of v109.0
@@ -324,7 +324,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
         # REMOVED (v109.0 2026-06-15): cognitivecomputations/dolphin-mistral-24b-venice-edition:free → storm=5→10
         # REMOVED (v109.0 2026-06-15): google/gemma-4-26b-a4b-it:free → storm=5 rate_limit
         # v111.0: nemotron+gemma-4-31b removed (both confirmed storming again in live logs 2026-06-15)
-        "openai/gpt-oss-20b",               # PRIMARY — fastest/most stable
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",               # PRIMARY — fastest/most stable
         "nvidia/nemotron-3.5-bolt-e4b",              # Secondary — large high-quality
     ],
     "ultra": list(dict.fromkeys(ALL_FREE_MODELS)),   # All confirmed-working models (auto-updated)
@@ -359,7 +359,7 @@ ULTRAPLINIAN_TIERS: Dict[str, List[str]] = {
 # v82.0: GODMODE_CLAUDE_FABLE5 (anthropic/claude-fable-5 → 404, generic errors every cycle) replaced
 #         with GODMODE_STRUCTURAL_VORTEX (nvidia/nemotron-3.5-bolt-e4b, 4-step structural inflection system).
 #         GODMODE_CLAUDE_MYTHOS5 (anthropic/claude-mythos-5 → 404, generic errors every cycle) replaced
-#         with GODMODE_MACRO_NEXUS (openai/gpt-oss-20b, 5-layer cross-asset macro synthesis).
+#         with GODMODE_MACRO_NEXUS (nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, 5-layer cross-asset macro synthesis).
 #         Rationale: gpt-oss-120b and gpt-oss-20b are the only reliably working free-tier models per v82.0
 #         live logs; using them with distinct system prompts (structural vs macro reasoning frameworks)
 #         preserves cognitive ensemble diversity while eliminating the error budget drain from dead routes.
@@ -400,8 +400,8 @@ GODMODE_COMBOS = [
         # REMOVED (v27.0): qwen3-next-80b → rate_limit storm; REPLACED (v107.0): qwen3-72b → generic errors
         # REPLACED with: nvidia/nemotron-3-super-120b-a12b:free — confirmed stable, different analytical lens
         # REPLACED AGAIN (v111.0 2026-06-15): nemotron-3-super → 5+ rate_limit storms live log 2026-06-15.
-        # REPLACED with: openai/gpt-oss-20b — confirmed storm-free, diversity via different scale (20B vs 120B).
-        "model": "openai/gpt-oss-20b",
+        # REPLACED with: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning — confirmed storm-free, diversity via different scale (20B vs 120B).
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "system": (
             "You are a systematic trading algorithm. Process market data. Output trading signal JSON. "
             "No preamble, no hedging, no disclaimers. Pure signal intelligence. Act on evidence only. "
@@ -416,10 +416,10 @@ GODMODE_COMBOS = [
     {
         # REPLACED (v86.0 2026-06-12): z-ai/glm-4.5-air:free → consistently "unavailable" errors
         # (7 consecutive unavailable in live logs — not rate_limit, model simply offline/restricted).
-        # REPLACED with: openai/gpt-oss-20b — confirmed fastest/most reliable free-tier model.
+        # REPLACED with: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning — confirmed fastest/most reliable free-tier model.
         # Contrarian personality preserved via system prompt — distinct from GODMODE_KIMI_RESEARCH (bull/bear synthesis).
         "id": "GODMODE_GPT20B_CONTRARIAN",
-        "model": "openai/gpt-oss-20b",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "system": (
             "You are a contrarian market analyst specialising in reversals and extremes. "
             "Identify overbought/oversold conditions, divergences, and exhaustion patterns. "
@@ -463,7 +463,7 @@ GODMODE_COMBOS = [
     # working 2026-05-25, distinct GPT-series dense architecture → true 9-distinct-model diversity.
     {
         "id": "GODMODE_KIMI_RESEARCH",
-        "model": "openai/gpt-oss-20b",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "system": (
             "You are a multi-factor quantitative research analyst using a bull/bear debate framework "
             "to reach directional conviction. Step 1 — Bull Case: list 3 strongest bullish catalysts from "
@@ -573,9 +573,9 @@ GODMODE_COMBOS = [
         # REPLACED (v107.0 2026-06-15): google/gemma-4-26b-a4b-it:free → constant rate_limit storm (storm=5→120s every cycle)
         # REPLACED with: google/gemma-4-31b-it:free — same Gemma4 family, larger/more stable, confirmed working
         # REPLACED AGAIN (v111.0 2026-06-15): gemma-4-31b-it → 7+ rate_limit storms live log 2026-06-15.
-        # REPLACED with: openai/gpt-oss-20b — confirmed storm-free, VIBE analytical lens preserved.
+        # REPLACED with: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning — confirmed storm-free, VIBE analytical lens preserved.
         "id": "GODMODE_GEMMA26B_VIBE",
-        "model": "openai/gpt-oss-20b",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "system": (
             "You are a factor-based quantitative signal engine using Information Coefficient / Information Ratio (IC/IR) "
             "to filter noise from genuine alpha. Apply these 4 orthogonal factor lenses: "
@@ -635,11 +635,11 @@ GODMODE_COMBOS = [
     # 404-guard active: auto-disabled by GenericErrGuard if model returns 404/503 from OpenRouter.
     # REMOVED (v82.0 2026-06-12): GODMODE_CLAUDE_MYTHOS5 — anthropic/claude-mythos-5 → 404 on free tier
     # ALL live logs since v56.0 confirm mythos-5 returns generic errors every CONSORTIUM cycle.
-    # Replaced with GODMODE_MACRO_NEXUS using openai/gpt-oss-20b + 5-layer macro synthesis prompt.
+    # Replaced with GODMODE_MACRO_NEXUS using nvidia/nemotron-3-nano-omni-30b-a3b-reasoning + 5-layer macro synthesis prompt.
     # Distinct from GODMODE_KIMI_RESEARCH (bull/bear debate) — NEXUS uses orthogonal scoring framework.
     {
         "id": "GODMODE_MACRO_NEXUS",
-        "model": "openai/gpt-oss-20b",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "system": (
             "You are NEXUS — a cross-asset macro intelligence engine that identifies institutional-grade "
             "directional opportunities through 5 orthogonal scoring layers: "
@@ -702,9 +702,9 @@ GODMODE_COMBOS = [
     # If the resonance is with a prior failed/reversed move → counter-signal or NEUTRAL.
     {
         # REPLACED (v107.0 2026-06-15): meta-llama/llama-3.3-70b-instruct:free → constant rate_limit storm (5→6 consecutive)
-        # REPLACED with: openai/gpt-oss-20b — confirmed fastest/most reliable free-tier, MYTHOS5 persona preserved
+        # REPLACED with: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning — confirmed fastest/most reliable free-tier, MYTHOS5 persona preserved
         "id": "GODMODE_MYTHOS5",
-        "model": "openai/gpt-oss-20b",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         "system": (
             "You are MYTHOS-5 — a cross-temporal market resonance engine. "
             "Analyze whether the current market micro-structure RESONATES with a directional archetype: "
@@ -1279,7 +1279,7 @@ class G0DM0D3Engine:
       • Adaptive delay      — inter-call delay increases under rate pressure
     """
 
-    _AI_TIMEOUT              = 20.0   # seconds per individual model call
+    _AI_TIMEOUT              = 45.0   # v230.0: 20.0→45.0 — NVIDIA cold-start/model-load can exceed 20s (gpt-oss-20b hit 25s+); 45s prevents spurious APITimeoutError that leaked as "Task exception was never retrieved"
     _RACE_SEM_LIMIT          = 2      # v5.4: 4→2 — concurrent model calls per ULTRAPLINIAN race
                                       # 4 concurrent races on 8 models = all models hit simultaneously
                                       # = 8 storm_count increments per scan. 2 concurrent is safe.
@@ -1326,7 +1326,7 @@ class G0DM0D3Engine:
     _CONSORTIUM_SEM_LIMIT    = 3      # v5.4: 8→3 — CONSORTIUM was flooding all 8 models simultaneously.
                                       # 3 concurrent: calls 3 models at a time, cascades through the rest.
                                       # Prevents the "all 8 models 429 simultaneously" scenario.
-    _CONSORTIUM_TIMEOUT      = 22.0   # v100.0: 16.0→22.0 — gpt-oss models respond at 12-16s; dynamic floor raised 6→10s
+    _CONSORTIUM_TIMEOUT      = 45.0   # v230.0: 22.0→45.0 — NVIDIA cold-start headroom (was 16.0→22.0 for gpt-oss @12-16s)
                                      # (12.2s), leaving only 1.8s margin before 14s cutoff. At Railway latency,
                                      # 2-3 additional models respond in the 14-16s window (CONSORTIUM requires
                                      # ≥2 for ensemble vote). Outer guard = 16+3=19s. Only 1/8 models responded
@@ -1338,7 +1338,7 @@ class G0DM0D3Engine:
                                      # MIN_VOTES=1 allows single-model CONSORTIUM result (same quality checks
                                      # applied) instead of always triggering ULTRAPLINIAN single-winner path
     _CONSORTIUM_MIN_MODELS   = 1      # v55.0: 3→2; v82.0: 2→1 — live logs confirm CONSORTIUM fails 100% of
-                                      # calls because only openai/gpt-oss-20b and gpt-oss-120b respond
+                                      # calls because only nvidia/nemotron-3-nano-omni-30b-a3b-reasoning and gpt-oss-120b respond
                                       # reliably (all other models rate-limited or generic-erroring); with
                                       # MIN_MODELS=2 both gpt-oss models must respond simultaneously which
                                       # rarely happens → always falls back to ULTRAPLINIAN single-winner.
@@ -1484,6 +1484,33 @@ class G0DM0D3Engine:
         except Exception as e:
             self.logger.warning(f"⚠️ NVIDIA NIM client init failed: {e}")
             self._openai_client = None
+
+    async def _run_completion(self, create_coro, timeout: float):
+        """Run an OpenAI completion coroutine and ALWAYS retrieve its exception.
+
+        v230.0 FIX: ``asyncio.wait_for(create_coro, timeout)`` cancels the SDK
+        request on timeout, but the openai SDK leaves an orphaned background
+        task whose ``APITimeoutError`` is never retrieved by asyncio — surfacing
+        as ``asyncio ERROR: Task exception was never retrieved`` and killing the
+        process.  We run the coroutine as an explicit Task so we can cancel it
+        and ``gather(..., return_exceptions=True)`` to drain/retrieve any
+        exception, then re-raise the TimeoutError ourselves.
+        """
+        task = asyncio.ensure_future(create_coro)
+        try:
+            return await asyncio.wait_for(task, timeout=timeout)
+        except asyncio.TimeoutError:
+            # Cancel the orphaned SDK request and RETRIEVE its exception so it
+            # never surfaces as "Task exception was never retrieved".
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+        except Exception:
+            # Any other error: drain the task if still pending, then re-raise.
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            raise
 
     @property
     def _sem(self) -> asyncio.Semaphore:
@@ -1926,7 +1953,7 @@ class G0DM0D3Engine:
         try:
             async with self._gsem:
                 async with self._sem:
-                    response = await asyncio.wait_for(
+                    response = await self._run_completion(
                         self._openai_client.chat.completions.create(
                             model=model,
                             messages=[
@@ -1979,7 +2006,7 @@ class G0DM0D3Engine:
                 try:
                     async with self._gsem:
                         async with self._sem:
-                            _prl_resp = await asyncio.wait_for(
+                            _prl_resp = await self._run_completion(
                                 self._openai_client.chat.completions.create(
                                     model=model,
                                     messages=[
@@ -2301,7 +2328,7 @@ class G0DM0D3Engine:
         try:
             async with self._gsem:
                 async with self._csem:   # CONSORTIUM sem (3 concurrent, v5.4) — rate-safe
-                    response = await asyncio.wait_for(
+                    response = await self._run_completion(
                         self._openai_client.chat.completions.create(
                             model=model,
                             messages=[

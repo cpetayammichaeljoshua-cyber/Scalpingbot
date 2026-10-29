@@ -835,6 +835,7 @@ class FXSUSDTTelegramBot:
             # These are high-liquidity perpetual futures where temporary loss streaks
             # are statistical noise, and removing them would significantly reduce
             # signal volume and market coverage quality.
+            # v231.0: expanded — add liquid majors that the WR floor was re-blocking.
             PROTECTED_SYMBOLS = {
                 "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT",
                 "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
@@ -843,6 +844,11 @@ class FXSUSDTTelegramBot:
                 "APTUSDT", "ARBUSDT", "OPUSDT", "SUIUSDT",
                 # NEARUSDT removed (v20.5): WR=8%/25 trades < 15% floor; treating as normal symbol
                 "INJUSDT", "SEIUSDT", "TIAUSDT",
+                # v231.0 expanded (liquid majors, real volume):
+                "AAVEUSDT", "HYPEUSDT", "TAOUSDT", "FETUSDT", "XLMUSDT",
+                "ENAUSDT", "DASHUSDT", "NEARUSDT", "ONDOUSDT", "HBARUSDT",
+                "TRUMPUSDT", "WLFIUSDT", "PENGUUSDT", "1000PEPEUSDT",
+                "FARTCOINUSDT", "XMRUSDT", "AXSUSDT", "MANAUSDT",
             }
 
             # v9.9 Apex-#5: Sortino-aware rescue.
@@ -876,15 +882,22 @@ class FXSUSDTTelegramBot:
             # They then waste a full swarm evaluation every ~10 min when their G_BLK
             # cooldown expires.  Fix: if a protected symbol has ≥15 all-time resolved
             # trades AND all-time WR < 15%, add it to the scan blacklist too.
-            _PROTECTED_WR_FLOOR      = 0.15   # mirror of _FILTER_PROTECTED_WR_FLOOR
+            _PROTECTED_WR_FLOOR      = 0.05   # v231.0: 0.15→0.05 — only <5% WR re-blocks a protected major (APT/ARB/AVAX/SUI stay tradeable)
             _PROTECTED_MIN_TRADES    = 15     # mirror of _FILTER_PROTECTED_MIN_TRADES
             _protected_scan_blocked: list = []
 
             new_blacklist = set()
             _rescued: list = []
+            # v231.0: user-directive hard exemption — always tradeable regardless of WR.
+            _PROTECTED_ALWAYS_EXEMPT = {
+                "APTUSDT", "ARBUSDT", "AVAXUSDT", "SUIUSDT", "TRUMPUSDT",
+            }
             for sym, s in stats.items():
                 if sym in PROTECTED_SYMBOLS:
                     # v15.3 Bug U: enforce WR floor for protected symbols too
+                    # v231.0: hard-exempt symbols bypass the WR floor entirely.
+                    if sym in _PROTECTED_ALWAYS_EXEMPT:
+                        continue
                     _p_total = s.get("total", 0)      # key is "total" not "total_trades"
                     _p_wins  = s.get("wins", 0)
                     _p_wr    = (_p_wins / _p_total) if _p_total > 0 else 1.0
