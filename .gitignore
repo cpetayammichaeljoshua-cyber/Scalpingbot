@@ -197,3 +197,9 @@ unity_metrics_v*.json
 unity_symbols_v*.json
 .venv/
 .venv2/
+
+# SQLite runtime sidecars
+trade_history.db-shm
+trade_history.db-wal
+*.db-shm
+*.db-wal

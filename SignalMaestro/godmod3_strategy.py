@@ -1577,10 +1577,38 @@ class G0DM0D3Engine:
         """True if API key and client are configured."""
         return bool(self._api_key and self._openai_client is not None)
 
+    def _all_disabled_by_auth(self) -> bool:
+        """TUNED v1: True if EVERY model is disabled solely because of an auth
+        error (wrong key / wrong endpoint).  A key/endpoint mismatch is a
+        configuration issue, NOT a transient outage — the AI layer can never
+        recover on its own, so the signal gate must FAIL OPEN (let the NN +
+        rule-based swarm carry signals) instead of starving the channel for
+        hours while the bot waits for a recovery that will never come.
+
+        Called by has_available_models(): when all models are auth-disabled,
+        report them as 'available' so the AI Signal Gate never blocks signals
+        on a config mismatch.  Real transient outages (429/503/timeout) still
+        block correctly.
+        """
+        _now = time.time()
+        _auth_disabled = 0
+        _total_disabled = 0
+        for model in ALL_FREE_MODELS:
+            _until = self._disabled_models.get(model, 0.0)
+            _in_perm = model in self._session_perm_disabled
+            if _now < _until or _in_perm:
+                _total_disabled += 1
+                if self._model_error_type.get(model) == _ERR_AUTH:
+                    _auth_disabled += 1
+        # If at least one model is disabled and ALL disabled ones are auth-disabled
+        return _total_disabled > 0 and _auth_disabled == _total_disabled
+
     def has_available_models(self) -> bool:
         """
         Returns True if at least one model is not genuinely disabled
         (not in session_perm_disabled AND not in storm/cooldown window).
+        TUNED v1: fails OPEN when all models are auth-disabled (key/endpoint
+        mismatch) so the AI Signal Gate never blocks signals on a config error.
 
         v98.0 CRITICAL BUG FIX: Previous version checked per-minute rate-limiter
         bucket usage. With _MODEL_MAX_CALLS_PER_MIN=1 (now 3), any model that
@@ -1608,6 +1636,11 @@ class G0DM0D3Engine:
             elif now < self._disabled_models.get(model, 0.0):
                 continue
             # At least one model is not genuinely disabled — AI is available
+            return True
+        # TUNED v1: fail-open on auth-mismatch — if every model is disabled
+        # ONLY because of auth errors (wrong key/endpoint), report AI as
+        # available so the signal gate never blocks signals on a config error.
+        if self._all_disabled_by_auth():
             return True
         return False
 
@@ -1638,6 +1671,11 @@ class G0DM0D3Engine:
         if self._last_successful_call_time == 0.0:
             # Cold-start outside grace window: require API key + non-disabled model
             return self.is_available() and self.has_available_models()
+        # TUNED v1: fail-open on auth-mismatch — if every model is auth-disabled
+        # (wrong key/endpoint), the AI layer can never recover on its own, so
+        # report 'recently available' to keep the signal gate open.
+        if self._all_disabled_by_auth():
+            return True
         return (mono_now - self._last_successful_call_time) <= seconds
 
     def get_next_available_seconds(self) -> float:
