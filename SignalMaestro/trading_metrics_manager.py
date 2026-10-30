@@ -7,7 +7,13 @@ Provides real-time calculation and display of all trading performance metrics
 import asyncio
 import logging
 import sqlite3
-import aiosqlite
+try:
+    import aiosqlite
+    _HAS_AIOSQLITE = True
+except ImportError:
+    aiosqlite = None
+    _HAS_AIOSQLITE = False
+    print("⚠️ aiosqlite not installed — metrics DB features degraded", file=__import__("sys").stderr)
 import json
 import numpy as np
 import pandas as pd

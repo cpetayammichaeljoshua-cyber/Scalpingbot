@@ -4,7 +4,13 @@ Handles storage of trades, signals, users, and portfolio data using SQLite
 """
 
 import sqlite3
-import aiosqlite
+try:
+    import aiosqlite
+    _HAS_AIOSQLITE = True
+except ImportError:
+    aiosqlite = None
+    _HAS_AIOSQLITE = False
+    print("⚠️ aiosqlite not installed — database features degraded", file=__import__("sys").stderr)
 import logging
 import json
 from typing import Dict, Any, List, Optional

@@ -43,7 +43,14 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import aiosqlite
+try:
+    import aiosqlite
+    _HAS_AIOSQLITE = True
+except ImportError:
+    aiosqlite = None
+    _HAS_AIOSQLITE = False
+    _log = logging.getLogger("UnityEngine.UserDB")
+    _log.warning("⚠️ aiosqlite not installed — user DB features degraded")
 
 try:
     from cryptography.fernet import Fernet, InvalidToken
