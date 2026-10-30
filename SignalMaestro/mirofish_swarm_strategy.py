@@ -57,6 +57,33 @@ except ImportError:
     except ImportError:
         _GODMOD3_AVAILABLE = False
         G0DM0D3Engine = None  # type: ignore
+
+# QuantJourney United Strategy Bridge — runs BEFORE the LLM to provide a
+# consensus directional signal (united quantjourney-bt strategies) that the
+# G0DM0D3 LLM then analyzes to emit the final Telegram signal.
+try:
+    from SignalMaestro.quantjourney_united import QuantJourneyUnitedBridge
+except ImportError:
+    try:
+        from quantjourney_united import QuantJourneyUnitedBridge
+    except ImportError:
+        QuantJourneyUnitedBridge = None
+
+# ── QuantJourney United bridge singleton (lazy) ──────────────────────────
+_UNITED_BRIDGE = None
+
+
+def _get_united_bridge():
+    """Lazily create the QuantJourney United signal bridge (thread-safe-ish)."""
+    global _UNITED_BRIDGE
+    if _UNITED_BRIDGE is None and QuantJourneyUnitedBridge is not None:
+        try:
+            _UNITED_BRIDGE = QuantJourneyUnitedBridge()
+        except Exception:
+            _UNITED_BRIDGE = None
+    return _UNITED_BRIDGE
+
+
 from typing import Dict, Any, Optional, List, Tuple
 from enum import Enum
 
@@ -1799,7 +1826,8 @@ class AIOrchestrationAgent:
                       rsi: float = 50.0, macd_line: float = 0.0,
                       macd_signal: float = 0.0, bb_pct: float = 50.0,
                       stoch_k: float = 50.0, atr_pct: float = 0.3,
-                      hour_utc: int = -1) -> str:
+                      hour_utc: int = -1,
+                      united_signal: str = "") -> str:
         """
         Build the ReACT trading prompt enriched with full technical indicator data.
         The additional indicators (RSI, MACD, BB%, Stoch, ATR%) give Claude/GPT
@@ -1853,12 +1881,17 @@ class AIOrchestrationAgent:
             f"  Stochastic(14)={stoch_k:.1f}\n"
             f"  ATR%={atr_pct:.3f}% (volatility)\n\n"
             f"Swarm agent votes: {votes_summary}\n"
+            f"QuantJourney United Strategy: {united_signal}\n"
             f"Buy votes: {buy_votes} | Sell votes: {sell_votes}\n"
             f"Graph memory: {graph_context}\n\n"
-            f"REASON: What do the technical indicators and agent consensus indicate?\n"
+            f"REASON: What do the technical indicators, the QuantJourney United Strategy signal, "
+            f"and agent consensus indicate?\n"
             f"ACT: What is the most probable next {timeframe} move?\n"
-            f"REFLECT: Any conflicting signals (OB/OS vs trend, MACD divergence) reducing confidence?\n"
-            f"CONCLUDE: Final trading signal.\n\n"
+            f"REFLECT: Any conflicting signals (OB/OS vs trend, MACD divergence, "
+            f"or the QuantJourney United Strategy disagreeing with the swarm) reducing confidence?\n"
+            f"CONCLUDE: Final trading signal. Weight the QuantJourney United Strategy signal heavily — "
+            f"it is the highest-Sharpe consensus of the quantjourney-bt backtest; "
+            f"if it is NEUTRAL or disagrees with the swarm, reduce confidence.\n\n"
             f"Reply ONLY as valid JSON (no markdown, no extra text):\n"
             f"{{\"reason\": \"<1 sentence>\", \"act\": \"<1 sentence>\", "
             f"\"reflect\": \"<1 sentence>\", "
@@ -2342,12 +2375,30 @@ class AIOrchestrationAgent:
 
         # Build the shared prompt once — used by both AI providers
         _hour_utc = datetime.now(timezone.utc).hour
+
+        # ── QuantJourney United Strategy: run BEFORE the LLM ──
+        # The united strategy (blended quantjourney-bt consensus) produces a
+        # directional bias from the live price series. This is injected into the
+        # prompt so G0DM0D3 (the LLM) can analyze it and emit the final signal.
+        _united_signal_line = ""
+        _united_verdict = None
+        _united_bridge = _get_united_bridge()
+        if _united_bridge is not None:
+            try:
+                _united_verdict = _united_bridge.compute_signal(
+                    closes, symbol=symbol, timeframe=timeframe
+                )
+                _united_signal_line = _united_bridge.to_prompt_line(_united_verdict)
+            except Exception as _e:
+                self.logger.debug(f"QuantJourney United bridge error: {_e}")
+
         prompt = self._build_prompt(
             symbol, timeframe, session, cur_price, chg_1h,
             votes_summary, buy_votes, sell_votes, graph_context,
             rsi=_rsi_val, macd_line=_macd_l, macd_signal=_macd_s,
             bb_pct=_bb_pct, stoch_k=_stoch_k, atr_pct=_atr_pct,
-            hour_utc=_hour_utc
+            hour_utc=_hour_utc,
+            united_signal=_united_signal_line
         )
 
         # ── ACT: G0DM0D3 PRIMARY (ULTRAPLINIAN + GODMODE CLASSIC via OpenRouter) ──
