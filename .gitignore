@@ -196,3 +196,4 @@ unity_filter_state_v*.json
 unity_metrics_v*.json
 unity_symbols_v*.json
 .venv/
+.venv2/

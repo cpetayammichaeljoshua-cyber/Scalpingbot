@@ -1351,7 +1351,7 @@ class G0DM0D3Engine:
         self.logger = logging.getLogger(__name__ + ".G0DM0D3Engine")
         # v230.0: NVIDIA is the primary LLM provider.  Read NVIDIA_API_KEY first,
         # fall back to OPENROUTER_API_KEY for backward compatibility.
-        self._api_key    = (os.getenv("NVIDIA_API_KEY", "") or os.getenv("OPENROUTER_API_KEY", "")).strip()
+        self._api_key    = (os.getenv("NVIDIA_API_KEY", "") or os.getenv("OPENROUTER_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")).strip()
         self._autotune   = AutoTune()
         self._stm        = STMPipeline()
         self._parseltongue = Parseltongue()
