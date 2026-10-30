@@ -203,3 +203,8 @@ trade_history.db-shm
 trade_history.db-wal
 *.db-shm
 *.db-wal
+
+# Unity engine runtime artifacts (not source)
+.venv_site/
+unity_gex_cache_v*.json
+live_capture.py

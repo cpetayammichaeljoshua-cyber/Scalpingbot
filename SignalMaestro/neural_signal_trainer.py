@@ -3976,8 +3976,16 @@ class NeuralSignalTrainer:
             # Guard: requires loss_acc≥0.80 (not just barely above 0.40 floor) and
             # training WR≥0.30 (filters out genuine ultra-crisis where NN may be noise).
             # win_acc=17.7% > 0.15 → NN RE-ENABLED with loss-anchor quality signal.
+            # TUNED v2: loss-anchor tier — a model with loss_acc>=0.85 is a
+            # STRONG loss filter: Bayesian precision of its WIN predictions is
+            # ~50%+ vs a ~29% baseline, so it materially improves selectivity
+            # even when win recall is low.  Live data shows win_acc=10.7% /
+            # loss_acc=92.2% — an excellent loss filter that the old 0.15
+            # floor wrongly disabled.  Lower to 0.10 with a stricter
+            # loss_acc>=0.85 requirement (was 0.80) so only genuinely
+            # loss-anchored models qualify.
             _win_acc_floor  = (
-                0.15 if (loss_acc >= 0.80 and _wr_for_cap >= 0.30)   # v201.0: loss-anchor tier — high loss_acc anchors Bayesian win-precision to ≥45%; re-enables NN as loss filter
+                0.10 if (loss_acc >= 0.85 and _wr_for_cap >= 0.30)   # TUNED v2: loss-anchor tier (0.15→0.10, loss_acc 0.80→0.85) — re-enables strong loss filters
                 else 0.18 if (_wr_for_cap < 0.25)                     # v121.0 crisis floor
                 else 0.20 if (_wr_for_cap < 0.30)                     # v121.0 elevated floor
                 else 0.25                                              # v121.0 normal floor

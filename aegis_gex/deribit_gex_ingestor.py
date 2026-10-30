@@ -312,7 +312,15 @@ class DeribitGEXIngestor:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                _log.debug(f"Deribit refresh {ccy} failed (non-fatal): {e}")
+                # v233.0: Upgrade DEBUG->WARNING with a 60s rate limiter so a
+                # dead Deribit feed becomes operator-visible instead of silently
+                # falling back to the AEGIS ATR proxy indefinitely.
+                _now = time.time()
+                if _now - getattr(self, "_last_warn_ts", 0.0) >= 60.0:
+                    self._last_warn_ts = _now
+                    _log.warning(f"Deribit refresh {ccy} failed (non-fatal): {e}")
+                else:
+                    _log.debug(f"Deribit refresh {ccy} failed (non-fatal): {e}")
 
     async def _refresh_one(self, ccy: str) -> None:
         if self._sess is None or self._sess.closed:

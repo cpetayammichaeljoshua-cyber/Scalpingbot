@@ -245,6 +245,24 @@ def _vectorized_backtest(
     cross_up[0]   = False
     cross_down[0] = False
 
+    # -- v233.0 quantjourney-bt integration: mean-reversion RSI bracket ------
+    # Ported from quantjourney-bt example_orders_15_intraday_5m_bracket_reversion
+    # (entry RSI<30, tight +0.6%/-0.4% bracket) + example_weights_07 hysteresis
+    # (enter <35, exit >55).  Orthogonal to the trend-follow leg above -- captures
+    # oversold bounces the EMA-cross leg misses.  Uses a tighter bracket so the
+    # proxy quality-bias reflects the mean-reversion reward/risk, not the
+    # trend leg's wider 1.5/2.5 ATR bracket.
+    _mr_sl_atr  = 0.8      # tight stop (~0.8 ATR) -- mirrors 0.4% on a 5m bar
+    _mr_tp_atr  = 1.2      # tight target (~1.2 ATR) -- mirrors +0.6% on a 5m bar
+    _mr_enter_lo = 30.0    # RSI(14) oversold entry (reference: <30)
+    _mr_enter_hi = 70.0    # RSI(14) overbought entry
+    _mr_prev     = np.roll(rsi14, 1)
+    # Fresh oversold/overbought (crossing into the zone this bar) + activity.
+    _mr_long_cond  = (rsi14 < _mr_enter_lo) & (_mr_prev >= _mr_enter_lo) & activity
+    _mr_short_cond = (rsi14 > _mr_enter_hi) & (_mr_prev <= _mr_enter_hi) & activity
+    _mr_long_cond[0]  = False
+    _mr_short_cond[0] = False
+
     r_returns: List[float] = []
     consec_loss = 0
     max_consec_loss = 0
@@ -261,14 +279,28 @@ def _vectorized_backtest(
             continue
         is_long  = bool(long_cond[i])
         is_short = bool(short_cond[i])
-        if not (is_long or is_short):
+        # v233.0: mean-reversion RSI bracket leg (quantjourney-bt port).
+        # Fires only when the trend leg does NOT — orthogonal edge.  Uses a
+        # tighter bracket (_mr_sl_atr/_mr_tp_atr) than the trend leg.
+        _mr_long  = bool(_mr_long_cond[i]) and not is_long
+        _mr_short = bool(_mr_short_cond[i]) and not is_short
+        if not (is_long or is_short or _mr_long or _mr_short):
             i += 1
             continue
 
         entry      = float(opens[i + 1]) if i + 1 < n else float(closes[i])
-        sl_dist    = sl_atr * atr_i
-        tp_dist    = tp_atr * atr_i
-        if is_long:
+        if _mr_long or _mr_short:
+            # Mean-reversion bracket: tighter SL/TP (0.8/1.2 ATR).
+            sl_dist  = _mr_sl_atr * atr_i
+            tp_dist  = _mr_tp_atr * atr_i
+            _tp_R_eff = _mr_tp_atr / _mr_sl_atr
+        else:
+            sl_dist  = sl_atr * atr_i
+            tp_dist  = tp_atr * atr_i
+            _tp_R_eff = tp_R
+        _is_long  = is_long or _mr_long
+        _is_short = is_short or _mr_short
+        if _is_long:
             sl_price = entry - sl_dist
             tp_price = entry + tp_dist
         else:
@@ -281,7 +313,7 @@ def _vectorized_backtest(
         for j in range(i + 1, end_idx + 1):
             bars_held += 1
             hi = highs[j]; lo = lows[j]
-            if is_long:
+            if _is_long:
                 hit_sl = lo <= sl_price
                 hit_tp = hi >= tp_price
             else:
@@ -295,13 +327,13 @@ def _vectorized_backtest(
                 outcome_R = -1.0
                 break
             if hit_tp:
-                outcome_R = +tp_R
+                outcome_R = +_tp_R_eff
                 break
         else:
             # Time-stopped: score by directional move at exit, in R units.
             exit_px = float(closes[end_idx])
-            move    = (exit_px - entry) if is_long else (entry - exit_px)
-            outcome_R = max(-1.0, min(+tp_R, move / sl_dist))
+            move    = (exit_px - entry) if _is_long else (entry - exit_px)
+            outcome_R = max(-1.0, min(+_tp_R_eff, move / sl_dist))
 
         outcome_R -= fee_R_per_trade
         r_returns.append(outcome_R)

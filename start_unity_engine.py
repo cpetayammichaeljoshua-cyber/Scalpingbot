@@ -22866,10 +22866,17 @@ class UnitySignalFilter:
             if _g9_hmm_eng is not None:
                 _g9_hmm_str, _g9_hmm_pexp, _ = _g9_hmm_eng.get_regime()
                 _g9_gex_net = 0.0
-                _g9_gex_snaps = getattr(self, "_gex_snaps", None)
+                _g9_gex_snaps = getattr(self, "_engine_gex_snapshots", None)
                 if _g9_gex_snaps is not None:
                     try:
-                        _g9_snap = _g9_gex_snaps[-1] if len(_g9_gex_snaps) > 0 else None
+                        # GEX store is a dict {symbol: (snap, ts)}; pick the freshest
+                        # BTCUSDT/ETHUSDT snapshot (or the first non-None entry).
+                        _g9_snap = None
+                        for _g9_pri in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+                            _g9_e = _g9_gex_snaps.get(_g9_pri)
+                            if _g9_e is not None:
+                                _g9_snap = _g9_e[0] if isinstance(_g9_e, tuple) else _g9_e
+                                break
                         if _g9_snap is not None:
                             _g9_gex_net = float(getattr(_g9_snap, "net_gex", 0.0) or 0.0)
                     except Exception:
@@ -31432,6 +31439,16 @@ class UnityEngine:
                 try:
                     _drb = getattr(self, "deribit_gex", None)
                     _ok  = _drb is not None and bool(getattr(_drb, "_snapshots", {}))
+                    # v233.0: also require at least one FRESH snapshot (age <
+                    # max_age_sec) so a stale/blackout feed shows sr=0 instead
+                    # of a green check on dead data.
+                    if _ok:
+                        _drb_snaps = getattr(_drb, "_snapshots", {}) or {}
+                        _drb_fresh = any(
+                            (time.time() - getattr(s, "timestamp", 0.0)) < 180.0
+                            for s in _drb_snaps.values()
+                        )
+                        _ok = _drb_fresh
                     self.health.record_call("DERIBIT_GEX", success=_ok)
                 except Exception:
                     pass
@@ -32556,6 +32573,20 @@ class UnityEngine:
                                 f"(non-fatal): {_enrich_exc}"
                             )
 
+                    # ── L0.6 (v9.9): OKX cross-venue validation / failover ──
+                    # Complements Deribit: averages net_gex across venues when
+                    # both are fresh, and provides a real-options failover when
+                    # Deribit is stale/absent for this symbol.  Makes the OKX
+                    # layer a genuine redundancy source (was dead weight before).
+                    if self.okx_gex is not None:
+                        try:
+                            await self.okx_gex.enrich_snapshot(sym, snap)
+                        except Exception as _okx_exc:
+                            _log.debug(
+                                f"OKX enrich failed for {sym} "
+                                f"(non-fatal): {_okx_exc}"
+                            )
+
                     _gex_write_ts = time.time()
                     with self._gex_lock:
                         self._gex_snapshots[sym] = (snap, _gex_write_ts)
@@ -32665,7 +32696,16 @@ class UnityEngine:
         if entry is None:
             return None
         snap, ts = entry
-        if time.time() - ts > GEX_SNAPSHOT_MAX_AGE_SEC:
+        # v233.0: Deribit-covered bases (BTC/ETH/SOL) expire at the ingestor's
+        # 180s; others use the generic 300s GEX_SNAPSHOT_MAX_AGE_SEC.
+        _g_age = GEX_SNAPSHOT_MAX_AGE_SEC
+        try:
+            if self.deribit_gex is not None and hasattr(self.deribit_gex, "base_from_symbol"):
+                if self.deribit_gex.base_from_symbol((symbol or "").upper()) is not None:
+                    _g_age = 180.0
+        except Exception:
+            pass
+        if time.time() - ts > _g_age:
             return None
         return snap
 
@@ -33226,8 +33266,19 @@ class UnityEngine:
         # ── GEX snapshot — v18.23 lock-free fast path ────────────────────────
         # Try _gex_snap_cache first (GIL-atomic tuple.get — no lock needed).
         # Falls back to _gex_lock acquisition only when cache is stale or absent.
+        # v233.0: effective max-age is 180s for Deribit-covered bases (BTC/ETH/SOL
+        # real options go stale at the ingestor's max_age_sec=180) and the
+        # generic GEX_SNAPSHOT_MAX_AGE_SEC (300s) otherwise.  Prevents Gate 7
+        # reading a snapshot the real-options layer already considers stale.
+        _gex_max_age = GEX_SNAPSHOT_MAX_AGE_SEC
+        if self.deribit_gex is not None and hasattr(self.deribit_gex, "base_from_symbol"):
+            try:
+                if self.deribit_gex.base_from_symbol(sym) is not None:
+                    _gex_max_age = 180.0
+            except Exception:
+                pass
         _gex_snap_tuple = self._gex_snap_cache.get(sym)
-        if _gex_snap_tuple is not None and (_now - _gex_snap_tuple[6]) < GEX_SNAPSHOT_MAX_AGE_SEC:
+        if _gex_snap_tuple is not None and (_now - _gex_snap_tuple[6]) < _gex_max_age:
             # Hot path: lock-free read from pre-computed tuple
             _gex_regime, _gex_dgrp, _gz_dist, _flip_price, _call_wall, _put_wall, _gts = _gex_snap_tuple
             _gex_fresh = True
@@ -33238,7 +33289,7 @@ class UnityEngine:
                 _gex_entry = self._gex_snapshots.get(sym)
             if _gex_entry is not None:
                 _snap, _gts = _gex_entry
-                _gex_fresh  = (_now - _gts) < GEX_SNAPSHOT_MAX_AGE_SEC
+                _gex_fresh  = (_now - _gts) < _gex_max_age
             else:
                 _snap, _gts, _gex_fresh = None, 0.0, False
             _gex_regime  = str(getattr(_snap, "regime",     "UNKNOWN")).upper() if _snap else "UNKNOWN"

@@ -199,6 +199,59 @@ class OkxGEXIngestor:
         snap.age_sec = max(0.0, time.time() - snap.last_update)
         return snap
 
+    def base_from_symbol(self, symbol: str) -> Optional[str]:
+        """Map 'BTCUSDT'/'ETHUSDT' → 'BTC'/'ETH' if loaded in this ingestor."""
+        if not symbol:
+            return None
+        s = symbol.upper()
+        for base in sorted(self._currencies, key=len, reverse=True):
+            if s.startswith(base):
+                return base
+        return None
+
+    async def enrich_snapshot(self, symbol: str, aegis_snap) -> None:
+        """
+        Cross-venue splice of OKX options GEX into an AEGIS GEXSnapshot in-place.
+
+        Complements DeribitGEXIngestor.enrich_snapshot() by providing a SECOND
+        real options venue (~10-15% of global BTC/ETH OI). Semantics:
+          * If Deribit has already spliced a real regime (net_gex set), this
+            averages the two venue net_gex values for a more robust dealer-gamma
+            estimate, and keeps the higher-confidence flip/wall levels.
+          * If Deribit is stale/absent for this symbol (no real regime yet),
+            OKX acts as a failover source: splice its regime/flip/walls so the
+            gate still sees real options data instead of the ATR proxy.
+        No-op if the base is not loaded or OKX data is stale (>180s).
+        """
+        base = self.base_from_symbol(symbol)
+        if base is None or aegis_snap is None:
+            return
+        snap = self.get(base)
+        if snap is None:
+            return
+        try:
+            okx_net = float(getattr(snap, "net_gex_m", 0.0) or 0.0) * 1_000_000.0
+            deribit_net = float(getattr(aegis_snap, "net_gex", 0.0) or 0.0)
+            if deribit_net != 0.0 and okx_net != 0.0:
+                aegis_snap.net_gex = (deribit_net + okx_net) / 2.0
+            elif okx_net != 0.0:
+                aegis_snap.net_gex = okx_net
+                if snap.gex_flip and snap.gex_flip > 0:
+                    aegis_snap.gex_flip = float(snap.gex_flip)
+                if snap.call_wall and snap.call_wall > 0:
+                    aegis_snap.call_wall = float(snap.call_wall)
+                if snap.put_wall and snap.put_wall > 0:
+                    aegis_snap.put_wall = float(snap.put_wall)
+                if snap.regime in ("POSITIVE", "NEGATIVE", "FLIP ZONE", "NEUTRAL"):
+                    aegis_snap.regime = snap.regime
+            try:
+                old_conf = float(getattr(aegis_snap, "confidence", 0) or 0)
+                aegis_snap.confidence = min(100.0, max(old_conf, float(snap.confidence or 0)))
+            except Exception:
+                pass
+        except Exception as e:
+            _log.debug(f"OKX enrich_snapshot failed for {symbol}: {e}")
+
     def status_summary(self) -> Dict:
         out = {}
         for c, s in self._snapshots.items():
@@ -233,7 +286,14 @@ class OkxGEXIngestor:
                 except Exception as e:
                     self._errors += 1
                     self._last_err = f"{type(e).__name__}: {e}"
-                    _log.debug(f"OKX GEX refresh {ccy} error: {e}")
+                    # v233.0: DEBUG->WARNING (60s rate-limited) so a dead OKX
+                    # venue is operator-visible instead of silent dead-weight.
+                    _now_w = time.time()
+                    if _now_w - getattr(self, "_last_warn_ts", 0.0) >= 60.0:
+                        self._last_warn_ts = _now_w
+                        _log.warning(f"OKX GEX refresh {ccy} error: {e}")
+                    else:
+                        _log.debug(f"OKX GEX refresh {ccy} error: {e}")
             try:
                 await asyncio.wait_for(self._stop_evt.wait(), timeout=self._refresh_sec)
             except asyncio.TimeoutError:
