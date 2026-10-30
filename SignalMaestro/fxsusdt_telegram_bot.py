@@ -3567,6 +3567,47 @@ class FXSUSDTTelegramBot:
                     if _uh_tg:
                         _uh_tg.record_call("TelegramBot", True)
 
+                    # ── v234.0 BUG FIX: feed the engine's producer-consumer
+                    # dispatch queue.  The engine's _signal_queue had a consumer
+                    # task but NO producer anywhere in the repo, so the entire
+                    # queue-driven pipeline (SignalDecisionVector audit, signal
+                    # caching, maybe_auto_execute) was dead code.  Enqueue the
+                    # payload here (after a successful send) with
+                    # _telegram_sent=True so the consumer performs the
+                    # non-send side-effects (audit/cache/auto-execute) WITHOUT
+                    # double-sending the Telegram message (the bot already sent it
+                    # via send_signal_to_channel above).
+                    try:
+                        _ue = getattr(self, "_unity_engine", None)
+                        _uq = getattr(_ue, "_signal_queue", None) if _ue is not None else None
+                        if _uq is not None and callable(getattr(_uq, "put_nowait", None)):
+                            _nwp = float(
+                                getattr(signal, "nn_win_prob",
+                                        getattr(signal, "win_probability",
+                                                getattr(signal, "confidence", 50.0))) or 50.0
+                            )
+                            if _nwp > 1.0:
+                                _nwp = _nwp / 100.0
+                            _uq.put_nowait({
+                                "symbol":       symbol,
+                                "direction":    str(getattr(signal, "action", "BUY") or "BUY"),
+                                "quality":      float(_quality),
+                                "message":      self.format_swarm_signal(signal),
+                                "signal_id":    f"{symbol}_{getattr(signal, 'action', 'BUY')}_{int(time.time())}",
+                                "entry":        float(getattr(signal, "entry_price",   0) or 0),
+                                "sl":           float(getattr(signal, "stop_loss",     0) or 0),
+                                "tp1":          float(getattr(signal, "take_profit_1",
+                                                getattr(signal, "take_profit", 0)) or 0),
+                                "tp2":          float(getattr(signal, "take_profit_2", 0) or 0),
+                                "tp3":          float(getattr(signal, "take_profit_3", 0) or 0),
+                                "nn_win_prob":  _nwp,
+                                "win_prob":     _nwp,
+                                "nn_confidence": float(getattr(signal, "confidence", 0) or 0),
+                                "_telegram_sent": True,
+                            })
+                    except Exception as _q_err:
+                        self.logger.debug(f"v234.0 enqueue to engine signal queue failed: {_q_err}")
+
                 return _send_result
 
             except Exception as e:

@@ -32020,8 +32020,26 @@ class UnityEngine:
                             _send = getattr(self.bot, "send_signal_message",
                                     getattr(self.bot, "_send_telegram_message",
                                     getattr(self.bot, "send_message", None)))
-                            if callable(_send):
-                                await asyncio.wait_for(_send(msg_text), timeout=15.0)
+                            # v234.0 BUG FIX: when the payload was enqueued by the
+                            # bot's producer hook (after send_signal_to_channel), the
+                            # Telegram message is ALREADY delivered — skip the
+                            # duplicate _send() but still run metrics/cache so the
+                            # consumer's side-effects (auto-execute, audit) fire.
+                            _tg_already_sent = bool(signal_payload.get("_telegram_sent", False))
+                            if callable(_send) or _tg_already_sent:
+                                if not _tg_already_sent:
+                                    # v234.0 BUG FIX: send_message(chat_id, text) needs TWO
+                                    # positional args. The old code called _send(msg_text)
+                                    # with ONE arg → TypeError: missing 'text' → every
+                                    # engine-sourced Telegram signal was silently dropped
+                                    # (caught by the except below). Resolve the channel id
+                                    # from the bot (signal_channel_id, else TELEGRAM_CHANNEL_ID).
+                                    _chat = str(getattr(self.bot, "signal_channel_id",
+                                                 getattr(self.bot, "channel_id",
+                                                 os.getenv("TELEGRAM_CHANNEL_ID", ""))))
+                                    await asyncio.wait_for(
+                                        _send(_chat, msg_text), timeout=15.0
+                                    )
                                 # v8.0 bug fix: was self.metrics.signals_sent (AttributeError)
                                 self.metrics.total_signals_sent += 1
                                 # v43.0: Track directional signal breakdown
@@ -32059,23 +32077,34 @@ class UnityEngine:
                         except asyncio.TimeoutError:
                             # v18.19: one retry on timeout — single network blip
                             # shouldn't silently drop a high-quality signal.
-                            _log.warning(
-                                f"⚠️  Telegram timeout for {symbol} — retrying in 5s [v18.19]"
-                            )
-                            try:
-                                await asyncio.sleep(5)
-                                if callable(_send):
-                                    await asyncio.wait_for(_send(msg_text), timeout=12.0)
-                                    self.metrics.total_signals_sent += 1
-                                    self._signal_times.append(time.time())
-                                    _log.info(
-                                        f"✅ Telegram retry succeeded for {symbol}"
-                                    )
-                            except Exception as _retry_exc:
+                            # v234.0: skip retry if the bot already delivered it
+                            # (producer hook path) — nothing to retry.
+                            if _tg_already_sent:
+                                pass
+                            else:
                                 _log.warning(
-                                    f"⚠️  Telegram retry also failed for {symbol}: "
-                                    f"{type(_retry_exc).__name__} — signal dropped"
+                                    f"⚠️  Telegram timeout for {symbol} — retrying in 5s [v18.19]"
                                 )
+                                try:
+                                    await asyncio.sleep(5)
+                                    if callable(_send):
+                                        # v234.0 BUG FIX: pass BOTH chat_id and text
+                                        # (same as the first attempt above — the old code
+                                        # passed only msg_text, so the retry also raised
+                                        # TypeError and never delivered).
+                                        await asyncio.wait_for(
+                                            _send(_chat, msg_text), timeout=12.0
+                                        )
+                                        self.metrics.total_signals_sent += 1
+                                        self._signal_times.append(time.time())
+                                        _log.info(
+                                            f"✅ Telegram retry succeeded for {symbol}"
+                                        )
+                                except Exception as _retry_exc:
+                                    _log.warning(
+                                        f"⚠️  Telegram retry also failed for {symbol}: "
+                                        f"{type(_retry_exc).__name__} — signal dropped"
+                                    )
                         except Exception as exc:
                             # v10.4: Upgraded DEBUG→WARNING — silent Telegram drops now visible
                             _log.warning(f"⚠️  [v10.4] Telegram dispatch error for {symbol}: {type(exc).__name__}: {exc}")

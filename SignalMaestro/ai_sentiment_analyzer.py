@@ -29,10 +29,19 @@ import traceback
 
 # OpenAI imports
 try:
-    from openai import OpenAI
+    # v234.0 BUG FIX: use AsyncOpenAI so _make_gpt5_request (an async function)
+    # does not block the event loop.  The old `from openai import OpenAI`
+    # created a SYNCHRONOUS client whose .create() does blocking socket I/O
+    # inside an async coroutine - stalling the scanner, Telegram polling and
+    # every other concurrent task for the duration of each GPT-5 call.
+    from openai import AsyncOpenAI as _AsyncOpenAI
     OPENAI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    try:
+        from openai import OpenAI as _AsyncOpenAI  # fallback (sync, legacy)
+        OPENAI_AVAILABLE = True
+    except ImportError:
+        OPENAI_AVAILABLE = False
 
 # BeautifulSoup for web scraping
 try:
@@ -92,7 +101,12 @@ class AISentimentAnalyzer:
             try:
                 api_key = os.environ.get("OPENAI_API_KEY")
                 if api_key:
-                    self.openai_client = OpenAI(api_key=api_key)
+                    # v234.0 BUG FIX: AsyncOpenAI + max_retries=0 (no SDK
+                    # background retry tasks) + explicit 30s timeout so a hung
+                    # GPT-5 call cannot stall the event loop indefinitely.
+                    self.openai_client = _AsyncOpenAI(
+                        api_key=api_key, max_retries=0, timeout=30.0
+                    )
                     self.logger.info("🤖 OpenAI GPT-5 client initialized successfully")
                 else:
                     self.logger.warning("⚠️ OPENAI_API_KEY not found in environment")
@@ -446,20 +460,27 @@ Focus on:
                 self.logger.warning("OpenAI client not available")
                 return None
                 
-            response = self.openai_client.chat.completions.create(
-                model=self.gpt_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert financial and cryptocurrency market analyst. Provide accurate, objective sentiment analysis based on news content. Always respond with valid JSON."
-                    },
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                max_tokens=self.max_tokens_per_request,
-                response_format={"type": "json_object"}
+            # v234.0 BUG FIX: `await` the async client call + hard asyncio
+            # timeout (30s) so a slow/hung GPT-5 request degrades to the
+            # rule-based fallback instead of freezing the event loop.
+            import asyncio
+            response = await asyncio.wait_for(
+                self.openai_client.chat.completions.create(
+                    model=self.gpt_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert financial and cryptocurrency market analyst. Provide accurate, objective sentiment analysis based on news content. Always respond with valid JSON."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=self.max_tokens_per_request,
+                    response_format={"type": "json_object"}
+                ),
+                timeout=30.0,
             )
             
             result = json.loads(response.choices[0].message.content)

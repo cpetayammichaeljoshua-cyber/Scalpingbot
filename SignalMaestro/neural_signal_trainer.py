@@ -125,7 +125,15 @@ def _safe_float(value, default: float = 0.0) -> float:
     if value is None:
         return default
     if isinstance(value, (int, float)):
-        return float(value)
+        # v234.0 BUG FIX: float('nan')/float('inf') pass the isinstance check
+        # and returned NaN/Inf to the caller - which then flowed into
+        # _normalise -> predict_mc -> np.clip(mean_p, 0.05, 1.0) where
+        # np.clip(NaN) is NaN (NOT clamped) -> NaN win-probability silently
+        # rejected the signal at the gate. Guard all non-finite values here.
+        _v = float(value)
+        if not math.isfinite(_v):
+            return default
+        return _v
     if isinstance(value, bytes):
         import struct
         # 4-byte IEEE 754 little-endian float32 (SQLite REAL stored as BLOB)
@@ -2753,7 +2761,15 @@ class NeuralSignalTrainer:
         """Apply z-score normalisation.  Returns X unchanged if not yet fitted."""
         if not self._feat_fitted or self._feat_mean is None:
             return X
-        return (X - self._feat_mean) / self._feat_std
+        # v234.0 BUG FIX: a constant feature column has std=0 -> (X-mean)/0
+        # yields inf/nan, which np.clip does NOT sanitize, so NaN poisons the
+        # whole forward pass and silently rejects the signal.  Replace zero
+        # stds with 1.0 (no-op normalisation for that column) before dividing.
+        _std = np.where(self._feat_std == 0.0, 1.0, self._feat_std)
+        _out = (X - self._feat_mean) / _std
+        # Final belt-and-braces: any residual non-finite (e.g. an inf feature
+        # that slipped past _safe_float) becomes 0.0 (the z-score of the mean).
+        return np.nan_to_num(_out, nan=0.0, posinf=0.0, neginf=0.0)
 
     # ── Forward pass ─────────────────────────────────────────────────────
 
@@ -3332,6 +3348,15 @@ class NeuralSignalTrainer:
 
             # v10.5 FIX: persist σ so start_unity_engine G4-FIX-B can read it
             self._last_uncertainty = float(std_p)
+            # v234.0 BUG FIX: NaN/inf guard at the exit. Even with _safe_float
+            # hardened, a non-finite feature can reach _normalise -> _forward
+            # and yield NaN here; np.clip(NaN) is NaN, so we must check before
+            # returning or the gate receives NaN and silently rejects the signal.
+            if not math.isfinite(mean_p):
+                self._last_uncertainty = 0.0
+                return 0.5, 0.0
+            if not math.isfinite(std_p):
+                std_p = 0.0
             return mean_p, std_p
         except Exception as e:
             self.logger.debug(f"predict_signal_with_uncertainty error: {e}")
