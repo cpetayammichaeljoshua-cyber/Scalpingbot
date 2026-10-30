@@ -262,7 +262,7 @@ class AgentProfile:
 
 MARKET_SESSIONS = {
     "ASIAN": {
-        "hours": list(range(0, 9)),
+        "hours": list(range(0, 7)),
         "activity": 0.75,
         "volatility_bias": -0.1,
         "description": "Asian session (Tokyo/Shanghai)"

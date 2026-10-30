@@ -2806,7 +2806,6 @@ class G0DM0D3Engine:
             "No hedging. No disclaimers. No preamble. Pure signal intelligence. "
             "STRICTLY output valid JSON only — no markdown, no prose, no code fences. "
             "HARD NEUTRAL OVERRIDE — force NEUTRAL immediately if ANY of these conditions are present: "
-            "(a) hour_utc is 1-7 (Asian session low-liquidity window — historical WR<24%, adverse selection risk), "
             "(b) volume_ratio > 3.0 (extreme overextension — vol surge fades >80% of the time), "
             "(c) rsi > 78 OR rsi < 22 (extreme RSI — mean-reversion probability >65% in next 4h), "
             "(d) |funding_rate| > 0.04% (extreme funding — imminent squeeze/cascade likely, not a clean directional), "
