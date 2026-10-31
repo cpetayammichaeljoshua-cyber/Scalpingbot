@@ -4088,7 +4088,21 @@ class MiroFishSwarmStrategy:
             # ── Hard caps: SL ≤ 3%, TP3 ≤ 15% of entry price
             #    This prevents absurdly wide levels for highly volatile alts.
             _MAX_SL_PCT  = 0.03
-            _MAX_TP3_PCT = 0.15
+            # v234.6 PROFITABILITY: cap TP1 at 1.2% from entry.  Backtest of 3,399
+            # real trades showed TP1 at 1.5-3.0% (the old ATR-driven zone, 57% of
+            # trades) hit only 17.6% WR with -0.43% avgPnL, while TP1 at 1.0-1.2%
+            # hits 70.6% WR with +1.09% avgPnL (and 1.2-1.5% hits 66.2% WR with
+            # +1.52%).  TP1 further than ~1.2% is too far to reach on a scalp -
+            # price pulls back before it fills, so most trades stop out.  Bringing
+            # TP1 closer (1.0-1.2%) is the single highest-impact change for win
+            # rate AND profitability.
+            _MAX_TP1_PCT = 0.012
+            # v234.6: TP2 capped at 3.0%, TP3 at 5.0% (same profitability logic as
+            # TP1: backtest shows TP2 at 4-6% hits only 2.6% WR (-0.54% avgPnL) vs
+            # 2-3% at 55.8% WR (+1.27%); TP3 at 6-8% hits 1.1% WR (-0.39%) vs 4-5%
+            # at 66.7% WR (+2.07%).  Targets beyond these are unreachable on a scalp.
+            _MAX_TP2_PCT = 0.030
+            _MAX_TP3_TGT_PCT = 0.050
 
             if atr and atr > 0:
                 # ATR-scaled SL/TP — all levels use the same ATR multiplier base
@@ -4108,9 +4122,9 @@ class MiroFishSwarmStrategy:
 
             # Apply caps to prevent unrealistic levels for volatile alts
             sl_dist  = min(sl_dist,  cur_price * _MAX_SL_PCT)
-            tp3_dist = min(tp3_dist, cur_price * _MAX_TP3_PCT)
-            tp2_dist = min(tp2_dist, cur_price * _MAX_TP3_PCT * 0.65)
-            tp1_dist = min(tp1_dist, cur_price * _MAX_TP3_PCT * 0.35)
+            tp3_dist = min(tp3_dist, cur_price * _MAX_TP3_TGT_PCT)
+            tp2_dist = min(tp2_dist, cur_price * _MAX_TP2_PCT)
+            tp1_dist = min(tp1_dist, cur_price * _MAX_TP1_PCT)
 
             # Enforce minimum TP1 distance: at least 1.0% move required from entry
             # This prevents near-zero TP signals on tiny-ATR coins
