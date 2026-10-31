@@ -27,6 +27,14 @@ import asyncio
 import logging
 import re
 import aiohttp
+
+try:
+    from SignalMaestro.unity_dns import DohFallbackResolver
+except ImportError:
+    try:
+        from unity_dns import DohFallbackResolver
+    except ImportError:
+        DohFallbackResolver = None
 import os
 from collections import OrderedDict
 from typing import Dict, Any, Optional, List, Tuple, Set
@@ -287,12 +295,21 @@ class BTCUSDTTrader:
         across multiple alternative FAPI endpoints.
         """
         if self._session is None or self._session.closed:
-            self._connector = aiohttp.TCPConnector(
+            _conn_kwargs = dict(
                 limit=80,           # max 80 total concurrent connections
                 limit_per_host=30,  # max 30 per host (multi-endpoint routing)
                 ttl_dns_cache=300,  # cache DNS for 5 minutes
                 enable_cleanup_closed=True,
             )
+            # v234.5: DNS-broken hosts (Android network) — fall back to Cloudflare
+            # DNS-over-HTTPS so Binance REST (klines/tickers) still resolves and
+            # the bot can generate signals.  No-op on normal hosts.
+            if DohFallbackResolver is not None:
+                try:
+                    _conn_kwargs["resolver"] = DohFallbackResolver()
+                except Exception:
+                    pass
+            self._connector = aiohttp.TCPConnector(**_conn_kwargs)
             self._session = aiohttp.ClientSession(
                 connector=self._connector,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),

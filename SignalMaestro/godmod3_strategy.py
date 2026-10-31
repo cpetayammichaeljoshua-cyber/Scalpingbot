@@ -81,6 +81,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from SignalMaestro.unity_dns import DohFallbackResolver
+except ImportError:
+    try:
+        from unity_dns import DohFallbackResolver
+    except ImportError:
+        DohFallbackResolver = None
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1466,6 +1474,21 @@ class G0DM0D3Engine:
     def _init_client(self) -> None:
         try:
             from openai import AsyncOpenAI
+            # v234.5: DNS-broken hosts — install a global socket.getaddrinfo
+            # DoH fallback so the openai/httpx client can resolve
+            # integrate.api.nvidia.com on ANY host.  No-op on normal hosts.
+            if DohFallbackResolver is not None:
+                try:
+                    from SignalMaestro.unity_dns import install_doh_fallback
+                    install_doh_fallback()
+                except ImportError:
+                    try:
+                        from unity_dns import install_doh_fallback
+                        install_doh_fallback()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
             self._openai_client = AsyncOpenAI(
                 api_key=self._api_key,
                 base_url=NVIDIA_BASE_URL,

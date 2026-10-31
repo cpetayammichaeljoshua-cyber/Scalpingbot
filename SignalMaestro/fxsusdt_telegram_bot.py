@@ -71,6 +71,60 @@ except ImportError:
     _HAS_FREQTRADE = False
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Telegram DNS fallback resolver
+# ─────────────────────────────────────────────────────────────────────────────
+# This host cannot resolve external DNS (api.telegram.org fails), which made
+# the bot unable to send ANY Telegram signal (aiohttp got a TimeoutError on
+# every getMe/sendMessage). This resolver tries the system DNS first (normal
+# hosts) and falls back to Telegram's known API IPs when DNS fails.
+import socket as _socket
+_HAS_TG_RESOLVER = True
+
+try:
+    from SignalMaestro.unity_dns import DohFallbackResolver
+except ImportError:
+    try:
+        from unity_dns import DohFallbackResolver
+    except ImportError:
+        DohFallbackResolver = None
+
+
+class FallbackTelegramResolver:
+    """aiohttp resolver: system DNS first, Cloudflare DNS-over-HTTPS fallback.
+
+    Delegates to the shared DohFallbackResolver (SignalMaestro.unity_dns) so
+    Telegram API (api.telegram.org) resolves on ANY host — including hosts
+    with broken local DNS (Android-network nameservers).  On normal hosts the
+    system resolver is used with zero overhead.
+    """
+
+    def __init__(self, loop=None):
+        self._doh = DohFallbackResolver(loop=loop) if DohFallbackResolver is not None else None
+        self._loop = loop
+
+    async def resolve(self, host, port=0, family=_socket.AF_INET):
+        if self._doh is not None:
+            return await self._doh.resolve(host, port, family)
+        # No DoH available: system-resolve only.
+        import asyncio as _asyncio
+        infos = await _asyncio.get_event_loop().run_in_executor(
+            None, _socket.getaddrinfo, host, port, family, _socket.SOCK_STREAM
+        )
+        return [{
+            "hostname": host, "host": info[4][0], "port": info[4][1],
+            "family": info[0], "proto": info[2], "flags": info[3],
+        } for info in infos]
+
+    async def close(self):
+        if self._doh is not None:
+            try:
+                await self._doh.close()
+            except Exception:
+                pass
+
+
 class FXSUSDTTelegramBot:
     """
     ALL USDM Futures Telegram Signal Bot — MiroFish Swarm v5.0 Edition
@@ -685,12 +739,16 @@ class FXSUSDTTelegramBot:
         `async with aiohttp.ClientSession()` pattern imposed.
         """
         if self._tg_session is None or self._tg_session.closed:
-            self._tg_connector = aiohttp.TCPConnector(
+            resolver = FallbackTelegramResolver() if _HAS_TG_RESOLVER else None
+            connector_kwargs = dict(
                 limit=10,
                 limit_per_host=10,
                 ttl_dns_cache=300,
                 enable_cleanup_closed=True,
             )
+            if resolver is not None:
+                connector_kwargs["resolver"] = resolver
+            self._tg_connector = aiohttp.TCPConnector(**connector_kwargs)
             self._tg_session = aiohttp.ClientSession(
                 connector=self._tg_connector,
                 timeout=aiohttp.ClientTimeout(total=15),

@@ -2841,6 +2841,26 @@ def _load_dotenv_once() -> None:
 _load_dotenv_once()
 del _pre_os
 
+# ── v234.5: DNS-over-HTTPS fallback (Android-network broken DNS) ─────────────
+# This host cannot resolve external DNS (api.telegram.org, fapi.binance.com,
+# integrate.api.nvidia.com all fail).  Installing the socket.getaddrinfo DoH
+# fallback at engine start makes EVERY aiohttp/httpx call resolve via
+# Cloudflare DNS-over-HTTPS when the system resolver fails, so the engine can
+# fetch klines/tickers (generate signals), send Telegram (deliver signals),
+# and call the LLM (confirm signals).  No-op on hosts with working DNS.
+try:
+    from SignalMaestro.unity_dns import install_doh_fallback
+    install_doh_fallback()
+except ImportError:
+    try:
+        from unity_dns import install_doh_fallback
+        install_doh_fallback()
+    except Exception:
+        pass
+except Exception:
+    pass
+
+
 # ── v18.39 Comprehensive Dependency Bootstrap ─────────────────────────────────
 # Runs at import time, BEFORE any SignalMaestro imports, using sys.executable
 # (the workflow's own Python binary) so packages land in the CORRECT site-packages
