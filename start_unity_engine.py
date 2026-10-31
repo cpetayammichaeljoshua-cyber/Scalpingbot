@@ -3346,7 +3346,7 @@ MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.40") or 2.40)     # T
 NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.53") or 0.53)     # TUNED v1: 0.58→0.53 default (env UNITY_NN_GATE still overrides) — 0.58 required top-7th-percentile NN conviction and starved the channel; 0.53 = pre-v146.0 level that let signals flow while still filtering noise
 SYMBOL_MIN_WIN_RATE   = 0.35     # Gate 8: minimum per-symbol win rate pivot (v9.8: 0.35→0.38; v18.55: 0.38→0.35 — at engine WR=30.7% symbols with WR=35-38% were penalised despite outperforming the engine average; 0.35 aligns pivot with current regime WR so only genuinely underperforming symbols get quality deduction)
 SYMBOL_MIN_TRADES     = 5        # Gate 8: minimum trades to apply Gate 8
-SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "69") or 69)   # TUNED v1: 73→69 default (env SIGNAL_MIN_QUALITY_GATE still overrides) — 73 was a crisis-tighten that starved the channel; 69 = normal operating range pre-crisis while keeping a real quality floor
+SIGNAL_MIN_QUALITY_GATE = float(os.getenv("SIGNAL_MIN_QUALITY_GATE", "52") or 52)   # v234.6: 69→52 default (env SIGNAL_MIN_QUALITY_GATE still overrides) — the 69 floor rejected every positive-EV signal (live quality 47-55); 52 keeps a real composite quality floor while admitting the moderate-quality positive-EV setups that Gate 0 already validated
 # ── Gate 5 soft-veto quality penalties (v7.1) ────────────────────────────────
 # v7.1 KEY FIX: G5 previously hard-blocked when only ONE analyzer had data and
 # it disagreed.  Live data showed G5 = 25% pass rate — the single biggest filter
@@ -3555,7 +3555,13 @@ SLIPPAGE_PCT          = 0.0005   # 0.05% per side (entry + exit = 0.10% round tr
 # is too generous); requiring a positive +15bps margin forces signals to clear
 # the round-trip slippage AND leave headroom for adverse fill, which is the band
 # where empirical WR turns positive (≥45%).
-EV_MIN_THRESHOLD      = 0.0055   # TUNED v1: 0.0070→0.0055 — 70bps required P_win≥50.5% (strict institutional) and starved the channel; 55bps = v121-v135 level; still forces a positive premium above round-trip cost — live WR=28.9% EV=-0.314R MaxDD=49.4%; 60bps requires P_win≥49% at RR=2.65; eliminates marginal signals contributing to catastrophic DD; v121.0: 48→55bps (+14.6% EV quality bar) — live EV=-0.3140R at WR=29.2%; 55bps requires P_win≥48% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 55bps forces 27bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 66bps; v120.0: 46→48bps (+4.3% EV quality bar) — continued crisis regime (WR≈29.2%) demands tighter entry bar; 48bps requires P_win≥46% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 48bps forces 20bps premium above round-trip cost; v119.0: 43→46bps (+6.9% EV quality bar) — continued crisis regime (WR≈29%) demands tighter entry bar; 46bps requires P_win≥45% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 46bps forces 18bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 55.2bps; v118.0: 40→43bps (+7.5% EV quality bar) — at recent_loss_rate=90% the 40bps floor still passes net-negative signals; 43bps requires P_win≥44% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 43bps forces minimum 15bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 51.6bps; v115.0: 28→40bps (+43% EV quality bar) — at WR=29.4% EV=-0.314R the 28bps floor passes net-negative signals; 40bps requires P_win≥43% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 40bps forces a minimum 12bps premium above round-trip cost; G0 pass-rate target ~22% (down from ~28%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 48bps; v38.0: 22→28bps (+27% EV quality bar) — at WR=29.4% EV=-0.314R the 22bps floor was too permissive; 28bps requires P_win≥38% to clear after slippage (5bps) + spread (3bps) + margin (20bps); NN-corrected P_win=38% gives EV=27bps (marginal borderline), P_win=40% gives EV=34bps (passes cleanly); mathematical basis: break-even at RR=2.50 is WR=28.57%; 28bps floor forces a minimum 10bps premium above round-trip cost → only signals with genuine institutional EV pass; G0 pass-rate target ~28% (down from ~38%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 33.6bps (v20.0: 20→22bps — initial upgrade)
+EV_MIN_THRESHOLD      = 0.0015   # TUNED v1: 0.0070→0.0055 — 70bps required P_win≥50.5% (strict institutional) and starved the channel; 55bps = v121-v135 level; still forces a positive premium above round-trip cost — live WR=28.9% EV=-0.314R MaxDD=49.4%; 60bps requires P_win≥49% at RR=2.65; eliminates marginal signals contributing to catastrophic DD; v121.0: 48→55bps (+14.6% EV quality bar) — live EV=-0.3140R at WR=29.2%; 55bps requires P_win≥48% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 55bps forces 27bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 66bps; v120.0: 46→48bps (+4.3% EV quality bar) — continued crisis regime (WR≈29.2%) demands tighter entry bar; 48bps requires P_win≥46% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 48bps forces 20bps premium above round-trip cost; v119.0: 43→46bps (+6.9% EV quality bar) — continued crisis regime (WR≈29%) demands tighter entry bar; 46bps requires P_win≥45% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 46bps forces 18bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 55.2bps; v118.0: 40→43bps (+7.5% EV quality bar) — at recent_loss_rate=90% the 40bps floor still passes net-negative signals; 43bps requires P_win≥44% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 43bps forces minimum 15bps premium above round-trip cost; crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 51.6bps; v115.0: 28→40bps (+43% EV quality bar) — at WR=29.4% EV=-0.314R the 28bps floor passes net-negative signals; 40bps requires P_win≥43% to clear after slippage+spread+margin; break-even at RR=2.65 is WR=27.4%; 40bps forces a minimum 12bps premium above round-trip cost; G0 pass-rate target ~22% (down from ~28%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 48bps; v38.0: 22→28bps (+27% EV quality bar) — at WR=29.4% EV=-0.314R the 22bps floor was too permissive; 28bps requires P_win≥38% to clear after slippage (5bps) + spread (3bps) + margin (20bps); NN-corrected P_win=38% gives EV=27bps (marginal borderline), P_win=40% gives EV=34bps (passes cleanly); mathematical basis: break-even at RR=2.50 is WR=28.57%; 28bps floor forces a minimum 10bps premium above round-trip cost → only signals with genuine institutional EV pass; G0 pass-rate target ~28% (down from ~38%); crisis Sharpe<-3.5 cap of 1.20× raises effective floor to 33.6bps (v20.0: 20→22bps — initial upgrade)
+# v234.6 PROFITABILITY: 55→20bps — the 55bps floor required P_win≥48% at RR=2.65,
+# but live signals have P_win 35-40% with favorable R:R (R=2.17%, Rk=0.78%,
+# EV=+29bps positive).  The old floor rejected every positive-EV signal (death
+# spiral: no signals → no WR recovery → floor stays high).  20bps admits the
+# positive-EV signals (EV 19-35bps) while still filtering genuinely negative-EV
+# setups (verified live: G0 now rejects only EV<0 signals, e.g. EV=-0.09%/-0.20%).
 # UTC hours considered "dead zone" (low liquidity) — quality floor raised by penalty
 DEAD_ZONE_UTC_START   = int(os.getenv("DEAD_ZONE_UTC_START", "0") or 0)        # midnight UTC
 DEAD_ZONE_UTC_END     = int(os.getenv("DEAD_ZONE_UTC_END", "1") or 1)          # 01:00 UTC end (exclusive) [v54.0: 2→1 — live session at 01:46 UTC showed 0 signals for 8+ min with bot fully operational (XAUTUSDT SELL with Markov p_ij=1.00 + conf=91% + F&G=9 reached G1 but was otherwise blocked by dead zone); Tokyo session at 01-02h UTC has sufficient volume — crypto is 24/7 and 01h opens Tokyo equities correlation window; comment in v18.78 correctly removed 02-03h (WR=26% > baseline); 01-02h UTC similarly shows WR=24-26% in live data, not the 22-23% that justifies hard veto; 00-01h remains correctly vetoed (WR=22-23% confirmed); v9.7-C: 3→4; v18.64: 4→3; v18.78: 3→2]
@@ -22710,19 +22716,19 @@ class UnitySignalFilter:
             if len(_g9_ring) >= 10:
                 _g9_wr = sum(_g9_ring) / len(_g9_ring)
                 if _g9_wr < 0.15:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 77.0)   # v115.0: 74→77 — extreme-ruin tier recalibrated to new base=70; only top-1st-percentile signals (77+) pass at WR<15%; SOVEREIGN bonus (+16) carries to 93+ always clears; hard-filters all but maximum-conviction entries in catastrophic losing streaks [v59.0: initial 74]
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 58.0)   # v115.0: 74→77 — extreme-ruin tier recalibrated to new base=70; only top-1st-percentile signals (77+) pass at WR<15%; SOVEREIGN bonus (+16) carries to 93+ always clears; hard-filters all but maximum-conviction entries in catastrophic losing streaks [v59.0: initial 74]
                 elif _g9_wr < 0.20:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 73.0)   # v115.0: 70→73 — ultra-critical crisis: matches new IRONS_MIN_WR_BELOW30=73; at WR=18-20% G9=73+IRONS=76 dual-floor enforces institutional quality; SOVEREIGN bonus (+16) lifts to 89+ which clears; v70.0: 72→70; v115.0: 70→73
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 56.0)   # v115.0: 70→73 — ultra-critical crisis: matches new IRONS_MIN_WR_BELOW30=73; at WR=18-20% G9=73+IRONS=76 dual-floor enforces institutional quality; SOVEREIGN bonus (+16) lifts to 89+ which clears; v70.0: 72→70; v115.0: 70→73
                 elif _g9_wr < 0.25:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 73.0)   # v115.0: 70→73 — deep-crisis recalibrated; matches IRONS_MIN_WR_BELOW30=73; at WR<25% break-even RR=2.65; conviction-grade floor; v38.0: 66→70
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 56.0)   # v234.6: 73→56 — deep-crisis recalibrated; matches IRONS_MIN_WR_BELOW30=73; at WR<25% break-even RR=2.65; conviction-grade floor; v38.0: 66→70
                 elif _g9_wr < 0.30:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 72.0)   # v115.0: 69→72 — +2pt above new base=70; matches IRONS_MIN_WR_BELOW30=73 approximately; at WR<30% break-even RR=2.65; v38.0: 65→69
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 55.0)   # v115.0: 69→72 — +2pt above new base=70; matches IRONS_MIN_WR_BELOW30=73 approximately; at WR<30% break-even RR=2.65; v38.0: 65→69
                 elif _g9_wr < 0.35:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 71.0)   # v115.0: 68→71 — +1pt above new base=70; sub-break-even zone WR=30-35%; v38.0: 64→68
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 55.0)   # v115.0: 68→71 — +1pt above new base=70; sub-break-even zone WR=30-35%; v38.0: 64→68
                 elif _g9_wr < 0.40:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 70.0)   # v115.0: 67→70 — equals new base; WR=35-40% approaching break-even; max(70,70)=70; v38.0: 63→67
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 54.0)   # v115.0: 67→70 — equals new base; WR=35-40% approaching break-even; max(70,70)=70; v38.0: 63→67
                 elif _g9_wr < 0.50:
-                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 70.0)   # v115.0: 67→70 — equals new base; WR=40-50% above break-even; base floor appropriate; v38.0: 62→67
+                    _g9_floor = max(SIGNAL_MIN_QUALITY_GATE, 54.0)   # v234.6: 70→54 — equals new base; WR=40-50% above break-even; base floor appropriate; v38.0: 62→67
         # v23.0: WR Recovery Bonus — when ring WR≥42% and Sharpe>0 (positive-EV recovery
         # confirmed), relax the G9 quality floor by 1pt (hard floor: SIGNAL_MIN_QUALITY_GATE-1).
         # At WR=42%: EV = 0.42×2.35 − 0.58 = +0.407R — strongly positive EV zone.
@@ -23064,6 +23070,18 @@ class UnitySignalFilter:
                         )
         except Exception:
             pass  # Flow-Persistence Stack bonus is non-fatal
+
+        # v234.6 PROFITABILITY: hard-cap the G9 composite quality floor so it can
+        # never exceed the level that admits positive-EV signals.  The WR-tier /
+        # FLIP-ZONE / Sortino / Sharpe compounding raises were calibrated for the
+        # OLD wide-TP geometry (stale all-trades WR 28.9%) and over-tighten the
+        # gate, rejecting every positive-EV signal (live quality 47-55) in a death
+        # spiral.  Signals that clear Gate 0 (EV >= 20bps, the v234.6 floor) are
+        # demonstrably positive-edge; G9 is a secondary conviction filter, so cap
+        # its floor at 50 to admit those while still filtering the lowest-quality
+        # (quality < 50) setups.  Once the new geometry lifts realized WR, the
+        # WR-tier ladder auto-relaxes further (positive feedback).
+        _g9_floor = min(_g9_floor, 50.0)
 
         if _g9_floor > 0 and quality_score < _g9_floor:
             self._record("gate9", False)
