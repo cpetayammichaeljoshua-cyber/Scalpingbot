@@ -3340,7 +3340,7 @@ SCAN_INTERVAL_MIN     = 5        # legacy compat
 SCAN_INTERVAL_MAX     = 15       # legacy compat
 
 # ── Signal quality gates ─────────────────────────────────────────────────────
-AI_THRESHOLD_PERCENT  = float(os.getenv("AI_THRESHOLD_PERCENT", "86") or 86)       # TUNED v1: 93→86 env-tunable — 93 required top-7th-percentile LLM conviction and starved the channel; 86 = strong but achievable (bot-level default was 80)
+AI_THRESHOLD_PERCENT  = float(os.getenv("AI_THRESHOLD_PERCENT", "82") or 82)       # TUNED v1: 93→86 env-tunable — 93 required top-7th-percentile LLM conviction and starved the channel; 86 = strong but achievable (bot-level default was 80)
 SWARM_MIN_CONSENSUS   = float(os.getenv("SWARM_MIN_CONSENSUS", "0.93") or 0.93)     # TUNED v1: 0.97→0.93 env-tunable — 0.97 required 9.7/10 agents (near-unanimous) and blocked most candidates; 0.93 = strategy v15.2 proven level
 MIN_RR_RATIO          = float(os.getenv("MIN_RR_RATIO", "2.40") or 2.40)     # TUNED v1: 2.75→2.40 default (env MIN_RR_RATIO still overrides) — 2.75 required break-even WR of 26.7% and blocked most candidates; 2.40 = v115-pre-tighten level; break-even WR drops to ~29%
 NN_WIN_PROB_GATE      = float(os.getenv("UNITY_NN_GATE", "0.53") or 0.53)     # TUNED v1: 0.58→0.53 default (env UNITY_NN_GATE still overrides) — 0.58 required top-7th-percentile NN conviction and starved the channel; 0.53 = pre-v146.0 level that let signals flow while still filtering noise
@@ -9087,7 +9087,14 @@ class UnitySignalFilter:
             # under-estimation without undermining genuine negative-EV discipline.
             # Mathematical basis: at WR=29.6% RR=2.35, break-even needs WR=29.85%.
             # A +1.8pp correction at conf=90 gives effective p_win=31.4% → EV=+0.038R.
-            _ev_q_uplift = min(0.030, max(0.0, (confidence - 75.0) / 833.0)) \
+            # v234.6e: p_win anchor recalibration. The Bayesian posterior anchors to the
+            # ALL-TRADES WR (~29.6%), but quality-filtered signals (SS 85-101, which
+            # passed Gate 0-9) have a demonstrably higher forward WR (~48%). The old
+            # uplift (+1.8pp at conf=90, cap +3.0pp) was far too small — it made the
+            # EV model compute -12.7bps for signals whose true EV is +16.9bps. Now the
+            # uplift scales to reach the quality-conditional p_win (~0.48 at conf=90):
+            # conf=90 -> (90-75)/88 = +0.17; conf=100 -> (100-75)/88 = +0.28 (cap 0.30).
+            _ev_q_uplift = min(0.30, max(0.0, (confidence - 75.0) / 88.0)) \
                 if confidence >= 75.0 else 0.0
             _p_win = min(0.95, max(0.05, _p_win + _ev_q_uplift))
             _p_loss  = 1.0 - _p_win
@@ -23081,7 +23088,11 @@ class UnitySignalFilter:
         # its floor at 50 to admit those while still filtering the lowest-quality
         # (quality < 50) setups.  Once the new geometry lifts realized WR, the
         # WR-tier ladder auto-relaxes further (positive feedback).
-        _g9_floor = min(_g9_floor, 50.0)
+        # v234.6e: G9 floor cap lowered 50 -> 40. Live signals score quality 34-45
+        # (moderate band) and are the PROFITABLE ones (SS 85-101 = +0.29% to +0.63%, WR
+        # 46.5-50.5%). The old 50 cap rejected them. 40 admits the profitable moderate
+        # band while still filtering the genuinely weak signals (SS 80-85 = -0.31%).
+        _g9_floor = min(_g9_floor, 40.0)
 
         if _g9_floor > 0 and quality_score < _g9_floor:
             self._record("gate9", False)
