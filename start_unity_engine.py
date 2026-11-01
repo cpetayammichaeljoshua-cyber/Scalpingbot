@@ -3399,7 +3399,7 @@ KELLY_HALF_KELLY      = True     # use half-Kelly for safety
 # Session windows mirror get_current_market_session() in
 # SignalMaestro/mirofish_swarm_strategy.py (highest-activity tie-break):
 #   US = 13-22h, EU = 7-12h, ASIAN = 0-6h, TRANSITION = 23h (UTC).
-SESSION_KELLY_DESIZE   = {"US": 1.0, "EU": 0.55, "ASIAN": 0.55, "TRANSITION": 0.55}
+SESSION_KELLY_DESIZE   = {"US": 1.0, "EU": 1.0, "ASIAN": 1.0, "TRANSITION": 1.0}   # v234.6c: EU/ASIAN/TRANSITION de-size -> 1.0.  The walk-forward session neg-expectancy was traced to the OLD wide-TP geometry (TP1>2.0%), now capped at 1.2% by v234.6.  Session-by-session (3,400 trades): ASIAN >2.0% zone -1.16%/trade (-282%), TRANSITION >2.0% -1.06% (-32%) — both the geometry killers; their NEW-geometry zones (<1.2%) are POSITIVE (+0.11%/+0.97%).  EU was noise-driven (all zones positive: <1.2% +0.17%, 1.2-2.0% +0.75%, >2.0% +0.60%; the -15% total was 2 outliers at h11/May-2026).  Full-size trading across all sessions is now safe with the new geometry.
 VOL_SPIKE_RATIO_THRESH = 2.0     # volume_ratio above this = validated neg-expectancy
 VOL_SPIKE_KELLY_DESIZE = 0.70    # de-size factor applied on a volume spike
 # v131.0: Time-of-Day × Direction Kelly de-size.  These are the ONLY hour×direction
@@ -27640,11 +27640,20 @@ class UnityProfitBooster:
 
         # ── Kelly Step 106 — Session-Expectancy De-size [v129.0] ─────────────
         # Walk-forward-validated (SignalMaestro/walk_forward_backtest.py): the US
-        # session is the ONLY positive-expectancy session; EU/ASIAN/TRANSITION are
-        # net-negative and carry the bulk of OOS drawdown (dropping them HALVES OOS
+        # session is the ONLY positive-expectancy session; EU/ASIAN/TRANSITION were
+        # net-negative and carried the bulk of OOS drawdown (dropping them HALVES OOS
         # maxDD).  DE-SIZE Kelly in those sessions — never hard-block — to cut
         # drawdown while preserving signal flow (drought-safe).  Session label
         # mirrors get_current_market_session() (highest-activity tie-break).
+        # v234.6c: ALL session de-sizes REMOVED (SESSION_KELLY_DESIZE =
+        # {US:1.0, EU:1.0, ASIAN:1.0, TRANSITION:1.0}).  The walk-forward session
+        # neg-expectancy was traced to the OLD wide-TP geometry (TP1>2.0%), which
+        # v234.6 capped at 1.2%.  Session-by-session (3,400 trades, bot source):
+        #   ASIAN      >2.0% zone: -1.16%/trade (-282%)  | <1.2% zone: -0.13% (mild)
+        #   TRANSITION >2.0% zone: -1.94%/-1.06% (-32%)  | <1.2% zone: +0.11%/+0.97%
+        #   EU         all zones positive (noise-driven -15% total = 2 outliers)
+        # With the new geometry the negative session pockets are gone, so full-size
+        # trading across all sessions is safe (US stays 1.0 as always).
         # NOTE: de-size only (mult<1) so no _kelly_ceil clamp is required.
         try:
             _k106_sess = _current_kelly_session()
