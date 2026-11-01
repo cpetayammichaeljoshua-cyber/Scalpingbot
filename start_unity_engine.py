@@ -27669,17 +27669,22 @@ class UnityProfitBooster:
             pass  # Kelly Step 106 Session-Expectancy De-size is non-fatal
 
         # ── Kelly Step 107 — Volume-Spike De-size [v129.0] ───────────────────
-        # Walk-forward-validated: volume_ratio > VOL_SPIKE_RATIO_THRESH (2.0) is
-        # net-negative expectancy.  De-size on the most-recent signal's volume
-        # context (stashed on the booster by the scoring path).  De-size only.
+        # v234.6c: DISABLED (no-op).  The walk-forward validation (volume_ratio >
+        # VOL_SPIKE_RATIO_THRESH 2.0 = net-negative) was done on the OLD wide-TP
+        # geometry (TP1 up to 5.25%).  With the v234.6 cap at TP1=1.2%, volume
+        # spikes are now POSITIVE: new-geometry volume_ratio>2.0 trades average
+        # +0.74%/trade (WR 56.7%), and volume 1-2x is +1.42% (best bucket).  The
+        # de-size was removing the most profitable signals — now a no-op.  The
+        # VOL_SPIKE hard-block is also disabled via UNITY_VOLSPIKE_HARDBLOCK=0.
+        # De-size only (no boost); left as a no-op rather than deleted to keep
+        # the Kelly step numbering stable.
         try:
             _k107_vr = float(getattr(self, "_last_vol_ratio", 1.0) or 1.0)
-            if _k107_vr > VOL_SPIKE_RATIO_THRESH and self.last_kelly_fraction > 0.0:
-                _k107_pre = self.last_kelly_fraction
+            if False:  # v234.6c: de-size disabled (stale walk-forward; see above)
                 self.last_kelly_fraction = max(self._kelly_floor, self.last_kelly_fraction * VOL_SPIKE_KELLY_DESIZE)
                 self._logger.debug(
                     f"[v129.0 Step107 VolSpikeDesize] vol_ratio={_k107_vr:.2f}>{VOL_SPIKE_RATIO_THRESH:.1f} "
-                    f"→ Kelly ×{VOL_SPIKE_KELLY_DESIZE:.2f} ({_k107_pre*100:.3f}%→{self.last_kelly_fraction*100:.3f}%)"
+                    f"→ Kelly ×{VOL_SPIKE_KELLY_DESIZE:.2f}"
                 )
         except Exception:
             pass  # Kelly Step 107 Volume-Spike De-size is non-fatal
